@@ -256,6 +256,14 @@ export async function townRoutes(app: FastifyInstance) {
     return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
   });
 
+  /** The retainer lookahead (admin): `{hours}` of due runs each retainer claims (default 6; docs/bank.md). → { retainerLookaheadHours, free } */
+  app.put("/api/town/retainer-lookahead", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the retainer lookahead.");
+    const { hours } = parse(z.object({ hours: z.number().int().min(1).max(168) }), req.body);
+    return { retainerLookaheadHours: world.setRetainerLookahead(hours, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
   /**
    * The map's shape, town-wide (1:1 mt_q10xf3bkoq): `{layout: "fountain" | "tree" | "radial"}`, by an admin or a goal
    * owner. Redraws the map for everyone at once. → { mapLayout }

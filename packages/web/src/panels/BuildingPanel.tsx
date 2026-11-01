@@ -150,8 +150,9 @@ function RetainerMeta({ x }: { x: ScheduleView }) {
   const n = (t: number) => t.toLocaleString("en-US");
   return (
     <div className="doc-row-meta retainer-meta">
-      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}</span>
+      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}{x.retainer === "funded" ? ` · claims ${n(x.claimTokens ?? 0)} now` : ""}</span>
       <Pill tone={x.retainer === "funded" ? "ok" : x.retainer === "asked" || x.retainer === "countered" ? "warn" : undefined}>{RETAINER_WORDS[x.retainer] ?? x.retainer}</Pill>
+      {x.missedRuns ? <Pill tone="bad">missed {x.missedRuns} run{x.missedRuns === 1 ? "" : "s"}</Pill> : null}
     </div>
   );
 }

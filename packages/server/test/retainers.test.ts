@@ -38,12 +38,13 @@ describe("retainers over HTTP", () => {
     world.db.prepare("INSERT INTO bank_credits (id, inputId, output, tokens, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)").run("bc_retainer_test", inp.id, 1_000_000, 1_000_000, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
     const ok = await json(app, "POST", url, { headers: auth, body: { action: "approve", note: "fine" } });
     expect(ok.status).toBe(200);
-    expect(ok.body.schedule).toMatchObject({ retainer: "funded", retainerTokens: 15_000, claimTokens: 15_000 });
+    // approved for 5 daily runs; within the 6 h lookahead only the first (+1 h) is due, so it claims one run
+    expect(ok.body.schedule).toMatchObject({ retainer: "funded", retainerTokens: 15_000, claimTokens: 3_000 });
     expect((await json(app, "POST", url, { headers: auth, body: { action: "approve" } })).status).toBe(409);
 
     const card = (await json(app, "GET", `/api/buildings/${lab.id}/schedules`)).body.schedules.find((x: { id: string }) => x.id === id);
     expect(card).toMatchObject({ tokensPerRun: 3_000, runsLeft: 5, drawnTokens: 0, retainer: "funded" });
     const bank = (await json(app, "GET", "/api/bank")).body;
-    expect(bank.free).toMatchObject({ retainerTokens: 15_000, retainerJobs: 1 });
+    expect(bank.free).toMatchObject({ retainerTokens: 3_000, retainerJobs: 1 });
   });
 });

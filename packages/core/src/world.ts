@@ -310,6 +310,15 @@ export class World {
     return tokens;
   }
 
+  /** Set the retainer lookahead (`PUT /api/town/retainer-lookahead`, an admin): hours of due runs a retainer claims. Logs it. */
+  setRetainerLookahead(hours: number, by: string | null = null): number {
+    const was = this.town.get().retainerLookaheadHours;
+    if (was === hours) return hours;
+    this.town.set({ retainerLookaheadHours: hours });
+    this.events.append({ type: "system", agentId: by, text: `Retainer lookahead set to ${hours} hours (was ${was})`, payload: { retainerLookaheadHours: hours, from: was } });
+    return hours;
+  }
+
   /**
    * Save the collective defaults (`PUT /api/town/defaults`, 1:1 mt_n25udpflus decision 3) and write them through to every
    * lab, so the Building columns stay the effective values every reader uses. The Town Hall keeps its own (no code access).

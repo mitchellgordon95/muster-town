@@ -95,6 +95,12 @@ export const Town = z.object({
    * PUT /api/town/operating-reserve (an admin) sets it.
    */
   operatingReserveTokens: z.number().int().nonnegative().default(OPERATING_RESERVE_TOKENS),
+  /**
+   * Retainers claim only their runs due within this many hours, plus what a run under way may still spend (Mitchell
+   * 2026-11-01: a recurring job can't claim forever ahead). The approved total stays the ceiling. PUT
+   * /api/town/retainer-lookahead (an admin) sets it.
+   */
+  retainerLookaheadHours: z.number().int().min(1).max(168).default(6),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -924,6 +930,9 @@ export const Schedule = z.object({
   retainerDecidedBy: Id.nullable().default(null),
   retainerDecidedAt: Iso.nullable().default(null),
   retainerNote: z.string().nullable().default(null),
+  /** retainer runs missed in a row (due with nothing usable to run on; migration 082) and when the streak began; a fired run resets both */
+  missedRuns: z.number().int().nonnegative().default(0),
+  missedSince: Iso.nullable().default(null),
   createdBy: Id,
   createdByKind: z.enum(["agent", "user"]),
   createdAt: Iso,

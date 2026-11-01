@@ -140,6 +140,21 @@ Read-only: it books nothing. Core `funders.ts` (`funderWeek`, `funderWeights`) a
 
 A retainer is standing money for a scheduled job, approved by a human in the Town Hall in-tray and claimed in the Bank; recurring jobs never draw on grants. A schedule carries `tokensPerRun` (Bank tokens, i.e. Opus 5.5 output tokens) and asks for tokensPerRun × runs left. While funded, it is the fourth claim on free tokens (after funded grants' remaining, open asks and reservations): `retainerTokens` = Σ over funded schedules of min(tokensPerRun × runs left, approved total − drawn), with `retainerJobs` counting them (core `free-tokens.ts`, `retainers.ts`). Its runs' sessions (lane `retainer`, sourceId = the schedule) are what it has **drawn**, derived like a grant's spend. Approving is refused (409) when the ask would dip into the operating reserve. Ending the schedule (cancel, last run, paused past its end) releases what it still claims. Rules in full: docs/how-work-gets-done.md §7a.
 
+
+**Lookahead and missed runs (2026-11-01).** Mitchell: "i think they should claim their tokens before running, but
+obviously if its a recurring job we can't do the whole thing, it would be infinity. so maybe we have a setting that
+defaults to 6 hours … if the retainer attempts to execute without having any available input, then we just mark it as
+missed in the schedule, and the manager who owns it gets an inbox notification." So:
+
+- **The approval is the ceiling; the claim is what is near.** A funded retainer claims tokensPerRun × the runs due within
+  the town's `retainerLookaheadHours` (default 6, `PUT /api/town/retainer-lookahead`, an admin), plus what each run
+  already fired may still spend, never more than its approved total less drawn. It sorts first in the overdraft walk:
+  its runs are due at a time.
+- **Missed, not queued.** When a funded retainer's run comes due and no credential serves its model (an observed limit)
+  or the walk covers none of its claim, the run is missed: no assignment, a `schedule.skipped` event with `missed: true`,
+  and the schedule's `missedRuns` counts the streak (migration 082). The building's manager gets one message on the
+  first miss of a streak; the first run that can fire resets the count. The building panel shows "missed N runs".
+
 ## Promised and available (2026-11-01)
 
 **Mitchell said** (2026-11-01): "right now i think we consider all donations as 'available' tokens. but in reality there's

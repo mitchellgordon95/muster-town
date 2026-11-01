@@ -14,7 +14,7 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
-import { askRetainer, releaseRetainer, retainerAfterEdit, watchRetainerRuns } from "./retainers.ts";
+import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 /** A repeating schedule ends by default this long after it is made, and at most MAX_SCHEDULE_DAYS out. */
@@ -105,7 +105,7 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   const ts = at.toISOString();
   const s = world.schedules.upsert({
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
-    ...rep, endsAt, paused: false, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
+    ...rep, endsAt, paused: false, missedRuns: 0, missedSince: null, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
     pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
     tokensPerRun, retainer: lane.lane === "retainer" ? "asked" : "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
@@ -226,6 +226,15 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       advance({});
       continue;
     }
+    // a funded retainer's run with nothing usable to run on is missed, not queued (retainers.ts; Mitchell 2026-11-01)
+    if (s.lane === "retainer" && s.retainer === "funded") {
+      const why = retainerMissReason(world, s, at);
+      if (why) {
+        missRetainerRun(world, s, why, at);
+        advance({ missedRuns: s.missedRuns + 1, missedSince: s.missedSince ?? at.toISOString() });
+        continue;
+      }
+    }
     const taker = scheduleTaker(world, b);
     if (!taker) { ended.push(endSchedule(world, s.id, `${b.name} has nobody to take it (no manager or residents)`, at)); continue; }
     let a: Assignment;
@@ -254,8 +263,8 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       }, `Schedule ended: ${s.title}`);
       continue;
     }
-    advance({ runs: s.runs + 1, lastRunAt: at.toISOString(), lastAssignmentId: a.id });
-    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${taker.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: taker.queue } });
+    advance({ runs: s.runs + 1, lastRunAt: at.toISOString(), lastAssignmentId: a.id, missedRuns: 0, missedSince: null });
+    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${taker.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: taker.queue, ...(s.missedRuns ? { afterMissed: s.missedRuns } : {}) } });
     fired.push(a);
   }
   return { fired, ended };

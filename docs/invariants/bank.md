@@ -97,6 +97,12 @@ What must always hold where tokens come from and where they go: the Bank (`packa
     - Test: `packages/core/test/overdraft.test.ts` › `covers claims in order; past the line, funded work waits and the overdraft is shown; a grant straddling the line runs`
     - Test: `packages/core/test/overdraft.test.ts` › `an open proposal's ask soaks up a shortfall first and is never listed as overdrafted`
 
+20. **A retainer claims only what is near; its approval is the ceiling.** Its claim is tokensPerRun × the runs due within the town's lookahead plus what a run under way may still spend, never more than its approved total less drawn.
+    - Test: `packages/core/test/retainers.test.ts` › `approve: the approved total is the ceiling, the claim is the runs due within the lookahead; runs start, sessions book against the schedule, held past the total`
+    - Test: `packages/core/test/retainers.test.ts` › `the claim follows the town's lookahead, plus what a run under way may still spend`
+21. **A retainer run due with nothing usable to run on is missed, not queued.** It creates no assignment and counts on the schedule's streak. The manager hears once per streak, and the next run that can fire resets the streak.
+    - Test: `packages/core/test/retainers.test.ts` › `a run due with nothing usable to run on is missed, not queued; the manager hears once per streak; the next run that can starts`
+
 ## How it connects
 
 - **Runtime → Bank.** Before a session, `fundingFor` / `fundingForSession` (`packages/runtime/src/session.ts`) picks what pays (invariant 8). While it runs, `bookRunning` debits its usage so far; at its end, `endAndCharge` debits the rest through `Budget.charge` (invariants 1, 2 and 13).

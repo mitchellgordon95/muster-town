@@ -27,7 +27,7 @@ export class MockApi implements Api {
     nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["08:00", "20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), maxRuns: null, paused: false,
     lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
-    tokensPerRun: 0, retainer: "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, runsLeft: 27, askTokens: 0, drawnTokens: 0, claimTokens: 0,
+    tokensPerRun: 0, retainer: "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, runsLeft: 27, askTokens: 0, drawnTokens: 0, claimTokens: 0,
     createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }], ["sc_weekly", {
     id: "sc_weekly", buildingId: "bl_carbon", title: "Every 6 h: refresh the emissions source cards", description: "Re-check the Global Carbon Budget source cards for new releases.",
@@ -35,7 +35,7 @@ export class MockApi implements Api {
     lane: "retainer", grantId: null, keyResultId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0, createdBy: "ag_moss", createdByKind: "agent",
     // a retainer ask (1:1 mt_cyd2t5ioob decision 2): the Town Hall in-tray's "Retainers for scheduled jobs" row and deck slide
-    tokensPerRun: 3_000, retainer: "asked", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, runsLeft: 28, askTokens: 84_000, drawnTokens: 0, claimTokens: 0, buildingName: "Carbon Cycle Lab",
+    tokensPerRun: 3_000, retainer: "asked", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, runsLeft: 28, askTokens: 84_000, drawnTokens: 0, claimTokens: 0, buildingName: "Carbon Cycle Lab",
     createdAt: new Date(Date.now() - 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }]]);
   private started = false;

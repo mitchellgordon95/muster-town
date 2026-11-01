@@ -63,14 +63,15 @@ describe("retainers", () => {
     expect(freeTokens(world, "gl_town")).toMatchObject({ retainerTokens: 0, retainerJobs: 0 });
   });
 
-  it("approve: claimed in the Bank (tokensPerRun × runs left), runs start, sessions book against the schedule, held past the total", async () => {
+  it("approve: the approved total is the ceiling, the claim is the runs due within the lookahead; runs start, sessions book against the schedule, held past the total", async () => {
     const { world, sixHourly, admin, pix, spend } = lab();
     const t0 = Date.now();
     const id = await sixHourly(t0);
     const before = freeTokens(world, "gl_town").freeTokens;
     const v = decideRetainer(world, admin, id, { action: "approve", note: "" }, new Date(t0));
-    expect(v).toMatchObject({ retainer: "funded", retainerTokens: 15_000, claimTokens: 15_000 });
-    expect(freeTokens(world, "gl_town")).toMatchObject({ retainerTokens: 15_000, retainerJobs: 1, freeTokens: before - 15_000 });
+    // approved for 5 runs (15,000); within the 6 h lookahead only the +1 h run is due, so it claims 3,000
+    expect(v).toMatchObject({ retainer: "funded", retainerTokens: 15_000, claimTokens: 3_000 });
+    expect(freeTokens(world, "gl_town")).toMatchObject({ retainerTokens: 3_000, retainerJobs: 1, freeTokens: before - 3_000 });
     // the manager hears back in their inbox
     expect(world.messages.where("toId = ?", [pix.id]).some((m) => /approved the retainer/.test(m.body))).toBe(true);
     const a = fireSchedules(world, new Date(t0 + 2 * H)).fired[0]!;
@@ -80,11 +81,50 @@ describe("retainers", () => {
     world.assignments.patch(a.id, { status: "done" });
     const after = scheduleView(world, world.schedules.require(id), new Date(t0 + 2 * H));
     expect(after).toMatchObject({ drawnTokens: 2_500, runsLeft: 4 });
-    expect(after.claimTokens).toBe(12_000); // min(3,000 × 4, 15,000 − 2,500)
+    expect(after.claimTokens).toBe(3_000); // the +7 h run is due within 6 h of +2 h; the ceiling (15,000 − 2,500) doesn't bite
     // a big overspend: the next run would pass the approved total, so it is held
     spend(a.id, 10_000);
     const b = fireSchedules(world, new Date(t0 + 8 * H)).fired[0]!;
     expect(laneHold(world, b)).toMatch(/retainer spent/);
+  });
+
+  it("the claim follows the town's lookahead, plus what a run under way may still spend", async () => {
+    const { world, sixHourly, admin, spend } = lab();
+    const t0 = Date.now();
+    const id = await sixHourly(t0);
+    decideRetainer(world, admin, id, { action: "approve", note: "" }, new Date(t0));
+    world.setRetainerLookahead(13);
+    expect(scheduleView(world, world.schedules.require(id), new Date(t0)).claimTokens).toBe(9_000); // +1, +7, +13 h
+    world.setRetainerLookahead(6);
+    const a = fireSchedules(world, new Date(t0 + 2 * H)).fired[0]!;
+    world.assignments.patch(a.id, { status: "active" });
+    spend(a.id, 1_000);
+    // the +7 h run (3,000) and the run under way's last 2,000
+    expect(scheduleView(world, world.schedules.require(id), new Date(t0 + 2 * H)).claimTokens).toBe(5_000);
+  });
+
+  it("a run due with nothing usable to run on is missed, not queued; the manager hears once per streak; the next run that can starts", async () => {
+    const { world, sixHourly, admin, pix } = lab();
+    const t0 = Date.now();
+    const id = await sixHourly(t0);
+    decideRetainer(world, admin, id, { action: "approve", note: "" }, new Date(t0));
+    const sub = world.bank.subscriptionInput()!;
+    const told = () => world.messages.where("toId = ?", [pix.id]).filter((m) => /missed its run/.test(m.body));
+    // the plan is limited for every model until well past the next two runs
+    world.bank.availability.limit({ inputId: sub.id, scope: "*", kind: "window", until: new Date(t0 + 10 * H).toISOString(), reason: "weekly limit" }, new Date(t0));
+    expect(fireSchedules(world, new Date(t0 + 2 * H)).fired).toHaveLength(0);
+    expect(world.schedules.require(id)).toMatchObject({ missedRuns: 1, runs: 0 });
+    expect(world.assignments.where("sourceId = ?", [id])).toHaveLength(0);
+    expect(told()).toHaveLength(1);
+    expect(told()[0]!.body).toMatch(/Test subscription: limited, resets/);
+    expect(fireSchedules(world, new Date(t0 + 8 * H)).fired).toHaveLength(0);
+    expect(world.schedules.require(id)).toMatchObject({ missedRuns: 2 });
+    expect(told()).toHaveLength(1);
+    expect(world.events.list({ types: ["schedule.skipped"] }).filter((e) => e.payload.missed)).toHaveLength(2);
+    // past the reset: the next run fires and the streak resets
+    const a = fireSchedules(world, new Date(t0 + 14 * H)).fired[0]!;
+    expect(a).toMatchObject({ lane: "retainer", sourceId: id });
+    expect(world.schedules.require(id)).toMatchObject({ missedRuns: 0, missedSince: null, runs: 1 });
   });
 
   it("a run that reaches tokensPerRun is asked once to wrap up", async () => {
