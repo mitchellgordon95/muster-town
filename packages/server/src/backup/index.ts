@@ -30,6 +30,8 @@ const STALE_MS = 60 * 60 * 1000;
 const BOOT_DELAY_MS = 30_000;
 /** the run at this UTC hour also integrity_checks the downloaded copy (the others match its sha256 against the checked copy) */
 const DEEP_CHECK_HOUR = 4;
+/** the worker file: the source under tsx, dist/backup/worker.js in the prebuilt server (server/build.mjs, which bundles this module into dist/) */
+const WORKER_FILE = import.meta.url.endsWith(".ts") ? new URL("./worker.ts", import.meta.url) : new URL("./backup/worker.js", import.meta.url);
 
 interface BackupJobOptions {
   db: DB;
@@ -156,7 +158,7 @@ export class BackupJob {
     };
     return new Promise<BackupRunResult>((resolve, reject) => {
       let settled = false;
-      const worker = new Worker(new URL("./worker.ts", import.meta.url), { workerData: { backupRun: input } });
+      const worker = new Worker(WORKER_FILE, { workerData: { backupRun: input } });
       worker.once("message", (m: WorkerMessage) => {
         settled = true;
         if (m.ok) resolve({ ...m.result, deepCheck }); else reject(new Error(m.error));
