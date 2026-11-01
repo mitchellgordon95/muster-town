@@ -228,6 +228,17 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
  * transcript, with the `tell`s between it and you as a chat thread. Humans talk to a building's manager agent in a 1:1
  * (the Town Hall's is the Planner, its "Plan with an agent" 1:1); other residents work from assignments.
  */
+/**
+ * Who may Stop/Resume an agent (server `Ops.requireAgentControl`): its owner, building.assign on its home (an admin
+ * passes), and for the Planner anyone who plans with it (an admin or a goal's captain, server `Reorgs.canPlan`): the
+ * Town Hall has no roles, so without this nobody but an admin could resume a stopped Planner (flag dc_roz7gfvzt2).
+ */
+export function canControlAgent(agent: Agent): boolean {
+  if (store.can("building.assign", agent.homeBuildingId) || (!!agent.ownerUserId && agent.ownerUserId === store.state.me?.user.id)) return true;
+  const home = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
+  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && (store.can("goals.edit") || canOneOnOne(home.id));
+}
+
 function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
   const me = useTown((s) => s.me);
@@ -273,7 +284,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const fam = family.data && family.data.forks > 0 ? family.data : null;
   // a fork's own row is booked only when its session ends: show the manager's family count too
   const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
-  const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
+  const canControl = !isHuman && !isService && canControlAgent(agent);
   return (
     <div className="chat-wrap">
       {isService ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
@@ -422,7 +433,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
       history: mine.filter((a) => a.status === "done" || a.status === "cancelled").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     };
   }, [all, agent.id]);
-  const canControl = store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id;
+  const canControl = canControlAgent(agent);
   const stopped = agent.status === "stopped";
   // v1.4: a visitor's assignments are offers it accepts from its own session; nothing here starts them
   const visitor = agent.kind === "visitor";
@@ -449,7 +460,12 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
             <span>Stopped with {queue.length} queued.</span>
             <Act small tone="primary" run={async () => { await api().resume(agent.id); store.toast(`${agent.name} resumed: "${queue[0].title}" runs next`, "ok"); }}>Resume queue</Act>
           </div>
-        ) : <div className="callout">Stopped. Message the agent to start it again.</div>
+        ) : (
+          <div className="callout queue-banner">
+            <span>{agent.name} is stopped.</span>
+            <Act small tone="primary" run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act>
+          </div>
+        )
       ) : null}
       <Section title="Active">
         {!active.length ? <Empty>{stopped ? "Nothing running: stopped." : "Nothing running."}</Empty> : active.map((a) => (

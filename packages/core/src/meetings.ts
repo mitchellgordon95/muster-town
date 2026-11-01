@@ -161,9 +161,10 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   const b = world.buildings.require(buildingId, "building");
   // the Town Hall's manager is the Planner, its one agent to talk to ("Plan with an agent", docs/goals.md)
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
-  if (townHall && !opts.agentId) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
-  if (townHall && !world.reorgs.isPlanner(world.agents.get(opts.agentId!) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
+  if (townHall && opts.agentId && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
   if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
+  // the Planner itself (created, or resumed if stopped, by ensurePlanner), never "has no manager agent"
+  if (townHall) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
   const h = world.holderOf(human);
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
   const doc = opts.docId ? world.docs.get(opts.docId) : undefined;

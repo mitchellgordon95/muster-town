@@ -351,11 +351,11 @@ export class World {
   }
 
   /** Set status (no-op if unchanged) and append `agent.status`. */
-  setStatus(agentId: string, status: AgentStatus, text?: string): Agent {
+  setStatus(agentId: string, status: AgentStatus, text?: string, extra: Record<string, unknown> = {}): Agent {
     const a = this.agents.require(agentId, "agent");
     if (a.status === status) return a;
     const updated = this.agents.upsert({ ...a, status });
-    this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { status, from: a.status } });
+    this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { ...extra, status, from: a.status } });
     return updated;
   }
 
