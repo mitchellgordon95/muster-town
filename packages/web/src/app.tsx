@@ -23,7 +23,6 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
-import { DashboardPanel } from "./panels/DashboardPanel";
 import { BankPanel } from "./panels/BankPanel";
 import { GrantPanel } from "./panels/GrantPanel";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
@@ -192,7 +191,6 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "planning": return <PlanningPanel tab={panel.tab} />;
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
     case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
-    case "dashboard": return <DashboardPanel />;
     case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "assignment": return <AssignmentPanel key={panel.id} id={panel.id!} />;

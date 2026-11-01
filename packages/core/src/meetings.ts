@@ -248,7 +248,7 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
 }
 
 /** Town pages a speaker can present by name (the web opens the matching panel). */
-const PAGES: Record<string, string> = { bank: "The Bank", finance: "Finance", dashboard: "Dashboard", manual: "Operating manual", connect: "Connect your agent" };
+const PAGES: Record<string, string> = { bank: "The Bank", finance: "Finance", manual: "Operating manual", connect: "Connect your agent" };
 const EXCERPT_CHARS = 400;
 
 /**
