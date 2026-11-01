@@ -248,7 +248,7 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 ## Migration (one additive migration; its number is checked against main right before merging, 061 at the time of writing: main's highest is 060)
 
 1. Create the tables `goals`, `goal_proposals` and `goal_changes`. Add `buildings.goalId` and the new `key_results` columns. Add `goals.edit` to the admin role.
-2. Seed the root `gl_town` (captain: the collective's first admin, migration 078), and under it the placeholders `gl_fund`, `gl_join` and `gl_trust` (no dials).
+2. Seed the root `gl_town` (captain: the collective's first admin, migration 078), and under it the placeholders `gl_fund`, `gl_join` and `gl_trust` (no dials). A hosted collective's tree is its founder's (gr_5ltmbf3a2f): its root carries the Start form's goal (`ensureRootText`, the seed replaces the placeholder "The town goal"), and on every boot it deletes each placeholder pillar nobody has touched (`dropPlaceholderPillars`: seeded words, no captain, never edited, nothing filed against it); the Workshop keeps them.
 3. Give **every building** a goal `gl_<buildingId>` (its goal line, under the root) and attach the building to it. That makes exactly one attachment per building, including UI / UX, which has no KRs.
 4. Turn every objective into a goal with the **same id**, under its building's `gl_<buildingId>`. Its KRs get `goalId = objectiveId`. A building's unsorted KRs go directly under its `gl_<buildingId>`.
 5. Archive KRs that are `met` or `missed` (`archivedAt = updatedAt`). Nothing touches `grants`.

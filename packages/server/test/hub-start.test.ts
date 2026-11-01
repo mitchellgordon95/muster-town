@@ -82,6 +82,15 @@ describe("Start a collective", () => {
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("none");
     // the Workshop's own health says nothing about funding
     expect((await json(app, "GET", "/api/health")).body.funding).toBeUndefined();
+    // its goal tree is the founder's (gr_5ltmbf3a2f): root = the Start form's goal, the founder captains it, no Workshop pillars
+    const me = (await json(app, "GET", "/garden-club/api/me", { headers: { cookie: octo } })).body;
+    const goals = (await json(app, "GET", "/garden-club/api/goals")).body;
+    expect(goals.root).toMatchObject({ id: "gl_town", text: garden.goal, children: [] });
+    expect(goals.root.ownerId).toBeTruthy();
+    expect(goals.root.owner.name).toBe(me.user?.name ?? me.name);
+    expect(goals.root.owner.name).not.toBe("admin");
+    // the Workshop's tree keeps its pillars
+    expect((await json(app, "GET", "/api/goals")).body.root.children.map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining(["gl_fund", "gl_join", "gl_trust"]));
     expect(hub.ownedBy(2002)).toHaveLength(1);
   });
 
