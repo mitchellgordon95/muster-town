@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,15 +9,36 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** core/migrations, from core/src (the sources) or from packages/server/dist (the prebuilt server, server/build.mjs) */
 const MIGRATIONS_DIR = [join(HERE, "..", "migrations"), join(HERE, "..", "..", "core", "migrations")].find((d) => existsSync(d)) ?? join(HERE, "..", "migrations");
 
-/** Open (creating if needed) the SQLite file, enable WAL, apply pending migrations. */
+/**
+ * Open (creating if needed) the SQLite file, enable WAL, apply pending migrations. A new database (":memory:" or a file that
+ * doesn't exist yet) starts as a copy of the fully migrated schema, built once per process: running every migration costs
+ * ~50 ms, the copy ~0.5 ms, and the test suites open a fresh database hundreds of times.
+ */
 export function openDb(path: string): DB {
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
+  let db: DB;
+  if (path === ":memory:") db = new Database(migratedSchema());
+  else {
+    mkdirSync(dirname(path), { recursive: true });
+    if (!existsSync(path)) writeFileSync(path, migratedSchema());
+    db = new Database(path);
+  }
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("busy_timeout = 5000");
   migrate(db);
   return db;
+}
+
+let schemaImage: Buffer | undefined;
+/** The bytes of an empty database with every migration applied (migrate() below still runs after, a no-op on it). */
+function migratedSchema(): Buffer {
+  if (!schemaImage) {
+    const t = new Database(":memory:");
+    migrate(t);
+    schemaImage = t.serialize();
+    t.close();
+  }
+  return schemaImage;
 }
 
 export function migrate(db: DB, dir = MIGRATIONS_DIR): number {
