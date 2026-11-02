@@ -78,6 +78,26 @@ describe("budgets", () => {
     expect(world.budget.canStart(a1.id)).toBe(true);
   });
 
+  it("a dismissed resident stays retired through a building running dry and being refilled (2026-10-31: Root, Sage, Keel, Lena came back)", () => {
+    const { world, seed, admin } = seededWorld();
+    const b = createBuilding(world, { name: "Dry" }, seed.admin.id);
+    const a = createResident(world, { buildingId: b.id, name: "A", title: "t", direction: "d" });
+    const gone = createResident(world, { buildingId: b.id, name: "Gone", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 100, buildingId: b.id });
+    world.ops.dismissAgent(admin, gone.id);
+    expect(world.agents.require(gone.id).status).toBe("retired");
+    const r = world.budget.charge(a.id, 150, 0);
+    expect(r.exhausted).toBe("building");
+    expect(world.agents.require(a.id).status).toBe("out-of-budget");
+    expect(world.agents.require(gone.id).status).toBe("retired");
+    world.budget.donate(seed.admin.id, { tokens: 1000, buildingId: b.id });
+    world.budget.resumeEligible(b.id);
+    world.budget.resetDaily();
+    expect(world.agents.require(a.id).status).toBe("idle");
+    expect(world.agents.require(gone.id).status).toBe("retired");
+    expect(world.events.list({ types: ["agent.status"] }).filter((e) => e.agentId === gone.id).map((e) => e.payload.status)).toEqual(["retired"]);
+  });
+
   it("funding order: subscription → donor-key → api-key; the fallback is the first donor-key / api-key allocation", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Order" }, seed.admin.id);

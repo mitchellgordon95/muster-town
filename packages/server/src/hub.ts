@@ -17,6 +17,20 @@ export interface HubCollective {
   state: "active" | "retired";
 }
 
+/**
+ * The founder road of one hosted collective (gr_ngg1z160a8 step 2, public on the root GET /api/join-funnel as `founders`):
+ * dates only, null until it happens. Never the key, its label or any token count.
+ */
+interface FounderRoad {
+  slug: string;
+  state: HubCollective["state"];
+  createdAt: string;
+  keyAdded: boolean;
+  firstSessionAt: string | null;
+  firstProposalAt: string | null;
+  firstGrantFundedAt: string | null;
+}
+
 /** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's. */
 const RESERVED_SLUGS = new Set(RESERVED);
 
@@ -34,6 +48,21 @@ export const CreateCollectiveInput = z.object({
   apiKey: z.string().trim().max(400).optional(),
 });
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
+
+/** The building a new hosted collective starts with (docs/hosted-collectives.md step 5, "First building"). */
+const FIRST_BUILDING_NAME = "Workshop";
+
+/**
+ * A hosted collective works from its first visit: when its World has no building besides the Town Hall (a new one, or
+ * one started before this seed, e.g. Hollyville), it gets one goal-directed building on the root goal, the founder's,
+ * with its manager at a desk (forks of the manager do the work; the explore tick starts once there are free tokens).
+ * It never comes back once made: buildings are never deleted, so this only fires on a World that never had one.
+ * Code access follows the collective defaults (off in a hosted World) and its desks are the in-process host's.
+ */
+function ensureFirstBuilding(world: World): void {
+  if (world.buildings.first("kind != 'town-hall'")) return;
+  world.ops.createBuilding(null, { name: FIRST_BUILDING_NAME });
+}
 
 /** Builds the Fastify app that serves one hosted World under `/<slug>` (main.ts and tests pass `buildApp`). */
 type MountHosted = (world: World, row: HubCollective, dir: string) => Promise<FastifyInstance>;
@@ -64,6 +93,47 @@ export class Hub {
       createdAt TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','retired'))
     )`);
+    // the founder road (first time each step happened; additive, kept once set even if the World's row later goes away)
+    this.db.exec(`CREATE TABLE IF NOT EXISTS founder_road (
+      slug TEXT PRIMARY KEY,
+      keyAddedAt TEXT,
+      firstSessionAt TEXT,
+      firstProposalAt TEXT,
+      firstGrantFundedAt TEXT
+    )`);
+  }
+
+  /**
+   * Record what this collective's World shows so far: the first API-key Bank input, agent work session (work, manage or review: not naming or summaries), grant proposal and
+   * funded grant. A date once stored is kept (the earliest wins), so a cancelled key still counts as added.
+   * Runs when a collective opens (the back-fill), after a create, and on every read of the funnel.
+   */
+  observeFounderRoad(slug: string): void {
+    const w = this.world(slug);
+    if (!w) return;
+    const first = (sql: string) => (w.db.prepare(sql).get() as { at: string | null } | undefined)?.at ?? null;
+    const seen = {
+      slug,
+      keyAddedAt: first("SELECT MIN(createdAt) AS at FROM bank_inputs WHERE source = 'api-key'"),
+      firstSessionAt: first("SELECT MIN(startedAt) AS at FROM sessions WHERE purpose IN ('work', 'manage', 'review')"),
+      firstProposalAt: first("SELECT MIN(createdAt) AS at FROM grants"),
+      firstGrantFundedAt: first("SELECT MIN(fundedAt) AS at FROM grants WHERE fundedAt IS NOT NULL"),
+    };
+    const keep = (c: string) => `${c} = CASE WHEN ${c} IS NULL OR (excluded.${c} IS NOT NULL AND excluded.${c} < ${c}) THEN COALESCE(excluded.${c}, ${c}) ELSE ${c} END`;
+    this.db.prepare(`INSERT INTO founder_road (slug, keyAddedAt, firstSessionAt, firstProposalAt, firstGrantFundedAt)
+      VALUES (@slug, @keyAddedAt, @firstSessionAt, @firstProposalAt, @firstGrantFundedAt)
+      ON CONFLICT(slug) DO UPDATE SET ${["keyAddedAt", "firstSessionAt", "firstProposalAt", "firstGrantFundedAt"].map(keep).join(", ")}`).run(seen);
+  }
+
+  /** Every hosted collective's founder road, oldest first (retired ones too: they were founded). */
+  founderRoads(): FounderRoad[] {
+    for (const row of this.list("active")) this.observeFounderRoad(row.slug);
+    const rows = this.db.prepare(`SELECT c.slug, c.state, c.createdAt, f.keyAddedAt, f.firstSessionAt, f.firstProposalAt, f.firstGrantFundedAt
+      FROM collectives c LEFT JOIN founder_road f ON f.slug = c.slug ORDER BY c.createdAt, c.slug`).all() as (Omit<FounderRoad, "keyAdded"> & { keyAddedAt: string | null })[];
+    return rows.map(({ keyAddedAt, ...r }) => ({
+      slug: r.slug, state: r.state, createdAt: r.createdAt, keyAdded: keyAddedAt != null,
+      firstSessionAt: r.firstSessionAt ?? null, firstProposalAt: r.firstProposalAt ?? null, firstGrantFundedAt: r.firstGrantFundedAt ?? null,
+    }));
   }
 
   list(state?: HubCollective["state"]): HubCollective[] {
@@ -122,6 +192,7 @@ export class Hub {
       // stored in this collective's own database only (bank_inputs.apiKey); the API never returns it
       if (apiKey) world.bank.addInput(user.id, { label: `${owner.login}'s API key`, source: "api-key", model: "claude-opus-5-5", tokens: STARTER_KEY_TOKENS, recurrence: "once", apiKey });
     }
+    this.observeFounderRoad(row.slug);
     return row;
   }
 
@@ -157,13 +228,17 @@ export class Hub {
     // own key only: the snapshot shows "No key yet" until the collective has an API key of its own
     world.host.hosted = true;
     world.seedDefaults({ adminName: "admin", townJsonPath: join(dir, "collective.json"), collectivePath: join(dir, "collective.json"), dataDir });
+    const enc = world.secrets.encryptBankSecrets(); // docs/secrets.md "Bank secrets at rest": idempotent, nothing without a key
+    if (enc.inputs || enc.donors) console.log(`[secrets] /${row.slug}/: encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
     world.start(10);
+    ensureFirstBuilding(world);
     // the owner is this World's admin, also after a reopen (a first visit makes their user if there is none yet)
     const owner = row.ownerGithubId != null ? world.users.first("githubId = ?", [Number(row.ownerGithubId)]) : null;
-    if (owner) world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin"));
+    if (owner) { world.permissions.grant({ kind: "user", id: owner.id }, townRoleId("admin")); world.goalTree.ensureRootCaptain(); }
     const app = await this.mount(world, row, dir);
     await app.ready();
     this.mounted.set(row.slug, { row, world, app });
+    this.observeFounderRoad(row.slug);
   }
 
   /** The app serving this URL's collective (first path segment), or null: the Workshop's. */

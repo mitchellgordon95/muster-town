@@ -1,6 +1,6 @@
 # Invariants: grants
 
-What must always hold in the grants subsystem (`packages/core/src/grants.ts`, the `Grants` service, reached as `world.grantDesk`). Each invariant names the test that proves it. The design is in [docs/goal-directed-budgets.md](../goal-directed-budgets.md), and the map is in [docs/architecture.md](../architecture.md#map-the-system-in-10-minutes).
+What must always hold in the grants subsystem (`packages/core/src/grants.ts`, the `Grants` service, reached as `world.grantDesk`). Each invariant names the test that proves it. The design is in [docs/how-work-gets-done.md](../how-work-gets-done.md) §4 (older: [docs/goal-directed-budgets.md](../goal-directed-budgets.md)), and the map is in [docs/architecture.md](../architecture.md#map-the-system-in-10-minutes).
 
 **Citation format** (checked by `npm run check:docs`, see `scripts/check-doc-refs.ts`): each invariant has one or more lines like
 
@@ -43,4 +43,4 @@ The first code span is the test file. The second is the `it` text, copied exactl
 - **Decisions → assignments.** Fund, counter and reject each queue one assignment for the building's manager agent (`decisionAssignment`). Funded queues grant-lane work with the plan; countered queues "Answer the counter"; rejected queues "read the note". If the building has no manager agent, nothing is queued.
    - Test: `packages/core/test/lanes.test.ts` › `funded: a front-of-queue grant-lane assignment with the plan, which may run`
    - Test: `packages/core/test/lanes.test.ts` › `countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'`
-- **The lane gate reads grant status.** `resolveLane` and `laneBlock` (`packages/core/src/lanes.ts`) decide whether grant-lane work may start from the grant's status: funded runs, checkpoint holds everything except the checkpoint assignment, and exploration can't name a key result that has a funded grant. Those invariants live in [assignments-lanes.md](assignments-lanes.md).
+- **The lane gate reads grant status.** `resolveLane` and `laneBlock` (`packages/core/src/lanes.ts`) decide whether grant-lane work may start from the grant's status: funded runs, checkpoint holds everything except the checkpoint assignment, and exploration names a goal gap, never a key result. Those invariants live in [assignments-lanes.md](assignments-lanes.md).

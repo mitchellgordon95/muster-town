@@ -1,4 +1,4 @@
-import { AppError, townKpis } from "@muster-town/core";
+import { AppError } from "@muster-town/core";
 import { CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -27,7 +27,8 @@ export async function grantRoutes(app: FastifyInstance) {
     if (grant.status === "draft" && !(req.auth && desk.canManage(actorOf(world, req), grant.buildingId))) {
       throw new AppError("not_found", "grant not found");
     }
-    return { grant };
+    // an open or live grant carries what it is likely to cost (core grant-estimate.ts), signed out too
+    return { grant: desk.withEstimate(grant) };
   });
 
   app.post<{ Params: Params }>("/api/buildings/:id/grants", async (req, reply) => {
@@ -70,8 +71,7 @@ export async function grantRoutes(app: FastifyInstance) {
     keyResult: desk.updateKeyResult(actorOf(world, req), req.params.id, parse(UpdateKeyResultInput, req.body)),
   }));
 
-  // Objectives and KPIs (docs/goal-directed-budgets.md): objectives hold the goal's key results; KPIs are the town's
-  // standing indicators, computed live.
+  // Objectives (docs/goal-directed-budgets.md): objectives hold the goal's key results, each naming the town KPI it moves.
   app.get<{ Params: Params }>("/api/buildings/:id/objectives", async (req) => {
     world.buildings.require(req.params.id, "building");
     return desk.objectiveTree(req.params.id);
@@ -89,12 +89,5 @@ export async function grantRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/objectives/:id", async (req) => {
     desk.deleteObjective(actorOf(world, req), req.params.id);
     return { ok: true };
-  });
-
-  app.get("/api/kpis", async () => {
-    const { framing, kpis } = townKpis(world);
-    const objectives = world.buildings.all().filter((b) => b.kind !== "town-hall")
-      .map((b) => ({ buildingId: b.id, name: b.name, goal: world.goalTree.purposeOf(b), ...desk.objectiveTree(b.id) }));
-    return { framing, kpis, buildings: objectives };
   });
 }

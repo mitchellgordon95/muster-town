@@ -7,7 +7,7 @@ import { laneLine, seriesBars } from "../src/panels/GoalSpend";
 
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span> }));
 
-const route = (mine: boolean, canDecide = mine): IntrayRoute => ({ goalId: "gl_x", ownerId: mine ? "us_me" : null, ownerName: mine ? "Me" : "the town admins", mine, canDecide });
+const route = (mine: boolean, canDecide = mine): IntrayRoute => ({ goalId: "gl_x", ownerId: mine ? "us_me" : "us_mitchell", ownerName: mine ? "Me" : "Mitchell", mine, canDecide });
 const ROUTES: Record<string, IntrayRoute> = { gr_a: route(true), gr_b: route(false), gp_c: route(true), dc_r: route(false) };
 const s = (key: string, itemId: string | null, extra: Partial<ReviewSlide> = {}): ReviewSlide =>
   ({ key, itemId, kind: "rollup", group: 5, buildingId: null, since: null, waiters: 0, history: "", text: `## ${key}`, notes: "", title: key, pictures: [], ...extra });
@@ -37,7 +37,7 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
   });
 
   it("a captain slide (gr_bwm0iz7rwl) carries Accept / Decline for whoever the route lets decide; the others see who decides", () => {
-    const req: CaptainRequestView = { id: "cr_1", goalId: "gl_x", userId: "us_ana", note: "I run this", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Ana", githubLogin: "ana", avatarUrl: null, goalText: "Grant pages show sessions", captainId: null, captainName: "the town admins" };
+    const req: CaptainRequestView = { id: "cr_1", goalId: "gl_x", userId: "us_ana", note: "I run this", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Ana", githubLogin: "ana", avatarUrl: null, goalText: "Grant pages show sessions", captainId: "us_mitchell", captainName: "Mitchell" };
     const slide = s("captain:cr_1", "cr_1", { kind: "captain", group: 4 });
     const yes = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[req]} routes={{ cr_1: route(true) }} onDecided={() => undefined} onOpenDoc={() => undefined} />);
     expect(yes).toContain("@ana</b> asks to captain");
@@ -45,7 +45,7 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
     expect(yes).toContain("Decline");
     const no = renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[req]} routes={{ cr_1: route(false) }} onDecided={() => undefined} onOpenDoc={() => undefined} />);
     expect(no).not.toContain("Accept");
-    expect(no).toContain("Captained today by the town admins");
+    expect(no).toContain("Captained today by Mitchell");
     expect(renderToStaticMarkup(<SlideDecision slide={slide} n={2} grants={[]} reports={[]} captains={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />)).toContain("Already decided");
   });
 });

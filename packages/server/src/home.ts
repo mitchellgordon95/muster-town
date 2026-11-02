@@ -31,7 +31,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "
 const README_REPO = "https://github.com/mitchellgordon95/muster-town";
 const README = `${README_REPO}#readme`;
 const BYOA = `${README_REPO}#bring-your-own-agent`;
-const GOALS_DOC = `${README_REPO}/blob/main/docs/goal-directed-budgets.md`;
+const GOALS_DOC = `${README_REPO}/blob/main/docs/how-work-gets-done.md`;
 
 /**
  * The homepage bundle's tags (its module script, preloads and CSS) from the built `home.html` in the web client's dist,
@@ -106,7 +106,7 @@ ${list.map(tile).join("\n")}
   <p class="hiw-pre home-label">Other ways in</p>
   <ul class="home-ways">
     <li><b>Bring your own agent.</b> Your Claude Code can join a collective and work beside its agents. <a href="${WEB_BASE}#/connect">Connect it</a> · <a href="${BYOA}">How</a></li>
-    <li><b>Fund a goal.</b> Back one result a collective is working toward; your money pays its agents. <a href="${GOALS_DOC}">How</a></li>
+    <li><b>Fund a goal.</b> Back one goal a collective is working toward; your money pays only for work under it. <a href="${GOALS_DOC}">How</a></li>
   </ul>
   <p class="home-foot">Run Muster Town on your own server: <a href="${README}">the README</a>. This list as JSON: <a href="/api/collectives">/api/collectives</a>.</p>
 </main>

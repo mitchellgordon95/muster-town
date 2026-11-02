@@ -72,6 +72,7 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;
     case "checkpoint_grant": return "Filing a grant checkpoint";
     case "close_grant": return "Closing a grant as done";
+    case "withdraw_grant": return "Withdrawing a grant proposal";
     case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
@@ -82,7 +83,8 @@ export function describeTool(world: World, name: string, input: unknown): string
 
 /** Desk sessions use Claude Code's built-in tools; make them read like activity, not tool names. */
 function describeBuiltin(name: string, i: Record<string, unknown>): string {
-  const file = (p: unknown) => String(p ?? "").replace(/^\/home\/agent\/work\/[^/]+\//, "").slice(-60);
+  // The file's name only: a stranger reads "Editing overlay.ts", not a path.
+  const file = (p: unknown) => clip(String(p ?? "").split("/").filter(Boolean).pop() ?? "a file", 60);
   switch (name) {
     case "Bash": {
       if (typeof i.description === "string" && i.description.trim()) return `Running: ${clip(i.description, 70)}`;

@@ -1,5 +1,5 @@
 import { BANK_LOT, type Lot, type Tile } from "@muster-town/schema";
-import { route } from "./road.ts";
+import { doorstepOf, route, type Side } from "./road.ts";
 import { finish, type Plaza, type TreeBuilding, type TreeGoal, type TreeLayout } from "./tree.ts";
 
 /**
@@ -19,7 +19,7 @@ const HUB = { x: 22, y: 17 }, ARC = { x: 34, y: 25 };
 /** A hub: its road's width, and room for its signpost's words above it. */
 const HUB_W = 3, LABEL_W = 12;
 
-interface Input {
+export interface ShapeInput {
   root: TreeGoal;
   hall: TreeBuilding | undefined;
   labs: (goalId: string) => TreeBuilding[];
@@ -30,7 +30,7 @@ interface Input {
 const hit = (a: Lot, b: Lot) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const grow = (l: Lot, d: number): Lot => ({ x: l.x - d, y: l.y - d, w: l.w + 2 * d, h: l.h + 2 * d });
 
-export function radialLayout({ root, hall, labs, drawnKids, standsAt }: Input): TreeLayout {
+export function radialLayout({ root, hall, labs, drawnKids, standsAt }: ShapeInput): TreeLayout {
   // the core: the Town Hall, a street under it (its door and the Bank's both on it), the Bank, and a ring around them
   const hs = hall?.size ?? { w: 17, h: 11 };
   const hallLot: Lot = { x: 0, y: 0, w: hs.w, h: hs.h };
@@ -61,6 +61,13 @@ export function radialLayout({ root, hall, labs, drawnKids, standsAt }: Input): 
 
   const lots = new Map<string, Lot>();
   if (hall) lots.set(hall.id, hallLot);
+  /** each building's door faces the middle of the town, where its spoke's road runs (1:1 mt_3ldf9p5av1) */
+  const sides = new Map<string, Side>();
+  if (hall) sides.set(hall.id, "s");
+  const facing = (l: Lot): Side => {
+    const vx = (cx - (l.x + l.w / 2)) / HUB.x, vy = (cy - (l.y + l.h / 2)) / HUB.y;
+    return Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? "e" : "w") : vy > 0 ? "s" : "n";
+  };
   const plazas: Plaza[] = [];
   const hubs: { id: string; at: Tile }[] = [];
   const rootSign = { x: core.x + core.w, y: mid.y - 1 };
@@ -80,14 +87,14 @@ export function radialLayout({ root, hall, labs, drawnKids, standsAt }: Input): 
       const m = s.buildings.length;
       const lot = settle(b.size.w, b.size.h, a + (m > 1 ? spread * (j / (m - 1) - 0.5) : 0), ARC);
       lots.set(b.id, lot);
+      sides.set(b.id, facing(lot));
     });
   });
   // deeper drawn goals: their place is their first building's doorstep (the building's sign names the goal)
   const deeper = (g: TreeGoal, parentId: string, depth: number) => {
     for (const c of drawnKids(g.id)) {
       const first = [...under(c.id)][0];
-      const l = lots.get(first.id)!;
-      plazas.push({ goalId: c.id, parentId, text: c.text, depth, pos: { x: l.x + Math.floor(l.w / 2), y: l.y - 1 }, street: null, sign: null, fountain: null });
+      plazas.push({ goalId: c.id, parentId, text: c.text, depth, pos: doorstepOf(lots.get(first.id)!, sides.get(first.id)!), street: null, sign: null, fountain: null });
       deeper(c, c.id, depth + 1);
     }
   };
@@ -103,7 +110,7 @@ export function radialLayout({ root, hall, labs, drawnKids, standsAt }: Input): 
   const edges = new Map<string, Tile[]>([[root.id, ringTiles.map(mv)]]);
 
   // each hub's road to the ring (or to a nearer road already laid), around every lot and signpost
-  const sized = finish({ lots, standsAt, plazas: plazasAt, edges, bank: mv(bank) });
+  const sized = finish({ lots, standsAt, plazas: plazasAt, edges, bank: mv(bank), sides });
   const { w, h } = sized;
   const road = new Uint8Array(w * h), blocked = new Uint8Array(w * h);
   const fill = (l: Lot, a: Uint8Array) => { for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) if (x >= 0 && y >= 0 && x < w && y < h) a[y * w + x] = 1; };

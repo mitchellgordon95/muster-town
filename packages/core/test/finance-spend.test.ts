@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -138,21 +138,24 @@ describe("financeSpend (GET /api/finance/spend)", () => {
       { agentId: "ag_asha", createdAt: at(D0, 25_000) },
       { agentId: "ag_nell", createdAt: at(D0, 30_000) },
     ];
-    // a donation to Lab spent 60: it may have paid that much of Lab's 100 unpaid
+    // a donation to Lab spent 60 (no Bank debit): it paid 60 of Lab's 100 undebited, so the split counts 40
     const allocations = [{ buildingId: "lab", spentTokens: 60 }, { buildingId: "elsewhere", spentTokens: 500 }];
-    // sessions 1,150 vs used 900: notFunded 250, and the split sums to it
-    const f = financeSpend({ ...base, usage, debits, allocations }, 900, T0);
-    expect(f).toMatchObject({ notFunded: 250, check: { ok: true, diff: 0 }, notFundedLastAt: "2026-10-30T23:59:00.000Z", notFundedAllocationPaid: 60, notFundedSplitCheck: { sum: 250, notFunded: 250, ok: true } });
+    // sessions 1,150 vs used 960: notFunded 190, and the split sums to it
+    const f = financeSpend({ ...base, usage, debits, allocations }, 960, T0);
+    expect(f).toMatchObject({ notFunded: 190, check: { ok: true, diff: 0 }, notFundedLastAt: "2026-10-30T23:59:00.000Z", notFundedAllocationPaid: 60, notFundedSplitCheck: { sum: 190, notFunded: 190, ok: true } });
+    expect(f.notFundedSplitCheck.reason).toBeUndefined();
     expect(f.notFundedSplit).toEqual([
       { buildingId: "bank", buildingName: "Bank Transparency", usageRows: 2, tokens: 150 },
-      { buildingId: "lab", buildingName: "Lab", usageRows: 2, tokens: 100 },
+      { buildingId: "lab", buildingName: "Lab", usageRows: 2, tokens: 40 },
       { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 0 },
     ]);
     // the ledger number stays exact and untouched: a split that differs is shown, not fudged
     const g = financeSpend({ ...base, usage, debits, allocations }, 1_000, T0);
-    expect(g).toMatchObject({ notFunded: 150, check: { ok: true, diff: 0 }, notFundedSplitCheck: { sum: 250, notFunded: 150, ok: false } });
-    // a donation larger than the building's unpaid usage covers at most that usage
-    expect(notFundedUsage({ usage, debits, allocations: [{ buildingId: "lab", spentTokens: 1_000 }], buildings: base.buildings }).allocationPaid).toBe(100);
+    expect(g).toMatchObject({ notFunded: 150, check: { ok: true, diff: 0 }, notFundedSplitCheck: { sum: 190, notFunded: 150, ok: false, reason: NOT_FUNDED_SPLIT_REASON } });
+    // a donation larger than the building's undebited usage pays at most that usage, and the building drops out
+    const all = notFundedUsage({ usage, debits, allocations: [{ buildingId: "lab", spentTokens: 1_000 }], buildings: base.buildings });
+    expect(all.allocationPaid).toBe(100);
+    expect(all.split.map((x) => x.buildingId)).toEqual(["bank", null]);
     // no ledgers: an empty split that matches a zero notFunded
     expect(financeSpend(base, 1_500, T0)).toMatchObject({ notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true } });
   });
@@ -169,6 +172,51 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(cut.length).toBeLessThanOrEqual(60);
   });
 
+  it("grant rows carry funding, status, outcome and key results; the grants block sums them by outcome, a grant in two buildings counted once (gr_dt1l35tydx)", () => {
+    const inp: SpendInputs = {
+      ...base,
+      sessions: [...base.sessions, s("ag_lab", "a6", 250, "g1"), s("ag_lab", "a7", 90, "g2"), s("ag_lab", "a8", 40, "g3"), s("ag_lab", "a9", 5, "gx")],
+      assignments: [...base.assignments, { id: "a6", buildingId: "lab", grantId: "g1", title: "lab side of g1" }, { id: "a7", buildingId: "lab", grantId: "g2", title: "cut work" }, { id: "a8", buildingId: "lab", grantId: "g3", title: "open work" }, { id: "a9", buildingId: "lab", grantId: "gx", title: "unknown grant" }],
+      grants: [
+        { id: "g1", objective: "Spend breakdown", grantTokens: 700, status: "closed", outcome: "done" },
+        { id: "g2", objective: "Cut thing", grantTokens: 50, status: "closed", outcome: "cut" },
+        { id: "g3", objective: "Open thing", grantTokens: 100, status: "checkpoint", outcome: null },
+      ],
+      keyResults: [{ grantId: "g1", status: "met" }, { grantId: "g1", status: "claimed" }, { grantId: "g2", status: "missed" }, { grantId: "g3", status: "on-track" }, { grantId: null, status: "met" }],
+    };
+    const f = financeSpend(inp, 1_885, T0);
+    expect(f.check.ok).toBe(true);
+    const bankG1 = f.rows.find((r) => r.id === "bank")!.children!.find((c) => c.id === "g1")!;
+    expect(bankG1).toMatchObject({ grantTokens: 700, status: "closed", outcome: "done", outcomeGroup: "done", krCounts: { met: 1, missed: 0, claimed: 1, open: 0 }, tokens: 600 });
+    const lab = f.rows.find((r) => r.id === "lab")!.children!;
+    expect(lab.find((c) => c.id === "g3")).toMatchObject({ status: "checkpoint", outcome: null, outcomeGroup: "open", krCounts: { met: 0, missed: 0, claimed: 0, open: 1 } });
+    // an unknown grant keeps its bare row, no grant fields, and is left out of the block
+    const gx = lab.find((c) => c.id === "gx")!;
+    expect(gx.name).toBe("gx");
+    for (const k of ["grantTokens", "status", "outcome", "outcomeGroup", "krCounts"]) expect(gx).not.toHaveProperty(k);
+    // g1: 600 (Bank) + 250 (Lab) = 850 of 700, over by 150; g2: 90 of 50, over by 40
+    expect(f.grants).toEqual({
+      count: 3, funded: 850, spent: 980,
+      byOutcome: { done: { count: 1, tokens: 850 }, cut: { count: 1, tokens: 90 }, open: { count: 1, tokens: 40 } },
+      overFunding: { count: 2, tokens: 190 },
+    });
+    expect(f.grantsCheck).toEqual({ ok: true, diff: 0, identity: GRANTS_IDENTITY });
+  });
+
+  it("maps a grant's status and outcome to done, cut or still open", () => {
+    expect(spendOutcome({ status: "closed", outcome: "done" })).toBe("done");
+    expect(spendOutcome({ status: "closed", outcome: "met" })).toBe("done");
+    for (const o of ["cut", "stopped", "spent"] as const) expect(spendOutcome({ status: "closed", outcome: o })).toBe("cut");
+    expect(spendOutcome({ status: "rejected", outcome: null })).toBe("cut");
+    for (const st of ["funded", "checkpoint", "proposed", "draft", "countered"] as const) expect(spendOutcome({ status: st, outcome: null })).toBe("open");
+  });
+
+  it("an empty grants block when no grant is known, with an ok check", () => {
+    const f = financeSpend(base, 1_500, T0);
+    expect(f.grants).toMatchObject({ count: 0, spent: 0, funded: 0 });
+    expect(f.grantsCheck.ok).toBe(true);
+  });
+
   it("balances on a real world: sessions booked through the Bank sum with the unattributed row to used", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Lab" }, seed.admin.id);
@@ -180,5 +228,9 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.check).toMatchObject({ ok: true, diff: 0 });
     expect(sum(f.rows)).toBe(f.used);
     expect(f.rows.find((r) => r.id === b.id)!.children).toEqual([expect.objectContaining({ kind: "no-assignment", tokens: 800, sessions: 1 })]);
+    // dollars (gr_gmzli3f96j): the 800 Opus-booked tokens at $20/M, the same used dollars on both endpoints, the rows close
+    expect(f.rows.find((r) => r.id === b.id)!.usd).toBe(0.02);
+    expect(f.usd.used).toBe(world.bank.finance(T0).usd.used);
+    expect(f.usdSumCheck.ok).toBe(true);
   });
 });

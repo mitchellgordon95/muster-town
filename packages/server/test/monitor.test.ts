@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { CLEAR_AFTER, Counters, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -9,11 +9,12 @@ const GB = 1024 * 1024 * 1024;
 function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
-    http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[] };
+    http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
+    cpu: null as { cpu: number; steal: number } | null };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, ...o.probes,
   };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
@@ -103,18 +104,22 @@ describe("monitor thresholds", () => {
     expect(m.view().alerts[0]!.level).toBe("red");
   });
 
-  it("backup: yellow on error or a copy older than 2 h, red when older than 6 h (hourly copies)", async () => {
+  it("backup: yellow on error or a copy older than 2 h, red when older than 6 h (hourly copies) or a fresh town refuses", async () => {
     const { r, m, step } = await setup();
-    r.state.backup = { lastAt: new Date(r.now() - 1.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 1.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toEqual([]);
-    r.state.backup = { lastAt: new Date(r.now() - 0.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: "verify town/x failed: boom" };
+    r.state.backup = { lastAt: new Date(r.now() - 0.5 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: "verify town/x failed: boom", mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
-    r.state.backup = { lastAt: new Date(r.now() - 3 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    r.state.backup = { lastAt: new Date(r.now() - 3 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "yellow" }]);
-    r.state.backup = { lastAt: new Date(r.now() - 7 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null };
+    // a fresh town refusing to upload over the copies is red at once (gr_z2v838adk9)
+    r.state.backup = { lastAt: null, verifiedAt: null, bytes: null, dest: "s3://b/", error: "fresh town; restore first: the bucket holds 3", mode: "hourly" };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
+    r.state.backup = { lastAt: new Date(r.now() - 7 * 3600_000).toISOString(), verifiedAt: null, bytes: 1, dest: "s3://b/", error: null, mode: "hourly" };
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "backup", level: "red" }]);
   });
@@ -239,6 +244,50 @@ describe("monitor thresholds", () => {
       expect(m2.view().alerts).toEqual([]);
       expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red", stale: true });
       expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.body).toContain("as stale");
+    });
+  });
+
+  describe("steal (host CPU, 503 post-mortem 2026-10-31)", () => {
+    // each sample advances the host's /proc/stat by `busy` and `steal` jiffies (100 a second)
+    const advance = (r: ReturnType<typeof rig>, busy: number, steal: number) => {
+      r.state.cpu = { cpu: (r.state.cpu?.cpu ?? 0) + busy, steal: (r.state.cpu?.steal ?? 0) + steal };
+    };
+
+    it("parses /proc/stat's cpu line: busy = user + nice + system, steal = the eighth field", () => {
+      expect(parseHostCpu("cpu  100 5 20 9000 3 1 2 70 0 0\ncpu0 1 2 3")).toEqual({ cpu: 125, steal: 70 });
+      expect(parseHostCpu("intr 1 2 3")).toBeNull();
+      expect(parseHostCpu("cpu 1 2")).toBeNull();
+    });
+
+    it("yellow after 5 min over 25 %, red after 3 min over 50 %, clear after 5 samples; FYI points at the runbook", async () => {
+      const s = await setup();
+      advance(s.r, 0, 0);
+      await s.step(1); // first reading: nothing to compare with
+      const steal = () => s.m.view().alerts.filter((a) => a.key === "steal");
+      for (let i = 0; i < 5; i++) { advance(s.r, 2000, 1000); await s.step(1); } // 33 %
+      expect(steal()).toEqual([]);
+      advance(s.r, 2000, 1000); await s.step(1);
+      expect(steal()).toMatchObject([{ level: "yellow", value: 33 }]);
+      for (let i = 0; i < 3; i++) { advance(s.r, 1000, 3000); await s.step(1); } // 75 %
+      expect(steal()[0]!.level).toBe("yellow");
+      advance(s.r, 1000, 3000); await s.step(1);
+      expect(steal()).toMatchObject([{ level: "red", value: 75 }]);
+      const doc = s.world.docs.get(s.alerts().filter((a) => a.key === "steal").at(-1)!.docId!)!;
+      expect(doc.title).toContain('host CPU throttled (steal 75%): see deploy/README.md "Slow or 503"');
+      for (let i = 0; i < CLEAR_AFTER; i++) { advance(s.r, 3000, 10); await s.step(1); }
+      expect(steal()).toEqual([]);
+      expect(s.alerts().at(-1)).toMatchObject({ key: "steal", phase: "clear" });
+    });
+
+    it("an idle minute (under 3 s of busy + steal) never alerts; no /proc/stat (off Linux) reads nothing", async () => {
+      const s = await setup();
+      advance(s.r, 0, 0);
+      await s.step(1);
+      for (let i = 0; i < 10; i++) { advance(s.r, 50, 200); await s.step(1); } // 80 % of almost nothing
+      expect(s.m.view().alerts).toEqual([]);
+      s.r.state.cpu = null;
+      await s.step(10);
+      expect(s.m.view().alerts).toEqual([]);
     });
   });
 

@@ -38,6 +38,8 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
+    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask stands as given
+    estimate: g.estimate?.sentence ?? null,
     note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
   };
 }
@@ -63,6 +65,22 @@ export async function close_grant(world: World, me: Agent, input: VerbIn<"close_
     grantId: g.id, status: g.status, outcome: g.outcome, spentTokens: g.spentTokens, grantTokens: g.grantTokens, unspentTokens,
     keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })), checkpointDocId: g.checkpointDocId,
     note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}A human marks each key result met or missed from the Town Hall in-tray.`,
+  };
+}
+
+/**
+ * `withdraw_grant` (the manager, or a fork of it on the manager's behalf; 1:1 mt_a6wb51enia): take back the building's own
+ * proposed or countered grant with a note. It leaves the Town Hall in-tray and the deck; its key results archive.
+ */
+export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<"withdraw_grant">) {
+  const me = world.permissions.managerOfFork(caller) ?? caller;
+  const bid = homeOf(me);
+  const cur = world.grants.get(input.grantId);
+  if (!cur || cur.buildingId !== bid) throw badRequest(`${input.grantId} is not a grant of your building.`);
+  const g = world.grantDesk.withdraw(me, input.grantId, input.note);
+  return {
+    grantId: g.id, status: g.status, outcome: g.outcome, keyResults: g.keyResults.map((k) => ({ id: k.id, archived: !!k.archivedAt })),
+    note: `Withdrawn: ${g.id} left the Town Hall in-tray and its key results are archived; your note is on the grant. To try a new plan, propose_grant fresh (no grantId).`,
   };
 }
 

@@ -67,9 +67,15 @@ if [ -f /data/RESTORE.tgz ]; then
   fi
 fi
 
+# deploy/fly/start-server.sh (in the checkout, so a redeploy updates it: this file only changes with an image deploy) starts the
+# prebuilt server, or the sources with tsx. A checkout from before it existed runs the sources with tsx.
 while true; do
   code=0
-  npx tsx packages/server/src/main.ts || code=$?
+  if [ -f deploy/fly/start-server.sh ]; then
+    sh deploy/fly/start-server.sh || code=$?
+  else
+    npx tsx packages/server/src/main.ts || code=$?
+  fi
   if [ "$code" -eq 75 ]; then
     echo "[entrypoint] restart requested"
     continue

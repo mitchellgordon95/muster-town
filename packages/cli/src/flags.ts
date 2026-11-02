@@ -1,5 +1,5 @@
 /**
- * Derive command-line flags from a verb's Zod input (zod 3): string / number / boolean / enum fields become
+ * Derive command-line flags from a verb's Zod input (zod 4): string / number / boolean / enum fields become
  * typed flags, arrays become repeatable flags, objects take JSON. `--json <object>` is merged underneath the flags.
  */
 import { Command, Option } from "commander";
@@ -24,46 +24,47 @@ const LONG_TEXT = new Set(["body", "text", "description", "note", "why"]);
 
 const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-/** Minimal structural view of a zod 3 schema (no runtime zod import: the CLI only reads `_def`). */
-interface ZodLike { _def: Record<string, any> & { typeName?: string; description?: string }; description?: string }
-const tn = (t: ZodLike) => t._def.typeName as string | undefined;
+/** Minimal structural view of a zod 4 schema (no runtime zod import: the CLI only reads `_zod.def`). */
+interface ZodLike { _zod: { def: Record<string, any> & { type: string } }; description?: string }
+const tn = (t: ZodLike) => t._zod.def.type;
 
 function unwrap(t: ZodLike): { inner: ZodLike; optional: boolean; defaultValue?: unknown; description?: string } {
   let optional = false;
   let defaultValue: unknown;
   let description: string | undefined;
   for (;;) {
-    description ??= t._def.description;
-    const n = tn(t);
-    if (n === "ZodOptional" || n === "ZodNullable") { optional = true; t = t._def.innerType; continue; }
-    if (n === "ZodDefault") { optional = true; defaultValue = t._def.defaultValue(); t = t._def.innerType; continue; }
-    if (n === "ZodEffects") { t = t._def.schema; continue; }
-    if (n === "ZodBranded" || n === "ZodReadonly" || n === "ZodCatch") { t = t._def.innerType ?? t._def.type; continue; }
-    if (n === "ZodPipeline") { t = t._def.in; continue; }
+    description ??= t.description;
+    const d = t._zod.def;
+    if (d.type === "optional" || d.type === "nullable") { optional = true; t = d.innerType; continue; }
+    if (d.type === "default" || d.type === "prefault") { optional = true; defaultValue = d.defaultValue; t = d.innerType; continue; }
+    if (d.type === "readonly" || d.type === "catch" || d.type === "nonoptional") { t = d.innerType; continue; }
+    if (d.type === "pipe") { t = d.in; continue; }
+    if (d.type === "lazy") { t = d.getter(); continue; }
     return { inner: t, optional, defaultValue, description };
   }
 }
 
 function kindOf(t: ZodLike): { kind: FieldKind; values?: string[] } {
-  switch (tn(t)) {
-    case "ZodString": return { kind: "string" };
-    case "ZodNumber": return { kind: "number" };
-    case "ZodBoolean": return { kind: "boolean" };
-    case "ZodEnum": return { kind: "enum", values: [...t._def.values] as string[] };
-    case "ZodLiteral": return typeof t._def.value === "string" ? { kind: "enum", values: [t._def.value] } : { kind: "json" };
+  const d = t._zod.def;
+  switch (d.type) {
+    case "string": return { kind: "string" };
+    case "number": return { kind: "number" };
+    case "boolean": return { kind: "boolean" };
+    case "enum": return { kind: "enum", values: Object.values(d.entries).map(String) };
+    case "literal": return d.values.length === 1 && typeof d.values[0] === "string" ? { kind: "enum", values: [d.values[0]] } : { kind: "json" };
     default: return { kind: "json" };
   }
 }
 
 export function fieldsOf(schema: unknown): FieldSpec[] {
   const obj = unwrap(schema as ZodLike).inner;
-  if (tn(obj) !== "ZodObject") return [];
-  const shape = obj._def.shape() as Record<string, ZodLike>;
+  if (tn(obj) !== "object") return [];
+  const shape = obj._zod.def.shape as Record<string, ZodLike>;
   return Object.entries(shape).map(([key, t]) => {
     const u = unwrap(t);
     const base = { key, flag: kebab(key), required: !u.optional, defaultValue: u.defaultValue, description: u.description };
-    if (tn(u.inner) === "ZodArray") {
-      const el = kindOf(unwrap(u.inner._def.type).inner);
+    if (tn(u.inner) === "array") {
+      const el = kindOf(unwrap(u.inner._zod.def.element).inner);
       return { ...base, kind: "array" as const, item: el.kind, values: el.values };
     }
     return { ...base, ...kindOf(u.inner) };

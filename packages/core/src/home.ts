@@ -21,8 +21,8 @@ export function stayReason(world: World, agentId: string, now = Date.now()): str
   if (world.movement.isWalking(a.id)) return "walking";
   if (world.sessions.count("agentId = ? AND status = 'running'", [a.id]) > 0) return "in a session";
   const from = new Date(now - TALK_MS).toISOString();
-  const talked = world.events.list({ agentId: a.id, types: ["agent.said", "agent.moved"], from, limit: 50 })
-    .some((e) => e.type === "agent.said" || !!e.payload.toAgentId);
+  // newest first, stopping at the window's edge: the agent's whole history used to be walked every tick
+  const talked = world.events.anySince(a.id, ["agent.said", "agent.moved"], from, (e) => e.type === "agent.said" || !!e.payload.toAgentId);
   return talked ? "talking" : null;
 }
 

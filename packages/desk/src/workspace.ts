@@ -4,8 +4,8 @@
  * from origin/<base>) → npm install when package.json exists without node_modules. No shell strings.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { DeskWorkspace } from "@muster-town/schema";
 
 export interface WorkspaceOptions {
@@ -30,11 +30,40 @@ function tryRun(cmd: string, args: string[], cwd?: string): string | null {
   }
 }
 
+/** stderr, else stdout (git prints "needs merge" on stdout), else the message. */
 const errText = (e: unknown) => {
-  const x = e as { stderr?: string | Buffer; message?: string };
+  const x = e as { stderr?: string | Buffer; stdout?: string | Buffer; message?: string };
   const s = x.stderr ? String(x.stderr).trim() : "";
-  return s || x.message || String(e);
+  const o = x.stdout ? String(x.stdout).trim() : "";
+  return s || (o && x.message ? `${x.message.split("\n")[0]}: ${o}` : o) || x.message || String(e);
 };
+
+/**
+ * `git stash` refused the dirty tree (seen live: a merge left half-done with conflicted files, "needs merge"). Copy every
+ * changed and untracked file plus a patch and the status into `<parent>/.workspace-backups/<repo>-<stamp>/`, then leave
+ * any merge/rebase/cherry-pick/revert and reset the tree to HEAD so setup can go on. Returns the backup dir.
+ */
+function moveDirtyTreeAside(dir: string, stashError: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backup = join(dirname(dir), ".workspace-backups", `${basename(dir)}-${stamp}`);
+  mkdirSync(join(backup, "files"), { recursive: true });
+  const head = tryRun("git", ["rev-parse", "HEAD"], dir) ?? "?";
+  const branch = tryRun("git", ["branch", "--show-current"], dir) ?? "?";
+  const status = tryRun("git", ["status", "--porcelain"], dir) ?? "";
+  writeFileSync(join(backup, "README.txt"),
+    `Moved aside by desk workspace setup: git stash failed.\n${stashError}\n\nbranch ${branch}\nHEAD ${head}\n\n${status}\n`);
+  const patch = tryRun("git", ["diff", "HEAD", "--binary"], dir);
+  if (patch) writeFileSync(join(backup, "changes.patch"), `${patch}\n`);
+  const listed = tryRun("git", ["ls-files", "-z", "--modified", "--others", "--exclude-standard"], dir) ?? "";
+  for (const rel of new Set(listed.split("\0").filter(Boolean))) {
+    const from = join(dir, rel);
+    if (existsSync(from)) cpSync(from, join(backup, "files", rel), { recursive: true });
+  }
+  for (const op of ["merge", "rebase", "cherry-pick", "revert"]) tryRun("git", [op, "--quit"], dir);
+  run("git", ["reset", "--hard", "HEAD"], dir);
+  run("git", ["clean", "-fd"], dir);
+  return backup;
+}
 
 /** Prepare the workspace and return the session cwd (`ws.dir`). Throws when clone/fetch/checkout fail. */
 export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): string {
@@ -59,11 +88,23 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
     run("git", ["fetch", "origin", "--prune"], dir);
     // npm install inside the desk flips the exec bit on `bin` files; never let a mode change block a checkout
     run("git", ["config", "core.fileMode", "false"], dir);
+    // stash needs an identity too, so set the repo-local one before it
+    if (opts.agentName && !tryRun("git", ["config", "user.email"], dir)) {
+      const slug = opts.agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";
+      tryRun("git", ["config", "user.name", opts.agentName], dir);
+      tryRun("git", ["config", "user.email", `${slug}@muster-town.local`], dir);
+    }
     // anything genuinely uncommitted from an earlier session is stashed (recoverable with `git stash list`), not lost
     const dirty = tryRun("git", ["status", "--porcelain"], dir);
     if (dirty && dirty.trim()) {
-      run("git", ["stash", "push", "--include-untracked", "-m", `auto-stash before ${branch} ${new Date().toISOString()}`], dir);
-      log(`stashed uncommitted changes before switching to ${branch}`);
+      try {
+        run("git", ["stash", "push", "--include-untracked", "-m", `auto-stash before ${branch} ${new Date().toISOString()}`], dir);
+        log(`stashed uncommitted changes before switching to ${branch}`);
+      } catch (e) {
+        const why = errText(e).split("\n").slice(0, 3).join(" | ");
+        const backup = moveDirtyTreeAside(dir, why);
+        log(`git stash failed (${why}); moved the uncommitted tree aside to ${backup} and reset to HEAD`);
+      }
     }
 
     const hasLocal = tryRun("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], dir) !== null;
@@ -87,12 +128,6 @@ export function setupWorkspace(ws: DeskWorkspace, opts: WorkspaceOptions = {}): 
         : " (the desk has no GH_TOKEN, so a private repo can't be cloned: set `desks.ghToken` and the host's GH_TOKEN or `gh auth login`)"
       : "";
     throw new Error(`workspace setup failed${hint}: ${text}`);
-  }
-
-  if (opts.agentName && !tryRun("git", ["config", "user.email"], dir)) {
-    const slug = opts.agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";
-    tryRun("git", ["config", "user.name", opts.agentName], dir);
-    tryRun("git", ["config", "user.email", `${slug}@muster-town.local`], dir);
   }
 
   if (opts.npmInstall !== false && existsSync(join(dir, "package.json")) && !existsSync(join(dir, "node_modules"))) {

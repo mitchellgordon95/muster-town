@@ -14,12 +14,14 @@ import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, Statu
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canOneOnOne, canTalkToManager, isMemberTalk, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
+import { DismissButton, canDismiss } from "./Dismiss";
 
 
 export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   const live = useTown((s) => s.agents[id]);
+  const isAdmin = useTown((s) => !!s.me?.isAdmin);
   const rev = useTown((s) => s.rev);
   const buildings = useTown((s) => s.buildings);
   const detail = useLoad(() => api().agent(id), [id]);
@@ -56,6 +58,12 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
           {t === "Forks" ? <ForksTab managerId={agent.id} /> : null}
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
           {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
+          {t === "Assignments" && canDismiss(agent, building?.managerAgentId, isAdmin) ? (
+            <Section title="Dismiss">
+              <p className="direction">Dismissing retires {agent.name}: the desk is freed and they leave the map. Reports and notes stay in the library under their name.</p>
+              <DismissButton agent={agent} />
+            </Section>
+          ) : null}
           {t === "Memory" ? <MemoryTab agent={agent} topics={detail.data?.agent.id === id ? detail.data.memoryTopics ?? [] : []} memory={detail.data?.agent.id === id ? detail.data.memory : undefined} loading={!detail.data} /> : null}
         </>
       )}
@@ -220,11 +228,22 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
  * transcript, with the `tell`s between it and you as a chat thread. Humans talk to a building's manager agent in a 1:1
  * (the Town Hall's is the Planner, its "Plan with an agent" 1:1); other residents work from assignments.
  */
+/**
+ * Who may Stop/Resume an agent (server `Ops.requireAgentControl`): its owner, building.assign on its home (an admin
+ * passes), and for the Planner anyone who plans with it (an admin or a goal's captain, server `Reorgs.canPlan`): the
+ * Town Hall has no roles, so without this nobody but an admin could resume a stopped Planner (flag dc_roz7gfvzt2).
+ */
+function canControlAgent(agent: Agent): boolean {
+  if (store.can("building.assign", agent.homeBuildingId) || (!!agent.ownerUserId && agent.ownerUserId === store.state.me?.user.id)) return true;
+  const home = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
+  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && (store.can("goals.edit") || canOneOnOne(home.id));
+}
+
 function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
   const me = useTown((s) => s.me);
   const avatarId = me?.avatarAgentId ?? null;
-  const isService = agent.kind === "service", isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
+  const isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: its manager takes requests */
@@ -232,11 +251,11 @@ function TalkTab({ agent }: { agent: Agent }) {
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
   // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
   const townHall = home?.kind === "town-hall";
-  const canTalk = townHall ? store.can("goals.edit") || canOneOnOne(home?.id) : canOneOnOne(home?.id);
+  const canTalk = townHall ? store.can("goals.edit") || canOneOnOne(home?.id) : canTalkToManager(home?.id);
   /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
   const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
-  const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
+  const s = useLoad(() => (isHuman ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
   const th = useLoad(() => (threaded ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, threaded]);
   const timeline = useMemo(() => {
     const out: Item[] = [];
@@ -265,16 +284,15 @@ function TalkTab({ agent }: { agent: Agent }) {
   const fam = family.data && family.data.forks > 0 ? family.data : null;
   // a fork's own row is booked only when its session ends: show the manager's family count too
   const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
-  const canControl = !isHuman && !isService && (store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === me?.user.id);
+  const canControl = !isHuman && canControlAgent(agent);
   return (
     <div className="chat-wrap">
-      {isService ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
       {isVisitor ? (
         <KV items={[
           ["Runs", "outside the town (its owner's Claude Code session), through the agent API"],
           ["Last call", agent.lastSeenAt ? `${timeAgo(agent.lastSeenAt)} · ${clock(agent.lastSeenAt)}` : "never"],
         ]} />
-      ) : !isHuman && !isService ? (
+      ) : !isHuman ? (
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks, today. A fork's spend is booked when its session ends.`}>
@@ -290,17 +308,19 @@ function TalkTab({ agent }: { agent: Agent }) {
       {agent.status === "stopped" && canControl ? (
         <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
-      <Timeline items={timeline} agentName={agent.name} empty={isService ? `${agent.name} keeps the library: browse it for what the town has written.` : `${agent.name} hasn't done anything yet.`} />
+      <Timeline items={timeline} agentName={agent.name} empty={`${agent.name} hasn't done anything yet.`} />
       {viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
-          {canOneOnOne(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
+          {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
             : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : isHuman || isService ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
+      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
+          {!townHall && isMemberTalk(home?.id)
+            ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps.</span>
+            : <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>}
           <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
@@ -414,7 +434,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
       history: mine.filter((a) => a.status === "done" || a.status === "cancelled").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     };
   }, [all, agent.id]);
-  const canControl = store.can("building.assign", agent.homeBuildingId) || agent.ownerUserId === store.state.me?.user.id;
+  const canControl = canControlAgent(agent);
   const stopped = agent.status === "stopped";
   // v1.4: a visitor's assignments are offers it accepts from its own session; nothing here starts them
   const visitor = agent.kind === "visitor";
@@ -441,7 +461,12 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
             <span>Stopped with {queue.length} queued.</span>
             <Act small tone="primary" run={async () => { await api().resume(agent.id); store.toast(`${agent.name} resumed: "${queue[0].title}" runs next`, "ok"); }}>Resume queue</Act>
           </div>
-        ) : <div className="callout">Stopped. Message the agent to start it again.</div>
+        ) : (
+          <div className="callout queue-banner">
+            <span>{agent.name} is stopped.</span>
+            <Act small tone="primary" run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act>
+          </div>
+        )
       ) : null}
       <Section title="Active">
         {!active.length ? <Empty>{stopped ? "Nothing running: stopped." : "Nothing running."}</Empty> : active.map((a) => (

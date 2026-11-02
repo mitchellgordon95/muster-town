@@ -23,7 +23,7 @@ function Start({ onConnect }: { onConnect: () => void }) {
       <Scene kind="visit" />
       <Arrow n={1}>{TOUCH ? "Tap" : "Click"} any agent to see what they're doing</Arrow>
       <Scene kind="talk" />
-      <Arrow n={2}>Sign in with GitHub to talk and review</Arrow>
+      <Arrow n={2}>Sign in with GitHub, then ask to join</Arrow>
       <Scene kind="connect" />
       <p className="hiw-byoa"><a href="#/manual" onClick={onConnect}>Read the operating manual</a> for everything else.</p>
       <p className="hiw-byoa">Have your own Claude Code? <a href="#/connect" onClick={onConnect}>Connect it</a> to work here too (<a href={BYOA_README} target="_blank" rel="noreferrer">how</a>).</p>

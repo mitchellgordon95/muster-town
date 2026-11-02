@@ -10,14 +10,23 @@ import { goalShortName } from "../purpose";
 import { findGoal, treeRows } from "./goalTree";
 import { ADJ, Empty, Loading, Section, fmtTokens, useLoad } from "./ui";
 
-/** The free-tokens sum as signed terms: general + earmarks at or above − funded grants' remaining − open asks − reservations. */
+const RETAINERS = "retainers";
+/** "Retainers: N tokens across M jobs" (1:1 mt_cyd2t5ioob decision 2): funded schedules' runs due within the lookahead (default 6 h), its own line on the Bank. */
+function retainersLine(f: Pick<FreeTokens, "retainerTokens" | "retainerJobs">): string {
+  const jobs = f.retainerJobs ?? 0;
+  return `Retainers: ${(f.retainerTokens ?? 0).toLocaleString("en-US")} tokens across ${jobs} job${jobs === 1 ? "" : "s"}`;
+}
+
+/** The free-tokens sum as signed terms: general − operating reserve + earmarks at or above − funded grants' remaining − open asks − reservations. */
 function freeTerms(f: FreeTokens): [label: string, tokens: number][] {
   return [
     ["general balance", f.generalTokens],
+    ["operating reserve", -(f.reserveTokens ?? 0)],
     ["earmarks at or above", f.earmarkTokens],
     ["funded grants' remaining", -f.fundedRemainingTokens],
     ["open proposals' asks", -f.openAsksTokens],
     ["reservations", -f.reservedTokens],
+    [RETAINERS, -(f.retainerTokens ?? 0)],
   ];
 }
 
@@ -48,12 +57,23 @@ export function capText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTr
 
 /** The Bank Overview's town-wide free tokens (GET /api/bank `free`, the root goal's): each term of the sum, then the total. */
 export function BankFreeTokens({ free }: { free: FreeTokens }) {
+  const unavailable = free.unavailableTokens ?? 0;
+  const overdraft = free.overdraftTokens ?? 0;
   return (
     <Section title="Free tokens">
       <table className="table">
         <tbody>
-          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{t < 0 ? "less " : ""}{label}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
+          {unavailable > 0 ? <>
+            <tr className="sub-row" title="Every live credit: what the inputs promised"><td>promised by the inputs</td><td>{(free.promisedTokens ?? 0).toLocaleString("en-US")}</td></tr>
+            <tr className="sub-row" title="Credit no session can draw on now: the input is broken, or its limit lasts past the credit's expiry (docs/bank.md, Promised and available)"><td>less unavailable now</td><td>−{unavailable.toLocaleString("en-US")}</td></tr>
+            {(free.unavailable ?? []).map((u) => <tr key={u.inputId} className="sub-row muted"><td style={{ paddingLeft: 24 }}>{u.text}</td><td>−{u.tokens.toLocaleString("en-US")}</td></tr>)}
+          </> : null}
+          {freeTerms(free).map(([label, t]) => <tr key={label} className="sub-row"><td>{label === RETAINERS ? <span title="Standing money for scheduled jobs a human approved: tokens per run × the runs due within the lookahead (default 6 h), plus what a run under way may still spend">less {retainersLine(free)}</span> : <>{t < 0 ? "less " : ""}{label}</>}</td><td>{t < 0 ? "−" : ""}{Math.abs(t).toLocaleString("en-US")}</td></tr>)}
           <tr><td>Free tokens: what exploration may still claim (never below 0)</td><td><b>{free.freeTokens.toLocaleString("en-US")}</b></td></tr>
+          {overdraft > 0 ? <>
+            <tr title="Approved claims the usable balance doesn't cover, walked in order: retainers, funded grants by funding time, reservations. Work on a claim with nothing covered waits for funding."><td style={{ color: "#c0392b" }}>Overdraft: claimed, but not backed by anything usable</td><td style={{ color: "#c0392b" }}><b>{overdraft.toLocaleString("en-US")}</b></td></tr>
+            {(free.overdrafted ?? []).map((o) => <tr key={o.id} className="sub-row muted"><td style={{ paddingLeft: 24 }}>{o.kind === "funded" ? "grant" : o.kind} {o.title.slice(0, 80)}{o.shortTokens >= o.tokens ? " (waits)" : " (partly covered, runs)"}</td><td>{o.shortTokens.toLocaleString("en-US")} short</td></tr>)}
+          </> : null}
         </tbody>
       </table>
     </Section>

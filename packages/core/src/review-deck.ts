@@ -3,18 +3,21 @@
  * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
- *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4) and asks to captain a goal · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
+ *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4), asks to captain a goal and retainer asks · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
  *   6. grants closed as done whose key result needs met or missed · then one "For the record" slide for rollups whose
  *   every call is None.
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
+import { retainerLine } from "./retainers.ts";
+import { rollupAsksFor } from "./rollup-asks.ts";
+import { describeRepeat } from "./schedules.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -105,7 +108,13 @@ function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: s
   ].join("\n\n");
 }
 
+/** The rollups' asks on an item, as the slide's first lines: "Workshop asks you to fund this: <line> (rollup dc_…)". */
+function asksLines(asks: RollupAsk[] | undefined, verb: string): string {
+  return (asks ?? []).map((a) => `**${a.buildingName} asks you to ${verb} this:** ${oneLine(a.line)} (rollup ${a.reportId})\n\n`).join("");
+}
+
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
+  const asks = asksLines(rollupAsksFor(world, g), askVerb(g.status));
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds and later marks met or missed
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
@@ -115,7 +124,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   if (g.status === "checkpoint") {
     const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
-    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: card({
+    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
       whatYoudSee: testing,
       picture: proposalPicture(world, g),
@@ -123,7 +132,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   if (g.status === "closed") {
-    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: card({
+    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}.`,
       whatYoudSee: krs.find((k) => k.statusNote)?.statusNote || testing,
       picture: proposalPicture(world, g),
@@ -131,11 +140,11 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
-  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: card({
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
-    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject. Stops when: ${g.stopCondition}`,
+    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject.${g.estimate ? ` Likely cost: ${g.estimate.sentence}.` : ""} Stops when: ${g.stopCondition}`,
   }) };
 }
 
@@ -176,7 +185,7 @@ function goalProposalSlide(world: World, p: GoalProposalView): Draft {
       whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}${moves}`,
       whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
       picture: null,
-      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins"}.`,
+      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${world.users.get(owner.userId)?.name ?? owner.userId}.`,
     }),
   };
 }
@@ -196,6 +205,22 @@ function captainSlide(world: World, r: CaptainRequestView): Draft {
   };
 }
 
+/** A building asks for a retainer for a scheduled job (1:1 mt_cyd2t5ioob decision 2): Approve, Counter or Reject. Not a grant. */
+function retainerSlide(world: World, v: ScheduleView): Draft {
+  const b = world.buildings.get(v.buildingId)?.name ?? v.buildingId;
+  const countered = v.retainer === "countered";
+  return {
+    kind: "retainer", group: 4, itemId: v.id, buildingId: v.buildingId, since: v.updatedAt, history: v.retainerNote && countered ? `Countered: ${oneLine(v.retainerNote)}` : "",
+    title: `Retainer: ${b} asks for standing money for "${oneLine(v.title)}"`,
+    body: asksLines(rollupAsksFor(world, v), askVerb("asked")) + card({
+      whatItIs: `${retainerLine(world, v)} tokens. A retainer is standing money for a recurring job (${v.id}, ${describeRepeat(v)}), not a grant: it is claimed in the Bank while funded, each run may spend at most ${v.tokensPerRun.toLocaleString("en-US")} tokens and is asked to wrap up there, and what it doesn't spend goes back when the schedule ends. What it does: ${oneLine(v.description || v.title)}`,
+      whatYoudSee: `Approving it puts "Retainers" on the Bank page up by ${v.askTokens.toLocaleString("en-US")} tokens and its runs start on the Schedule board; until then they stay held ("retainer not approved").`,
+      picture: null,
+      yourCall: countered ? "Countered: it waits on the manager's edit, which asks again." : "Approve, counter (per-run amount and/or end date) or reject.",
+    }),
+  };
+}
+
 /** The deck for `now`. Pure over the world: the same in-tray gives the same slides. */
 export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const intray = townHallIntray(world);
@@ -209,6 +234,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   }
   for (const p of intray.goalProposals) drafts.push(goalProposalSlide(world, p));
   for (const r of intray.captains) drafts.push(captainSlide(world, r));
+  for (const v of intray.retainers) drafts.push(retainerSlide(world, v));
   for (const x of intray.blocked) {
     drafts.push({ kind: "blocked", group: 2, itemId: x.buildingId, buildingId: x.buildingId, since: x.since, history: "", title: `${x.name}: blocked`, body: card({
       whatItIs: `${x.name} has no key results to work toward and no funded grant, so none of its work can be funded.`,
@@ -268,7 +294,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const cap = world.bank.capState(now);
   const lanes = world.grantDesk.laneBudgets();
   const explSpent = lanes.reduce((s, l) => s + l.exploration.spentTodayTokens, 0);
-  const free = freeTokens(world, ROOT_GOAL_ID, now).freeTokens;
+  const { freeTokens: free, reserveTokens: reserve } = freeTokens(world, ROOT_GOAL_ID, now);
   const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
   const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
     const light = world.grantDesk.stoplight(b);
@@ -285,9 +311,9 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     : "";
   const text = [
     "# Review deck: the state of the town",
-    `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.learnedCap ? ` of a ${fmt(cap.learnedCap)} daily cap` : ""}${cap.held ? " (new starts held)" : ""}`,
-    `**Spend today by lane:** exploration ${fmt(explSpent)} (no allowance; ${fmt(free)} free tokens) · directed ${fmt(directed)}`,
-    `**Desks by pillar:** ${pillars}`,
+    `**Bank:** ${fmt(bank)} adjusted tokens left · subscription spend today ${fmt(cap.spentToday)}${cap.cappedAt ? ` (capped, resets ${cap.resetsAt.slice(0, 16).replace("T", " ")} UTC)` : ""}`,
+    `**Spend today by lane:** exploration ${fmt(explSpent)} (no allowance; ${fmt(free)} free tokens${reserve ? `, after a ${fmt(reserve)} operating reserve` : ""}) · directed ${fmt(directed)}`,
+    `**Desks by pillar:** ${pillars || "_none yet_"}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
     `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,
     flagLine,
@@ -315,6 +341,10 @@ function decidedLabel(world: World, p: PinnedSlide): string {
   if (p.kind === "goal-proposal" && p.itemId) {
     const gp = world.goalProposals.get(p.itemId);
     if (gp) return gp.status === "superseded" ? "superseded by a newer proposal" : gp.status;
+  }
+  if (p.kind === "retainer" && p.itemId) {
+    const sc = world.schedules.get(p.itemId);
+    if (sc) return sc.retainer === "funded" ? "approved" : sc.retainer;
   }
   if (p.kind === "captain" && p.itemId) {
     const cr = world.captainRequests.get(p.itemId);

@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields,
+  BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
@@ -11,11 +11,13 @@ import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
+import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { linkPostmortem } from "../postmortems.ts";
+import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -323,6 +325,12 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     }
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
+    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A checkpoint or close rollup is
+    // its grant's report and stays.
+    const rowIds = format && !checkpointGrantId && !closedGrants.length ? waitingRowIds(world) : null;
+    const asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
+    const folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -344,10 +352,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     }
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = "pending";
+    const decision: Doc["decision"] = folded ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
-    const where = townHall ? "the Town Hall in-tray (the humans decide on it)"
+    const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
+      : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
@@ -451,13 +460,21 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
     const { lane, grantId, gap, sourceId, ...edit } = rest;
     if (lane || grantId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
     const e = editSchedule(world, me, sc.id, { ...edit, ...(paused !== undefined ? { paused } : {}) });
-    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs };
+    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs, ...retainerOut(world, e) };
   }
   if (paused !== undefined) throw badRequest("paused goes with scheduleId (pause or resume an existing schedule).");
   if (!rest.title || rest.description === undefined) throw badRequest("A new schedule needs a title and a description (or give scheduleId to edit one).");
   const s = createSchedule(world, bid, world.holderOf(me), { ...rest, repeat: rest.repeat ?? undefined }, me.kind === "human" ? null : actOrigin(world, me, null));
-  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
+  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane, ...retainerOut(world, s),
     note: "On your building's schedule: when it fires, a normal assignment goes to the building queue (a fork of you runs it); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
+}
+
+/** A schedule's retainer as `schedule` answers: per run, runs left, the ask, drawn and its state (nothing for a schedule without one). */
+function retainerOut(world: World, s: Schedule) {
+  if (s.lane !== "retainer") return {};
+  const v = scheduleView(world, s);
+  const state = v.retainer === "asked" ? "asked: waits on a human in the Town Hall in-tray; its runs are held until approved" : v.retainer === "countered" ? `countered: ${v.retainerNote ?? ""} Answer by editing tokensPerRun and/or repeat` : v.retainer;
+  return { retainer: { tokensPerRun: v.tokensPerRun, runsLeft: v.runsLeft, askTokens: v.askTokens, drawnTokens: v.drawnTokens, approvedTokens: v.retainerTokens, state } };
 }
 
 /**

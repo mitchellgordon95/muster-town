@@ -18,7 +18,8 @@ describe("bank", () => {
     expect(world.bank.summary().inputs.find((i) => i.id === inp.id)).toMatchObject({ userName: "Donor" });
     world.bank.cancelInput(donor.id, inp.id);
     expect(world.bank.apiKeyFor(inp.id)).toBeNull();
-    expect(world.bank.balance()).toBe(5000);
+    // nothing can pay for what it didn't spend once its key is forgotten: the rest expires (2026-11-01)
+    expect(world.bank.balance()).toBe(0);
     expect(world.events.list({ types: ["bank.credited"] })).toHaveLength(1);
   });
 
@@ -40,6 +41,35 @@ describe("bank", () => {
     expect(world.bank.summary().dailyInflowTokens).toBe(0);
   });
 
+  it("a recurring api-key input limited to N credits counts them down, then stops renewing but stays listed", () => {
+    const { world } = seededWorld();
+    const u = world.ops.createUser("U").user;
+    // N = 1 behaves like once
+    const one = world.bank.addInput(u.id, { label: "Try", source: "api-key", model: "m", tokens: 500, recurrence: "daily", times: 1, apiKey: "k1" }, T0);
+    expect(one).toMatchObject({ creditedTokens: 500, nextCreditAt: null, creditsTotal: 1, creditsLeft: 0, cancelledAt: null });
+    expect(world.bank.summary().dailyInflowTokens).toBe(0);
+    // N = 3 daily: the credit at add time is 1 of 3
+    const three = world.bank.addInput(u.id, { label: "Three days", source: "api-key", model: "m", tokens: 3000, recurrence: "daily", times: 3, apiKey: "k3" }, T0);
+    expect(three).toMatchObject({ creditedTokens: 3000, creditsTotal: 3, creditsLeft: 2 });
+    // inflow counts only the 2 credits still due in the 30-day window: 2 × 3000 / 30
+    expect(world.bank.summary().dailyInflowTokens).toBe(200);
+    expect(world.bank.finance().projection).toMatchObject({ dailyInflow: 200, projectedInflow30d: 6000 });
+    expect(world.bank.creditDue(at(1))).toBe(3000);
+    expect(world.bank.input(three.id)).toMatchObject({ creditsLeft: 1 });
+    expect(world.bank.summary().dailyInflowTokens).toBe(100);
+    expect(world.bank.creditDue(at(2))).toBe(3000);
+    expect(world.bank.input(three.id)).toMatchObject({ creditsLeft: 0, nextCreditAt: null, cancelledAt: null, creditedTokens: 9000 });
+    expect(world.bank.creditDue(at(3))).toBe(0);
+    expect(world.bank.creditDue(at(30))).toBe(0);
+    expect(world.bank.summary().dailyInflowTokens).toBe(0);
+    expect(world.bank.summary().inputs.map((i) => i.id)).toContain(three.id);
+    // a long limit counts no more than the window holds; until cancelled is unchanged
+    world.bank.addInput(u.id, { label: "Many", source: "api-key", model: "m", tokens: 30, recurrence: "daily", times: 100, apiKey: "k4" }, at(30));
+    world.bank.addInput(u.id, { label: "Forever", source: "api-key", model: "m", tokens: 70, recurrence: "weekly", apiKey: "k5" }, at(30));
+    expect(world.bank.summary().dailyInflowTokens).toBe(40);
+    expect(() => world.bank.addInput(u.id, { label: "Bad", source: "api-key", model: "m", tokens: 1, times: 2, apiKey: "k6" }, T0)).toThrow(/recurring/);
+  });
+
   it("a subscription is admin-only and credits min(daily quota, weekly cap left) each day", () => {
     const { world, seed } = seededWorld();
     const other = world.ops.createUser("Other").user;
@@ -52,6 +82,7 @@ describe("bank", () => {
     expect(world.bank.creditDue(at(3))).toBe(0);
     expect(world.bank.creditDue(at(7.5))).toBe(400); // day-0 and day-1 credits fell out of the window
     expect(world.bank.summary().dailyInflowTokens).toBe(143); // min(400, 1000/7)
+    expect(world.bank.finance().projection.dailyInflow).toBe(world.bank.summary().dailyInflowTokens); // one rule for both endpoints
   });
 
   it("api-key inputs need a key; only the owner or an admin can cancel", () => {
@@ -214,5 +245,46 @@ describe("a hosted collective never runs on a subscription", () => {
     const f = world.budget.fundingFor(by("Noor").buildingId!);
     expect(f.auth).toBe("subscription");
     expect(f.credential.kind).toBe("subscription");
+  });
+});
+
+describe("cancelling an input (2026-11-01)", () => {
+  it("expires its live credit now: replacing a 15M/day donation with 2M/day leaves 2M, not 17M", () => {
+    const { world, seed } = seededWorld();
+    const sub = { source: "subscription" as const, token: "sk-ant-oat01-test-token", model: "claude-opus-5-5", recurrence: "daily" as const, weeklyCapTokens: 100_000_000 };
+    const big = world.bank.addInput(seed.admin.id, { ...sub, label: "Max plan", tokens: 15_000_000 }, T0);
+    const key = world.bank.addInput(seed.admin.id, { label: "Key", source: "api-key", model: "m", tokens: 1000, apiKey: "sk" }, T0);
+    const later = new Date(T0.getTime() + 3_600_000);
+    expect(world.bank.balance(later)).toBe(15_001_000);
+    world.bank.cancelInput(seed.admin.id, big.id, later);
+    world.bank.addInput(seed.admin.id, { ...sub, label: "Max plan", tokens: 2_000_000 }, later);
+    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_001_000);
+    const ev = world.events.list({ types: ["bank.input"] }).find((e) => e.payload.cancelled);
+    expect(ev?.payload.expiredTokens).toBe(15_000_000);
+    expect(ev?.text).toMatch(/15,000,000 adj\. tokens of today's credit expired/);
+    world.bank.cancelInput(seed.admin.id, key.id, later);
+    expect(world.bank.balance(new Date(later.getTime() + 1000))).toBe(2_000_000);
+  });
+
+  it("an API key's unspent credit expires too; the pool's draws spend the oldest key first; the finance identity holds", () => {
+    const { world, seed } = seededWorld();
+    const lab = createBuilding(world, { name: "Lab" }, seed.admin.id);
+    const agent = createResident(world, { buildingId: lab.id, name: "A", title: "t", direction: "d" });
+    const old = world.bank.addInput(seed.admin.id, { label: "Old key", source: "api-key", model: "m", tokens: 6_000, apiKey: "sk-old" }, T0);
+    const fresh = world.bank.addInput(seed.admin.id, { label: "New key", source: "api-key", model: "m", tokens: 4_000, apiKey: "sk-new" }, at(0.1));
+    // 7,000 drawn from the general balance (no credit named): the old key's 6,000, then 1,000 of the new one's
+    expect(world.bank.draw(lab.id, agent.id, 7_000, { now: at(0.2) })).toBe(0);
+    expect(world.bank.balance(at(0.3))).toBe(3_000);
+    // the old key is spent out: cancelling it lapses nothing
+    world.bank.cancelInput(seed.admin.id, old.id, at(0.3));
+    expect(world.bank.balance(at(0.4))).toBe(3_000);
+    // the new key's unspent 3,000 lapses with it
+    world.bank.cancelInput(seed.admin.id, fresh.id, at(0.5));
+    expect(world.bank.balance(at(0.6))).toBe(0);
+    const ev = world.events.list({ types: ["bank.input"] }).filter((e) => e.payload.cancelled).at(-1);
+    expect(ev?.payload.expiredTokens).toBe(3_000);
+    expect(ev?.text).toMatch(/unspent 3,000 adj\. tokens of credit expired/);
+    // the split keeps every total: 10,000 credited = 7,000 used + 3,000 expired + 0 left
+    expect(world.bank.finance(at(0.6))).toMatchObject({ credited: 10_000, usedBank: 7_000, expired: 3_000, leftBank: 0, sumCheck: { ok: true } });
   });
 });
