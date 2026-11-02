@@ -215,7 +215,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
   });
 
   it("checkpoint_grant sets the status of the grant's key results up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
-    const { world, mei, noor, fund, spend } = setup();
+    const { world, mei, noor, admin, fund, spend } = setup();
     const g = fund(4_000_000, KRS);
     const krs = g.keyResults;
     spend(noor.id, 4_100_000, "grant", g.id);
@@ -227,19 +227,36 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     await expect(world.verbs.checkpoint_grant(noor, { grantId: g.id })).rejects.toThrow(/building.manage/);
     await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "met" as never })).rejects.toThrow();
     await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", keyResultId: "kr_nope" })).rejects.toThrow(/not an open key result of grant/);
+    // the top-up line is required once per checkpoint (mt_7b4zc7yja3), both halves together
+    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id })).rejects.toThrow(/whatTopUpBuys and topUpTokens are required/);
+    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, whatTopUpBuys: "the board" })).rejects.toThrow(/together/);
+    expect(world.keyResults.require(krs[1]!.id).status).toBe("not-started");
     // one at a time with keyResultId
-    await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id });
+    const first = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id, whatTopUpBuys: "KR 2: the board ships", topUpTokens: 500_000 });
+    expect(first.topUp).toEqual({ tokens: 500_000, buys: "KR 2: the board ships" });
     expect(world.keyResults.require(krs[1]!.id)).toMatchObject({ status: "at-risk", statusNote: "board not yet" });
     expect(world.keyResults.require(krs[0]!.id).status).toBe("not-started");
     // no keyResultId: every open key result of the grant
     const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "claimed", note: "banner shows it" });
     expect(r).toMatchObject({ status: "checkpoint", checkpointDocId: null, keyResults: krs.map((k) => ({ id: k.id, status: "claimed" })) });
     for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "banner shows it" });
-    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
+    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\n1. **The banner**\n**What it is:** x\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
     expect(up).toMatchObject({ intray: "town-hall" });
     expect(world.docs.require(up.id).tags).toEqual(["rollup", "checkpoint"]);
     expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
     expect(world.assignments.require(cp.id).status).toBe("done");
+    // the checkpoint card's evidence (mt_7b4zc7yja3): per key result verdict + note, spend, the top-up line, the report's Shipped titles
+    const e = world.grantDesk.get(g.id).evidence!;
+    expect(e).toMatchObject({ grantId: g.id, grantTokens: 4_000_000, spentTokens: 4_100_000, topUpTokens: 500_000, whatTopUpBuys: "KR 2: the board ships", reportId: up.id });
+    expect(e.keyResults.map((k) => [k.verdict, k.note])).toEqual([["shipped", "banner shows it"], ["shipped", "banner shows it"]]);
+    expect(e.shipped.length).toBe(1);
+    expect(e.shipped[0]).toMatch(/The banner/);
+    // a human continues; the next hold clears the line, so the next checkpoint asks for it again
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 5_000_000 });
+    spend(noor.id, 1_000_000, "grant", g.id);
+    world.budget.charge(noor.id, 0, 0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", topUpTokens: null, whatTopUpBuys: "" });
+    expect(world.grantDesk.get(g.id).evidence).toMatchObject({ topUpTokens: null, whatTopUpBuys: "" });
   });
 
   it("checkpoint_grant still files after a human topped up the grant before the manager's checkpoint session; a never-held funded grant refuses", async () => {
