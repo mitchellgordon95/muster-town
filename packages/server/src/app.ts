@@ -199,7 +199,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
     const all = [own, ...hosted];
-    return { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    const funnel = { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
+    return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.

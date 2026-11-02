@@ -152,6 +152,58 @@ describe("Start a collective", () => {
     expect((await json(app, "GET", "/garden-club/api/town")).body.buildings.filter((b: { kind: string }) => b.kind !== "town-hall")).toHaveLength(1);
   });
 
+  it("hosted starter key caps work", async () => {
+    // the Start form and the hosted Bank say: work on the pasted key stops at 1,000,000 tokens (about $20) until more is added
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, { ...garden, apiKey: KEY })).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const lab = (await json(app, "GET", "/garden-club/api/town")).body.buildings.find((b: { kind: string }) => b.kind === "lab");
+    const resident = w.agents.get(lab.managerAgentId)!;
+    const bid = lab.id as string;
+    // no allocations of the host's: the starter input is the whole balance
+    expect(w.budget.remaining(bid)).toBe(1_000_000);
+    const asg = w.ops.createWork(null, resident.id, { title: "Look around" });
+    expect(w.budget.canStart(resident.id)).toBe(true);
+    // a running session may overshoot (no hard stop): spend past the starter
+    w.bank.draw(bid, resident.id, 1_050_000, { overshoot: true });
+    expect(w.budget.remaining(bid)).toBe(0);
+    // new work and manage sessions are held (the scheduler, work.ts and manage.ts all ask canStart)
+    expect(w.budget.canStart(resident.id)).toBe(false);
+    expect(w.budget.canStart(resident.id, w.assignments.get(asg.id)!)).toBe(false);
+    // adding more at the Bank starts work again, once the overshoot is paid back
+    const more = await json(app, "POST", "/garden-club/api/bank/inputs", { headers: { cookie: octo }, body: { label: "more", source: "api-key", model: "claude-opus-5-5", tokens: 1_000_000, apiKey: KEY } });
+    expect(more.status).toBe(201);
+    expect(w.budget.remaining(bid)).toBe(950_000);
+    expect(w.budget.canStart(resident.id)).toBe(true);
+  });
+
+  it("the founder road is public on /api/join-funnel: dates only, never the key", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, { ...garden, apiKey: KEY })).status).toBe(201);
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await start(app, mitchell, { name: "Keyless", goal: "Wait for a key" })).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const lab = (await json(app, "GET", "/garden-club/api/town")).body.buildings.find((b: { kind: string }) => b.kind === "lab");
+    const s = w.ops.startSession(lab.managerAgentId, { purpose: "manage", model: "claude-opus-5-5" });
+
+    const res = await app.inject({ method: "GET", url: "/api/join-funnel" });
+    expect(res.body).not.toContain(KEY);
+    expect(res.body).not.toContain("API key");
+    const founders = res.json().founders as { slug: string; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
+    expect(founders.map((f) => f.slug)).toEqual(["garden-club", "keyless"]);
+    expect(founders[0]).toMatchObject({ state: "active", keyAdded: true, firstSessionAt: s.startedAt, firstProposalAt: null, firstGrantFundedAt: null });
+    expect(founders[0].createdAt).toBe(hub.get("garden-club")!.createdAt);
+    expect(founders[1]).toEqual({ slug: "keyless", state: "active", createdAt: hub.get("keyless")!.createdAt, keyAdded: false, firstSessionAt: null, firstProposalAt: null, firstGrantFundedAt: null });
+    // a date once seen stays, even if the World's row goes away (a cancelled key was still added)
+    w.db.prepare("DELETE FROM sessions").run();
+    w.db.prepare("DELETE FROM bank_inputs").run();
+    expect((await json(app, "GET", "/api/join-funnel")).body.founders[0]).toMatchObject({ keyAdded: true, firstSessionAt: s.startedAt });
+    // a hosted collective's own funnel has no founders list
+    expect((await json(app, "GET", "/garden-club/api/join-funnel")).body.founders).toBeUndefined();
+  });
+
   it("a hosted collective's Bank takes API keys only", async () => {
     const { app } = await setup();
     const octo = (await signIn(app, "code_octo")).cookie;
