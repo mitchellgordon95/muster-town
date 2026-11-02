@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, estimateRangeOf, type AccessRequestView, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -400,6 +400,28 @@ function TalkAboutGrant({ grant: g }: { grant: GrantView }) {
  * A proposal or checkpoint row with its decision controls (POST /api/grants/:id/decide, `building.fund`); the same row
  * shows any other status read-only in the grant panel.
  */
+/**
+ * A grant's estimate beside its ask (Mitchell, 1:1 mt_c9u1kr15jp; advisory: the ask stands): while open, the cheap
+ * model's range and the similar closed grants' ("estimate 150k–400k (model) · similar grants spent 180k–610k"), or the
+ * history sentence alone before the model answered; once closed, the estimate against what it spent.
+ */
+function EstimateLine({ g }: { g: GrantView }) {
+  const e = g.estimate;
+  if (!e) return null;
+  const range = (lo: number, hi: number) => lo === hi ? fmtTokens(lo) : `${fmtTokens(lo)}–${fmtTokens(hi)}`;
+  const similar = e.low !== null && e.high !== null ? `similar grants spent ${range(e.low, e.high)}` : null;
+  if (g.status === "closed") {
+    const r = estimateRangeOf(e);
+    if (!r) return null;
+    const inside = g.spentTokens >= r.low && g.spentTokens <= r.high;
+    return <span className="grant-estimate" title={e.sentence}>estimated {range(r.low, r.high)}{r.by === "model" ? " (model)" : " (similar grants)"}, spent {fmtTokens(g.spentTokens)}: {inside ? "inside" : "outside"} the range</span>;
+  }
+  if (e.model) {
+    return <span className="grant-estimate" title={`${e.model.note} (${e.model.modelId}). ${e.sentence}. Advisory: the ask stands.`}>estimate {range(e.model.low, e.model.high)} (model){similar ? ` · ${similar}` : ""}</span>;
+  }
+  return <span className="grant-estimate" title="What it is likely to cost, read from the grants already closed (advisory: the ask stands)">likely cost: {e.sentence}</span>;
+}
+
 export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId, canDecide, route }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
@@ -461,7 +483,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
           : checkpoint
           ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
           : <span title={ADJ_HINT}>asks {fmtTokens(g.askTokens)} {ADJ}</span>}
-        {g.estimate && g.status !== "closed" ? <span className="grant-estimate" title="What it is likely to cost, read from the grants already closed (advisory: the ask stands)">likely cost: {g.estimate.sentence}</span> : null}
+        <EstimateLine g={g} />
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>{closedDone ? "close report" : "checkpoint report"}</button> : null}
       </div>
       <ul className="grant-krs">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, newId, nowIso } from "../src/index.ts";
+import { buildingRoleId, modelEstimatePrompt, newId, nowIso, parseModelEstimate } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -11,8 +11,8 @@ function setup() {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const charge = (grantId: string, tokens: number) => world.sessions.upsert({
-    id: newId("se"), agentId: manager.id, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+  const charge = (grantId: string, tokens: number, assignmentId: string | null = null) => world.sessions.upsert({
+    id: newId("se"), agentId: manager.id, assignmentId, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
     sdkSessionId: null, output: tokens, costUsd: 0, startedAt: nowIso(), endedAt: nowIso(), lane: "grant", grantId,
   } as never);
   const proposed = (krs: number, ask: number, objective = "a plan") =>
@@ -83,7 +83,8 @@ describe("grant cost estimate (Mitchell, 1:1 mt_c9u1kr15jp)", () => {
     charge(g.id, 50_000);
     world.grantDesk.closeDone(manager, g.id, { note: "done" });
     const ev = world.events.list({ types: ["grant.closed"] }).find((x) => x.payload.grantId === g.id)!;
-    expect(ev.payload).toMatchObject({ estimateLow: 80_000, estimateHigh: 300_000, spentTokens: 50_000 });
+    expect(ev.payload).toMatchObject({ estimateLow: 80_000, estimateHigh: 300_000, spentTokens: 50_000, modelLow: null, estimateBy: "history", insideEstimate: false,
+      estimateLine: "estimated 80,000–300,000 (similar grants), spent 50,000: outside the range" });
   });
 
   it("withEstimate: an open or live grant without a recorded estimate gets a fresh one; a closed one gets none", () => {
@@ -93,5 +94,46 @@ describe("grant cost estimate (Mitchell, 1:1 mt_c9u1kr15jp)", () => {
     expect(world.grantDesk.withEstimate({ ...g, estimate: null }).estimate).toBeNull();
     const open = world.grantDesk.withEstimate({ ...g, status: "proposed", estimate: null, id: "gr_other" });
     expect(open.estimate?.sample).toBe(1);
+  });
+
+  it("step 2: the model's prompt carries the closed grants and the new plan; its answer parses to a range", () => {
+    const { world, manager, closed, charge } = setup();
+    const a = closed(2, 100_000, 120_000);
+    charge(a, 5_000); // a second session
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [kr(0)], objective: "Write the estimate", approach: "one PR, then a check", stopCondition: "s", askTokens: 150_000 }).id);
+    const p = modelEstimatePrompt(world, g.id);
+    expect(p).toContain(`- ${a} [done] funded 100000, spent 125000, 2 sessions, 2 key results. Objective: closed 2 KRs 100000. Key results: key result 0 | key result 1`);
+    expect(p).toContain("Objective: Write the estimate");
+    expect(p).toContain("Approach: one PR, then a check");
+    expect(p).toContain("The manager asks for 150000 tokens.");
+    expect(p).not.toContain(`- ${g.id}`);
+
+    expect(parseModelEstimate('{"low": 150000, "high": 400000, "reason": "Like gr_a."}')).toEqual({ low: 150_000, high: 400_000, note: "Like gr_a." });
+    expect(parseModelEstimate('Sure: {"low": "150,000", "high": 400000}')).toEqual({ low: 150_000, high: 400_000, note: "" });
+    expect(parseModelEstimate('{"low": 400000, "high": 150000}')).toBeNull();
+    expect(parseModelEstimate("about 200k")).toBeNull();
+    expect(parseModelEstimate('{"low": 0, "high": 5}')).toBeNull();
+  });
+
+  it("step 2: the model's range is saved beside the history range, held to at close, and counted on the Spending tab", async () => {
+    const { world, admin, manager, closed, charge } = setup();
+    closed(1, 100_000, 80_000);
+    const r = await world.verbs.propose_grant(manager, { keyResults: [kr(0)], objective: "next", stopCondition: "s", askTokens: 150_000 });
+    const g = world.grantDesk.get(r.grantId);
+    const model = { low: 100_000, high: 200_000, note: "n", modelId: "claude-haiku-5-5", sessionId: null, at: nowIso() };
+    // a stale call (the grant was re-proposed since) saves nothing
+    expect(world.grantDesk.recordModelEstimate(g.id, "2000-01-01T00:00:00.000Z", model)).toBe(false);
+    expect(world.grantDesk.recordModelEstimate(g.id, g.estimate!.at, model)).toBe(true);
+    expect(world.grantDesk.get(g.id).estimate).toMatchObject({ low: 80_000, high: 80_000, model: { low: 100_000, high: 200_000 } });
+    expect(world.grantDesk.get(g.id).status).toBe("proposed");
+    // before any closed grant carries an estimate, the Spending tab counts none
+    expect(world.bank.spend().grants.estimates).toEqual({ closed: 0, inside: 0, unit: "adjusted tokens", badRanges: [] });
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    charge(g.id, 150_000, "as_work"); // a work session: the Spending tree's grant row
+    world.grantDesk.closeDone(manager, g.id, { note: "done" });
+    const ev = world.events.list({ types: ["grant.closed"] }).find((x) => x.payload.grantId === g.id)!;
+    expect(ev.payload).toMatchObject({ estimateLow: 80_000, modelLow: 100_000, modelHigh: 200_000, estimateBy: "model", insideEstimate: true,
+      estimateLine: "estimated 100,000–200,000 (model), spent 150,000: inside the range" });
+    expect(world.bank.spend().grants.estimates).toEqual({ closed: 1, inside: 1, unit: "adjusted tokens", badRanges: [] });
   });
 });

@@ -78,6 +78,9 @@ function grantChecks(s: Json): Check[] {
     eq("grants by outcome", "Σ byOutcome tokens", sum(groups.map((o) => Number(bo[o]?.tokens))), "Σ grant rows' tokens", sum(rows.map((r) => r.tokens))),
     flag("grants each outcome", groups.every((o) => Number(bo[o]?.tokens) === byGroup(o)), groups.map((o) => `${o} ${fmt(bo[o]?.tokens)} = rows ${fmt(byGroup(o))}`).join(", ")),
     eq("grants count", "grants.count", g.count, "distinct grant rows", new Set(rows.map((r) => r.id)).size),
+    // closed grants' cost estimates (docs/how-work-gets-done.md §4): every range low ≤ high, in adjusted tokens
+    flag("grant estimates", g.estimates?.unit === "adjusted tokens" && Array.isArray(g.estimates?.badRanges) && g.estimates.badRanges.length === 0 && g.estimates.inside <= g.estimates.closed,
+      g.estimates ? `${g.estimates.inside} of ${g.estimates.closed} closed grants inside their estimate; low ≤ high on all (${g.estimates.unit})${g.estimates.badRanges.length ? `; low > high: ${g.estimates.badRanges.join(", ")}` : ""}` : "no estimates block"),
   ];
 }
 

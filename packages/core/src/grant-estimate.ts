@@ -1,4 +1,4 @@
-import type { Grant, GrantEstimate, SimilarGrant } from "@muster-town/schema";
+import { estimateRangeOf, type Grant, type GrantEstimate, type SimilarGrant } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -42,7 +42,7 @@ export function estimateGrant(world: World, input: EstimateInput, at = nowIso())
   const est = {
     askTokens: input.askTokens, sample: rows.length, buildingSample: own.length,
     medianRatio: medianRatio(rows), buildingMedianRatio: medianRatio(own), similar,
-    low: spends.length ? Math.min(...spends) : null, high: spends.length ? Math.max(...spends) : null, at,
+    low: spends.length ? Math.min(...spends) : null, high: spends.length ? Math.max(...spends) : null, at, model: null,
   };
   return { ...est, sentence: sentenceOf(est) };
 }
@@ -68,3 +68,78 @@ function medianRatio(rows: SimilarGrant[]): number | null {
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
+
+/** How a closed grant did against its estimate (the grant.closed payload, the grant page): null when it had none. */
+export interface EstimateVsActual {
+  estimateLow: number | null; estimateHigh: number | null; modelLow: number | null; modelHigh: number | null;
+  /** the range it is held to (model's when it answered, else the closed grants') */
+  estimateBy: "model" | "history"; spentTokens: number; insideEstimate: boolean;
+  /** "estimated 150,000–400,000 (model), spent 604,146: outside the range" */
+  estimateLine: string;
+}
+
+export function estimateVsActual(e: GrantEstimate | null | undefined, spentTokens: number): EstimateVsActual | null {
+  const r = estimateRangeOf(e);
+  if (!e || !r) return null;
+  const inside = spentTokens >= r.low && spentTokens <= r.high;
+  return {
+    estimateLow: e.low, estimateHigh: e.high, modelLow: e.model?.low ?? null, modelHigh: e.model?.high ?? null,
+    estimateBy: r.by, spentTokens, insideEstimate: inside,
+    estimateLine: `estimated ${fmt(r.low)}–${fmt(r.high)} (${r.by === "model" ? "model" : "similar grants"}), spent ${fmt(spentTokens)}: ${inside ? "inside" : "outside"} the range`,
+  };
+}
+
+/** At most this many closed grants go into the model's prompt (newest closed first). */
+const PROMPT_GRANTS = 60;
+
+export const MODEL_ESTIMATE_SYSTEM = [
+  "You estimate what a grant in an AI-agent town will cost, in adjusted tokens (the town's one unit of spend).",
+  "You are shown the grants already closed (what each was funded, what it actually spent, how it ended, how many work sessions it took)",
+  "and a new proposal. Read the new proposal's scope against the closed ones and answer with ONLY one line of JSON:",
+  "{\"low\": <integer tokens>, \"high\": <integer tokens>, \"reason\": \"<one sentence: which closed grants it resembles and why>\"}.",
+  "low ≤ high. Estimate independently of the ask: it is shown only for context.",
+].join(" ");
+
+/**
+ * The prompt for the cheap model's estimate (step 2; runtime estimate.ts makes the call): the collective's closed grants
+ * (objective, key results, their count, funded, spent, outcome, sessions) and the new plan (objective, key results,
+ * approach, ask). Read-only.
+ */
+export function modelEstimatePrompt(world: World, grantId: string): string {
+  const g = world.grants.require(grantId, "grant");
+  const closed = world.grants.where("status = 'closed' AND outcome IN ('done', 'cut') AND grantTokens IS NOT NULL AND id != ?", [g.id], "ORDER BY closedAt DESC, rowid DESC").slice(0, PROMPT_GRANTS);
+  const krsOf = (id: string) => world.keyResults.where("grantId = ?", [id], "ORDER BY position");
+  const lines = closed.map((c) => {
+    const ss = world.sessions.where("grantId = ?", [c.id]);
+    const spent = Math.round(ss.reduce((t, s) => t + sessionTokens(s), 0));
+    const krs = krsOf(c.id);
+    const kr = krs.length ? krs.map((k) => k.text.slice(0, 160)).join(" | ") : c.testingPlan.map((t) => t.text.slice(0, 160)).join(" | ");
+    return `- ${c.id} [${c.outcome}] funded ${c.grantTokens}, spent ${spent}, ${ss.length} sessions, ${krs.length || c.testingPlan.length} key results. Objective: ${c.objective}. Key results: ${kr || "none"}`;
+  });
+  const krs = krsOf(g.id);
+  return [
+    `Closed grants (${closed.length}):`,
+    ...(lines.length ? lines : ["(none yet)"]),
+    "",
+    "New proposal:",
+    `Objective: ${g.objective}`,
+    `Key results (${krs.length}): ${krs.map((k) => k.text).join(" | ") || "none"}`,
+    `Approach: ${g.approach || "(not given)"}`,
+    `The manager asks for ${g.askTokens} tokens.`,
+    "",
+    "Your one line of JSON:",
+  ].join("\n");
+}
+
+/** The model's answer as a range, or null when it isn't one (no JSON, not integers, low > high, zero). Pure: tested. */
+export function parseModelEstimate(text: string): { low: number; high: number; note: string } | null {
+  const m = text.match(/\{[\s\S]*?\}/);
+  if (!m) return null;
+  let o: unknown;
+  try { o = JSON.parse(m[0]); } catch { return null; }
+  const r = o as { low?: unknown; high?: unknown; reason?: unknown };
+  const num = (v: unknown) => typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[,_\s]/g, "")) : NaN;
+  const low = Math.round(num(r.low)), high = Math.round(num(r.high));
+  if (!Number.isFinite(low) || !Number.isFinite(high) || low <= 0 || high < low) return null;
+  return { low, high, note: typeof r.reason === "string" ? r.reason.trim().slice(0, 300) : "" };
+}
