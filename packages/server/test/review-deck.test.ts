@@ -54,6 +54,29 @@ describe("GET /api/review-deck", () => {
   });
 });
 
+describe("a rollup's ask on the grant's own row (1:1 mt_7b4zc7yja3)", () => {
+  it("GET intray and GET review-deck return the folded rollup's ask on the proposal; the rollup is no card of its own", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    world.ops.updateBuilding(null, LAB, { managerAgentId: manager.id });
+    const resident = world.agents.first("homeBuildingId = ? AND kind != 'human' AND id != ?", [LAB, manager.id])!;
+    const src = await world.verbs.submit_report(resident, { title: "Done", body: "## What I did\nx", verdict: "stop" });
+    const g = (await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" })).grantId;
+    const r = await world.verbs.submit_report(manager, { title: `Fund ${g}`, body: `## Shipped\nNothing new.\n## Decided\n- x\n## Key results\n- ${g} would put the banner up.\n## Needs from Mitchell\nNothing needed.`, verdict: "continue", rollup: true, provenance: { sourceIds: [src.id], urls: [] } });
+    expect(r.decision).toBe("approve");
+    const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
+    expect(intray.status).toBe(200);
+    expect(intray.body.reports.map((d: { id: string }) => d.id)).not.toContain(r.id);
+    expect(intray.body.grants.find((x: { id: string }) => x.id === g).asks).toEqual([expect.objectContaining({ reportId: r.id, line: `${g} would put the banner up.`, folded: true })]);
+    const deck = (await json(app, "GET", "/api/review-deck")).body;
+    expect(deck.slides.find((x: { grantId?: string }) => x.grantId === g).text).toContain(`asks you to fund this:** ${g} would put the banner up. (rollup ${r.id})`);
+    expect(deck.slides.some((x: { docIds?: string[] }) => x.docIds?.includes(r.id))).toBe(false);
+  });
+});
+
 describe("the funder filter (goal tree build step 8)", () => {
   it("GET /api/funders/me/week: a guest gets 401, a signed-in human their week and its slide; ?funder=me narrows a Spend tab", async () => {
     const s = await seededApp();
