@@ -10,12 +10,13 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
+import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
 
 const H = 3_600_000;
@@ -107,7 +108,13 @@ function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: s
   ].join("\n\n");
 }
 
+/** The rollups' asks on an item, as the slide's first lines: "Workshop asks you to fund this: <line> (rollup dc_…)". */
+function asksLines(asks: RollupAsk[] | undefined, verb: string): string {
+  return (asks ?? []).map((a) => `**${a.buildingName} asks you to ${verb} this:** ${oneLine(a.line)} (rollup ${a.reportId})\n\n`).join("");
+}
+
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
+  const asks = asksLines(rollupAsksFor(world, g), askVerb(g.status));
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds and later marks met or missed
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
@@ -117,7 +124,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   if (g.status === "checkpoint") {
     const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
-    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: card({
+    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
       whatYoudSee: testing,
       picture: proposalPicture(world, g),
@@ -125,7 +132,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   if (g.status === "closed") {
-    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: card({
+    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}.`,
       whatYoudSee: krs.find((k) => k.statusNote)?.statusNote || testing,
       picture: proposalPicture(world, g),
@@ -133,7 +140,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
-  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: card({
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
@@ -205,7 +212,7 @@ function retainerSlide(world: World, v: ScheduleView): Draft {
   return {
     kind: "retainer", group: 4, itemId: v.id, buildingId: v.buildingId, since: v.updatedAt, history: v.retainerNote && countered ? `Countered: ${oneLine(v.retainerNote)}` : "",
     title: `Retainer: ${b} asks for standing money for "${oneLine(v.title)}"`,
-    body: card({
+    body: asksLines(rollupAsksFor(world, v), askVerb("asked")) + card({
       whatItIs: `${retainerLine(world, v)} tokens. A retainer is standing money for a recurring job (${v.id}, ${describeRepeat(v)}), not a grant: it is claimed in the Bank while funded, each run may spend at most ${v.tokensPerRun.toLocaleString("en-US")} tokens and is asked to wrap up there, and what it doesn't spend goes back when the schedule ends. What it does: ${oneLine(v.description || v.title)}`,
       whatYoudSee: `Approving it puts "Retainers" on the Bank page up by ${v.askTokens.toLocaleString("en-US")} tokens and its runs start on the Schedule board; until then they stay held ("retainer not approved").`,
       picture: null,

@@ -53,7 +53,7 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   }
   if (slide.kind === "retainer") {
     const x = retainers.find((y) => y.id === slide.itemId);
-    return x ? <div className="review-decide"><RetainerRow x={x} route={routes[x.id]} onDecided={onDecided} deckSlide={n} /></div> : <div className="review-decide muted">Already decided.</div>;
+    return x ? <div className="review-decide"><RetainerRow x={x} route={routes[x.id]} onDecided={onDecided} deckSlide={n} onOpenDoc={onOpenDoc} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.kind === "captain") {
     const r = captains.find((x) => x.id === slide.itemId);
