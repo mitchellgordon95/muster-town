@@ -178,6 +178,32 @@ describe("Start a collective", () => {
     expect(w.budget.canStart(resident.id)).toBe(true);
   });
 
+  it("the founder road is public on /api/join-funnel: dates only, never the key", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, { ...garden, apiKey: KEY })).status).toBe(201);
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await start(app, mitchell, { name: "Keyless", goal: "Wait for a key" })).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const lab = (await json(app, "GET", "/garden-club/api/town")).body.buildings.find((b: { kind: string }) => b.kind === "lab");
+    const s = w.ops.startSession(lab.managerAgentId, { purpose: "manage", model: "claude-opus-5-5" });
+
+    const res = await app.inject({ method: "GET", url: "/api/join-funnel" });
+    expect(res.body).not.toContain(KEY);
+    expect(res.body).not.toContain("API key");
+    const founders = res.json().founders as { slug: string; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
+    expect(founders.map((f) => f.slug)).toEqual(["garden-club", "keyless"]);
+    expect(founders[0]).toMatchObject({ state: "active", keyAdded: true, firstSessionAt: s.startedAt, firstProposalAt: null, firstGrantFundedAt: null });
+    expect(founders[0].createdAt).toBe(hub.get("garden-club")!.createdAt);
+    expect(founders[1]).toEqual({ slug: "keyless", state: "active", createdAt: hub.get("keyless")!.createdAt, keyAdded: false, firstSessionAt: null, firstProposalAt: null, firstGrantFundedAt: null });
+    // a date once seen stays, even if the World's row goes away (a cancelled key was still added)
+    w.db.prepare("DELETE FROM sessions").run();
+    w.db.prepare("DELETE FROM bank_inputs").run();
+    expect((await json(app, "GET", "/api/join-funnel")).body.founders[0]).toMatchObject({ keyAdded: true, firstSessionAt: s.startedAt });
+    // a hosted collective's own funnel has no founders list
+    expect((await json(app, "GET", "/garden-club/api/join-funnel")).body.founders).toBeUndefined();
+  });
+
   it("a hosted collective's Bank takes API keys only", async () => {
     const { app } = await setup();
     const octo = (await signIn(app, "code_octo")).cookie;
