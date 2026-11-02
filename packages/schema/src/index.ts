@@ -2295,7 +2295,10 @@ export type AccessRequest = z.infer<typeof AccessRequest>;
 /** A Town Hall in-tray row: the request plus who asked. */
 export type AccessRequestView = AccessRequest & { name: string; githubLogin: string | null; avatarUrl: string | null };
 export const AccessRequestInput = z.object({ message: z.string().trim().max(140).optional() });
-export const AccessDecisionInput = z.object({ grant: z.boolean() });
+/** `directGoalId`: Let in + "direct work under <goal>" in one step (gr_cuobjlny6r); left out, Let in grants nothing more. */
+export const AccessDecisionInput = z.object({ grant: z.boolean(), directGoalId: Id.nullable().optional() });
+/** POST/DELETE /api/members/:userId/direct: grant or revoke "direct work under" this goal (an admin or a captain over it). */
+export const DirectGrantInput = z.object({ goalId: Id });
 
 // ---------- captain requests (a member asks to captain a goal; the node's current captain decides) ----------
 export const CaptainRequestStatus = z.enum(["pending", "accepted", "declined"]);
@@ -2341,6 +2344,13 @@ export const AuthMe = z.object({
     /** who decided, by name (the "You're in" card says who let them in); null while pending */
     decidedByName: z.string().nullable().default(null),
   }).nullable().default(null),
+  /**
+   * the goals they may direct work under (gr_cuobjlny6r: 1:1s and meetings in buildings attached to one of them or a goal
+   * below): granted ones and captained ones. Staff of a building may also direct there; the server is the gate.
+   */
+  direct: z.array(z.object({ goalId: Id, text: z.string(), how: z.enum(["granted", "captain"]) })).default([]),
+  /** the goal the Let in card offers for "Let in + direct work under <goal>": their captained goal, else the town goal for an admin; null = they can't grant */
+  directDefaultGoalId: Id.nullable().default(null),
 });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
