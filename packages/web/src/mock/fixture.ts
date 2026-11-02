@@ -156,6 +156,8 @@ export const grants: GrantView[] = [
         { id: "gr_stress", buildingId: "bl_carbon", objective: "Stress-test the lab's session runner at 10 parallel desks", keyResults: 1, grantTokens: 1_000_000, spentTokens: 1_800_000, outcome: "done" },
       ],
       sentence: "ask 4,000,000 · 3 similar grants spent 1,800,000–6,100,000 (median spent/funded 1.21 across 5 closed grants; this building 0.95 across 2)",
+      // the cheap model's range (runtime estimate.ts), saved a moment after the propose
+      model: { low: 1_500_000, high: 4_000_000, note: "Two research questions like gr_stress's single one, each about 1M with its write-up.", modelId: "claude-haiku-5-5", sessionId: "se_estimate", at: ago(35) },
     },
     createdAt: ago(60), updatedAt: ago(35),
   },
