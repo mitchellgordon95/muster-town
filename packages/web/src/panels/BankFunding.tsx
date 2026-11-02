@@ -356,7 +356,7 @@ export function BankInputs({ bank, onChange }: Props) {
 }
 
 /** Shown on a hosted Bank: new work stops when the inputs are spent; 1:1s, Ask about and summaries still run on the key. */
-export const HOSTED_CAP_LINE = "Work on your key stops at 1,000,000 tokens (about $20) until you add more here; talking to your agents still uses it.";
+const HOSTED_CAP_LINE = "Work on your key stops at 1,000,000 tokens (about $20) until you add more here; talking to your agents still uses it.";
 
 const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> = {
   "below-one-session": "below one session",

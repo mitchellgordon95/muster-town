@@ -21,7 +21,7 @@ export interface HubCollective {
  * The founder road of one hosted collective (gr_ngg1z160a8 step 2, public on the root GET /api/join-funnel as `founders`):
  * dates only, null until it happens. Never the key, its label or any token count.
  */
-export interface FounderRoad {
+interface FounderRoad {
   slug: string;
   state: HubCollective["state"];
   createdAt: string;

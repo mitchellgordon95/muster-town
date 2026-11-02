@@ -6,8 +6,8 @@
 import type { Agent, Place } from "@muster-town/schema";
 
 export type HelpViewer = "guest" | "pending" | "member" | "reviewer";
-export interface HelpThing { placeId: string; name: string; line: string }
-export interface HelpCard {
+interface HelpThing { placeId: string; name: string; line: string }
+interface HelpCard {
   title: string;
   goal: string;
   manager: Agent | null;
