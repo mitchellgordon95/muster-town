@@ -81,6 +81,35 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(rest[0]!.text).toMatch(/_History: .*funded/);
   });
 
+  it("a checkpoint slide leads with what shipped per key result, spend and what a top-up buys; a proposal asking again for that work shows it (mt_7b4zc7yja3)", () => {
+    const { world, admin, manager, proposal, rollup } = setup();
+    const held = proposal();
+    world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
+    world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    // an old checkpoint (filed before the line existed): "not stated"
+    let slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
+    expect(slide.text).toMatch(/A top-up: not stated/);
+    const [k1, k2] = world.grantDesk.get(held.id).keyResults;
+    world.grantDesk.fileCheckpoint(manager, held.id, { status: "claimed", note: "Usage is on the banner (PR #9)", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the banner line", topUpTokens: 300_000 });
+    world.grantDesk.fileCheckpoint(manager, held.id, { status: "at-risk", note: "line drafted, not live", keyResultId: k2!.id });
+    const r = rollup(["Continue?"], ago(1));
+    world.grantDesk.fileCheckpoint(manager, held.id, { reportId: r.id });
+    slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
+    expect(slide.text).toContain("1. ✓ shipped: Usage is on the banner (PR #9)");
+    expect(slide.text).toContain("2. ~ partly: line drafted, not live");
+    expect(slide.text).toContain("**A top-up of 300,000 tokens buys: KR 2: the banner line**");
+    expect(slide.text).toMatch(/\*\*Shipped in the checkpoint report .*:\*\* .*Item 1/);
+    // the plan (key results, stop condition) comes after the call
+    expect(slide.text.indexOf("**Your call:**")).toBeLessThan(slide.text.indexOf("Stops when: two failed tries"));
+    // cut at the checkpoint; a new proposal on the same goal shows that evidence first
+    world.grantDesk.decide(admin, held.id, { action: "cut", note: "re-plan" });
+    const again = proposal(1);
+    const ps = ours(reviewDeck(world)).find((s) => s.key === `proposal:${again.id}`)!;
+    expect(ps.text).toMatch(new RegExp(`Asks again for work ${held.id} stopped at its checkpoint`));
+    expect(ps.text).toContain("2. ~ partly: line drafted, not live");
+    expect(world.grantDesk.get(again.id).evidence).toMatchObject({ grantId: held.id, topUpTokens: 300_000 });
+  });
+
   it("history lines: a grant's last human entry; the building's previous rollup decision; a 1:1 its provenance names; none when nothing applies", () => {
     const { world, admin, manager, proposal, rollup } = setup();
     const g = proposal();

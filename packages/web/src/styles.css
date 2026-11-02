@@ -605,6 +605,13 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 @media (max-width: 520px) { .rollup-card-field, .rollup-card-call { grid-template-columns: 1fr; gap: 0; } }
 .grant-row { cursor: default; }
 .grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
+/* the checkpoint card's evidence (mt_7b4zc7yja3): what shipped per key result, the top-up line; the plan sits under the fold */
+.checkpoint-evidence { font-size: 12px; margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+.evidence-krs { margin: 0 0 2px 18px; padding: 0; }
+.evidence-shipped { color: #8fd694; }
+.evidence-not { color: #f08a8a; }
+.evidence-partly { color: #e8c76a; }
+.grant-plan > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; margin-top: 4px; }
 .grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .grant-inputs { display: grid; grid-template-columns: 170px 1fr; gap: 6px; }
 /* waterfall step 6: the board's key-results view (goal-directed buildings) */
