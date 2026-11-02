@@ -130,7 +130,7 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     // only the Planner at the Town Hall; members without goals.edit can't plan
     // the Town Hall's 1:1 is the Planner's (its manager): the same one; no other Town Hall agent takes one
     expect(world.ops.openOneOnOne(admin, "town-hall").id).toBe(m.id);
-    expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("kind = 'service'")!.id })).toThrow();
+    expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("name = 'Mei'")!.id })).toThrow();
     const stranger = world.ops.ensureAvatar(createUser(world, "Stranger").user.id);
     expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's captain/);
     const p = await world.verbs.propose_goal(planner, { action: "add-goal", parentId: goal.id, text: "Sub-goal", why: "drafted with the human" });

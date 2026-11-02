@@ -81,7 +81,7 @@ function resolveFork(world: World, forkId?: string, assignmentId?: string): Agen
   return world.agents.require(id, "agent");
 }
 
-/** `fork_status`: manager or reviewer (building.assign) of the fork's building, or anyone who may read its transcript. */
+/** `fork_status`: the manager (building.assign) of the fork's building, or anyone who may read its transcript. */
 export function forkStatus(world: World, me: Agent, input: { forkId?: string; assignmentId?: string; limit?: number }): ForkStatus {
   const fork = resolveFork(world, input.forkId, input.assignmentId);
   if (!fork.forkOf) throw badRequest(`${fork.name} is not a fork; fork_status reads a fork's live session.`);

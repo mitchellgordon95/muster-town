@@ -8,8 +8,9 @@ describe("permissions", () => {
     const { world } = seededWorld();
     expect(world.roles.require(townRoleId("admin")).permissions).toEqual(Permission.options);
     expect(world.roles.require(townRoleId("visitor")).permissions).toEqual(BUILTIN_ROLES.town.visitor);
-    expect(world.roles.require(townRoleId("moderator")).permissions).toEqual(BUILTIN_ROLES.town.moderator);
-    for (const name of ["manager", "reviewer", "member"] as const) {
+    expect(world.roles.get(townRoleId("admin").replace("admin", "moderator"))).toBeUndefined();
+    expect(world.roles.get("role:carbon-cycle:reviewer")).toBeUndefined();
+    for (const name of ["manager", "member"] as const) {
       const r = world.roles.require(buildingRoleId("carbon-cycle", name));
       expect(r).toMatchObject({ scope: "building", buildingId: "carbon-cycle", builtin: true });
       expect(r.permissions).toEqual(BUILTIN_ROLES.building[name]);
@@ -57,11 +58,11 @@ describe("permissions", () => {
     expect(managers).toContainEqual({ roleId: buildingRoleId(b.id, "manager"), holderKind: "agent", holderId: world.buildings.require(b.id).managerAgentId });
     const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
     expect(() => world.ops.createBuilding(nobody, { name: "x" })).toThrow(/manage_buildings/);
-    expect(() => world.ops.assignRole(nobody, { roleId: buildingRoleId(b.id, "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! })).toThrow(/building.manage/);
+    expect(() => world.ops.assignRole(nobody, { roleId: buildingRoleId(b.id, "manager"), holderKind: "user", holderId: nobody.ownerUserId! })).toThrow(/building.manage/);
     // the lab manager (admin) can grant building roles in the lab
-    world.ops.assignRole(world.ops.ensureAvatar(seed.admin.id), { roleId: buildingRoleId("carbon-cycle", "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! });
+    world.ops.assignRole(world.ops.ensureAvatar(seed.admin.id), { roleId: buildingRoleId("carbon-cycle", "manager"), holderKind: "user", holderId: nobody.ownerUserId! });
     expect(world.permissions.can(nobody, "building.review", "carbon-cycle")).toBe(true);
-    world.ops.unassignRole(null, { roleId: buildingRoleId("carbon-cycle", "reviewer"), holderKind: "user", holderId: nobody.ownerUserId! });
+    world.ops.unassignRole(null, { roleId: buildingRoleId("carbon-cycle", "manager"), holderKind: "user", holderId: nobody.ownerUserId! });
     expect(world.permissions.can(nobody, "building.review", "carbon-cycle")).toBe(false);
   });
 
