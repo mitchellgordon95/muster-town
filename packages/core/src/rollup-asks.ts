@@ -33,7 +33,9 @@ export function rollupAsksFor(world: World, item: GrantView | ScheduleView): Rol
     "type = 'report' AND tags LIKE '%\"rollup\"%' AND (decision = 'pending' OR tags LIKE '%\"folded\"%') AND createdAt >= ? AND (body LIKE ? OR title LIKE ?)",
     [askedSince(item), like, like], "ORDER BY createdAt, rowid",
   );
-  return docs.flatMap((d) => {
+  // a checkpoint or close rollup is the row's own report (the row links it already): no ask on it
+  const own = "checkpointDocId" in item ? item.checkpointDocId : null;
+  return docs.filter((d) => d.id !== own).flatMap((d) => {
     const line = askLineFor(d.title, d.body, item.id);
     return line ? [{ reportId: d.id, buildingId: d.buildingId, buildingName: world.buildings.get(d.buildingId ?? "")?.name ?? "Town", title: d.title, line, at: d.createdAt, folded: d.tags.includes("folded") }] : [];
   });
