@@ -44,6 +44,12 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
     expect(html).toContain("✗ not shipped: HUD collapses below 700px");
   });
 
+  it("an overspent checkpoint says how far over, not a capped 100% (gr_5ltmbf3a2f live: 545k of 500k)", () => {
+    store.state = { ...store.state, ...STATE };
+    const html = row({ ...hud, spentTokens: 545_488, grantTokens: 500_000 });
+    expect(html).toContain("spent (109%)");
+  });
+
   it("a proposal asking again for that work shows the earlier grant's evidence above its own key results", () => {
     store.state = { ...store.state, ...STATE };
     const proposal = { ...grants.find((g) => g.status === "proposed")!, history: [] };
