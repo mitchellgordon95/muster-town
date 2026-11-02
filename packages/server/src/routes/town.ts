@@ -184,7 +184,10 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post("/api/buildings", async (req, reply) => {
     const input = parse(CreateBuildingInput, req.body);
-    const building = world.ops.createBuilding(actorOf(world, req), input);
+    const created = world.ops.createBuilding(actorOf(world, req), input);
+    // no name typed: one cheap-model call names it like a place (flag dc_42c9cjbzls); the goal's short text stays on failure
+    const named = !input.name?.trim() && app.runtime?.nameBuilding;
+    const building = named ? await app.runtime!.nameBuilding!(created.id).catch(() => world.buildings.require(created.id, "building")) : created;
     return reply.code(201).send({ building });
   });
 
