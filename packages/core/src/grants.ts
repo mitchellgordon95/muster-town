@@ -483,9 +483,33 @@ export class Grants {
     }
     if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
     if (!LIVE.includes(g.status) && inp.outcome !== "stopped") throw badRequest(`A ${g.status} proposal can only be withdrawn (outcome "stopped").`);
+    if (!LIVE.includes(g.status)) return this.withdraw(actor, id, inp.note || "Withdrawn.");
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
     this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`);
     return this.view(next);
+  }
+
+  /**
+   * The manager's `withdraw_grant` (1:1 mt_a6wb51enia): the manager takes back its own proposed or countered grant with a
+   * note saying why. It closes as `stopped` (history action "withdraw", the note kept on it), leaves the Town Hall in-tray
+   * and the review deck, and its open key results archive like a rejected proposal's. The humans who could fund it are
+   * told why it vanished. A funded grant is refused: close_grant (done) or a human's cut.
+   */
+  withdraw(actor: Actor, id: string, note: string): GrantView {
+    const g = this.world.grants.require(id, "grant");
+    if (actor && !this.canFund(actor, g)) this.world.permissions.require(actor, "building.manage", g.buildingId);
+    const why = (note ?? "").trim();
+    if (!why) throw badRequest("Say why you withdraw it (note): it stays on the grant for the humans who saw the proposal.");
+    if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
+    if (LIVE.includes(g.status)) throw new AppError("conflict", `${g.id} is ${g.status}: a funded grant is not withdrawn. Close it with close_grant when its work is done, or ask a human to cut it.`);
+    this.requireStatus(g, ["draft", "proposed", "countered"], "withdrawn");
+    return this.world.transaction(() => {
+      const next = this.save(g, actor, { status: "closed", outcome: "stopped", closedAt: nowIso() }, "withdraw", null, why);
+      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} withdrawn: ${why}`.slice(0, 2000), updatedAt: nowIso() });
+      this.event("grant.closed", next, actor, `Withdrawn: ${next.objective}: ${why}`, { outcome: "stopped", withdrawn: true, note: why });
+      if (g.status !== "draft") this.notifyFunders(next, actor, `${actor ? this.world.nameOf(actor.id) : "The manager"} withdrew the proposal "${next.objective}" (${next.id}, ${fmt(next.askTokens)} tokens asked): ${why}`);
+      return this.view(next);
+    });
   }
 
   /**

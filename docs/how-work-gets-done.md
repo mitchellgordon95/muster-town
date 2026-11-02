@@ -129,6 +129,8 @@ Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchang
 
 **Counting open proposals' asks in free tokens** (§7) is what keeps the review from flooding: once the town has proposed as much as it can afford, exploration stops until the human decides. **Mitchell said** (mt_529jbnwvmi): "i think one change from #2 is that we count both funded and pending grants in that number". A rejected or countered proposal frees its ask.
 
+**Withdrawing a proposal** (Mitchell, 1:1 mt_a6wb51enia): a manager takes back its own proposed or countered grant with `withdraw_grant` (grantId, a required note saying why). It closes as `stopped` (history action `withdraw`, the note kept on the grant and sent to the humans who could fund it), leaves the Town Hall in-tray and the deck, frees its ask, and its key results archive like a rejected proposal's. To change a plan: withdraw, then `propose_grant` fresh. A funded grant is not withdrawn (`close_grant` or a human's cut).
+
 **Open.** Whether one goal needs a limit on open proposals, so twenty explorers don't file twenty variants of one idea (§12 q5).
 
 ## 6. Funded work, checkpoints and rollups
