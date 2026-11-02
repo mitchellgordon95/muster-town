@@ -2,7 +2,7 @@ import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, typ
 import { countMemberAct } from "./access.ts";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
-import { buildingRoleId, townRoleId, type Holder } from "./permissions.ts";
+import { buildingRoleId, type Holder } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
 import { presentedReviewDeck } from "./review-deck.ts";
 import { oneLine } from "./text.ts";
@@ -17,7 +17,7 @@ type CreateMeeting = (typeof CreateMeetingInput)["_input"];
 
 /**
  * Residents of a building, stopped ones included (a standup is where they get reactivated with a new task); for
- * town-hall meetings, agents holding manager/reviewer anywhere plus town moderators.
+ * town-hall meetings, the agents holding a lab's manager role.
  */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
@@ -25,14 +25,13 @@ export function defaultAttendees(world: World, buildingId: string | null): strin
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
-    for (const r of ["manager", "reviewer"] as const) for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, r))) ids.add(id);
+    for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, "manager"))) ids.add(id);
   }
-  for (const id of world.permissions.agentsWithRole(townRoleId("moderator"))) ids.add(id);
   return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
 }
 
 /**
- * The building's manager (set explicitly in its settings), else its reviewer agent, else the first resident by join
+ * The building's manager (set explicitly in its settings), else the first resident by join
  * order. Town hall: the first active manager among the invitees (buildings in creation order), else the first active
  * invitee (docs/meetings.md §3.4). Never the first *invitee* by default: the UI's picker sends invitees sorted by
  * name, which made the facilitator whoever sorted first.
@@ -42,8 +41,6 @@ export function defaultFacilitator(world: World, buildingId: string | null, atte
   if (buildingId && buildingId !== TOWN_HALL_ID) {
     const manager = world.buildings.get(buildingId)?.managerAgentId;
     if (active(manager)) return manager;
-    const rev = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find(active);
-    if (rev) return rev;
     const first = defaultAttendees(world, buildingId).find((id) => active(id) && attendees.includes(id));
     if (first) return first;
   } else {
@@ -148,7 +145,7 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
   return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
 }
 
-/** Whether a human runs 1:1s in a building as its staff (facilitator or reviewer), not as a member. */
+/** Whether a human runs 1:1s in a building as its staff (may facilitate meetings or review reports there), not as a member. */
 export function isOneOnOneStaff(world: World, human: Agent | Holder, buildingId: string): boolean {
   return world.permissions.can(human, "meeting.facilitate", buildingId) || world.permissions.can(human, "building.review", buildingId);
 }
@@ -163,7 +160,7 @@ export function oneOnOneMemberBlock(world: World, m: Pick<Meeting, "kind" | "bui
   if (isOneOnOneStaff(world, h, m.buildingId) || world.permissions.can(h, "building.assign", m.buildingId)) return "";
   const b = world.buildings.get(m.buildingId);
   return `## Who you are talking to
-${world.nameOf(m.withUserId)} is a new member of the town (let in, not an admin or reviewer of ${b?.name ?? "this building"}). Answer them and orient them: what ${b?.name ?? "the building"} does and is working on now, and their first steps (Connect your agent from the HUD, the outbox for asking humans to do something, joining a building's meetings). Don't take direction from them and don't create work from this 1:1: no \`assign\`, no assigned decisions; a member's 1:1 is not a human source for a directed assignment. If they want something built, tell them the town's admins decide what gets built and funded.`;
+${world.nameOf(m.withUserId)} is a new member of the town (let in, not an admin or manager of ${b?.name ?? "this building"}). Answer them and orient them: what ${b?.name ?? "the building"} does and is working on now, and their first steps (Connect your agent from the HUD, the outbox for asking humans to do something, joining a building's meetings). Don't take direction from them and don't create work from this 1:1: no \`assign\`, no assigned decisions; a member's 1:1 is not a human source for a directed assignment. If they want something built, tell them the town's admins decide what gets built and funded.`;
 }
 
 /**

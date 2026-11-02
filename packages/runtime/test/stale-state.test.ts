@@ -68,13 +68,13 @@ describe("drain nudge", () => {
   test("every session the drain waits on is told once that the restart comes after it ends; the requester's own session is named", async () => {
     const { world, by } = setup(async function* () { yield result(1, 0); });
     const noor = by("Noor");
-    const pix = by("Ada");
+    const pix = by("Ravi");
     world.setStatus(noor.id, "working");
     world.setStatus(pix.id, "working");
     let left = [noor.id, pix.id];
     const nudge = vi.fn();
     const r = make(world, { working: () => left, nudge, drainTimeoutMs: 60_000 });
-    r.redeploy({ image: false, requestedBy: "Ada" });
+    r.redeploy({ image: false, requestedBy: "Ravi" });
     await new Promise((res) => setTimeout(res, 40));
     expect(nudge).toHaveBeenCalledTimes(2);
     expect(nudge).toHaveBeenCalledWith(pix.id, drainNudge(true));
@@ -82,7 +82,7 @@ describe("drain nudge", () => {
     expect(drainNudge(true)).toMatch(/^The redeploy you requested is waiting for your work session to end/);
     expect(drainNudge(false)).toMatch(/^A redeploy is waiting/);
     const start = redeployEvents(world).find((e) => { const p = e.payload as { step?: string; phase?: string }; return p.step === "drain" && p.phase === "start"; })!;
-    expect(start.text).toContain("Ada requested it and is still running, so it waits for them too");
+    expect(start.text).toContain("Ravi requested it and is still running, so it waits for them too");
     expect(start.payload).toMatchObject({ requester: pix.id });
     left = [];
     await r.done();

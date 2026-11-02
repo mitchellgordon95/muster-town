@@ -9,6 +9,7 @@ describe("the manager's 1:1", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     // no manager agent: send a message instead
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: null });
     expect(() => world.ops.openOneOnOne(admin, "carbon-cycle")).toThrow(/no manager agent/);
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     const m = world.ops.openOneOnOne(admin, "carbon-cycle");
