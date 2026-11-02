@@ -1,5 +1,5 @@
 import { AppError, townRoleId, type World } from "@muster-town/core";
-import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
+import type { Agent, Building, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
@@ -23,6 +23,8 @@ export interface RuntimeHooks {
   deskSeen?(agentId: string, sessionId: string): void;
   /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
+  /** A building was made with no name typed: name it with one cheap-model call (flag dc_42c9cjbzls); resolves with it as it ends up. */
+  nameBuilding?(buildingId: string): Promise<Building>;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. A request while one runs joins it (`{ queued: true }`). */

@@ -1551,7 +1551,7 @@ export const Session = z.object({
   agentId: Id,
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
-  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply"]),
+  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply", "naming"]),
   /** where the session runs: in-process on the host, or inside the agent's desk container */
   backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,
@@ -2046,7 +2046,7 @@ export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE
  */
 export const CreateBuildingInput = patchOf(Building.pick({ headcount: true, meetings: true, rules: true, managerAgentId: true }))
   .extend({
-    name: z.string().trim().max(80).optional().describe("blank or missing = the attached goal's short text"),
+    name: z.string().trim().max(80).optional().describe("blank or missing = a short place-like name from one cheap-model call on the attached goal (POST /api/buildings with a runtime), else the goal's short text"),
     goalId: Id.optional().describe("the goal of the town tree it attaches to (default: the root); never unset"),
   });
 /** The exploration cap is the attached goal's, not the building's (PATCH /api/goals/:id). */
