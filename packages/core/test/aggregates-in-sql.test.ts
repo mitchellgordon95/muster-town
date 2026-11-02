@@ -28,6 +28,10 @@ const ALLOWED: Record<string, Record<string, string>> = {
   "packages/core/src/lanes.ts": {
     [`.where("buildingId = ? AND status IN ('funded', 'checkpoint')", [buil`]: "each grant's unspent rest needs grantDesk.spent; a building has a handful of live grants",
   },
+  "packages/core/src/retainers.ts": {
+    [`.where("assignmentId IN (SELECT id FROM assignments WHERE lane = 'retainer' AND sourceId = ?)", [scheduleId])`]: "adjusted tokens are priced per session's bank model in JS (sessionTokens); a schedule has a run's few sessions per fire",
+    [`.where("assignmentId = ?", [assignmentId])`]: "adjusted tokens are priced per model in JS (sessionTokens); a run has a few sessions",
+  },
   "packages/core/src/explore.ts": {
     [`.where("assignmentId = ?", [assignmentId])`]: "adjusted tokens are priced per model in JS (sessionView); an assignment has a few sessions",
   },

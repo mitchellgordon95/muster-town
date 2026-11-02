@@ -112,7 +112,7 @@ COPY_NEWEST="$(echo "$COPY_JSON" | node -pe 'JSON.parse(require("fs").readFileSy
 say "copy: integrity ok, $COPY_AGENTS agents, newest doc $COPY_NEWEST"
 
 # 3. RESTORE.tgz with data/town.db only: the entrypoint (deploy/fly/entrypoint.sh) swaps it in at boot; session-secret is created again,
-# the admin token stays the one in the database's tokens table (so the scratch town answers to the live tokens: destroy it when done)
+# the database's tokens table holds only hashes (docs/secrets.md "Login tokens"); the scratch town still answers to the live tokens' holders: destroy it when done
 TGZ="$WORK/RESTORE.tgz"
 tar -czf "$TGZ" -C "$WORK" data/town.db
 say "RESTORE.tgz: $(wc -c < "$TGZ" | tr -d ' ') bytes at $TGZ"

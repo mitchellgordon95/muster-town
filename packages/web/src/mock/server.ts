@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, Schedule, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -12,6 +12,8 @@ import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
+/** toy dollars: Opus 5.5 output at $20 per million tokens, to the cent (core bankTokensUsd + cents) */
+const toyUsd = (tokens: number) => Math.round(tokens * 20 / 1e4) / 100;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
@@ -22,17 +24,20 @@ export class MockApi implements Api {
   readonly mock = true;
   private sim = new Sim();
   /** two schedules on the Carbon Cycle Lab, one paused (the building panel's Schedule list, the marks on its schedule board) */
-  private schedules = new Map<string, Schedule>([["sc_nightly", {
+  private schedules = new Map<string, ScheduleView>([["sc_nightly", {
     id: "sc_nightly", buildingId: "bl_carbon", title: "Nightly: check the live rollup", description: "Read the latest rollup and check its numbers against the live town.",
     nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["08:00", "20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), maxRuns: null, paused: false,
     lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
+    tokensPerRun: 0, retainer: "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, runsLeft: 27, askTokens: 0, drawnTokens: 0, claimTokens: 0,
     createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }], ["sc_weekly", {
     id: "sc_weekly", buildingId: "bl_carbon", title: "Every 6 h: refresh the emissions source cards", description: "Re-check the Global Carbon Budget source cards for new releases.",
     nextRunAt: new Date(Date.now() + 5 * 3600_000).toISOString(), everyMinutes: 360, dailyAt: null, endsAt: new Date(Date.now() + 7 * 86400_000).toISOString(), maxRuns: null, paused: true,
-    lane: "exploration", grantId: null, keyResultId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
+    lane: "retainer", grantId: null, keyResultId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0, createdBy: "ag_moss", createdByKind: "agent",
+    // a retainer ask (1:1 mt_cyd2t5ioob decision 2): the Town Hall in-tray's "Retainers for scheduled jobs" row and deck slide
+    tokensPerRun: 3_000, retainer: "asked", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, runsLeft: 28, askTokens: 84_000, drawnTokens: 0, claimTokens: 0, buildingName: "Carbon Cycle Lab",
     createdAt: new Date(Date.now() - 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }]]);
   private started = false;
@@ -91,10 +96,13 @@ export class MockApi implements Api {
     // `?as=visitor` signs in as a plain visitor so read-only views can be checked; `?as=member` as a let-in member (Ask to captain)
     const as = new URLSearchParams(location.search).get("as");
     if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null });
+    // `?as=newmember`: let in while away (gr_58n37j410s step 2): the HUD shows the one-time "You're in" card
+    if (as === "newmember") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true,
+      accessRequest: { status: "granted", message: "", decidedAt: "2026-11-01T01:00:00.000Z", deciders: [this.sim.users[0].name], typicalWaitMs: 900_000, decidedByName: this.sim.users[0].name } });
     if (as === "visitor") {
       const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
       return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
-        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null } : null });
+        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null, decidedByName: mine.decidedAt ? this.sim.users[0].name : null } : null });
     }
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
     return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null });
@@ -131,7 +139,7 @@ export class MockApi implements Api {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, q.limit ?? 30);
     return clone({ docs, counts: [...counts.values()] });
   }
-  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", desksForLot(NEW_LAB_LOT), i.goalId)); }
+  async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", i.headcount ?? desksForLot(NEW_LAB_LOT), i.goalId)); }
   /** the nearest goal at or above (one level: the mock tree is flat) that sets an exploration cap; null = uncapped */
   private capAt(goalId: string): { tokensPerDay: number; goalId: string } | null {
     return [goalId, "gl_town"].map((g) => MOCK_CAP[g] ? { tokensPerDay: MOCK_CAP[g], goalId: g } : null).find(Boolean) ?? null;
@@ -146,7 +154,9 @@ export class MockApi implements Api {
     const openAsksTokens = grants.filter((g) => g.status === "proposed" || g.status === "countered").reduce((s, g) => s + g.askTokens, 0);
     const reserveTokens = this.sim.town.operatingReserveTokens;
     const freeTokens = Math.max(0, generalTokens - reserveTokens - fundedRemainingTokens - openAsksTokens) + earmarkTokens;
-    return { goalId, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens, openAsksTokens, reservedTokens: 0, freeTokens };
+    const funded = [...this.schedules.values()].filter((x) => x.status === "active" && x.retainer === "funded");
+    const retainerTokens = funded.reduce((t, x) => t + x.claimTokens, 0);
+    return { goalId, generalTokens, reserveTokens, earmarkTokens, fundedRemainingTokens, openAsksTokens, reservedTokens: 0, retainerTokens, retainerJobs: funded.length, freeTokens: Math.max(0, freeTokens - retainerTokens) };
   }
   /** the mock's goal tree: the root with its Fund/Join/Trust placeholders (the root sets an exploration cap its children inherit); buildings sit where their goalId says */
   async goalTree(): Promise<GoalTreeNode> {
@@ -215,7 +225,7 @@ export class MockApi implements Api {
   async intray(buildingId: string) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
-    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [], captains: b.kind === "town-hall" ? this.captains.filter((r) => r.status === "pending") : [] });
+    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [], captains: b.kind === "town-hall" ? this.captains.filter((r) => r.status === "pending") : [], retainers: b.kind === "town-hall" ? [...this.schedules.values()].filter((x) => x.status === "active" && (x.retainer === "asked" || x.retainer === "countered")) : [] });
   }
   /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
   async reviewDeck(): Promise<ReviewDeck> {
@@ -246,8 +256,21 @@ export class MockApi implements Api {
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {
     await wait();
-    const to = new Date().toISOString().slice(0, 10), from = new Date(Date.now() - 29 * 86_400_000).toISOString().slice(0, 10);
-    return { days: 30, from, to, decisions: 1, medianDecisionMs: 3 * 3_600_000, totals: { guestCardViews: this.guestCardViews, signIns: 3, asked: 2, letIn: 1, declined: 0 } };
+    const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+    const to = day(0), from = day(29);
+    const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const workshop = [
+      { ...zero, day: day(6), guestCardViews: 9, signIns: 1 },
+      { ...zero, day: day(2), guestCardViews: 14, signIns: 1, asked: 1, letIn: 1 },
+      { ...zero, day: day(0), guestCardViews: this.guestCardViews - 23, asked: 1 },
+    ];
+    const hosted = [{ ...zero, day: day(2), guestCardViews: 4, signIns: 1, asked: 1, declined: 1 }];
+    const sum = (rows: typeof workshop) => Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, rows.reduce((n, r) => n + r[k], 0)])) as typeof zero;
+    const collectives = [
+      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000 },
+      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000 },
+    ];
+    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives };
   }
   async countGuestCardView() { this.guestCardViews++; }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
@@ -687,7 +710,19 @@ export class MockApi implements Api {
         const runway = burn === 0 ? "no-usage" as const : net <= 0 ? "covered" as const : "days" as const;
         return { days: 30, trailingDailyBurn: burn, burnDays: 7, projectedUse30d: burn * 30, dailyInflow: inflow, netDailyBurn: net, projectedInflow30d: inflow * 30, runwayDays: runway === "days" ? Math.floor(left / net) : null, runway };
       })(),
-      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" }, at: now(),
+      sumCheck: { ok: diff === 0, diff, identity: "used + expired + left = total + overdrawn" },
+      // a toy adjusted-token mix (core token-mix.ts): 1.15M raw tokens = 50k adj. tokens at Opus 5.5 weights
+      mix: {
+        unitModel: "claude-opus-5-5", weights: { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 },
+        formula: "adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h)",
+        windowDays: 7, from: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) + "T00:00:00.000Z", to: now().slice(0, 10) + "T00:00:00.000Z", computedAt: now(), source: "usage", sessions: 42,
+        counts: { input: 100_000, output: 10_000, cacheRead: 1_000_000, cacheWrite5m: 40_000, cacheWrite1h: 0 }, rawTokens: 1_150_000, adjustedTokens: 50_000, rawPerAdjusted: 23,
+        rawShare: { input: 100 / 1150, output: 10 / 1150, cacheRead: 1000 / 1150, cacheWrite5m: 40 / 1150, cacheWrite1h: 0 },
+        costShare: { input: 0.4, output: 0.2, cacheRead: 0.2, cacheWrite5m: 0.2, cacheWrite1h: 0 },
+      },
+      // the toy's sessions are all Opus-booked: every token at $20 per million
+      usd: { used: toyUsd(used), left: toyUsd(left), burnPerDay: toyUsd(burn), inflowPerDay: toyUsd(b.dailyInflowTokens), pricedAt: "api-list" },
+      at: now(),
     };
   }
   // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row
@@ -703,10 +738,12 @@ export class MockApi implements Api {
     ] : [];
     const share = (t: number) => (used ? t / used : 0);
     const rows: FinanceSpend["rows"] = used ? [
-      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1 },
-      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0 },
+      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1, usd: toyUsd(used + notFunded) },
+      { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: toyUsd(-notFunded) },
     ] : [];
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, at: now() };
+    const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
+    const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -746,7 +783,7 @@ export class MockApi implements Api {
     return {
       windowDays: 7, from: days[6]!.day, to: today,
       rates: { desk: null, town: null, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
-      desksBackend: "host", townOnFly: false, capUsdPerDay: null,
+      desksBackend: "host", townOnFly: false, townPaidBy: "self", createdAt: null, capUsdPerDay: null,
       today: { day: today, deskUsd: 0, townUsd: 0, totalUsd: 0, capUsdPerDay: null, underCap: null },
       days, buildings: [], totals: { deskMs: 0, deskHours: 0, deskUsd: 0, townUsd: 0, totalUsd: 0, sessions: 0, unmeasuredSessions: 0 },
       notCounted: ["Volume storage, stopped Machines' root file systems and bandwidth"],
@@ -808,6 +845,7 @@ export class MockApi implements Api {
     Object.assign(i, { cancelledAt: now(), hasApiKey: false });
     return clone(i);
   }
+  async clearBankLimit(_id: string) { await wait(); }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
@@ -856,7 +894,7 @@ export class MockApi implements Api {
     await wait(40);
     const x = this.schedules.get(id);
     if (!x) throw new Error("not found");
-    const e: Schedule = { ...x, status: "ended", endedReason: "cancelled", nextRunAt: null };
+    const e: ScheduleView = { ...x, status: "ended", endedReason: "cancelled", nextRunAt: null, retainer: x.retainer === "none" ? "none" : "ended", runsLeft: 0, claimTokens: 0 };
     this.schedules.set(id, e);
     return clone(e);
   }
@@ -865,7 +903,17 @@ export class MockApi implements Api {
     await wait(40);
     const x = this.schedules.get(id);
     if (!x) throw new Error("not found");
-    const e: Schedule = { ...x, ...patch, updatedAt: now() };
+    const e: ScheduleView = { ...x, ...patch, updatedAt: now() };
+    this.schedules.set(id, e);
+    return clone(e);
+  }
+  /** like core's decideRetainer: approve claims tokensPerRun × runs left, counter waits on the manager, reject holds the runs */
+  async decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string }) {
+    await wait(40);
+    const x = this.need(this.schedules.get(id), "schedule");
+    if (x.retainer !== "asked") throw new ApiError(`This retainer is ${x.retainer}, not asked.`, "conflict", 409);
+    const approve = input.action === "approve";
+    const e: ScheduleView = { ...x, retainer: approve ? "funded" : input.action === "counter" ? "countered" : "rejected", retainerTokens: approve ? x.askTokens : null, claimTokens: approve ? x.askTokens : 0, retainerNote: input.note || null, retainerDecidedBy: "us_mitchell", retainerDecidedAt: now(), updatedAt: now() };
     this.schedules.set(id, e);
     return clone(e);
   }

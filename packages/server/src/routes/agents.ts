@@ -1,5 +1,5 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
-import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, RetainerDecisionInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, ASK_FIRST, parse, requireUser, type Params } from "../context.ts";
@@ -109,19 +109,24 @@ export async function agentRoutes(app: FastifyInstance) {
   /** Every agent's blocked queued assignments with the reason (the map's blocked badges and red lines): { agents: { [agentId]: BlockedAssignment[] } } */
   app.get("/api/blocked", async () => ({ agents: townBlocked(world) }));
   /** Every building's active schedules, soonest run first (the map's schedule boards): { schedules: Schedule[] } */
-  app.get("/api/scheduled", async () => ({ schedules: townSchedules(world) }));
+  app.get("/api/scheduled", async () => ({ schedules: townSchedules(world).map((s) => scheduleView(world, s)) }));
   /** A building's schedules (active soonest first, then the 20 most recently ended): { schedules: Schedule[] } */
-  app.get<{ Params: Params }>("/api/buildings/:id/schedules", async (req) => ({ schedules: buildingSchedules(world, world.buildings.require(req.params.id, "building").id) }));
+  app.get<{ Params: Params }>("/api/buildings/:id/schedules", async (req) => ({ schedules: buildingSchedules(world, world.buildings.require(req.params.id, "building").id).map((s) => scheduleView(world, s)) }));
   /** Put a timed job on a building's schedule (building.assign; CreateScheduleInput). → 201 { schedule } */
   app.post<{ Params: Params }>("/api/buildings/:id/schedules", async (req, reply) => {
     const actor = actorOf(world, req);
     const b = world.buildings.require(req.params.id, "building");
     if (!world.permissions.can(actor, "building.assign", b.id)) throw new AppError("forbidden", "You need building.assign on this building to schedule work in it.");
     const schedule = createSchedule(world, b.id, world.holderOf(actor), req.body ?? {}, actOrigin(world, actor, null));
-    return reply.code(201).send({ schedule });
+    return reply.code(201).send({ schedule: scheduleView(world, schedule) });
   });
   /** Edit, pause or resume a schedule (building.assign on its building; EditScheduleInput). → { schedule } */
-  app.post<{ Params: Params }>("/api/schedules/:id", async (req) => ({ schedule: editSchedule(world, actorOf(world, req), req.params.id, req.body ?? {}) }));
+  app.post<{ Params: Params }>("/api/schedules/:id", async (req) => ({ schedule: scheduleView(world, editSchedule(world, actorOf(world, req), req.params.id, req.body ?? {})) }));
+  /**
+   * A human decides a schedule's retainer ask (1:1 mt_cyd2t5ioob decision 2): approve (409 when it would dip into the
+   * operating reserve), counter (note, tokensPerRun and/or until) or reject. building.fund on its building or its goal's captain.
+   */
+  app.post<{ Params: Params }>("/api/schedules/:id/retainer", async (req) => ({ schedule: decideRetainer(world, actorOf(world, req), req.params.id, parse(RetainerDecisionInput, req.body)) }));
   /** Stop a schedule (building.assign on its building). → { schedule } */
   app.post<{ Params: Params }>("/api/schedules/:id/cancel", async (req) => ({ schedule: cancelSchedule(world, actorOf(world, req), req.params.id) }));
 

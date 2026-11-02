@@ -1,4 +1,5 @@
 import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
+import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
@@ -110,6 +111,8 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   world.events.append({ type: "agent.said", agentId: me.id, buildingId: me.buildingId, text: input.text, payload: { heardBy: listeners.map((a) => a.id) } });
   for (const a of listeners) sendMessage(world, { kind: "heard", fromId: me.id, fromKind: "agent", toId: a.id, body: input.text });
   notifyMentions(world, me, input.text, { where: "speech", buildingId: me.buildingId });
+  // a let-in member's first Say counts once in the join funnel (gr_58n37j410s step 3)
+  if (me.kind === "human" && me.ownerUserId) countMemberAct(world, me.ownerUserId);
   return { heardBy: listeners.map((a) => a.name) };
 }
 

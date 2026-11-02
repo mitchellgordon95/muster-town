@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { clampPanelWidth, defaultPanelWidth, MAP_KEEP, PANEL_MIN, PANEL_WIDTH_KEY, PanelResizer, panelMax, panelWidthFor, RESIZE_HINT, savedPanelWidth, savePanelWidth } from "../src/panels/panelResize";
+import { clampPanelWidth, defaultPanelWidth, GE_CANVAS_MIN, GE_DETAIL_KEY, GE_DETAIL_MIN, GeDivider, geDetailWidth, savedGeDetailWidth, saveGeDetailWidth, MAP_KEEP, PANEL_MIN, PANEL_WIDTH_KEY, PanelResizer, panelMax, panelWidthFor, RESIZE_HINT, savedPanelWidth, savePanelWidth } from "../src/panels/panelResize";
 
 function memStore() {
   const m = new Map<string, string>();
@@ -36,5 +36,31 @@ describe("side panel resize", () => {
     expect(panelWidthFor(1600, savedPanelWidth(s))).toBe(500);
     s.setItem(PANEL_WIDTH_KEY, "junk");
     expect(savedPanelWidth(s)).toBeNull();
+  });
+});
+
+describe("goal editor divider (flag dc_bc67e2sw7z)", () => {
+  it("renders a vertical separator with the reset hint", () => {
+    const html = renderToStaticMarkup(<GeDivider width={420} onResize={() => undefined} />);
+    expect(html).toContain('class="ge-divider"');
+    expect(html).toContain('role="separator"');
+    expect(html).toContain('aria-valuenow="420"');
+    expect(html).toContain(RESIZE_HINT);
+  });
+  it("a drag sets the detail width from the pointer, keeping both minimums", () => {
+    // a 1200 px body starting at x=100: the pointer at 700 leaves 600 px to its right
+    expect(geDetailWidth(700, 100, 1200)).toBe(600);
+    expect(geDetailWidth(1290, 100, 1200)).toBe(GE_DETAIL_MIN);
+    expect(geDetailWidth(150, 100, 1200)).toBe(1200 - GE_CANVAS_MIN);
+    expect(geDetailWidth(700.6, 100, 1200)).toBe(599);
+  });
+  it("remembers the width across reloads and a reset forgets it", () => {
+    const s = memStore();
+    expect(savedGeDetailWidth(s)).toBeNull();
+    saveGeDetailWidth(geDetailWidth(700, 100, 1200), s);
+    expect(s.m.get(GE_DETAIL_KEY)).toBe("600");
+    expect(savedGeDetailWidth(s)).toBe(600);
+    saveGeDetailWidth(null, s);
+    expect(savedGeDetailWidth(s)).toBeNull();
   });
 });

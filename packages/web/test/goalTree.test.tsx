@@ -5,6 +5,8 @@ import { BOX, deskTotal, fitView, layoutTree, revealBox, stepTree, zoomAt } from
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
 import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
+import { GoalCanvas } from "../src/panels/GoalCanvas";
+import { store } from "../src/state";
 import { clock, dayClock } from "../src/panels/ui";
 
 const kr = (id: string, status: string, due: string | null = "2026-12-01", archivedAt: string | null = null) =>
@@ -152,6 +154,28 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
     expect(shut.boxes.find((b) => b.node.id === "gl_fund")!.hidden).toBe(2);
     expect(shut.boxes.find((b) => b.node.id === "gl_fund")!.kids).toBe(true);
     expect(layoutTree(root, true, new Set(["gl_town"])).boxes.map((b) => b.node.id)).toEqual(["gl_town"]);
+  });
+
+  it("the canvas: an admin gets a + beside the desks tag of an active goal with no building attached (mt_n25udpflus decision 3), and − / + for each attached one; a guest gets neither", () => {
+    const root = sample();
+    const noop = () => {};
+    const draw = () => renderToStaticMarkup(<GoalCanvas root={root} retired={true} collapsed={new Set()} selected="gl_town" scope={null} proposals={new Map()} canMove={() => false}
+      onSelect={noop} onToggle={noop} onOpen={noop} onChanged={noop} />);
+    const was = store.state, err = console.error;
+    console.error = () => {}; // react-dom/server warns that useLayoutEffect is skipped: expected, the markup is what's checked
+    try {
+      store.state = { ...was, me: { isAdmin: true, roles: [], user: { id: "us_m" } } as never };
+      const admin = draw();
+      expect(admin).toContain('aria-label="Add a building here: gl_b"');
+      expect(admin).toContain('aria-label="Add a building here: gl_town"');
+      expect(admin).not.toContain('aria-label="Add a building here: gl_a"'); // has the Workshop: its − / + instead
+      expect(admin).toContain('aria-label="Add a desk: Workshop"');
+      expect(admin).not.toContain('aria-label="Add a building here: gl_old"'); // retired
+      store.state = { ...was, me: null };
+      const guest = draw();
+      expect(guest).not.toContain("Add a building here");
+      expect(guest).not.toContain("Add a desk");
+    } finally { store.state = was; console.error = err; }
   });
 
   it("the canvas keys: up = parent, down = first child, left/right = the next box in the row; edges stay put", () => {

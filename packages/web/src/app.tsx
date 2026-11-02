@@ -18,6 +18,7 @@ import { ConnectAgentPanel } from "./panels/ConnectAgent";
 import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
+import { StatsPanel } from "./panels/StatsPanel";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
@@ -183,6 +184,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "connect": return <ConnectAgentPanel />;
     case "library": return <LibraryPanel docId={panel.docId} />;
     case "outbox": return <OutboxPanel />;
+    case "stats": return <StatsPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;

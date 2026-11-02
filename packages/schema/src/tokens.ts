@@ -60,6 +60,61 @@ export function splitRaw(raw: number, model?: string | null): TokenCounts {
   return { ...ZERO_TOKENS, output, cacheRead: t - output };
 }
 
+/**
+ * The adjusted-token mix (1:1 mt_rbc3exb393): one global, daily-updated estimate of what an adjusted token is made of,
+ * from the last `windowDays` of real usage (ended sessions with a real breakdown; back-filled ones left out). `counts`
+ * sums their five counters; `adjustedTokens` prices them at the Bank model's weights (`weights`), so
+ * `rawPerAdjusted = rawTokens / adjustedTokens`. `rawShare` is each kind's share of the raw tokens, `costShare` its share
+ * of the adjusted tokens (both sum to 1). With no usage in the window it is the step-1 calibration (`source`
+ * "calibration": 30 raw per adj. token, output + cache read). Wherever the Bank has only a bare adjusted number (a credit,
+ * a bare charge or draw) it splits it into counters with this mix (`splitByMix`).
+ */
+export interface TokenMix {
+  /** the model whose output token is 1 adj. token (the Bank's accounting model) */
+  unitModel: string;
+  /** each kind's weight in that model's output tokens (its list price / the output price) */
+  weights: TokenCounts;
+  /** the conversion in words: adj. tokens = output + weight × each other kind */
+  formula: string;
+  windowDays: number;
+  from: string;
+  to: string;
+  computedAt: string;
+  source: "usage" | "calibration";
+  /** ended sessions in the window that were counted */
+  sessions: number;
+  counts: TokenCounts;
+  rawTokens: number;
+  adjustedTokens: number;
+  /** raw tokens per adj. token over the window */
+  rawPerAdjusted: number;
+  rawShare: Record<TokenCountKind, number>;
+  costShare: Record<TokenCountKind, number>;
+}
+
+/** `n` raw tokens split in `mix`'s proportions (largest remainder: the parts sum to exactly n). */
+export function scaleTokens(mix: Partial<TokenCounts>, n: number): TokenCounts {
+  const from = countsOf(mix), total = rawTokens(from), want = Math.max(0, Math.round(n));
+  if (!total || !want) return { ...ZERO_TOKENS };
+  const out = { ...ZERO_TOKENS };
+  const rems: { k: TokenCountKind; r: number }[] = [];
+  let given = 0;
+  for (const k of TOKEN_KINDS) {
+    const exact = (from[k] * want) / total;
+    out[k] = Math.floor(exact);
+    given += out[k];
+    rems.push({ k, r: exact - out[k] });
+  }
+  rems.sort((a, b) => b.r - a.r);
+  for (let i = 0; given < want; i++, given++) out[rems[i % rems.length].k]++;
+  return out;
+}
+
+/** The counters behind `tokens` adj. tokens when only that number is known: tokens × the mix's raw per adj. token, split by its counts. */
+export function splitByMix(tokens: number, mix: Pick<TokenMix, "counts" | "rawPerAdjusted">): TokenCounts {
+  return scaleTokens(mix.counts, Math.max(0, Math.round(tokens)) * mix.rawPerAdjusted);
+}
+
 /** Counters from either a breakdown or a bare raw total (split by `splitRaw`). */
 export function toCounts(t: number | Partial<TokenCounts>, model?: string | null): TokenCounts {
   return typeof t === "number" ? splitRaw(t, model) : countsOf(t);

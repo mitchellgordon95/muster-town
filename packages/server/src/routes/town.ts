@@ -184,7 +184,10 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post("/api/buildings", async (req, reply) => {
     const input = parse(CreateBuildingInput, req.body);
-    const building = world.ops.createBuilding(actorOf(world, req), input);
+    const created = world.ops.createBuilding(actorOf(world, req), input);
+    // no name typed: one cheap-model call names it like a place (flag dc_42c9cjbzls); the goal's short text stays on failure
+    const named = !input.name?.trim() && app.runtime?.nameBuilding;
+    const building = named ? await app.runtime!.nameBuilding!(created.id).catch(() => world.buildings.require(created.id, "building")) : created;
     return reply.code(201).send({ building });
   });
 
@@ -254,6 +257,14 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the operating reserve.");
     const { tokens } = parse(z.object({ tokens: z.number().int().nonnegative() }), req.body);
     return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
+  /** The retainer lookahead (admin): `{hours}` of due runs each retainer claims (default 6; docs/bank.md). → { retainerLookaheadHours, free } */
+  app.put("/api/town/retainer-lookahead", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the retainer lookahead.");
+    const { hours } = parse(z.object({ hours: z.number().int().min(1).max(168) }), req.body);
+    return { retainerLookaheadHours: world.setRetainerLookahead(hours, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
   });
 
   /**
@@ -423,7 +434,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
     const desks = world.desksConfig();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined });
+    // a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
+    const hosted = !!world.host.hosted;
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME && !hosted, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {
@@ -439,6 +452,12 @@ export async function townRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
     const user = requireUser(req);
     return { input: world.bank.cancelInput(user.id, req.params.id) };
+  });
+
+  // "Try now": clear an observed credential limit (core availability.ts) so the next session may try the input again
+  app.post<{ Params: Params }>("/api/bank/limits/:id/clear", async (req) => {
+    const user = requireUser(req);
+    return { limit: world.bank.clearLimit(user.id, req.params.id) };
   });
 
   // public, read-only: every funding stream (earmarks too), what each can still pay, and the expected session size a key
@@ -503,7 +522,7 @@ export async function townRoutes(app: FastifyInstance) {
 }
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
-  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world) } : null;
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */

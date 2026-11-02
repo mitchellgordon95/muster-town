@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { callVerb, init, managerless, result, setup, type FakeSession } from "./helpers.ts";
+import { callVerb, creditBank, init, managerless, result, setup, type FakeSession } from "./helpers.ts";
 
 async function* work(s: FakeSession) {
   yield init();
@@ -60,6 +60,7 @@ describe("the scheduler and the gate (Budget.canStart)", () => {
   test("a tick never starts an assignment that canStart refuses: a lane-held one stays pending with its reason and starts once the gate opens", async () => {
     const { world, runtime, by, seed, lab } = setup(work);
     managerless(world);
+    creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const admin = world.ops.ensureAvatar(seed.admin.id);
     const noor = by("Noor");
     const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id);

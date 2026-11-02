@@ -13,6 +13,7 @@ import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRed
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
+import { nameBuilding } from "./naming.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
@@ -110,6 +111,8 @@ export interface Runtime {
   interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
   onMeetingStart(meetingId: string): Promise<void>;
+  /** A building was just made under a goal with no name typed: one cheap-model call renames it like a place (naming.ts); never throws. */
+  nameBuilding(buildingId: string): Promise<Building>;
   /** Run one work session now; resolves with the ended session. */
   runWorkSession(agentId: string, assignmentId: string): Promise<Session>;
   /** One scheduler pass. Starts sessions in the background (see whenIdle). */
@@ -670,6 +673,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       }
       timed("bankCredit", () => world.bank.creditDue(d), "bank");
       timed("bankDrift", () => world.bank.driftDue(d), "bank drift");
+      timed("bankMix", () => world.bank.mixDue(d), "bank token mix");
       // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
@@ -863,6 +867,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
+    nameBuilding: (buildingId) => track(nameBuilding(ctx, buildingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
     tickOnce,
     tickStats: () => ({ last: lastTick, slow: lastSlowTick }),

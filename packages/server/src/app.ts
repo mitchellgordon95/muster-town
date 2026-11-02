@@ -192,7 +192,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
-  // The join funnel (grant gr_fibsfwr4tz step 3): public counts only, never who. The guest card pings `view` once per load;
+  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load;
   // the root's GET also lists every hosted collective, so their strangers are rows too.
   app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
   app.get(`${prefix}/api/join-funnel`, async () => {

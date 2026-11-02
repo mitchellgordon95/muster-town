@@ -82,7 +82,34 @@ describe("Start a collective", () => {
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("none");
     // the Workshop's own health says nothing about funding
     expect((await json(app, "GET", "/api/health")).body.funding).toBeUndefined();
+    // its goal tree is the founder's (gr_5ltmbf3a2f): root = the Start form's goal, the founder captains it, no Workshop pillars
+    const me = (await json(app, "GET", "/garden-club/api/me", { headers: { cookie: octo } })).body;
+    const goals = (await json(app, "GET", "/garden-club/api/goals")).body;
+    expect(goals.root).toMatchObject({ id: "gl_town", text: garden.goal, children: [] });
+    expect(goals.root.ownerId).toBeTruthy();
+    expect(goals.root.owner.name).toBe(me.user?.name ?? me.name);
+    expect(goals.root.owner.name).not.toBe("admin");
+    // the Workshop's tree keeps its pillars
+    expect((await json(app, "GET", "/api/goals")).body.root.children.map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining(["gl_fund", "gl_join", "gl_trust"]));
     expect(hub.ownedBy(2002)).toHaveLength(1);
+  });
+
+  it("starts with a goal-directed building on the founder's goal, its manager at a desk; no key → the 'add your key' step", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, garden)).status).toBe(201);
+    const town = (await json(app, "GET", "/garden-club/api/town")).body;
+    const labs = town.buildings.filter((b: { kind: string }) => b.kind !== "town-hall");
+    expect(labs).toHaveLength(1);
+    expect(labs[0]).toMatchObject({ name: "Workshop", kind: "lab", goalId: "gl_town", codeAccess: false });
+    const manager = town.agents.find((a: { id: string }) => a.id === labs[0].managerAgentId);
+    expect(manager).toMatchObject({ kind: "resident", homeBuildingId: labs[0].id });
+    // at one of its desks (the explore tick needs a free one beside it)
+    const w = hub.world("garden-club")!;
+    expect(w.layout.places.some((p) => p.kind === "desk" && p.buildingId === labs[0].id && p.pos.x === manager.pos.x && p.pos.y === manager.pos.y)).toBe(true);
+    expect(labs[0].headcount).toBeGreaterThan(w.layout.deskCount(labs[0].id));
+    // the HUD's one next step for a keyless founder is driven by this
+    expect(town.health.funding).toBe("none");
   });
 
   it("one active collective per person; a town admin has no cap", async () => {
@@ -121,6 +148,8 @@ describe("Start a collective", () => {
       expect(r.body, url).not.toContain(KEY);
     }
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("api-key");
+    // with a key there is no 'add your key' step, and still one first building
+    expect((await json(app, "GET", "/garden-club/api/town")).body.buildings.filter((b: { kind: string }) => b.kind !== "town-hall")).toHaveLength(1);
   });
 
   it("a hosted collective's Bank takes API keys only", async () => {

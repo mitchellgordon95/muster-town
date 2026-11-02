@@ -79,6 +79,7 @@ describe.each(MapLayout.options)("the %s map of the live tree", (shape) => {
     expect(b.grid).toEqual(a.grid);
     const plaza = a.places.find((p) => p.id === "plaza")!;
     for (const p of a.places) expect(findPath(a.grid, plaza.pos, p.pos), p.id).not.toBeNull();
+    expect(a.places.find((p) => p.id === "stats")?.kind).toBe("stats"); // the Town Hall's user stats stand, in every shape
     if (shape === "fountain") expect(a.grid.tiles.filter((t) => t === TILE.FOUNTAIN).length).toBeGreaterThan(0);
   });
 });

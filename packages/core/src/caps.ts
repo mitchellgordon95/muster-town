@@ -1,20 +1,14 @@
 /**
- * Bank grant step 5 (gr_iq5m7dug56, plan dc_2uqmfdittg; KR kr_vyrhhiyotb): unexpected out-of-tokens deaths and the cap hold.
- * - Deaths: over a rolling 7 days, the sessions that died on the subscription cap plus the `budget.exhausted` events.
- *   The Bank warns before neither, so each one is a death it did not predict (definition in docs/bank.md).
- * - Hold: the `bank.cap` events say at what adjusted spend the subscription was capped each day. The learned daily cap is
- *   the median over the last 14 days of each day's lowest; when today's subscription spend is within one typical session
- *   of it, new subscription starts are held (unless a fallback input can take them) instead of starting to die.
- * Pure functions; Bank wires them to the event log and the sessions.
+ * Bank grant step 5 (gr_iq5m7dug56, plan dc_2uqmfdittg; KR kr_vyrhhiyotb): unexpected out-of-tokens deaths.
+ * Over a rolling 7 days, the sessions that died on the subscription cap plus the `budget.exhausted` events (definition in
+ * docs/bank.md). A metric only. The learned daily cap and the hold near it were removed on 2026-11-01: a cap inferred
+ * from where one session died is not a limit (one Fable-only limit was learned as an 8.7M daily cap and froze the town).
+ * Availability is observed per credential instead (docs/bank.md "Promised and available").
+ * Pure functions; Bank wires them to the event log.
  */
 import { SPEND_LIMIT, type Event } from "@muster-town/schema";
-import { stamp } from "./time.ts";
 
 const DEATH_WINDOW_DAYS = 7;
-/** days of `bank.cap` events the learned cap looks back over */
-const CAP_LOOKBACK_DAYS = 14;
-/** ended sessions the typical session size is the median of */
-export const TYPICAL_SESSIONS = 50;
 /** before 119bd70 the desk only echoed the SDK's cap result as a thought: "You've hit your org's monthly spend limit · resets …" */
 export const CAP_THOUGHT = /^You've hit your/;
 
@@ -59,36 +53,4 @@ export function countDeaths(events: Event[], now: Date): BankDeaths {
   }
   const capDeaths = rows.filter((r) => r.kind === "cap").length;
   return { since, capDeaths, exhausted: rows.length - capDeaths, total: rows.length, events: rows.reverse() };
-}
-
-export const median = (xs: number[]): number | null => {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b), m = s.length >> 1;
-  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
-};
-
-/** One `bank.cap` event's facts: its UTC day and the subscription's adjusted spend when it hit. */
-interface CapPoint { day: string; subscriptionAdjustedToday: number }
-
-/** The learned daily cap: per UTC day the lowest spend a cap hit at, then the median over the last 14 days up to `today`; null with no cap seen. */
-export function learnedCap(points: CapPoint[], today: string): { cap: number; days: number } | null {
-  const from = new Date(Date.parse(today) - (CAP_LOOKBACK_DAYS - 1) * 86_400_000).toISOString().slice(0, 10);
-  const byDay = new Map<string, number>();
-  for (const p of points) {
-    if (p.day < from || p.day > today || !(p.subscriptionAdjustedToday > 0)) continue;
-    byDay.set(p.day, Math.min(byDay.get(p.day) ?? Infinity, p.subscriptionAdjustedToday));
-  }
-  const cap = median([...byDay.values()]);
-  return cap === null ? null : { cap, days: byDay.size };
-}
-
-/** Whether to hold new subscription starts: spend within one typical session of the cap (no cap or no typical size = no hold). */
-export function nearCap(spentToday: number, cap: number | null, typical: number | null): boolean {
-  return cap !== null && spentToday >= cap - (typical ?? 0);
-}
-
-/** The hold's reason, as shown on held assignments and the map. */
-export function capReason(spentToday: number, cap: number, resetsAt: string): string {
-  const m = (n: number) => `${(n / 1e6).toFixed(1)}M`;
-  return `near the subscription cap (${m(spentToday)} of ~${m(cap)} adj. tokens today), resets at ${stamp(resetsAt)}`;
 }

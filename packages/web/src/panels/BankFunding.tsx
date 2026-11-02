@@ -328,7 +328,15 @@ export function BankInputs({ bank, onChange }: Props) {
           <tbody>
             {inputs.map((i) => (
               <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
-                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}</td>
+                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}
+                  {(i.limits ?? []).filter((l) => l.inForce).map((l) => (
+                    <div key={l.id} title={l.reason} style={{ color: "#c0392b" }}>
+                      {l.text.slice(i.label.length + 2)}
+                      {!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
+                        ? <> <Act small run={async () => { await api().clearBankLimit(l.id); store.toast(`${i.label}: the next session may try it`, "ok"); onChange(); }}>Try now</Act></>
+                        : null}
+                    </div>
+                  ))}</td>
                 <td>{i.userName}</td>
                 <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div className="muted">{creditsLeftLine(i)}</div> : null}</td>
                 <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>

@@ -10,6 +10,7 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { isCheckpointAssignment } from "./lanes.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
@@ -325,10 +326,13 @@ export class Ops {
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
     if (agent.status === "banned" || (agent.status === "retired" && !agent.forkOf)) throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
+    // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
+    const system = { kind: "system" as const, id: "system" };
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
+      createdBy: isCheckpointAssignment(a) || !actor ? system : this.world.holderOf(actor),
     });
   }
 
@@ -398,6 +402,8 @@ export class Ops {
       byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
       wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
+    // the session's own login token dies with it (docs/secrets.md "Login tokens")
+    this.world.tokens.revokeSession(sessionId);
     const agent = this.world.agents.require(s.agentId, "agent");
     // a 1:1 answered beside a work session ends while the work goes on (and vice versa): idle only when neither runs
     if (agent.status === "working" && !this.world.sessions.count("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agent.id])) this.world.setStatus(agent.id, "idle");
@@ -406,6 +412,14 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // promised and available (availability.ts): what the session's end says about the input it ran on. A failure that is
+    // about the credential (a model or plan limit, billing, auth) records a limit on that input and model; a session that
+    // finished with tokens shows the input serves the model, so its limits for it clear. Interrupted sessions say nothing.
+    if (session.credentialInputId && session.status !== "interrupted") {
+      const said = [result.spendLimit, session.error].filter(Boolean).join(" ");
+      const limit = said ? this.world.bank.availability.recordFailure({ inputId: session.credentialInputId, model: session.model, text: said, sessionId: session.id }) : null;
+      if (!limit && session.status === "done" && session.tokens > 0) this.world.bank.availability.recordSuccess(session.credentialInputId, session.model, new Date(), `${agent.name}'s session on ${session.model} succeeded`);
+    }
     // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
     walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
@@ -545,7 +559,9 @@ export class Ops {
   endMeeting(actor: Actor, meetingId: string, closing?: string, cause?: string): Meeting {
     if (actor) {
       const m = this.world.meetings.require(meetingId, "meeting");
-      if (m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      // a 1:1's own human ends it, member or not (gr_58n37j410s)
+      const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

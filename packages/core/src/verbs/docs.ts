@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields,
+  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
@@ -11,6 +11,7 @@ import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
+import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
 import { ftsQuery } from "../text.ts";
 import { whereOf } from "../table.ts";
@@ -451,13 +452,21 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
     const { lane, grantId, gap, sourceId, ...edit } = rest;
     if (lane || grantId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
     const e = editSchedule(world, me, sc.id, { ...edit, ...(paused !== undefined ? { paused } : {}) });
-    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs };
+    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs, ...retainerOut(world, e) };
   }
   if (paused !== undefined) throw badRequest("paused goes with scheduleId (pause or resume an existing schedule).");
   if (!rest.title || rest.description === undefined) throw badRequest("A new schedule needs a title and a description (or give scheduleId to edit one).");
   const s = createSchedule(world, bid, world.holderOf(me), { ...rest, repeat: rest.repeat ?? undefined }, me.kind === "human" ? null : actOrigin(world, me, null));
-  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
+  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane, ...retainerOut(world, s),
     note: "On your building's schedule: when it fires, a normal assignment goes to the building queue (a fork of you runs it); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
+}
+
+/** A schedule's retainer as `schedule` answers: per run, runs left, the ask, drawn and its state (nothing for a schedule without one). */
+function retainerOut(world: World, s: Schedule) {
+  if (s.lane !== "retainer") return {};
+  const v = scheduleView(world, s);
+  const state = v.retainer === "asked" ? "asked: waits on a human in the Town Hall in-tray; its runs are held until approved" : v.retainer === "countered" ? `countered: ${v.retainerNote ?? ""} Answer by editing tokensPerRun and/or repeat` : v.retainer;
+  return { retainer: { tokensPerRun: v.tokensPerRun, runsLeft: v.runsLeft, askTokens: v.askTokens, drawnTokens: v.drawnTokens, approvedTokens: v.retainerTokens, state } };
 }
 
 /**

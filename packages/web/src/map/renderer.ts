@@ -51,6 +51,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
+  stats: () => ({ kind: "stats", verb: "Read the user stats" }),
   // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);

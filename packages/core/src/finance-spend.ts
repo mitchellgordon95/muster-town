@@ -1,7 +1,7 @@
 import { countsOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
-import { townFinance } from "./finance.ts";
+import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
 
 /**
@@ -32,6 +32,8 @@ export interface SpendNode {
   /** tokens / used (0 when used is 0); the weight-mismatch and not-funded rows' shares are negative */
   share: number;
   sessions: number;
+  /** the row's dollars at API list price, to the cent: each session at its booking model's output price; the synthetic rows' tokens at BANK_MODEL's ($20/M) */
+  usd: number;
   children?: SpendNode[];
 }
 
@@ -74,6 +76,14 @@ export interface FinanceSpend {
   rows: SpendNode[];
   /** the rows' sum vs used; ok when they match exactly */
   check: { ok: boolean; diff: number; identity: string };
+  /**
+   * The same in dollars at API list price (gr_gmzli3f96j): `sessionsTotal` is Σ sessions' list-price cost (each at its
+   * booking model's output price, a pre-076 Fable session at $50/M), the synthetic rows are priced at BANK_MODEL ($20/M),
+   * and `used` = sessionsTotal + (used − sessionsTotal tokens) × $20/M, equal to GET /api/finance `usd.used`.
+   */
+  usd: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
+  /** the rows' dollars (each rounded to the cent) summed vs `usd.used`; ok when |diff| is under a cent, or half a cent per row (rounding) when there are more than two rows */
+  usdSumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 
@@ -202,8 +212,8 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
   return { split, lastAt, allocationPaid };
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; sessions: number; kids: Map<string, Acc> }
-const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, sessions: 0, kids: new Map() });
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
+const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, usd: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
   let c = parent.kids.get(key);
   if (!c) parent.kids.set(key, c = make());
@@ -221,7 +231,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
   for (const s of inp.sessions) {
-    const tokens = sessionTokens(s);
+    const tokens = sessionTokens(s), usd = sessionListUsd(s);
     if (inp.convertedAt && s.endedAt && s.endedAt < inp.convertedAt) {
       const d = tokens - ledgerBookedBeforeConversion(s, since);
       if (d) { weightMismatch += d; mismatched++; }
@@ -243,14 +253,15 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
       path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
-    for (const n of path) { n.tokens += tokens; n.sessions++; }
+    for (const n of path) { n.tokens += tokens; n.usd += usd; n.sessions++; }
     root.tokens += tokens;
+    root.usd += usd;
   }
 
   const share = (t: number) => (used ? Math.round((t / used) * 1e4) / 1e4 : 0);
   const out = (n: Acc): SpendNode => {
     const kids = [...n.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
-    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, ...(kids.length ? { children: kids } : {}) };
+    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...(kids.length ? { children: kids } : {}) };
   };
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
@@ -258,10 +269,14 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const booked = sessionsTotal - weightMismatch;
   const unattributed = Math.max(0, used - booked);
   const notFunded = Math.max(0, booked - used);
-  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0 });
-  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched });
-  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0 });
+  const usdOf = (t: number) => cents(bankTokensUsd(t));
+  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0, usd: usdOf(unattributed) });
+  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched, usd: usdOf(-weightMismatch) });
+  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: usdOf(-notFunded) });
   const diff = rows.reduce((s, r) => s + r.tokens, 0) - used;
+  // the same formula as financeSummary's usd.used, so the two endpoints agree to the cent
+  const usd = { used: cents(root.usd + bankTokensUsd(used - sessionsTotal)), sessionsTotal: cents(root.usd), unattributed: usdOf(unattributed), weightMismatch: usdOf(weightMismatch), notFunded: usdOf(notFunded) };
+  const usdDiff = cents(rows.reduce((s, r) => s + r.usd, 0) - usd.used);
   const nf = notFundedUsage(inp);
   const splitSum = nf.split.reduce((t, g) => t + g.tokens, 0);
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
@@ -273,6 +288,8 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     notFundedSplitCheck: splitSum === notFunded ? { sum: splitSum, notFunded, ok: true } : { sum: splitSum, notFunded, ok: false, reason: NOT_FUNDED_SPLIT_REASON },
     rows,
     check: { ok: diff === 0, diff, identity: SPEND_IDENTITY },
+    usd,
+    usdSumCheck: { ok: Math.abs(usdDiff) < Math.max(0.01, 0.005 * rows.length + 1e-9), diff: usdDiff, identity: `${SPEND_IDENTITY}, in dollars at API list price` },
     at: now.toISOString(),
   };
 }

@@ -142,9 +142,8 @@ function BankSpending({ bank, fin, rev }: { bank: Bank | null; fin: FinanceData 
                 <td>Unexpected out-of-tokens deaths, last 7 days (baseline 7, target 0)</td>
                 <td style={bank.deaths.total ? { color: "#c0392b" } : undefined}><b>{bank.deaths.total}</b> (cap {bank.deaths.capDeaths}, exhausted {bank.deaths.exhausted})</td>
               </tr>
-              <tr><td>Learned subscription cap per day</td><td>{bank.cap.learnedCap === null ? "no cap seen" : `${fmtTokens(bank.cap.learnedCap)} (median of ${bank.cap.days} day${bank.cap.days === 1 ? "" : "s"})`}</td></tr>
-              <tr className="sub-row"><td>Subscription spend today · typical session</td><td>{fmtTokens(bank.cap.spentToday)} · {bank.cap.typicalSession === null ? "n/a" : fmtTokens(bank.cap.typicalSession)}</td></tr>
-              {bank.cap.held ? <tr><td>New subscription starts</td><td style={{ color: "#c0392b" }}>held: {bank.cap.reason}</td></tr> : null}
+              <tr className="sub-row"><td>Subscription spend today</td><td>{fmtTokens(bank.cap.spentToday)}</td></tr>
+              {bank.cap.cappedAt ? <tr><td>Subscription</td><td style={{ color: "#c0392b" }}>capped since {bank.cap.cappedAt.slice(0, 16).replace("T", " ")} UTC, resets {bank.cap.resetsAt.slice(0, 16).replace("T", " ")} UTC</td></tr> : null}
             </tbody>
           </table>
         </Section>

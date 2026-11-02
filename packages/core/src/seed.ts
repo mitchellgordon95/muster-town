@@ -168,11 +168,14 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       world.town.set({ defaults: BuildingDefaults.parse({ ...world.town.defaults(), ...fromLab, ...spelledDefaults(opts.collectivePath) }) });
     }
     world.permissions.ensureTownRoles();
+    // a hosted collective's tree is its founder's: the Workshop's untouched placeholder pillars go (gr_5ltmbf3a2f)
+    world.goalTree.ensureRootText();
+    if (world.permissions.isHosted()) world.goalTree.dropPlaceholderPillars();
     const th = world.buildings.get(TOWN_HALL_ID) ?? world.buildings.first("kind = 'town-hall'")!;
     seedManual(world, opts.manualPath, existing.id);
     const lab = world.buildings.first("kind = 'lab'", [], "ORDER BY createdAt") ?? null;
     const manager = lab?.managerAgentId ? world.agents.get(lab.managerAgentId) ?? null : null;
-    return { created: false, admin: existing, adminToken: world.tokens.getOrCreate("user", existing.id), townHall: th, lab, manager };
+    return { created: false, admin: existing, adminToken: existingAdminToken(world, existing.id, opts.dataDir), townHall: th, lab, manager };
   }
   const result = world.transaction(() => {
     let town: Partial<Town> = { name: "Muster Town", goal: "", tagline: "publicly legible, collectively funded agent town for climate science" };
@@ -185,7 +188,9 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     world.permissions.ensureTownRoles();
     const { user: admin, token: adminToken } = createUser(world, opts.adminName ?? townEnv("ADMIN_NAME") ?? "Mitchell");
     world.permissions.grant({ kind: "user", id: admin.id }, townRoleId("admin"));
+    world.goalTree.ensureRootText();
     world.goalTree.ensureRootCaptain();
+    if (world.permissions.isHosted()) world.goalTree.dropPlaceholderPillars();
 
     const townHall = createBuilding(world, {
       name: "Town Hall", goal: world.town.get().goal, description: "Library, town map, outbox, and the town meeting room.", headcount: 1,
@@ -232,12 +237,28 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
     return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), lab, manager };
   });
   seedManual(world, opts.manualPath, result.admin.id);
-  if (opts.dataDir) {
-    mkdirSync(opts.dataDir, { recursive: true });
-    const file = join(opts.dataDir, "admin-token");
-    writeFileSync(file, result.adminToken + "\n", { mode: 0o600 });
-    chmodSync(file, 0o600); // `mode` only applies when the file is created
-
-  }
+  world.tokens.ensure("user", result.admin.id, result.adminToken); // remembered for getOrCreate (the dev admin-token route)
+  if (opts.dataDir) writeAdminToken(opts.dataDir, result.adminToken);
   return result;
+}
+
+function writeAdminToken(dataDir: string, token: string): void {
+  mkdirSync(dataDir, { recursive: true });
+  const file = join(dataDir, "admin-token");
+  writeFileSync(file, token + "\n", { mode: 0o600 });
+  chmodSync(file, 0o600); // `mode` only applies when the file is created
+}
+
+/**
+ * A seeded town's admin token. Tokens are stored hashed (docs/secrets.md "Login tokens"), so the database can't hand
+ * it back: `<dataDir>/admin-token` is its source. The file's token is made to resolve to the admin (its hash is inserted
+ * if missing), so it keeps working; with no file (or one naming someone else's token) a new token is issued and written.
+ */
+function existingAdminToken(world: World, adminId: string, dataDir?: string): string {
+  const file = dataDir ? join(dataDir, "admin-token") : null;
+  const had = file && existsSync(file) ? readFileSync(file, "utf8").trim() : "";
+  if (had && world.tokens.ensure("user", adminId, had)) return had;
+  const token = world.tokens.getOrCreate("user", adminId);
+  if (dataDir) writeAdminToken(dataDir, token);
+  return token;
 }

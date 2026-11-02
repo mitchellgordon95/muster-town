@@ -127,6 +127,29 @@ describe("buildings & agents", () => {
     expect(started.body.meeting.phase).toBe("discussing");
     expect(calls).toEqual([["interrupt", mei2.id, "stop that"], ["meeting", m.body.meeting.id]]);
   });
+
+  it("POST /api/buildings with no name asks the runtime to name it (flag dc_42c9cjbzls); a typed name or a failed call keeps it", async () => {
+    const named: string[] = [];
+    let fail = false;
+    const on = await setup({ runtime: {
+      interrupt: async () => undefined,
+      nameBuilding: async (id) => {
+        named.push(id);
+        if (fail) throw new Error("boom");
+        return on.world.ops.updateBuilding(null, id, { name: "Outreach" });
+      },
+    } });
+    const blank = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { headcount: 1 } });
+    expect(blank.status).toBe(201);
+    expect(blank.body.building.name).toBe("Outreach");
+    const typed = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { name: "Ocean Lab", headcount: 1 } });
+    expect(typed.body.building.name).toBe("Ocean Lab");
+    expect(named).toEqual([blank.body.building.id]);
+    fail = true;
+    const kept = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { headcount: 1 } });
+    expect(kept.status).toBe(201);
+    expect(kept.body.building.name).toBe(on.world.goalTree.defaultName("gl_town"));
+  });
 });
 
 describe("reports: Talk to the author and Archive", () => {
@@ -351,7 +374,7 @@ describe("meetings, roles, budget, events, human moves", () => {
   });
 
   it("roles, budget, events", async () => {
-    const { app, auth, by } = await setup();
+    const { app, auth, by, world } = await setup();
     const roles = await json(app, "GET", "/api/roles?buildingId=carbon-cycle");
     expect(roles.body.roles.length).toBeGreaterThan(0);
     expect(roles.body.memberships.length).toBeGreaterThan(0);
@@ -387,6 +410,21 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(fly.body).toMatchObject({ windowDays: 7, capUsdPerDay: 10, sumCheck: { ok: true, diff: 0 }, totals: { deskUsd: 0 } });
     expect(fly.body.days).toHaveLength(7);
     expect(fly.body.rates.source).toContain("fly.io");
+    expect(fly.body).toMatchObject({ townPaidBy: "self", createdAt: null });
+    // a hosted collective on the hub's Fly Machine: the town Machine is muster.town's, not its own
+    const flyApp = process.env.FLY_APP_NAME;
+    process.env.FLY_APP_NAME = "muster-town";
+    try {
+      expect((await json(app, "GET", "/api/finance/fly?days=7")).body).toMatchObject({ townOnFly: true, townPaidBy: "self" });
+      world.host.hosted = true;
+      const h = (await json(app, "GET", "/api/finance/fly?days=7")).body;
+      expect(h).toMatchObject({ townOnFly: false, townPaidBy: "host", rates: { town: null }, totals: { townUsd: 0 }, sumCheck: { ok: true } });
+      expect(h.createdAt).toBe(world.events.list({ limit: 1 })[0]!.ts);
+      expect(h.days.every((d: any) => d.townUsd === 0)).toBe(true);
+    } finally {
+      world.host.hosted = false;
+      if (flyApp === undefined) delete process.env.FLY_APP_NAME; else process.env.FLY_APP_NAME = flyApp;
+    }
     const bank = await json(app, "GET", "/api/bank");
     expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: expect.arrayContaining([expect.objectContaining({ label: "Key", hasApiKey: true })]) });
     expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ durableTokens: 2000 });
