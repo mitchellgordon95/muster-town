@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, topUpLine, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -444,25 +444,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   const talk = <TalkAboutGrant grant={g} />;
   const footer = <div className="actions decide-footer">{talk}</div>;
   const pct = g.grantTokens ? Math.min(100, Math.round((g.spentTokens / g.grantTokens) * 100)) : 0;
-  return (
-    <div className="doc-row intray-row grant-row">
-      <div className="intray-who">
-        <BuildingTag buildingId={g.buildingId} />
-        {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
-        <span>{timeAgo(g.updatedAt)}</span>
-        <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
-        <GrantLink id={g.id} />
-      </div>
-      <div className="doc-row-title">{g.objective}</div>
-      <RoutedTo route={route} />
-      <div className="doc-row-meta">
-        {closedDone
-          ? <span title={breakdownTitle(g.spentCounts)}>spent {fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ}; returned {fmtTokens(unspent)} unspent to the Bank</span>
-          : checkpoint
-          ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
-          : <span title={ADJ_HINT}>asks {fmtTokens(g.askTokens)} {ADJ}</span>}
-        {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>{closedDone ? "close report" : "checkpoint report"}</button> : null}
-      </div>
+  // the key results and stop condition: under the fold on a checkpoint, where the evidence comes first (mt_7b4zc7yja3)
+  const folded = checkpoint && !!g.evidence;
+  const planList = (<>
       <ul className="grant-krs">
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
@@ -479,8 +463,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
-      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): <DocText text={last.note} /></div> : null}
-      {toMark ? (canFund ? (
+  </>);
+  const decision = (toMark ? (canFund ? (
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional" onChange={(e) => setNote(e.target.value)} /></Field></div>
           <div className="actions decide-footer">{talk}</div>
@@ -527,7 +511,50 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
             {talk}
           </div>
         </div>
-      </>)}
+      </>));
+  return (
+    <div className="doc-row intray-row grant-row">
+      <div className="intray-who">
+        <BuildingTag buildingId={g.buildingId} />
+        {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
+        <span>{timeAgo(g.updatedAt)}</span>
+        <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
+        <GrantLink id={g.id} />
+      </div>
+      <div className="doc-row-title">{g.objective}</div>
+      <RoutedTo route={route} />
+      <div className="doc-row-meta">
+        {closedDone
+          ? <span title={breakdownTitle(g.spentCounts)}>spent {fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ}; returned {fmtTokens(unspent)} unspent to the Bank</span>
+          : checkpoint
+          ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
+          : <span title={ADJ_HINT}>asks {fmtTokens(g.askTokens)} {ADJ}</span>}
+        {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>{closedDone ? "close report" : "checkpoint report"}</button> : null}
+      </div>
+      {g.evidence ? <CheckpointEvidenceBlock e={g.evidence} onOpenDoc={onOpenDoc} earlier={!checkpoint} /> : null}
+      {folded ? null : planList}
+      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): <DocText text={last.note} /></div> : null}
+      {decision}
+      {folded ? <details className="grant-plan"><summary>The plan as funded: key results and stop condition</summary>{planList}</details> : null}
+    </div>
+  );
+}
+
+/**
+ * What a checkpoint shipped (Mitchell 1:1 mt_7b4zc7yja3): one line per key result "✓ shipped / ✗ not shipped / ~ partly:
+ * <the manager's note>", spent vs granted, what a top-up buys, and the checkpoint report's Shipped titles. On a proposal
+ * (`earlier`) it is the same building's earlier grant on the goal that stopped at its checkpoint.
+ */
+function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvidence; onOpenDoc: (id: string) => void; earlier?: boolean }) {
+  return (
+    <div className="checkpoint-evidence">
+      {earlier ? <div className="muted">Asks again for work an earlier grant stopped at its checkpoint: <GrantLink id={e.grantId} /> {e.objective}</div> : null}
+      <ol className="evidence-krs">
+        {e.keyResults.map((k) => <li key={k.id} className={`evidence-${k.verdict}`} title={k.text}>{evidenceKrLine(k)}</li>)}
+      </ol>
+      {earlier ? <div>Spent {fmtTokens(e.spentTokens)} of {fmtTokens(e.grantTokens)} {ADJ} granted.</div> : null}
+      <div className={e.topUpTokens && e.whatTopUpBuys ? "" : "muted"}>{topUpLine(e)}</div>
+      {e.shipped.length ? <div>Shipped in the {e.reportId ? <button className="link" onClick={() => onOpenDoc(e.reportId!)}>checkpoint report</button> : "checkpoint report"}: {e.shipped.join(" · ")}</div> : null}
     </div>
   );
 }
