@@ -177,7 +177,7 @@ export interface FinanceSpend {
   /** the rows' dollars summed vs `usd.used` */
   usdSumCheck?: { ok: boolean; diff: number; identity: string };
   /** the grant rows summed by outcome, each grant once across buildings (optional here: an older server sends none) */
-  grants?: { count: number; funded: number; spent: number; byOutcome: Record<"done" | "cut" | "open", { count: number; tokens: number }>; overFunding: { count: number; tokens: number } };
+  grants?: { count: number; funded: number; spent: number; byOutcome: Record<"done" | "cut" | "open", { count: number; tokens: number }>; overFunding: { count: number; tokens: number }; estimates?: { closed: number; inside: number; unit: string; badRanges: string[] } };
   /** byOutcome's tokens vs Σ the grant rows' tokens */
   grantsCheck?: { ok: boolean; diff: number; identity: string };
   at: string;

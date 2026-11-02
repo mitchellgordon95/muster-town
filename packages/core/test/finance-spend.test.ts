@@ -199,6 +199,8 @@ describe("financeSpend (GET /api/finance/spend)", () => {
       count: 3, funded: 850, spent: 980,
       byOutcome: { done: { count: 1, tokens: 850 }, cut: { count: 1, tokens: 90 }, open: { count: 1, tokens: 40 } },
       overFunding: { count: 2, tokens: 190 },
+      // none of these grants carries a cost estimate (grant-estimate.test.ts counts them)
+      estimates: { closed: 0, inside: 0, unit: "adjusted tokens", badRanges: [] },
     });
     expect(f.grantsCheck).toEqual({ ok: true, diff: 0, identity: GRANTS_IDENTITY });
   });
