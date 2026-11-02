@@ -97,6 +97,16 @@ export function fromMillions(s: string): number {
 }
 
 /** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining + retainers. */
+/** Free tokens net of the overdraft: core clamps `freeTokens` at zero and reports the shortfall as `overdraftTokens`; the Bank sign shows it negative. */
+export function netFreeTokens(f: { freeTokens: number; overdraftTokens?: number }): number {
+  return f.freeTokens - (f.overdraftTokens ?? 0);
+}
+
+/** `fmt(n)` with a real minus sign (U+2212) when n is negative. */
+export function signed(n: number, fmt: (n: number) => string): string {
+  return n < 0 ? `\u2212${fmt(-n)}` : fmt(n);
+}
+
 export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; retainerTokens?: number }): number {
   return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens + (f.retainerTokens ?? 0);
 }
