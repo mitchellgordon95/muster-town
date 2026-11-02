@@ -1,12 +1,13 @@
 /**
  * The join funnel (grant gr_fibsfwr4tz step 3, findings dc_siqw9jf28w): per UTC day, how many saw the guest card, signed
- * in with GitHub, asked to join, were let in or declined, and how long each decided request waited. Counted where each
- * step happens (the guest card's view ping, `upsertGithubUser`, `requestAccess`, `decideAccess`). Counts only: no user
+ * in with GitHub, asked to join, were let in or declined, acted once let in (a member's first Say or 1:1 line, gr_58n37j410s
+ * step 3), and how long each decided request waited. Counted where each step happens (the guest card's view ping,
+ * `upsertGithubUser`, `requestAccess`, `decideAccess`, `countMemberAct`). Counts only: no user
  * id or login is ever stored here. GET /api/join-funnel serves it, public.
  */
 import type { World } from "./world.ts";
 
-export const FUNNEL_STEPS = ["guestCardViews", "signIns", "asked", "letIn", "declined"] as const;
+export const FUNNEL_STEPS = ["guestCardViews", "signIns", "asked", "letIn", "declined", "acted"] as const;
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 export type FunnelCounts = Record<FunnelStep, number>;
 export interface FunnelDay extends FunnelCounts { day: string }

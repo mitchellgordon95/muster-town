@@ -1,5 +1,5 @@
 import type { Assignment, QueueBoard, QueueCard, QueueLane } from "@muster-town/schema";
-import { adjustedOfUsage } from "./bank.ts";
+import { sessionTokens } from "./bank.ts";
 import { describeWait } from "./waits.ts";
 import type { World } from "./world.ts";
 
@@ -28,7 +28,7 @@ export function queueLane(world: World, buildingId: string, now = new Date()): Q
   }
   for (const a of world.assignments.where("buildingId = ? AND status = 'active'", [b.id], "ORDER BY updatedAt, rowid")) {
     const live = world.sessions.where("assignmentId = ? AND status = 'running'", [a.id]);
-    lane.running.push(card(a, { tokens: live.reduce((n, s) => n + adjustedOfUsage(s.model, s, s.byModel), 0) }));
+    lane.running.push(card(a, { tokens: live.reduce((n, s) => n + sessionTokens(s), 0) }));
   }
   lane.done = world.assignments.where("buildingId = ? AND status IN ('done', 'cancelled') AND updatedAt > ?", [b.id, since], "ORDER BY updatedAt DESC, rowid DESC").map((a) => card(a));
   return lane;

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 import { describe, expect, it, vi } from "vitest";
-import { townRoleId, World } from "../src/index.ts";
+import { createResident, townRoleId, World } from "../src/index.ts";
 import { freshWorld, REPO_ROOT, seededWorld } from "./helpers.ts";
 
 const WORKSHOP = join(REPO_ROOT, "collectives/workshop/collective.json");
@@ -35,11 +35,11 @@ describe("deployer role + redeploy verb", () => {
     await expect(world.verbs.redeploy(noor.id, {})).rejects.toThrow(/unavailable/);
   });
 
-  it("seed grants townRoles from collective.json (workshop residents are deployers, the reviewer isn't)", () => {
+  it("seed grants the manager's townRoles from collective.json (the Workshop's manager is a deployer, the Planner isn't)", () => {
     const { world } = freshWorld();
     world.seedDefaults({ collectivePath: WORKSHOP });
-    for (const name of ["Pix", "Root", "Sage"]) expect(world.permissions.can(world.agents.first("name = ?", [name])!, "town.redeploy")).toBe(true);
-    expect(world.permissions.can(world.agents.first("name = 'Keel'")!, "town.redeploy")).toBe(false);
+    expect(world.permissions.can(world.agents.first("name = 'Pix'")!, "town.redeploy")).toBe(true);
+    expect(world.permissions.can(world.reorgs.planner()!, "town.redeploy")).toBe(false);
   });
 });
 
@@ -48,6 +48,8 @@ describe("v1.3 data fix on open", () => {
   function preV13(): string {
     const { world, dbPath } = freshWorld();
     world.seedDefaults({ collectivePath: WORKSHOP });
+    createResident(world, { buildingId: "workshop", name: "Root" });
+    createResident(world, { buildingId: "workshop", name: "Sage" });
     world.close();
     const db = new Database(dbPath);
     db.prepare("DELETE FROM memberships WHERE roleId = 'role:deployer'").run();
@@ -57,12 +59,12 @@ describe("v1.3 data fix on open", () => {
     return dbPath;
   }
 
-  it("creates the deployer role once and grants it to current workshop residents (not retired, not the reviewer)", () => {
+  it("creates the deployer role once and grants it to current workshop residents (not retired, not the Planner)", () => {
     const dbPath = preV13();
     let w = World.open(dbPath);
     const can = (name: string) => w.permissions.can(w.agents.first("name = ?", [name])!, "town.redeploy");
     expect(w.roles.require(townRoleId("deployer")).permissions).toEqual(["town.redeploy", "town.interact"]);
-    expect([can("Pix"), can("Root"), can("Sage"), can("Keel")]).toEqual([true, true, false, false]);
+    expect([can("Pix"), can("Root"), can("Sage"), can("Planner")]).toEqual([true, true, false, false]);
     // a revoke sticks across reopen: the grant only runs in the pass that creates the role
     w.permissions.revoke(w.agents.first("name = 'Root'")!, townRoleId("deployer"));
     w.close();

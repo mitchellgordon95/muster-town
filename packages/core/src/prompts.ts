@@ -181,7 +181,7 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const missed = board.keyResults.filter((k) => k.status === "missed").length;
   const ideas = board.keyResults.filter((k) => k.archivedAt && k.statusNote.startsWith(DROPPED_KR_NOTE)).slice(0, 8);
   const owner = tree.ownerOf(at);
-  const ownerName = owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins";
+  const ownerName = world.users.get(owner.userId)?.name ?? owner.userId;
   const attached = `Attached to: ${tree.pathText(at)} (captain: ${ownerName}). Key results belong to grants: a grant is filed against a goal in this subtree and carries its own dated key results; goals keep none open.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"

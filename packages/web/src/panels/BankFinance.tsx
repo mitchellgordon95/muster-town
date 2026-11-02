@@ -13,10 +13,20 @@
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
 import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
+import { creditsLeftLine } from "./BankFunding";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
+
+/** Dollars to the cent with thousands separators; a minus sign for the rows taken off ("−$2.00"). */
+export const dollars = (x: number) => `${x < 0 ? "−" : ""}$${Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** A token figure's dollar twin at API list price, as shown after it: "≈ $1,234.56". */
+export const approxUsd = (x: number) => `≈ ${dollars(x)}`;
+/** The one footnote under every "≈ $" figure (gr_gmzli3f96j). */
+export const USD_NOTE = "Dollars are at API list price; a subscription pays a flat fee instead.";
+const Usd = ({ x }: { x: number | undefined }) => (x === undefined ? null : <span className="muted finance-usd"> {approxUsd(x)}</span>);
 
 /** The sum check in words: what the four figures add up to, and by how much it misses when it does. */
 export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
@@ -65,33 +75,45 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
     : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows come to ${n(sum)}, but used is ${n(sp.used)}.` };
 }
 
+/** The dollar check in words: the top-level rows' dollars vs used dollars (`usdSumCheck`); null when the server sent no dollars. */
+export function spendUsdCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
+  if (!sp.usd || !sp.usdSumCheck) return null;
+  const sum = sp.rows.reduce((t, r) => t + (r.usd ?? 0), 0);
+  return sp.usdSumCheck.ok
+    ? { ok: true, text: `The server checked that the rows' dollars add up to the used dollars, ${dollars(sp.usd.used)} at API list price.` }
+    : { ok: false, text: `Dollars do not add up (off by ${dollars(sp.usdSumCheck.diff)}): the rows come to ${dollars(sum)}, but used is ${dollars(sp.usd.used)}.` };
+}
+
 /**
  * The Not funded row's note (gr_wp2rg302qu step 2), from GET /api/finance/spend's own fields: what the row is, why (sessions
  * the runtime skipped the debit for before PR #131; rule dc_cvp89lj91o), when it stopped (`notFundedLastAt`), the split by
  * building (`notFundedSplit`, largest first) and that it is written off. When the split's sum differs from `notFunded` both
- * are shown and the note says so; the allocation estimate only when it is above 0.
+ * are shown: with the server's `reason` as a plain line, else as a red \"These differ\" line; what donations paid only when above 0.
  */
 export function notFundedNote(sp: Pick<FinanceSpend, "notFunded" | "notFundedSplit" | "notFundedLastAt" | "notFundedAllocationPaid" | "notFundedSplitCheck">): {
-  lines: string[]; split: { name: string; tokens: number; usageRows: number }[]; differ: string | null; after: string[];
+  lines: string[]; split: { name: string; tokens: number; usageRows: number }[]; differ: string | null; reason: string | null; after: string[];
 } {
   const split = [...(sp.notFundedSplit ?? [])].sort((a, b) => b.tokens - a.tokens)
     .map((b) => ({ name: b.buildingId === null ? "unattributed" : b.buildingName, tokens: b.tokens, usageRows: b.usageRows }));
   const c = sp.notFundedSplitCheck;
   const lines = [
     `Usage the Bank never debited: work sessions ran, but no debit was recorded for them, so no Bank credit or donation paid for them. Taken off here so the rows sum to Used, which counts only what was paid.`,
-    `Why: before PR #131 (chargeUsage) the runtime skipped the debit for some sessions. That is fixed. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
+    `Why: before PR #131 (chargeUsage) the runtime left some sessions' usage recorded but not charged. Fixed on 2026-10-31. A usage row counts as unpaid when no debit for the same agent lies within 2 seconds of it.`,
     sp.notFundedLastAt ? `No new unpaid usage since ${sp.notFundedLastAt.slice(0, 10)}.` : `No usage row is unpaid by that rule.`,
   ];
-  const differ = c && !c.ok
+  const reason = c && !c.ok && c.reason
+    ? `The rows by building come to ${n(c.sum)} ${ADJ} and Not funded to ${n(c.notFunded)} ${ADJ}. ${c.reason}`
+    : null;
+  const differ = c && !c.ok && !reason
     ? `These differ: the rows by building come to ${n(c.sum)} ${ADJ}, but Not funded is ${n(c.notFunded)} ${ADJ}. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.`
     : null;
   const after = [`Written off: not charged to any building. The Bank's balance already reflects the real spend.`];
-  if (sp.notFundedAllocationPaid > 0) after.push(`Up to ${n(sp.notFundedAllocationPaid)} ${ADJ} of the rows by building may have been covered by donations to those buildings (an upper bound).`);
-  return { lines, split, differ, after };
+  if (sp.notFundedAllocationPaid > 0) after.push(`Donations straight to those buildings paid ${n(sp.notFundedAllocationPaid)} ${ADJ} of their undebited usage (a donation is spent without a Bank debit); that part is left out of the rows by building.`);
+  return { lines, split, differ, reason, after };
 }
 
 function NotFundedNote({ sp }: { sp: FinanceSpend }) {
-  const { lines, split, differ, after } = notFundedNote(sp);
+  const { lines, split, differ, reason, after } = notFundedNote(sp);
   return (
     <div className="muted not-funded-note">
       {lines.map((l) => <p key={l}>{l}</p>)}
@@ -104,6 +126,7 @@ function NotFundedNote({ sp }: { sp: FinanceSpend }) {
         </>
       ) : null}
       {differ ? <p className="error-line">{differ}</p> : null}
+      {reason ? <p>{reason}</p> : null}
       {after.map((l) => <p key={l}>{l}</p>)}
     </div>
   );
@@ -116,13 +139,14 @@ const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNo
   "not-funded": <NotFundedNote sp={sp} />,
 });
 
-function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>> }) {
+function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>>; top?: boolean }) {
   const line = (
     <span className="spend-line">
       <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
         ? <a className="spend-grant" href={`#/grant/${node.id}`} title={node.objective ?? node.name}>{node.name}</a>
         : node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
       <span className="spend-tokens">{n(node.tokens)}</span>
+      {top && node.usd !== undefined ? <span className="spend-usd muted" title="At API list price">{dollars(node.usd)}</span> : null}
       <span className="spend-share muted">{pct(node.share)}</span>
     </span>
   );
@@ -137,15 +161,17 @@ function SpendRow({ node, notes }: { node: SpendNode; notes: Partial<Record<Spen
 }
 
 export function SpendingView({ sp }: { sp: FinanceSpend }) {
-  const check = spendCheckLine(sp);
+  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp);
   const notes = spendNotes(sp);
   return (
     <Section title="Spending">
-      <p className="muted">Where the {n(sp.used)} used went: by building, then grant, then assignment ({ADJ}, share of used). Open a row for its parts.</p>
+      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
       <div className="spend-tree">
-        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} />)}
+        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} top />)}
       </div>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+      {usdCheck ? <Check c={usdCheck} /> : null}
+      {sp.usd ? <p className="muted finance-usd-note">{USD_NOTE} Each session is priced at the output price of the model its tokens are booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at Fable's $50 per million); rows with no session at $20 per million.</p> : null}
     </Section>
   );
 }
@@ -170,7 +196,7 @@ export function sourcesCheckLine(s: FinanceSources): { ok: boolean; text: string
 }
 
 function SourceInputLine({ i }: { i: SourceInputRow }) {
-  const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
+  const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, creditsLeftLine(i), i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
   const title = i.cancelledAt ? `Cancelled ${day(i.cancelledAt)}` : (i.id ?? undefined);
   const line = (
     <span className="spend-line" title={title}>
@@ -240,39 +266,53 @@ export function flyWindowTotals(fly: Pick<FinanceFly, "days">, n: number): { day
 }
 
 /** The Fly check in words: each day's desk + town = total, and the buildings' desk time = the days'. */
-export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals">): { ok: boolean; text: string } {
+export function flyCheckLine(fly: Pick<FinanceFly, "sumCheck" | "totals"> & Partial<Pick<FinanceFly, "townPaidBy">>): { ok: boolean; text: string } {
   const c = fly.sumCheck;
+  if (c.ok && fly.townPaidBy === "host") return { ok: true, text: `The server checked that each day's desks equal that day's total, and that the buildings' desk time adds up to the days' (${hours(fly.totals.deskMs)}).` };
   if (c.ok) return { ok: true, text: `The server checked that each day's desks + town Machine equals that day's total, and that the buildings' desk time adds up to the days' (${hours(fly.totals.deskMs)}).` };
   return { ok: false, text: c.daysOk ? `Does not add up: the buildings' desk time misses the days' by ${hours(Math.abs(c.diff))}` : `Does not add up: a day's desks + town Machine misses its total by ${usd(Math.abs(c.diff), 6)}` };
 }
 
 const rateLine = (r: FinanceFly["rates"]["desk"]) => (r ? `${r.preset}, ${r.memoryMb >= 1024 ? `${r.memoryMb / 1024} GB` : `${r.memoryMb} MB`}: ${usd(r.usdPerHour, 4)}/h (${usd(r.usdPerMonth)} per 30 days)` : null);
 
+/** The window's label: "Last N days (from → to)", or for a hosted collective younger than the window "Since it was created (from → to)". */
+export function flyWindowLabel(fly: Pick<FinanceFly, "from" | "to" | "createdAt"> & { days: unknown[] }): string {
+  const created = fly.createdAt?.slice(0, 10);
+  return created && created === fly.from ? `Since it was created (${fly.from} → ${fly.to})` : `Last ${fly.days.length} days (${fly.from} → ${fly.to})`;
+}
+
+export const HOSTED_FLY_NOTE = "The server is run by muster.town; this collective pays only for its own desks.";
+
 export function FlyView({ fly }: { fly: FinanceFly }) {
   const week = flyWindowTotals(fly, 7), all = flyWindowTotals(fly, fly.days.length);
   const t = fly.today;
   const desk = rateLine(fly.rates.desk), town = rateLine(fly.rates.town);
+  // a hosted collective: the hub's town Machine is not its cost, so no Town Machine column or size row
+  const own = fly.townPaidBy !== "host";
+  const townCell = (x: number) => (own ? <td>{usd(x)}</td> : null);
+  const windowLabel = flyWindowLabel(fly);
   return (
     <Section title="Hosting (Fly.io)">
       <p className="muted">
         What the town's servers cost, in US dollars: an estimate from the town's own records at Fly's list prices ({fly.rates.region}, read {fly.rates.pricedAt}),
-        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts; the town Machine runs all day.
+        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts{own ? "; the town Machine runs all day" : ""}.
       </p>
+      {own ? null : <p className="fly-hosted">{HOSTED_FLY_NOTE}</p>}
       <table className="table finance-summary">
-        <thead><tr><th /><th>Desks</th><th>Town Machine</th><th>Total</th></tr></thead>
+        <thead><tr><th /><th>Desks</th>{own ? <th>Town Machine</th> : null}<th>Total</th></tr></thead>
         <tbody>
-          <tr title={`${t.day} UTC, so far`}><td>Today (so far)</td><td>{usd(t.deskUsd)}</td><td>{usd(t.townUsd)}</td><td><b>{usd(t.totalUsd)}</b></td></tr>
-          {all.days > 7 ? <tr><td>Last 7 days</td><td>{usd(week.deskUsd)}</td><td>{usd(week.townUsd)}</td><td><b>{usd(week.totalUsd)}</b></td></tr> : null}
-          <tr><td>Last {all.days} days ({fly.from} → {fly.to})</td><td>{usd(all.deskUsd)}</td><td>{usd(all.townUsd)}</td><td><b>{usd(all.totalUsd)}</b></td></tr>
+          <tr title={`${t.day} UTC, so far`}><td>Today (so far)</td><td>{usd(t.deskUsd)}</td>{townCell(t.townUsd)}<td><b>{usd(t.totalUsd)}</b></td></tr>
+          {all.days > 7 ? <tr><td>Last 7 days</td><td>{usd(week.deskUsd)}</td>{townCell(week.townUsd)}<td><b>{usd(week.totalUsd)}</b></td></tr> : null}
+          <tr><td>{windowLabel}</td><td>{usd(all.deskUsd)}</td>{townCell(all.townUsd)}<td><b>{usd(all.totalUsd)}</b></td></tr>
           <tr className="sub-row" title="A town-wide limit on what the desks may cost in one day (Prod's desk performance work); the desks stop moving to faster Machines past it">
-            <td>Daily desk cap</td><td colSpan={3}>{t.capUsdPerDay == null ? "none set" : `${usd(t.capUsdPerDay)} per day · today ${t.underCap ? "under" : "over"} the cap`}</td>
+            <td>Daily desk cap</td><td colSpan={own ? 3 : 2}>{t.capUsdPerDay == null ? "none set" : `${usd(t.capUsdPerDay)} per day · today ${t.underCap ? "under" : "over"} the cap`}</td>
           </tr>
         </tbody>
       </table>
       <table className="table">
         <tbody>
           <tr><td>Desk Machine size</td><td>{desk ?? (fly.desksBackend === "fly" ? "no list price for this size" : `desks are not on Fly (${fly.desksBackend}): desk time shown, $0`)}</td></tr>
-          <tr><td>Town Machine size</td><td>{town ?? "the server is not on a Fly Machine: $0"}</td></tr>
+          {own ? <tr><td>Town Machine size</td><td>{town ?? "the server is not on a Fly Machine: $0"}</td></tr> : null}
           <tr><td>Desk time, last {all.days} days</td><td>{hours(fly.totals.deskMs)} over {n(fly.totals.sessions)} session{fly.totals.sessions === 1 ? "" : "s"}{fly.totals.unmeasuredSessions ? <span className="muted"> · {n(fly.totals.unmeasuredSessions)} timed from start and end, not measured on the desk</span> : null}</td></tr>
         </tbody>
       </table>
@@ -300,10 +340,27 @@ export function FlyView({ fly }: { fly: FinanceFly }) {
 export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
-    one output token counts 1 and input and cached tokens count at their lower price (1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable).
-    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (what one is made of is under Tokens & sources, updated daily).
+    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
+
+const pct1 = (x: number) => `${(x * 100).toFixed(x > 0 && x < 0.01 ? 2 : 1)}%`;
+
+/**
+ * The adjusted-token mix in words (1:1 mt_rbc3exb393): what 1 adj. token is made of over the last 7 days, and the formula.
+ * Cache writes (5 min and 1 h) are one share.
+ */
+export function mixLine(m: TokenMix): { line: string; formula: string } {
+  const r = m.rawShare, cost = m.costShare;
+  const window = m.source === "usage"
+    ? `from the last ${m.windowDays} days of usage, ${m.sessions.toLocaleString("en-US")} sessions, updated daily; last ${m.computedAt.slice(0, 16).replace("T", " ")} UTC`
+    : `no usage in the last ${m.windowDays} days yet, so the first calibration; updated daily`;
+  return {
+    line: `1 adj. token ≈ ${m.rawPerAdjusted.toFixed(1)} raw tokens: ${pct1(r.input)} input, ${pct1(r.cacheRead)} cache read, ${pct1(r.cacheWrite5m + r.cacheWrite1h)} cache write, ${pct1(r.output)} output (${window}).`,
+    formula: `${m.formula}, each weight being that kind's list price over Opus 5.5's output price ($20 per million). Of what those tokens cost: ${pct1(cost.input)} input, ${pct1(cost.cacheRead)} cache read, ${pct1(cost.cacheWrite5m + cost.cacheWrite1h)} cache write, ${pct1(cost.output)} output. Where the Bank knows only an amount (a credit, a bare charge), it assumes this mix for the tokens behind it.`,
+  };
+}
 
 /** Tokens: total received, used, expired, left, overdrawn and its parts, with the sum check in words. */
 export function TokensView({ f }: { f: Finance }) {
@@ -316,9 +373,9 @@ export function TokensView({ f }: { f: Finance }) {
           <tr><td>Total received</td><td><b>{n(f.total)}</b></td></tr>
           <tr className="sub-row"><td>credited to the Bank (subscriptions, API keys)</td><td>{n(f.credited)}</td></tr>
           <tr className="sub-row"><td>donated straight to buildings</td><td>{n(f.donated)}</td></tr>
-          <tr><td>Used</td><td><b>{n(f.used)}</b></td></tr>
+          <tr><td>Used</td><td><b>{n(f.used)}</b><Usd x={f.usd?.used} /></td></tr>
           <tr title="Daily subscription tokens that renewed before they were drawn"><td>Expired (not drawn before renewal)</td><td>{n(f.expired)}</td></tr>
-          <tr><td>Left</td><td><b>{n(f.left)}</b></td></tr>
+          <tr><td>Left</td><td><b>{n(f.left)}</b><Usd x={f.usd?.left} /></td></tr>
           {f.overdrawn ? <tr className="finance-overdrawn" title="Spent past what was received; the lines under it say where"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
           {overdrawnParts(f).map((p) => (
             <tr key={p.key} className="sub-row"><td>{p.label}{p.note ? <div className="muted">{p.note}</div> : null}</td><td>{n(p.tokens)}</td></tr>
@@ -326,25 +383,30 @@ export function TokensView({ f }: { f: Finance }) {
         </tbody>
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+      {f.mix ? (() => { const m = mixLine(f.mix); return <p className="muted token-mix" title={m.formula}>{m.line}<br /><small>{m.formula}</small></p>; })() : null}
+      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
 }
 
-/** Next N days: the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate. */
+/** Next N days (on the Overview): used and left so far, the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate; used, left, burn and inflow with their "≈ $" twins and one footnote. */
 export function ProjectionView({ f }: { f: Finance }) {
   const p = f.projection;
   return (
     <Section title={`Next ${p.days} days`}>
       <table className="table">
         <tbody>
-          <tr><td>Burn rate (average of the last {p.burnDays} day{p.burnDays === 1 ? "" : "s"})</td><td>{n(p.trailingDailyBurn)} / day</td></tr>
-          <tr><td>Coming in (expected from recurring inputs)</td><td>{n(p.dailyInflow)} / day</td></tr>
+          <tr><td>Used so far</td><td>{n(f.used)}<Usd x={f.usd?.used} /></td></tr>
+          <tr><td>Left</td><td>{n(f.left)}<Usd x={f.usd?.left} /></td></tr>
+          <tr><td>Burn rate (average of the last {p.burnDays} day{p.burnDays === 1 ? "" : "s"})</td><td>{n(p.trailingDailyBurn)} / day<Usd x={f.usd?.burnPerDay} /></td></tr>
+          <tr><td>Coming in (expected from recurring inputs)</td><td>{n(p.dailyInflow)} / day<Usd x={f.usd?.inflowPerDay} /></td></tr>
           <tr><td>Net per day (burn − coming in)</td><td>{netPerDay(p)}</td></tr>
           <tr><td>Projected use, next {p.days} days at that rate</td><td><b>{n(p.projectedUse30d)}</b></td></tr>
           <tr><td>Tokens left last</td><td>{runwayText(p)}</td></tr>
         </tbody>
       </table>
       <p className="muted">Coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
+      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
 }
@@ -365,7 +427,7 @@ export const FinanceFooter = ({ f, spend, sources, fly }: FinanceData) => (
 
 /** Every term the Bank page uses, in plain words (kr_zjawesqcyp): one list a stranger can read, at the foot of every tab. */
 export const FINANCE_TERMS: [term: string, meaning: string][] = [
-  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. 1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable."],
+  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens & sources."],
   ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
   ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
   ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],
@@ -374,6 +436,7 @@ export const FINANCE_TERMS: [term: string, meaning: string][] = [
   ["Earmark", "A Bank input given for one goal: it pays only for work under that goal, nearest earmark first."],
   ["Exploration cap", "An optional limit on what exploration under a goal may spend per UTC day, inherited down the tree; on the top goal it is town-wide. None set: uncapped."],
   ["Not funded", "Work sessions the Bank never charged: tokens a session used that no Bank credit or donation paid for."],
+  ["≈ $ (API list price)", "What the tokens would cost on an Anthropic API key at list price: each session at the output price of the model it is booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at $50 per million). A subscription pays a flat fee instead, so on a subscription-funded town this is not cash spent."],
   ["Grant", "Tokens a human approves for one building to reach one dated, checkable target; each grant's row opens the grant's page."],
 ];
 

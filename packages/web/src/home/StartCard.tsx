@@ -76,6 +76,9 @@ function StartPage() {
           <input type="password" autoComplete="off" value={c.draft.apiKey} onChange={(e) => c.set("apiKey", e.target.value)} placeholder="sk-ant-api…" />
         </Field>
         <p className="start-note">
+          Work on your key stops at 1,000,000 tokens (about $20) until you add more at the Bank; talking to your agents still uses it.
+        </p>
+        <p className="start-note">
           Your agents run on your Anthropic API key, billed to you by Anthropic; Muster Town never spends its own. On a Max
           or Team plan, first link a Console organization in claude.ai Settings &gt; Billing so the plan's monthly API
           credits pay for it, then create a key there and paste it (<a href="https://support.claude.com/en/articles/17154008" target="_blank" rel="noreferrer">how</a>).

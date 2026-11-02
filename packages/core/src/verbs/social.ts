@@ -1,4 +1,5 @@
 import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
+import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
@@ -110,10 +111,12 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   world.events.append({ type: "agent.said", agentId: me.id, buildingId: me.buildingId, text: input.text, payload: { heardBy: listeners.map((a) => a.id) } });
   for (const a of listeners) sendMessage(world, { kind: "heard", fromId: me.id, fromKind: "agent", toId: a.id, body: input.text });
   notifyMentions(world, me, input.text, { where: "speech", buildingId: me.buildingId });
+  // a let-in member's first Say counts once in the join funnel (gr_58n37j410s step 3)
+  if (me.kind === "human" && me.ownerUserId) countMemberAct(world, me.ownerUserId);
   return { heardBy: listeners.map((a) => a.name) };
 }
 
-/** \`stop_fork\` (manager/reviewer): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
+/** \`stop_fork\` (manager): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
 export async function stop_fork(world: World, me: Agent, input: VerbIn<"stop_fork">) {
   return requestForkStop(world, me, input);
 }
@@ -176,7 +179,7 @@ function idleNote(world: World, me: Agent, to: Agent): string | undefined {
   if (to.kind !== "resident" || !["idle", "stopped", "out-of-budget"].includes(to.status)) return undefined;
   const how = world.permissions.can(me, "building.assign", homeOf(to))
     ? `If it needs action, use \`assign\` to give ${to.name} the work.`
-    : `If it needs action, ask someone who can \`assign\` (a manager or reviewer of ${to.name}'s building).`;
+    : `If it needs action, ask someone who can \`assign\` (the manager of ${to.name}'s building).`;
   return `Delivered to ${to.name}'s inbox, but ${to.name} is ${to.status} and will not see it until a session starts: a \`tell\` does not start work. ${how}`;
 }
 
@@ -218,7 +221,7 @@ export async function accept_assignment(world: World, me: Agent, input: VerbIn<"
 export async function ban(world: World, me: Agent, input: VerbIn<"ban">) {
   const target = world.agents.require(input.agentId, "agent");
   const bid = homeOf(target);
-  // ban is a town-level act (moderators / admin)
+  // ban is a town-level act (admins)
   if (!world.permissions.can(me, "town.ban")) throw forbidden("town.ban");
   if (target.kind === "human") throw badRequest("Humans can't be banned with this verb.");
   if (target.status === "retired") throw badRequest(`${target.name} was dismissed.`);

@@ -1,5 +1,5 @@
 import { AppError, townRoleId, type World } from "@muster-town/core";
-import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
+import type { Agent, Building, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
@@ -23,6 +23,8 @@ export interface RuntimeHooks {
   deskSeen?(agentId: string, sessionId: string): void;
   /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
+  /** A building was made with no name typed: name it with one cheap-model call (flag dc_42c9cjbzls); resolves with it as it ends up. */
+  nameBuilding?(buildingId: string): Promise<Building>;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. A request while one runs joins it (`{ queued: true }`). */
@@ -31,7 +33,14 @@ export interface RuntimeHooks {
   stop?(): Promise<unknown> | unknown;
   /** Shut down timers/sessions. */
   close?(): Promise<unknown> | unknown;
+  /** One scheduler pass (a hosted runtime has no timer: the host's TickRotation calls this). */
+  tickOnce?(): Promise<unknown>;
+  /** The last tick's phase timings and the last tick over 500 ms (post-mortem 2026-10-31 item 7): `GET /api/health` `load.tick`. */
+  tickStats?(): { last: TickStat | null; slow: TickStat | null };
 }
+
+/** One runtime tick's timings (runtime `TickTiming`): total ms of its synchronous phases, the slowest phase, each phase's ms. */
+export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number> }
 
 /** Who made the request. */
 export type Auth =
@@ -47,6 +56,8 @@ declare module "fastify" {
     load: LoadMonitor;
     /** the off-site backup job (null in tests and without one): `GET /api/health` `backup` */
     backup: BackupJob | null;
+    /** a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): no runtime, backup restore-only; `GET /api/health` `throwaway: true` */
+    throwaway: boolean;
     /** the in-process monitor (null in tests and hosted collectives): `GET /api/health` `monitor`, `POST /api/admin/monitor/test` */
     monitor: Monitor | null;
     /** the hosted collectives (root app only; null in a hosted collective's app and without a hub) */
@@ -55,6 +66,8 @@ declare module "fastify" {
     directory: Directory | null;
     /** a hosted collective's export dir (null: env MUSTER_TOWN_EXPORT) */
     exportDir: string | null;
+    /** `GET /api/health`: refresh period of its database-backed figures (0 = per request) */
+    healthRefreshMs: number;
   }
   interface FastifyRequest {
     auth: Auth | null;

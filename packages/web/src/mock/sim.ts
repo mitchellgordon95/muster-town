@@ -278,7 +278,6 @@ export class Sim {
   home(a: Agent) {
     const pl = this.layout.places;
     const at = (id: string) => pl.find((p) => p.id === id)?.pos;
-    if (a.kind === "service") return { ...(at("library") ?? { x: 2, y: 2 }) };
     if (a.kind === "human") return { ...(at("plaza") ?? { x: 2, y: 2 }) };
     return { ...(at(`desk:${a.id}`) ?? (a.kind === "visitor" ? at("visitor-bench") : undefined) ?? at(`door:${a.homeBuildingId}`) ?? { x: 2, y: 2 }) };
   }
@@ -476,6 +475,19 @@ export class Sim {
   }
 
   /** POST /api/agents/:id/ban (town.ban). */
+  dismiss(agentId: string, purge: boolean) {
+    const a = this.agents.get(agentId);
+    if (!a) throw new Error("agent not found");
+    if (a.status === "retired") throw new Error(`${a.name} was already dismissed.`);
+    for (const x of this.assignments.values()) if (x.agentId === a.id && (x.status === "pending" || x.status === "active")) { x.status = "cancelled"; this.putAssignment(x); }
+    this.memberships = this.memberships.filter((m) => !(m.holderKind === "agent" && m.holderId === a.id));
+    this.sessionLeft.delete(a.id);
+    this.patchAgent(a.id, { status: "retired", activity: "", currentAssignmentId: null, currentMeetingId: null });
+    this.layout = computeLayout(this.buildings, [...this.agents.values()]);
+    this.event("agent.retired", a.id, `${a.name} was dismissed by Mitchell${purge ? " (desk volume deleted)" : ""}`, { purge }, a.homeBuildingId);
+    return a;
+  }
+
   ban(agentId: string, reason: string) {
     const a = this.agents.get(agentId);
     if (!a) throw new Error("agent not found");
@@ -488,7 +500,7 @@ export class Sim {
   createBuilding(name: string, goal = "", headcount = 6, goalId = "gl_town"): Building {
     const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, goalId, description: "", headcount, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
-    for (const r of ["manager", "reviewer", "member"] as const)
+    for (const r of ["manager", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });
     this.memberships.push({ roleId: `rl_${b.id}_manager`, holderKind: "user", holderId: "us_mitchell" });
     this.emit({ type: "building", building: { ...b, intray: 0 } });
