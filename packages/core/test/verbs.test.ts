@@ -278,6 +278,8 @@ describe("say / tell / inbox / look", () => {
     expect(look.nearby.find((n) => n.name === "Mitchell")!.kind).toBe("human");
     // the Town Hall in-tray is a Town Hall station everyone can walk to (waterfall §3.5)
     expect(look.places.some((p) => p.id === "intray:town-hall" && p.kind === "intray")).toBe(true);
+    // the help sign of my home building is listed too
+    expect(look.places.some((p) => p.id === `help:${noor.buildingId}` && p.kind === "help")).toBe(true);
   });
 
   it("tell to an idle or stopped resident says it won't start work; to a working one it says nothing", async () => {
