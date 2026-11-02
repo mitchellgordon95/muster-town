@@ -165,9 +165,9 @@ describe("meetings", () => {
 
   it("a town hall is facilitated by the first active manager among the invitees, else the first active invitee", () => {
     const { world, by } = seededWorld();
-    const lab = world.buildings.require("carbon-cycle", "building");
+    const lab = world.buildings.upsert({ ...world.buildings.require("carbon-cycle", "building"), managerAgentId: null });
     const moss = by("Moss"), noor = by("Noor"), tomas = by("Tomas");
-    // no manager agent anywhere: the first active invitee (Moss, the reviewer, as before)
+    // no manager agent anywhere: the first active invitee
     expect(world.ops.createMeeting(null, { kind: "town-hall", buildingId: null, attendeeIds: [moss.id, noor.id] }).facilitatorId).toBe(moss.id);
     // Noor becomes the lab's manager: she facilitates even though Moss was invited first
     world.buildings.upsert({ ...lab, managerAgentId: noor.id });
@@ -176,8 +176,8 @@ describe("meetings", () => {
     expect(world.ops.createMeeting(null, { kind: "town-hall", buildingId: null, attendeeIds: [moss.id, tomas.id] }).facilitatorId).toBe(moss.id);
     world.agents.upsert({ ...by("Noor"), status: "stopped" });
     expect(world.ops.createMeeting(null, { kind: "town-hall", buildingId: null, attendeeIds: [moss.id, noor.id] }).facilitatorId).toBe(moss.id);
-    // building meetings are unchanged: the manager, else the reviewer
-    expect(world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id }).facilitatorId).toBe(moss.id);
+    // building meetings: the active manager, else the first active resident by join order (Noor is stopped)
+    expect(world.ops.createMeeting(null, { kind: "standup", buildingId: lab.id }).facilitatorId).toBe(tomas.id);
   });
 
   it("invites only the chosen attendees when attendeeIds is given", async () => {

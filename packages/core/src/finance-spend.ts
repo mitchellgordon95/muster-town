@@ -1,7 +1,7 @@
 import { countsOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type Session, type UsageEntry } from "@muster-town/schema";
-import { adjustedOfUsage, adjustedOutputTokens } from "./bank.ts";
+import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
-import { townFinance } from "./finance.ts";
+import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
 
 /**
@@ -32,6 +32,8 @@ export interface SpendNode {
   /** tokens / used (0 when used is 0); the weight-mismatch and not-funded rows' shares are negative */
   share: number;
   sessions: number;
+  /** the row's dollars at API list price, to the cent: each session at its booking model's output price; the synthetic rows' tokens at BANK_MODEL's ($20/M) */
+  usd: number;
   children?: SpendNode[];
 }
 
@@ -57,23 +59,31 @@ export interface FinanceSpend {
    * `notFunded` by building, from the usage ledger (gr_wp2rg302qu, rule from dc_cvp89lj91o): a usage row on or after the
    * first Bank debit with no debit for the same agent within NOT_FUNDED_MATCH_MS of it. Before PR #131 (2026-10-31
    * 00:36Z) `chargeUsage` recorded usage without a debit when the building had nothing left. Sorted by tokens desc; a
-   * usage row with no building is the "unattributed" row (buildingId null). A heuristic: see `notFundedSplitCheck`.
+   * usage row with no building is the "unattributed" row (buildingId null). A heuristic: see `notFundedSplitCheck`. Each building's rows are netted against what its allocations (donations) spent: Budget.charge with an allocation draws no Bank debit.
    */
   notFundedSplit: NotFundedBuilding[];
   /** the latest unpaid usage row's createdAt (when the unpaid usage stopped); null when there is none */
   notFundedLastAt: string | null;
   /**
-   * An estimate (≈57k on 2026-10-28, dc_7u3s419dv0): the part of the unpaid usage a donation straight to the building
-   * (an Allocation, which is spent with no Bank debit) may have paid for: Σ over buildings of min(what the building's
-   * allocations spent, the building's unpaid tokens). An allocation's spend is not dated per row, so this is an upper bound.
+   * What donations straight to a building paid of its undebited usage rows, already taken out of `notFundedSplit` (an
+   * Allocation is spent with no Bank debit, Budget.charge): Σ over buildings of min(what the building's allocations
+   * spent, the building's undebited tokens). An allocation's spend is not dated per row, so this is an estimate.
    */
   notFundedAllocationPaid: number;
   /** the split's sum vs `notFunded` (the exact ledger number, left untouched): ok when they are equal */
-  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean };
+  notFundedSplitCheck: { sum: number; notFunded: number; ok: boolean; reason?: string };
   /** buildings by tokens, then an unattributed row, a negative weight-mismatch row and a negative "Not funded" row when non-zero: these rows sum to `used` */
   rows: SpendNode[];
   /** the rows' sum vs used; ok when they match exactly */
   check: { ok: boolean; diff: number; identity: string };
+  /**
+   * The same in dollars at API list price (gr_gmzli3f96j): `sessionsTotal` is Σ sessions' list-price cost (each at its
+   * booking model's output price, a pre-076 Fable session at $50/M), the synthetic rows are priced at BANK_MODEL ($20/M),
+   * and `used` = sessionsTotal + (used − sessionsTotal tokens) × $20/M, equal to GET /api/finance `usd.used`.
+   */
+  usd: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
+  /** the rows' dollars (each rounded to the cent) summed vs `usd.used`; ok when |diff| is under a cent, or half a cent per row (rounding) when there are more than two rows */
+  usdSumCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 
@@ -81,7 +91,7 @@ export interface FinanceSpend {
 export interface NotFundedBuilding { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }
 
 export interface SpendInputs {
-  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "endedAt">[];
+  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "endedAt">[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "title">[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
@@ -95,12 +105,14 @@ export interface SpendInputs {
 }
 
 export const NO_BUILDING = "No building (town-wide sessions)";
-export const NO_GRANT = "Not under a grant: work a human asked for, the building's own daily allowance, and sessions from before grants existed";
+export const NO_GRANT = "Not under a grant: work a human asked for, work a building took up on its own, and sessions from before grants existed";
 export const NO_ASSIGNMENT = "The manager's own sessions: reading reports, running meetings and replying (no assignment)";
 export const UNATTRIBUTED = "Usage from before sessions carried counters (before 2026-10-26 20:29)";
 export const WEIGHT_MISMATCH = "Priced differently before the switch to adjusted tokens (nothing went unpaid)";
 export const NOT_FUNDED = "Not funded: work sessions the Bank never charged";
 export const NOT_FUNDED_UNATTRIBUTED = "unattributed";
+/** why the split by building can differ from notFunded (shown instead of a bare "these differ") */
+export const NOT_FUNDED_SPLIT_REASON = "Not funded is a net total (what sessions counted, less everything paid), so a session paid more than it counted cancels part of it; the split by building counts each undebited usage row in full, after what donations to that building paid, so it is an estimate that can come out higher.";
 /** a usage row counts as paid when a Bank debit for the same agent lies within this many ms of it (dc_cvp89lj91o) */
 export const NOT_FUNDED_MATCH_MS = 2_000;
 
@@ -186,15 +198,22 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
     g.tokens += u.tokens;
     if (t > last) { last = t; lastAt = u.createdAt; }
   }
-  const split = [...groups.values()].sort((a, b) => b.tokens - a.tokens);
+  // usage a donation to the building paid (Budget.charge with an allocation draws no Bank debit, budget.ts charge): net
+  // each building's unmatched rows against what its allocations spent, so those rows no longer count as unpaid
   const allocated = new Map<string, number>();
   for (const a of inp.allocations ?? []) allocated.set(a.buildingId, (allocated.get(a.buildingId) ?? 0) + a.spentTokens);
-  const allocationPaid = split.reduce((t, g) => t + (g.buildingId ? Math.min(allocated.get(g.buildingId) ?? 0, g.tokens) : 0), 0);
+  let allocationPaid = 0;
+  const netted = new Set<NotFundedBuilding>();
+  for (const g of groups.values()) {
+    const paid = g.buildingId ? Math.min(allocated.get(g.buildingId) ?? 0, g.tokens) : 0;
+    if (paid) { g.tokens -= paid; allocationPaid += paid; netted.add(g); }
+  }
+  const split = [...groups.values()].filter((g) => g.tokens > 0 || !netted.has(g)).sort((a, b) => b.tokens - a.tokens);
   return { split, lastAt, allocationPaid };
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; sessions: number; kids: Map<string, Acc> }
-const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, sessions: 0, kids: new Map() });
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
+const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, usd: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
   let c = parent.kids.get(key);
   if (!c) parent.kids.set(key, c = make());
@@ -212,7 +231,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
   for (const s of inp.sessions) {
-    const tokens = adjustedOfUsage(s.model, s, s.byModel);
+    const tokens = sessionTokens(s), usd = sessionListUsd(s);
     if (inp.convertedAt && s.endedAt && s.endedAt < inp.convertedAt) {
       const d = tokens - ledgerBookedBeforeConversion(s, since);
       if (d) { weightMismatch += d; mismatched++; }
@@ -234,14 +253,15 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
       path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
-    for (const n of path) { n.tokens += tokens; n.sessions++; }
+    for (const n of path) { n.tokens += tokens; n.usd += usd; n.sessions++; }
     root.tokens += tokens;
+    root.usd += usd;
   }
 
   const share = (t: number) => (used ? Math.round((t / used) * 1e4) / 1e4 : 0);
   const out = (n: Acc): SpendNode => {
     const kids = [...n.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
-    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, ...(kids.length ? { children: kids } : {}) };
+    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...(kids.length ? { children: kids } : {}) };
   };
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
@@ -249,10 +269,14 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const booked = sessionsTotal - weightMismatch;
   const unattributed = Math.max(0, used - booked);
   const notFunded = Math.max(0, booked - used);
-  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0 });
-  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched });
-  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0 });
+  const usdOf = (t: number) => cents(bankTokensUsd(t));
+  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0, usd: usdOf(unattributed) });
+  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched, usd: usdOf(-weightMismatch) });
+  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: usdOf(-notFunded) });
   const diff = rows.reduce((s, r) => s + r.tokens, 0) - used;
+  // the same formula as financeSummary's usd.used, so the two endpoints agree to the cent
+  const usd = { used: cents(root.usd + bankTokensUsd(used - sessionsTotal)), sessionsTotal: cents(root.usd), unattributed: usdOf(unattributed), weightMismatch: usdOf(weightMismatch), notFunded: usdOf(notFunded) };
+  const usdDiff = cents(rows.reduce((s, r) => s + r.usd, 0) - usd.used);
   const nf = notFundedUsage(inp);
   const splitSum = nf.split.reduce((t, g) => t + g.tokens, 0);
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
@@ -261,9 +285,11 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     weightMismatchNote: `Sessions that ended before the Bank switched to adjusted tokens (${converted}) are priced here at their own model's rate and in the Bank at one rate for every model. The difference is pricing, not spend: nothing went unpaid.`,
     convertedAt: inp.convertedAt, notFunded,
     notFundedSplit: nf.split, notFundedLastAt: nf.lastAt, notFundedAllocationPaid: nf.allocationPaid,
-    notFundedSplitCheck: { sum: splitSum, notFunded, ok: splitSum === notFunded },
+    notFundedSplitCheck: splitSum === notFunded ? { sum: splitSum, notFunded, ok: true } : { sum: splitSum, notFunded, ok: false, reason: NOT_FUNDED_SPLIT_REASON },
     rows,
     check: { ok: diff === 0, diff, identity: SPEND_IDENTITY },
+    usd,
+    usdSumCheck: { ok: Math.abs(usdDiff) < Math.max(0.01, 0.005 * rows.length + 1e-9), diff: usdDiff, identity: `${SPEND_IDENTITY}, in dollars at API list price` },
     at: now.toISOString(),
   };
 }

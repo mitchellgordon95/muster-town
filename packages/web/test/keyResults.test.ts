@@ -27,7 +27,7 @@ describe("board key-results view", () => {
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);
   });
-  it("Goals tab: one grant word per key result and the Overview line; the mock's objectives carry their KPI", async () => {
+  it("Goals tab: one grant word per key result and the Overview line", async () => {
     const api = new MockApi();
     const tree = await api.objectives("bl_workshop");
     const grants = await api.grants("bl_workshop");
@@ -40,8 +40,6 @@ describe("board key-results view", () => {
     expect(objectiveLine(tree.objectives[0]!)).toBe("Moves Trust · 2026-Q4");
     expect(krStatusLabel("not-started")).toBe("not started");
     expect(krGrantWord("kr_x", [{ keyResultId: "kr_x", status: "closed" }])).toBe("open");
-    const k = await api.kpis();
-    expect(k.kpis.map((x) => x.name)).toEqual(["Fund", "Join", "Trust"]);
   });
   it("Grants tab: open proposals oldest first, then funded, then checkpoint / closed / rejected; drafts left out", () => {
     const g = (id: string, status: string, createdAt: string, updatedAt = createdAt) => ({ id, status, createdAt, updatedAt, fundedAt: null }) as unknown as Parameters<typeof grantGroups>[0][number];

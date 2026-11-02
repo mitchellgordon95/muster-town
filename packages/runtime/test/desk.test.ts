@@ -121,7 +121,9 @@ describe("desk work sessions", () => {
     expect(desk.ensured).toEqual([noor.id]);
     const ex = desk.execs[0];
     expect(ex.argv).toEqual(["agent-town-desk", "run", "--session", s.id]);
-    const tok = world.tokens.getOrCreate("agent", noor.id);
+    // the session's own token (docs/secrets.md "Login tokens"): resolves to the agent, tied to this session
+    const tok = ex.env.MUSTER_TOWN_TOKEN;
+    expect(world.tokens.resolve(tok)).toMatchObject({ kind: "agent", id: noor.id, sessionId: s.id });
     // both env spellings for one release (rename P3): the desk image may predate the rename
     expect(ex.env).toMatchObject({ MUSTER_TOWN_URL: "http://host.docker.internal:4321", MUSTER_TOWN_TOKEN: tok, AGENT_TOWN_URL: "http://host.docker.internal:4321", AGENT_TOWN_TOKEN: tok, DESK_MODEL: lab.model, DESK_MAX_TURNS: String(lab.maxTurnsPerSession) });
     expect(ex.env.GH_TOKEN).toBeUndefined(); // no workspace
@@ -261,7 +263,7 @@ describe("desk funding and failover charging", () => {
   test("fundingFor while the subscription is capped: the next session runs on the keyed allocation (its donor's key), booked to it", () => {
     const { world, by, lab, buffer } = funded();
     const noor = by("Noor");
-    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription" });
+    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription", credentialInputId: world.bank.subscriptionInput()!.id });
     world.ops.endSession(s.id, { status: "error", error: "You've hit your org's monthly spend limit · resets 8:50pm (UTC)" });
     expect(world.budget.failoverFunding(lab.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });
     expect(fundingFor(world, noor.id)).toEqual({ allocationId: buffer.id, auth: "donor-key", credential: { kind: "api-key", secret: "sk-buffer", inputId: null } });

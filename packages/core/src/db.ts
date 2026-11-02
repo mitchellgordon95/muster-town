@@ -1,11 +1,14 @@
 import Database from "better-sqlite3";
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hashPlaintextTokens } from "./store.ts";
 
 export type DB = Database.Database;
 
-const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const HERE = dirname(fileURLToPath(import.meta.url));
+/** core/migrations, from core/src (the sources) or from packages/server/dist (the prebuilt server, server/build.mjs) */
+const MIGRATIONS_DIR = [join(HERE, "..", "migrations"), join(HERE, "..", "..", "core", "migrations")].find((d) => existsSync(d)) ?? join(HERE, "..", "migrations");
 
 /** Open (creating if needed) the SQLite file, enable WAL, apply pending migrations. */
 export function openDb(path: string): DB {
@@ -15,6 +18,9 @@ export function openDb(path: string): DB {
   db.pragma("synchronous = NORMAL");
   db.pragma("busy_timeout = 5000");
   migrate(db);
+  // login tokens are stored hashed (docs/secrets.md "Login tokens"): hash any plaintext row left by an older server
+  const hashed = hashPlaintextTokens(db);
+  if (hashed) console.log(`[secrets] hashed ${hashed} plaintext login token${hashed === 1 ? "" : "s"} in place`);
   return db;
 }
 

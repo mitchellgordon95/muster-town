@@ -68,7 +68,7 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
       set(x0 + F.board.x, y0 + F.board.y, TILE.BOARD);
       for (const p of F.bench) set(x0 + p.x, y0 + p.y, TILE.BENCH);
-      // town moderators (Town Hall residents) sit at the mod station
+      // the Town Hall's residents (the Planner) sit at the mod station
       const mods = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
       F.modSeats.forEach((p, n) => {
         const a = mods[n];
@@ -86,14 +86,18 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) for (let y = 2; y <= 3; y++) set(x0 + x, y0 + y, TILE.TOWN_MAP);
-      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      for (let x = 2; x <= 3; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      set(x0 + 5, y0 + 6, TILE.STATS);
+      set(x0 + 6, y0 + 9, TILE.HELP); // = core's `help` piece
       for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
       set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
       places.push(
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 4 } },
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
+        { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: { x: x0 + 5, y: y0 + 7 } },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
+        { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 9 } },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
       );
     } else {
@@ -126,6 +130,10 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
       set(x0 + 1, yMeet, TILE.PLANT);
       places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
+      // = core's `help` piece: the "?" sign two tiles left of the door, read from the tile beside the doorway
+      const hx = x0 + Math.floor(bw / 2) - 2, hy = y0 + bh - 2;
+      set(hx, hy, TILE.HELP);
+      places.push({ id: `help:${b.id}`, kind: "help", name: `${b.name} help sign (what this building is, what each thing here is, what to do)`, buildingId: b.id, pos: { x: hx + 1, y: hy } });
     }
     cx += bw + GAP;
   }

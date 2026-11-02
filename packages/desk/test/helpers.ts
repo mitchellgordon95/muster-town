@@ -15,6 +15,8 @@ export interface FakeTown {
   /** POST /api/agents/me/transcript bodies (brotli), by session */
   transcripts: Map<string, Buffer>;
   requests: string[];
+  /** the town revoked the desk's token (retired the agent): every agent call answers 401 */
+  revoked: boolean;
   close(): Promise<void>;
 }
 
@@ -28,6 +30,7 @@ export async function startFakeTown(): Promise<FakeTown> {
     ends: [] as DeskSessionEndInput[],
     transcripts: new Map<string, Buffer>(),
     requests: [] as string[],
+    revoked: false,
   };
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
@@ -39,7 +42,7 @@ export async function startFakeTown(): Promise<FakeTown> {
         res.writeHead(status, body === undefined ? {} : { "Content-Type": "application/json" });
         res.end(body === undefined ? undefined : JSON.stringify(body));
       };
-      if (req.headers.authorization !== `Bearer ${TOKEN}`) return send(401, { error: "bad token" });
+      if (req.headers.authorization !== `Bearer ${TOKEN}` || state.revoked) return send(401, { error: "bad token" });
       const key = `${req.method} ${u.pathname}`;
       if (key === "POST /api/agents/me/transcript") { state.transcripts.set(u.searchParams.get("session") ?? "", Buffer.concat(chunks)); return send(201, { transcript: {} }); }
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;

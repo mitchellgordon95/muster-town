@@ -45,7 +45,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # up to 15 min of debounce below; the workflow's concurrency group cancels a waiting run when a newer push comes in
+    timeout-minutes: 25
     permissions:
       contents: write
     steps:
@@ -56,10 +57,35 @@ jobs:
       - run: git push origin "${GITHUB_SHA}:refs/heads/prod"
       # MUSTER_TOWN_DEPLOY_TOKEN: a town token holding `town.redeploy` (the "CI" visitor with the deployer role). Skipped
       # until it is set. Doesn't wait for the restart: the drain can take 30 min. /api/health's `commit` shows when it is live.
+      # Fewer restarts (docs/postmortem-2026-10-31-cpu-throttle-503.md suggestion 6), CI's requests only (the town's own
+      # `redeploy` tool is unchanged):
+      #  - no redeploy when nothing since the live commit can change the running town: only docs/ (but docs/manual.md, which
+      #    the server serves), .github/ or top-level *.md files. prod still moves; the next redeploy takes those commits along.
+      #  - at most one CI restart per 15 min: when the server started less than 15 min ago, wait out the rest. A push meanwhile
+      #    cancels this run (concurrency above) and its own run redeploys the newer commit, so a burst ends in one restart.
       - name: redeploy muster.town
         env:
           TOKEN: ${{ secrets.MUSTER_TOWN_DEPLOY_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then echo "MUSTER_TOWN_DEPLOY_TOKEN not set; skipping redeploy"; exit 0; fi
+          health=$(curl -fsS -m 20 https://muster.town/api/health || true)
+          live=$(printf '%s' "$health" | jq -r '.commit // empty' 2>/dev/null || true)
+          if [ -n "$live" ] && git cat-file -e "$live^{commit}" 2>/dev/null; then
+            changed=$(git diff --name-only "$live" "$GITHUB_SHA")
+            runtime=$(printf '%s\n' "$changed" | grep -vE '^(docs/|\.github/|[^/]+\.md$)' | grep -v '^$' || true)
+            runtime="$runtime$(printf '%s\n' "$changed" | grep -x 'docs/manual.md' || true)"
+            if [ -z "$runtime" ]; then
+              echo "only docs/CI files changed since the live ${live:0:7}; no redeploy (prod is at ${GITHUB_SHA:0:7})"
+              exit 0
+            fi
+          fi
+          started=$(printf '%s' "$health" | jq -r '.startedAt // empty' 2>/dev/null || true)
+          if [ -n "$started" ]; then
+            wait=$(( $(date -d "$started" +%s) + 900 - $(date +%s) ))
+            if [ "$wait" -gt 0 ]; then
+              echo "the server started at $started: waiting ${wait}s so CI restarts it at most once per 15 min"
+              sleep "$wait"
+            fi
+          fi
           curl -fsS -X POST https://muster.town/api/admin/redeploy \
             -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"image":false}'

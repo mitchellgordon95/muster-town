@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
-import { bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
+import { BANK_SIGN_H, bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
@@ -51,6 +51,8 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
+  stats: () => ({ kind: "stats", verb: "Read the user stats" }),
+  help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
   // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);
@@ -67,6 +69,12 @@ function placeTarget(p: Place): Target | null {
   const f = PLACE_PANEL[p.kind]; if (!f) return null;
   const { verb, ...panel } = f(p);
   return { label: verb, panel };
+}
+
+/** The panel E opens at a place (the help card's "What's here" rows walk there and open it), or null. */
+export function placePanel(p: Place): PanelRef | null {
+  const t = placeTarget(p);
+  return t && !t.action ? t.panel : null;
 }
 
 /**
@@ -336,7 +344,8 @@ export class MapRenderer {
       // a guest's ghost starts beside a working agent (the busiest building's), so the first screen shows someone at
       // work rather than the empty path by the Town Hall (KR 2); the plaza when nobody is working
       const busy = av ? null : whoIsHere(s.agents).working[0];
-      const plaza = s.places.find((p) => p.kind === "plaza");
+      // the town's meeting point (in front of the fountain on a town square), else the first goal's plaza
+      const plaza = s.places.find((p) => p.id === "plaza") ?? s.places.find((p) => p.kind === "plaza");
       const start = av?.pos ?? (busy ? this.beside(busy) : null) ?? plaza?.pos ?? { x: Math.floor(s.grid.w / 2), y: s.grid.h - 3 };
       const w = this.world.nearestWalkable(start.x, start.y);
       this.placeMe(w.x, w.y);
@@ -446,7 +455,7 @@ export class MapRenderer {
   private updateTarget() {
     const s = store.state;
     // nearest of agents and places wins, so standing on a place's spot (e.g. the mod station, next to the
-    // seated moderators) targets the place, and stepping toward an agent targets the agent
+    // seated residents) targets the place, and stepping toward an agent targets the agent
     const near: { d: number; t: Target }[] = [];
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;
@@ -648,10 +657,18 @@ export class MapRenderer {
       if (p.x > -300 && p.x < cw + 300 && p.y > -40 && p.y < ch + 60) this.signHits.push({ id: b.id, ...drawSign(g, p.x, p.y, b.name, sub, authStore.get().guest ? null : buildingBudgetLine(b.budget), b.id === this.hoverSign, b.stoplight) });
     }
     // the Bank's marquee stands on the grass right of the Town Hall, above the main street (the Town Hall stands right
-    // above the Bank; nothing else is built above the main street: core/world/tree.ts)
+    // above the Bank; nothing else is built above the main street: core/world/tree.ts); on a town square (the Bank's
+    // door on its paving: core/world/square.ts) it stands on the lawn right of the Bank
     if (w.bank) {
-      const p = toScreen((w.bank.x + w.bank.w + 2) * T, (w.bank.y - 7) * T);
-      if (p.x > -600 && p.x < cw + 40 && p.y > -80 && p.y < ch + 80) drawBankSign(g, p.x, p.y, s.bank, now, "left");
+      const onSquare = w.at(w.bank.x + Math.floor(w.bank.w / 2), w.bank.y - 1) === TILE.PAVING;
+      const col = w.bank.x + w.bank.w + (onSquare ? 1 : 2), row = w.bank.y + (onSquare ? 3 : -7);
+      const p = toScreen(col * T, row * T);
+      // it stays on its grass at any zoom and in every shape: no wider than the tiles up to the next building's lot on
+      // the rows it covers (or the map's edge), less a tile of lawn
+      const half = BANK_SIGN_H / 2 / (T * z);
+      const ends = s.buildings.filter((b) => b.lot && b.lot.x >= col && b.lot.y < row + half && b.lot.y + b.lot.h > row - half).map((b) => b.lot!.x);
+      const clear = (Math.min(w.w, ...ends) - col - 1) * T * z;
+      if (p.x > -600 && p.x < cw + 40 && p.y > -80 && p.y < ch + 80) drawBankSign(g, p.x, p.y, s.bank, now, "left", clear);
     }
     this.hitboxes = [];
     const blocked = blockedByRedeploy(s.events);

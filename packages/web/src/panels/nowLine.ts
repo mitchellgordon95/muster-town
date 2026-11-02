@@ -72,7 +72,6 @@ export function nowLine({ agent, thought, task, lastDone }: NowInput): { now: st
       ? { now: "Done: this helper finished its one task and handed in a report.", task: task ? { label: "Its task was", title: task } : finished }
       : { now: "Retired." };
     default:
-      if (agent.kind === "service") return { now: `Now: ${plainActivity(agent.activity ?? "") || "keeping the library"}` };
       return { now: `Now: resting until someone gives ${agent.name} something to do.`, task: finished };
   }
 }
