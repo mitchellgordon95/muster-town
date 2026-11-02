@@ -107,16 +107,26 @@ export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | 
  * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
  * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → there are free tokens
  * under the building's goal and the optional exploration cap it inherits isn't reached (docs/how-work-gets-done.md §8);
- * directed → never held for money; retainer → its schedule's retainer is funded and one more run fits its approved total.
+ * directed → there are free tokens under the building's goal (Mitchell, 2026-11-02: directed work draws free tokens like
+ * exploration; before, it was never held for money and ate the balance ahead of grant work); retainer → its schedule's
+ * retainer is funded and one more run fits its approved total. Before any lane: the operating reserve. Every work session
+ * waits while the Bank's balance is within the reserve (`operatingReserveTokens`); only manager sessions (deciding
+ * reports, 1:1s, meetings: `Budget.canStart` with no assignment) run on it, so a manager can always unstick its building.
  */
 export function laneHold(world: World, a: Assignment): string | null {
   return laneBlock(world, a)?.reason ?? null;
 }
 
-/** `laneHold` with what it is: the grant hold (and its grant), the reservation hold, or exploration with no free tokens or at its cap. */
-export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "retainer" | "overdraft"; reason: string; grantId?: string; used?: number; cap?: number } | null {
+/** `laneHold` with what it is: the reserve hold, the grant hold (and its grant), the reservation hold, or exploration / directed work with no free tokens (exploration also at its cap). */
+export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "directed" | "retainer" | "overdraft" | "reserve"; reason: string; grantId?: string; used?: number; cap?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!laneGated(building)) return null;
+  // the operating reserve is kept for manager sessions: no work session of any lane starts while the balance is within it
+  // (the Bank's general balance, which every session draws first; a building's own legacy allocations don't lift the hold)
+  const reserve = world.town.get().operatingReserveTokens;
+  if (reserve > 0 && world.bank.remaining(a.buildingId) <= reserve) {
+    return { kind: "reserve", reason: `held: the Bank's balance is within the operating reserve (${fmt(reserve)} tokens kept for manager sessions: deciding reports, 1:1s and meetings)` };
+  }
   if (a.lane === "grant") {
     const g = a.grantId ? world.grants.get(a.grantId) : undefined;
     const grantId = a.grantId ?? undefined;
@@ -151,8 +161,20 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
       return { kind: "exploration", used: e.cap.spentTodayTokens, cap: e.cap.tokensPerDay, reason: `held: exploration cap reached today (${fmt(e.cap.spentTodayTokens)} / ${fmt(e.cap.tokensPerDay)} tokens, set on goal ${e.cap.goalId})` };
     }
   }
-  // directed work is never held for money
+  if (a.lane === "directed") {
+    // a human asked for it, but it draws the same free tokens as exploration: held until some are free under its goal
+    // (a building's own legacy allocation, drawn after the general balance, still runs it: pools-era donations to one building)
+    const e = world.grantDesk.exploration(a.buildingId);
+    if (e.freeTokens <= 0 && allocationTokensLeft(world, a.buildingId) <= 0) {
+      return { kind: "directed", reason: "held: no free tokens under its goal for directed work (funded grants, open proposals and reservations claim the whole balance)" };
+    }
+  }
   return null;
+}
+
+/** What the building's own live allocations (donations to one building, drawn after the Bank's general balance) still hold. */
+function allocationTokensLeft(world: World, buildingId: string): number {
+  return world.budget.remaining(buildingId) - world.bank.remaining(buildingId);
 }
 
 /** Unspent tokens of the building's funded grants (only used when grants are reservations, BUDGET_POLICY.grantReservations). */

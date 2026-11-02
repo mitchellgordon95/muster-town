@@ -262,7 +262,7 @@ export interface Bank {
   buildings: BankBuildingShare[];
   /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
   free?: FreeTokens | null;
-  /** the operating reserve (1:1s, meetings and directed work draw on it; exploration and grant funding can't) and the town-wide free tokens; older servers leave them out */
+  /** the operating reserve (manager sessions draw on it; work of every lane waits while the balance is within it; exploration and grant funding can't claim it) and the town-wide free tokens; older servers leave them out */
   reserveTokens?: number;
   freeTokens?: number;
   contributors: BankContributor[];

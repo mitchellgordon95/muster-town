@@ -88,7 +88,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
 
 /**
  * "Operating reserve: 500,000 (left above it: N)" (1:1 mt_lb7tm75jgb): the part of the balance exploration and grant
- * funding can't claim, so 1:1s, meetings and directed work keep running. An admin edits it here (PUT /api/town/operating-reserve).
+ * funding can't claim and work sessions of every lane wait at, so manager sessions (deciding reports, 1:1s, meetings) keep running (2026-11-02). An admin edits it here (PUT /api/town/operating-reserve).
  */
 function OperatingReserveRow({ bank, onChange }: { bank: Bank; onChange: () => void }) {
   const admin = useTown((s) => !!s.me?.isAdmin);
@@ -96,8 +96,8 @@ function OperatingReserveRow({ bank, onChange }: { bank: Bank; onChange: () => v
   const [editing, setEditing] = useState<number | null>(null);
   const above = bank.balanceTokens - reserve;
   return (
-    <tr title="Exploration and grant funding can't claim these tokens; 1:1s, meetings, manage and directed sessions still draw on them, down to 0">
-      <td>Operating reserve (kept for 1:1s, meetings and directed work)</td>
+    <tr title="Kept for manager sessions (deciding reports, 1:1s, meetings), which run on it down to 0; work sessions of every lane wait while the balance is within it, and exploration and grant funding can't claim it">
+      <td>Operating reserve (kept for manager sessions: deciding reports, 1:1s, meetings)</td>
       <td>
         {editing === null ? <>
           <b>{reserve.toLocaleString("en-US")}</b> <span className="muted">(left above it: {above.toLocaleString("en-US")})</span>

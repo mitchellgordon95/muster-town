@@ -115,21 +115,29 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.assignments.require(held.id).heldReason).toBeNull();
   });
 
-  it("exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held", () => {
-    const { world, admin, noor, spend } = setup();
+  it("exploration and directed work are held with no free tokens; exploration also once its goal's optional cap is reached today, uncapped by default", () => {
+    const { world, admin, noor, spend, fund } = setup();
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     const dir = world.ops.createWork(admin, noor.id, { title: "directed" });
-    // the seeded Bank holds nothing: no free tokens
+    // the seed's pools-era allocations to the lab would still run directed work: retire them (prod has none)
+    for (const al of world.allocations.where("buildingId = ?", [LAB])) world.allocations.upsert({ ...al, retired: true });
+    // the Bank holds 5,000 and a funded grant claims all of it: no free tokens, for exploration and for directed work alike (Mitchell, 2026-11-02)
+    creditBank(world, 5000);
+    fund(5000);
     expect(world.budget.canStart(noor.id, ex)).toBe(false);
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: no free tokens under its goal/);
-    expect(world.budget.canStart(noor.id, dir)).toBe(true);
+    expect(world.budget.canStart(noor.id, dir)).toBe(false);
+    expect(world.assignments.require(dir.id).heldReason).toMatch(/^held: no free tokens under its goal for directed work/);
+    expect(laneBlock(world, dir)?.kind).toBe("directed");
     creditBank(world, 5000);
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
+    expect(world.budget.canStart(noor.id, dir)).toBe(true);
+    expect(world.assignments.require(dir.id).heldReason).toBeNull();
     // no cap anywhere up the tree: spend doesn't hold it
     spend(noor.id, 2000, "exploration");
     expect(world.grantDesk.exploration(LAB).cap).toBeNull();
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
-    // a cap on the root is town-wide; it holds once today's exploration under it reaches it
+    // a cap on the root is town-wide; it holds once today's exploration under it reaches it; the cap is exploration's alone
     world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 2000 });
     expect(world.budget.canStart(noor.id, ex)).toBe(false);
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: exploration cap reached today \(2,000 \/ 2,000 tokens, set on goal gl_town\)/);
@@ -137,6 +145,29 @@ describe("goal-directed budgets: the canStart gate", () => {
     // null = inherit: uncapped again
     world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: null });
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
+  });
+
+  it("the operating reserve is for manager sessions: every lane's work waits while the balance is within it; a manager wake, 1:1 or meeting (no assignment) still starts", () => {
+    const { world, admin, mei, noor, fund } = setup();
+    creditBank(world, 10_000);
+    const g = fund(3_000);
+    const gr = world.ops.createWork(admin, noor.id, { title: "grant step", lane: "grant", grantId: g.id });
+    const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
+    const dir = world.ops.createWork(admin, noor.id, { title: "directed" });
+    for (const a of [gr, ex, dir]) expect(world.budget.canStart(noor.id, a)).toBe(true);
+    // the balance (10,000) falls within an 11,000 reserve: all three lanes wait, with the reason at the Bank
+    world.town.set({ operatingReserveTokens: 11_000 });
+    for (const a of [gr, ex, dir]) {
+      expect(world.budget.canStart(noor.id, a)).toBe(false);
+      expect(world.assignments.require(a.id).heldReason).toMatch(/^held: the Bank's balance is within the operating reserve \(11,000 tokens kept for manager sessions/);
+      expect(laneBlock(world, a)?.kind).toBe("reserve");
+    }
+    // the manager's own sessions without an assignment (team-lead wake, 1:1, meeting) run on the reserve
+    expect(world.budget.canStart(mei.id)).toBe(true);
+    expect(world.budget.canStart(noor.id)).toBe(true);
+    // a reserve of 0 keeps the old rule: nothing waits at it
+    world.town.set({ operatingReserveTokens: 0 });
+    for (const a of [gr, ex, dir]) expect(world.budget.canStart(noor.id, a)).toBe(true);
   });
 
   it("the Town Hall never holds on lanes; a lab does", () => {
@@ -444,6 +475,7 @@ describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1
 
   it("countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'", () => {
     const { world, admin, mei } = setup();
+    creditBank(world); // directed work needs free tokens (2026-11-02)
     const g = propose(world, mei);
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
     const c = world.assignments.first("agentId = ? AND status = 'pending'", [mei.id])!;
@@ -480,6 +512,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
 
   it("an agent creates directed work only when it cites a human source; it is stored and never held by the allowance", async () => {
     const { world, mei, noor, admin, spend } = setup();
+    creditBank(world);
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "directed" })).rejects.toThrow(/goal-directed.*agents can't create directed work\.$/);
     const own = await world.verbs.write(mei, { title: "my note", body: "x", type: "note", state: "building" });
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: own.id })).rejects.toThrow(/isn't human-authored/);
@@ -514,6 +547,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
 
   it("exploration names a gap and directed work may; neither names a key result", async () => {
     const { world, mei, admin } = setup();
+    creditBank(world);
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "exploration" })).rejects.toThrow(/names a goal gap/);
     const ex = await world.verbs.assign(mei, { ...base(mei.id), lane: "exploration", gap: "nobody reads the board" });
     expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "nobody reads the board", keyResultId: null, grantId: null });
