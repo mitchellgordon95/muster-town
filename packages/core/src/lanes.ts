@@ -1,4 +1,5 @@
 import type { Assignment, Building, LaneFields, Meeting } from "@muster-town/schema";
+import { canDirect } from "./direct.ts";
 import { badRequest } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
@@ -18,20 +19,32 @@ export function meetingHadHuman(m: Meeting): boolean {
   return !!m.withUserId || m.transcript.some((u) => u.speakerKind === "user");
 }
 
+/** A human in the meeting (the 1:1's human, or one who spoke) who may direct work in the building (direct.ts), or null. */
+function meetingDirector(world: World, m: Meeting, buildingId: string): string | null {
+  const humans = new Set([...(m.withUserId ? [m.withUserId] : []), ...m.transcript.filter((u) => u.speakerKind === "user").map((u) => u.speakerId)]);
+  return [...humans].find((id) => canDirect(world, { kind: "user", id }, buildingId)) ?? null;
+}
+
 /**
  * Validate a directed assignment's human source (1:1 mt_ryw7ejayvu) and return its id: a meeting a human took part in
  * (or its notes), a doc a human wrote (a flag, a human-report, ...), or a
- * human's tell. (A report a human replied to was one until replies were removed, 1:1 mt_cz11aqe81a.) Anything else is refused.
+ * human's tell. A meeting's or tell's human must be able to direct work in the assigning building (`canDirect`:
+ * staff, a captain over its goal, or "direct work under" it; gr_cuobjlny6r). (A report a human replied to was one until replies were removed, 1:1 mt_cz11aqe81a.) Anything else is refused.
  */
-function humanSource(world: World, sourceId: string): string {
+function humanSource(world: World, sourceId: string, buildingId: string): string {
   const meeting = world.meetings.get(sourceId);
   if (meeting) {
     if (!meetingHadHuman(meeting)) throw badRequest(`Meeting ${sourceId} had no human in it: it isn't a human source for directed work.`);
+    if (!meetingDirector(world, meeting, buildingId)) throw badRequest(`No human in meeting ${sourceId} may direct work in ${world.buildings.get(buildingId)?.name ?? buildingId}: directed work needs "direct work under" its goal (or a goal above it), granted by an admin or that goal's captain. Use lane grant or exploration instead.`);
     return sourceId;
   }
   const msg = world.messages.get(sourceId);
   if (msg) {
-    if (msg.kind !== "tell" || msg.fromKind !== "user") throw badRequest(`Message ${sourceId} isn't a human's tell: it isn't a human source for directed work.`);
+    // a human's tell: sent as the user, or from their avatar (a human-kind agent acting as its owner)
+    const avatar = msg.fromKind === "agent" ? world.agents.get(msg.fromId) : undefined;
+    const human = msg.fromKind === "user" ? { kind: "user" as const, id: msg.fromId } : avatar?.kind === "human" && avatar.ownerUserId ? { kind: "user" as const, id: avatar.ownerUserId } : null;
+    if (msg.kind !== "tell" || !human) throw badRequest(`Message ${sourceId} isn't a human's tell: it isn't a human source for directed work.`);
+    if (!canDirect(world, human, buildingId)) throw badRequest(`${world.nameOf(human.id)} may not direct work in ${world.buildings.get(buildingId)?.name ?? buildingId}: their tell ${sourceId} isn't a source for directed work there (it needs "direct work under" its goal, granted by an admin or that goal's captain).`);
     return sourceId;
   }
   const doc = world.docs.get(sourceId);
@@ -57,7 +70,9 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
   const lane = input?.lane ?? (input?.grantId ? "grant" : gap ? "exploration" : input?.sourceId ? "directed" : undefined);
   if (!lane && opts.from) return { lane: opts.from.lane, grantId: opts.from.grantId, keyResultId: opts.from.keyResultId, gap: opts.from.gap, sourceId: opts.from.sourceId ?? null };
   if (!lane || lane === "directed") {
-    const sourceId = input?.sourceId ? humanSource(world, input.sourceId) : opts.humanMeetingId ?? null;
+    // a meeting's decision records the meeting as its source only when a human in it may direct work here
+    const meetingSource = opts.humanMeetingId && meetingDirector(world, world.meetings.require(opts.humanMeetingId, "meeting"), buildingId) ? opts.humanMeetingId : null;
+    const sourceId = input?.sourceId ? humanSource(world, input.sourceId, buildingId) : meetingSource;
     if (laneGated(building) && !sourceId && !opts.fromMeeting && createdBy.kind !== "system" && (createdBy.kind === "agent" || !BUDGET_POLICY.directedBypassesGrants)) {
       throw badRequest(`${building!.name} is goal-directed: say lane "grant" (grantId of a funded grant) or "exploration" (gap: what is missing between the goal and the live town)${createdBy.kind === "agent" ? "; agents can't create directed work" : ""}.`);
     }
