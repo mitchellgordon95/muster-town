@@ -7,7 +7,7 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { ADJ, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
@@ -134,7 +134,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
       <DocMeta doc={doc} />
       <div className="doc-byline">
         by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
-        {cost ? <> · <span title="What this session cost">{cost}</span></> : null}
+        {cost ? <> · <span title={docCostTitle(doc)}>{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
         {" · "}<CopyLink id={doc.id} />
       </div>
@@ -171,7 +171,7 @@ function CopyLink({ id }: { id: string }) {
       else store.toast(docUrl(id), "info");
     }
   };
-  return <button className="link doc-id" title="Copy a link to this document" onClick={() => void copy()}>{id} ⧉</button>;
+  return <button className="link doc-id" title={`Copy a link to this document (${id})`} onClick={() => void copy()}>Copy link</button>;
 }
 
 /** navigator.clipboard only exists on https/localhost; plain-http towns copy through a hidden textarea. */
@@ -194,19 +194,27 @@ export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
         {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
-        <span title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
+        <span title={[forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId), cost ? docCostTitle(doc) : ""].filter(Boolean).join("\n") || undefined}>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>
   );
 }
 
-/** "$0.84 · 108k tokens · 42 turns" for reports that carry session usage; "" when none is set. */
+/** In plain words, what the work behind a report cost: "$0.84 of work · 42 steps" ("108k tokens of work" when no dollar figure is set); "" when none is set. The town's units are in docCostTitle. */
 export function docCost(doc: Doc): string {
   return [
-    doc.costUsd ? usd(doc.costUsd) : "",
-    doc.tokens ? `${fmtTokens(doc.tokens)} ${ADJ}` : "",
-    doc.turns ? `${doc.turns} ${doc.turns === 1 ? "turn" : "turns"}` : "",
+    doc.costUsd ? `${usd(doc.costUsd)} of work` : doc.tokens ? `${fmtTokens(doc.tokens)} tokens of work` : "",
+    doc.turns ? `${doc.turns} ${doc.turns === 1 ? "step" : "steps"}` : "",
   ].filter(Boolean).join(" · ");
+}
+
+/** The tooltip on docCost: the same in the town's units (adjusted tokens, turns). */
+export function docCostTitle(doc: Doc): string {
+  return [
+    "What the session behind it cost",
+    doc.tokens ? `${fmtTokens(doc.tokens)} ${ADJ} (${ADJ_HINT})` : "",
+    doc.turns ? `${doc.turns} ${doc.turns === 1 ? "turn" : "turns"}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 /** Imported/legacy docs often start with an H1 that duplicates the title shown above. */
