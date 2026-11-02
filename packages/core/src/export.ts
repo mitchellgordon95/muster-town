@@ -9,7 +9,8 @@ import { createRepos } from "./store.ts";
 import { Emitter, parseFrontmatter, slugify, stringifyFrontmatter } from "./util.ts";
 import type { World } from "./world.ts";
 
-export interface ExportResult { dir: string; commit: string | null; changed: boolean; files: number }
+/** `error`: the first line of what git said when a git step failed (null when git ran clean), so export.done shows why `commit` is null. */
+export interface ExportResult { dir: string; commit: string | null; changed: boolean; files: number; error: string | null }
 
 /**
  * Path of a doc inside the export mirror (null = not exported: drafts are private).
@@ -54,8 +55,21 @@ export function importLinks(body: string, idOf8: (id8: string) => string | null)
     .replace(/\]\((?![a-z]+:)[^)\s]*-([a-z0-9]{8})\.md( "doc:")?\)/g, (all, id8: string, doc: string | undefined) => { const id = idOf8(id8); return id ? `](${doc ? "doc:" : ""}${id})` : all; }));
 }
 
+const STALE_LOCK_MS = 10 * 60_000;
+
+/**
+ * One git call of the export. `safe.directory=*`: git >= 2.35.2 refuses a repo owned by another uid ("detected dubious
+ * ownership"), and the export dir on the Fly volume may predate the server's uid; never prompt for anything.
+ * A failure throws an Error whose message is `git <cmd>: <first line git printed>` (not node's "Command failed: …").
+ */
 function git(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }).trim();
+  try {
+    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }).trim();
+  } catch (e) {
+    const err = e as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
+    const said = `${String(err.stderr ?? "")}\n${String(err.stdout ?? "")}\n${err.message}`.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("Command failed:"));
+    throw new Error(`git ${args.find((a) => !a.startsWith("-") && !a.includes("=")) ?? ""}: ${said ?? "failed"}`.slice(0, 500));
+  }
 }
 
 /** What an export reads: the World's repos on the main thread, or a read-only connection of its own in the export worker. */
@@ -205,9 +219,13 @@ export function writeExport(src: ExportSource, dirIn: string): ExportResult {
   }
   for (const [day, evs] of byDay) write(join("events", day.slice(0, 7), `${day}.jsonl`), evs.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-  let commit: string | null = null, changed = false;
+  let commit: string | null = null, changed = false, error: string | null = null;
   try {
     if (!existsSync(join(dir, ".git"))) git(dir, ["init", "-q"]);
+    // a server killed mid-export (a redeploy) leaves .git/index.lock behind and every later `git add` fails on it; runs are one
+    // at a time, so a lock older than 10 min is stale
+    const lock = join(dir, ".git", "index.lock");
+    if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) rmSync(lock, { force: true });
     git(dir, ["add", "-A"]);
     changed = git(dir, ["status", "--porcelain"]).length > 0;
     if (changed) {
@@ -215,9 +233,10 @@ export function writeExport(src: ExportSource, dirIn: string): ExportResult {
     }
     try { commit = git(dir, ["rev-parse", "HEAD"]); } catch { commit = null; }
   } catch (e) {
-    console.log("[core] export: git unavailable or failed:", (e as Error).message);
+    error = (e as Error).message;
+    console.log("[core] export: git unavailable or failed:", error);
   }
-  return { dir, commit, changed, files };
+  return { dir, commit, changed, files, error };
 }
 
 const LATEST = 30;
