@@ -2425,7 +2425,7 @@ export const DeskActivityInput = z.object({
   input: z.unknown().optional(),
   text: z.string().optional(),
   usage: z.object({ counts: TokenCounts, byModel: z.record(z.string(), TokenCounts).default({}) }).optional(),
-  rateLimit: z.object({ status: z.string().max(40).optional(), resetsAt: z.number().optional(), rateLimitType: z.string().max(60).optional() }).optional(),
+  rateLimit: z.object({ status: z.string().max(40).optional(), resetsAt: z.number().optional(), rateLimitType: z.string().max(60).optional(), overageStatus: z.string().max(40).optional(), isUsingOverage: z.boolean().optional() }).optional(),
 });
 export type DeskActivityInput = z.infer<typeof DeskActivityInput>;
 

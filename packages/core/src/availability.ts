@@ -90,6 +90,16 @@ export function limitText(l: CredentialLimit, label: string): string {
   return `${label}: ${what}${when ? `, ${when}` : ""}`;
 }
 
+/** The SDK's `rate_limit_event` info the Bank reads (a subset of `SDKRateLimitInfo`). */
+interface RateLimitInfo {
+  status?: string;
+  resetsAt?: number;
+  rateLimitType?: string;
+  /** extra usage past the plan's window: allowed / allowed_warning means the session still runs */
+  overageStatus?: string;
+  isUsingOverage?: boolean;
+}
+
 /** The Bank's view of observed credential limits (`world.bank.availability`). */
 export class Availability {
   constructor(private repos: Repos, private events: EventLog) {}
@@ -163,9 +173,14 @@ export class Availability {
   /**
    * The SDK's `rate_limit_event` for a session on `inputId`: `rejected` records the window it names with its reset;
    * `allowed` clears an open limit on that window's scope. `allowed_warning` changes nothing (the Bank doesn't predict).
+   * A `rejected` window the session runs past on extra usage (`overageStatus` allowed or allowed_warning, or
+   * `isUsingOverage`) is no limit: the plan's included allowance is used up but the input still serves (Mitchell's
+   * bought credits, 1:1 mt_a64faz59yr: such an event held every session on the plan until the weekly reset).
    */
-  observeRateLimit(inputId: string, info: { status?: string; resetsAt?: number; rateLimitType?: string }, sessionId?: string | null, now = new Date()): CredentialLimit | null {
+  observeRateLimit(inputId: string, info: RateLimitInfo, sessionId?: string | null, now = new Date()): CredentialLimit | null {
     const scope: LimitScope = info.rateLimitType === "seven_day_opus" ? "opus" : info.rateLimitType === "seven_day_sonnet" ? "sonnet" : "*";
+    const onOverage = info.rateLimitType !== "overage" && (info.isUsingOverage === true || info.overageStatus === "allowed" || info.overageStatus === "allowed_warning");
+    if (info.status === "rejected" && onOverage) return null;
     if (info.status === "rejected") {
       const until = typeof info.resetsAt === "number" ? new Date(info.resetsAt * 1000).toISOString() : null;
       return this.limit({ inputId, scope, kind: scope === "*" ? "window" : "model-limit", until, reason: `rate_limit_event ${info.rateLimitType ?? "window"} rejected`, sessionId }, now);

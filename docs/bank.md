@@ -192,7 +192,9 @@ observes what the provider says.
 
 Sources: a session's error at its end (`ops.endSession`), and the SDK's `rate_limit_event` while it runs (host sessions
 directly; desks post it as a `rate-limit` activity once their image is rebuilt). `rejected` records the window with its
-reset; `allowed` clears it; `allowed_warning` changes nothing.
+reset; `allowed` clears it; `allowed_warning` changes nothing. A `rejected` window the session runs past on extra usage (`overageStatus`
+`allowed`/`allowed_warning`, or `isUsingOverage`) records nothing: the plan's included allowance is used up but bought
+credits still serve it (1:1 mt_a64faz59yr; before, such an event held every session on the plan until the weekly reset).
 
 **Probes.** With no reset named, the limit holds until `probeAt`, when one session may try: 1 h, doubling per failure to
 24 h; 6 h doubling to 48 h for billing and auth. A session that succeeds on the input and model clears the limit (an
