@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TILE } from "@muster-town/schema";
-import { createBuilding, findPath, updateBuilding, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
+import { createBuilding, findPath, freeDesks, updateBuilding, isWalkable, labSize, MAX_HEADCOUNT, piecesFor, TOWN_HALL_SIZE, validateLayout } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const at = (world: ReturnType<typeof seededWorld>["world"], x: number, y: number) => world.layout.grid.tiles[y * world.layout.grid.w + x];
@@ -10,6 +10,36 @@ describe("furniture", () => {
     // a lab's door is in its top wall (it hangs below its goal's plaza): the room is mirrored; the Town Hall's is in the bottom wall
     for (let n = 1; n <= MAX_HEADCOUNT; n++) expect(validateLayout("lab", labSize(n), piecesFor("lab", n, labSize(n))), `headcount ${n}`).toEqual([]);
     expect(validateLayout("town-hall", TOWN_HALL_SIZE, piecesFor("town-hall", 3, TOWN_HALL_SIZE))).toEqual([]);
+  });
+
+  it("the Town Hall's user stats stand sits beside a two-tile outbox counter; nothing else moved, every spot reachable (1:1 mt_ec2b7x80rg)", () => {
+    const pieces = piecesFor("town-hall", 3, TOWN_HALL_SIZE), by = new Map(pieces.map((p) => [p.key, p]));
+    expect(by.get("outbox")!.cells).toHaveLength(2);
+    expect(by.get("stats")).toMatchObject({ at: { x: 5, y: 6 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: 0, y: 1 }] });
+    expect(by.get("intray")!.at).toEqual({ x: 14, y: 9 });
+    const { world } = seededWorld();
+    const door = world.layout.door("town-hall")!;
+    for (const id of ["stats", "outbox", "intray:town-hall", "mod-station", "planning-desk", "visitor-bench", "library", "meeting-room:town-hall"]) {
+      const p = world.layout.requirePlace(id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), id).toBe(true);
+      expect(findPath(world.layout.grid, door, p.pos), id).not.toBeNull();
+    }
+    const stats = world.layout.requirePlace("stats");
+    expect(stats.kind).toBe("stats");
+    expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
+  });
+
+  it("every building has a \"?\" help sign beside its door, read from a reachable tile (flag dc_8dwch9z5pi)", () => {
+    const { world } = seededWorld();
+    for (const b of world.buildings.all()) {
+      const p = world.layout.requirePlace(`help:${b.id}`);
+      expect(p.kind).toBe("help");
+      expect(p.buildingId).toBe(b.id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), b.id).toBe(true);
+      expect(findPath(world.layout.grid, world.layout.door(b.id)!, p.pos), b.id).not.toBeNull();
+      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => at(world, p.pos.x + dx, p.pos.y + dy) === TILE.HELP);
+      expect(near, b.id).toBe(true);
+    }
   });
 
   it("rejects pieces on the door, overlapping, off the floor, or walling off a stand tile", () => {
@@ -24,7 +54,7 @@ describe("furniture", () => {
   });
 
   it("a human manager moves the board; the place, the grid and the body standing there follow", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const lot = world.buildings.require("carbon-cycle").lot!;
     const oldBoard = world.layout.requirePlace("board:carbon-cycle").pos;
     const ravi = by("Ravi");
@@ -45,7 +75,7 @@ describe("furniture", () => {
   });
 
   it("a resident at their desk moves with it; the Town Hall is editable too", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const ravi = by("Ravi");
     const desk = world.layout.deskOf(ravi.id)!;
     const slot = world.layout.deskSlots("carbon-cycle").find((s) => s.agentId === ravi.id)!;
@@ -64,7 +94,7 @@ describe("furniture", () => {
   });
 
   it("only humans with building.manage may edit; illegal rooms are refused and dry runs save nothing", () => {
-    const { world, admin, by } = seededWorld();
+    const { world, admin, by } = seededWorld("tree");
     const moss = by("Moss");
     expect(() => world.ops.updateFurniture(moss, "carbon-cycle", { plant: { x: 2, y: 4 } })).toThrow(/Only humans/);
     const nobody = world.ops.ensureAvatar(world.ops.createUser("Nobody").user.id);
@@ -79,7 +109,7 @@ describe("furniture", () => {
   });
 
   it("a stored spot that becomes illegal falls back to the default; legal ones survive a bigger lot", () => {
-    const { world, admin, seed } = seededWorld();
+    const { world, admin, seed } = seededWorld("tree");
     const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
     const back = b.lot!.h - 1;
     world.ops.updateFurniture(admin, b.id, { plant: { x: 3, y: 3 }, board: { x: 1, y: back } });
@@ -96,5 +126,41 @@ describe("furniture", () => {
     world.buildings.upsert({ ...now, furniture: { ...now.furniture, plant: { x: 2, y: 5 } } });
     world.layout.rebuild();
     expect(at(world, lot.x + 2, lot.y + 5)).toBe(TILE.FLOOR);
+  });
+
+  it("a headcount lowered below the desks in use is accepted: no new fork's desk, running ones keep theirs, the lab shrinks as they free (mt_cyd2t5ioob decision 5)", () => {
+    const { world, admin, seed } = seededWorld("tree");
+    const b = createBuilding(world, { name: "Busy", headcount: 4 }, seed.admin.id);
+    const before = world.buildings.require(b.id).lot!;
+    for (const id of ["ag_x1", "ag_x2", "ag_x3"]) world.layout.claimDesk(b.id, id);
+    // a moved desk 2 (occupied) keeps its stored spot through the lowering
+    const d2 = world.layout.pieces(b.id).pieces.find((p) => p.key === "desk:2");
+    updateBuilding(world, b.id, { headcount: 1 });
+    const low = world.buildings.require(b.id);
+    expect(low.headcount).toBe(1);
+    expect(freeDesks(world, low)).toBe(0);
+    expect(world.layout.deskCount(b.id)).toBe(3);
+    for (const id of ["ag_x1", "ag_x2", "ag_x3"]) expect(world.layout.deskOf(id)).toBeTruthy();
+    expect(world.layout.deskSlots(b.id)).toHaveLength(3);
+    expect(d2).toBeTruthy();
+    expect(world.layout.pieces(b.id).pieces.some((p) => p.key === "desk:2")).toBe(true);
+    // desks free one by one: the lab keeps its highest occupied desk, then shrinks to the headcount
+    world.layout.releaseDesk("ag_x2");
+    expect(world.layout.deskSlots(b.id)).toHaveLength(3);
+    world.layout.releaseDesk("ag_x3");
+    expect(world.layout.deskSlots(b.id)).toHaveLength(1);
+    expect(world.buildings.require(b.id).lot!.w * world.buildings.require(b.id).lot!.h).toBeLessThanOrEqual(before.w * before.h);
+    expect(world.layout.deskOf("ag_x1")).toBeTruthy();
+    void admin;
+  });
+
+  it("the Town Hall's headcount can be set below its seated mods without touching its room", () => {
+    const { world } = seededWorld("tree");
+    const th = world.buildings.all().find((x) => x.kind === "town-hall")!;
+    const lot = th.lot!;
+    for (const id of ["ag_m1", "ag_m2"]) world.layout.claimDesk(th.id, id);
+    updateBuilding(world, th.id, { headcount: 1 });
+    expect(world.layout.deskOf("ag_m2")).toBeTruthy();
+    expect(world.buildings.require(th.id).lot).toEqual(lot);
   });
 });

@@ -49,10 +49,17 @@ export class Reorgs {
    * The Planner, created on first use: a Town Hall resident seated at a free mod-station seat (else by the door), and
    * the Town Hall's manager (`managerAgentId`; Mitchell, 1:1 mt_wql34b8gkl). It manages in name only: `managerAgentOf`
    * leaves the Town Hall out, so its in-tray stays the humans' and the Planner only answers 1:1s and facilitates reorgs.
+   * A stopped Planner is resumed (`stopped` → `idle`): it is the Town Hall's only agent, and every caller is a human
+   * who has already passed a permission check asking for it (Mitchell's flag dc_roz7gfvzt2: a Stop pressed on
+   * 2026-10-31 left the Town Hall 1:1 failing with "has no manager agent").
    */
   ensurePlanner(): Agent {
-    const have = this.planner();
-    if (have) { this.seatAsManager(have); return have; }
+    let have = this.planner();
+    if (have) {
+      if (have.status === "stopped") have = this.world.setStatus(have.id, "idle", `${have.name} was resumed (the Town Hall's only agent was asked for)`);
+      this.seatAsManager(have);
+      return have;
+    }
     const th = this.world.buildings.require(TOWN_HALL_ID, "building");
     return this.world.transaction(() => {
       const id = newId("ag");
@@ -88,7 +95,7 @@ export class Reorgs {
     if (this.world.permissions.can(actor, "goals.edit") || this.world.permissions.can(actor, "meeting.facilitate", TOWN_HALL_ID)) return true;
     if (goalId) return this.world.goalTree.canEdit(actor, goalId);
     const uid = holderOf(actor).id;
-    return this.world.goals.where("ownerId = ?", [uid]).length > 0;
+    return this.world.goals.exists("ownerId = ?", [uid]);
   }
 
   /** "Plan with an agent": open (or return to) the human's 1:1 with the Planner, about `goalId` when started from a goal. */

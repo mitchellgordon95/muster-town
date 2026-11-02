@@ -2,11 +2,11 @@
  * "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178). A goal's captain is its `ownerId` (docs/goals.md
  * "Captains on nodes"; "captain" is the word humans see). A member (`town.interact`) asks to captain a goal; the request
  * waits in the Town Hall in-tray, routed to the goal's current captain (its own, else inherited from the nearest
- * captained ancestor; the town admins at the root). That captain, an admin, or a captain higher up (`goals.edit` at the
+ * captained ancestor; the root always has one, so a request about the root itself goes to the root's captain). That captain, an admin, or a captain higher up (`goals.edit` at the
  * goal) accepts, which sets `ownerId` through `Goals.setOwner` (the same path as the Captain tool), or declines.
  * One pending request per (goal, user). Modeled on access.ts.
  */
-import { ROOT_GOAL_ID, type Agent, type CaptainRequest, type CaptainRequestView } from "@muster-town/schema";
+import { type Agent, type CaptainRequest, type CaptainRequestView } from "@muster-town/schema";
 import { canInteract } from "./access.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { holderOf } from "./permissions.ts";
@@ -19,7 +19,6 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 export function requestCaptain(world: World, userId: string, goalId: string, note = ""): CaptainRequest {
   const user = world.users.require(userId, "user");
   if (!canInteract(world, userId)) throw forbidden("town.interact", "Only a member can ask to captain a goal. Ask to join first.");
-  if (goalId === ROOT_GOAL_ID) throw badRequest("The town goal is captained by the town admins.");
   const goal = world.goalTree.require(goalId);
   if (goal.status !== "active") throw badRequest(`Goal ${goalId} is retired.`);
   if (goal.ownerId === userId) throw new AppError("conflict", "You already captain this goal.");
@@ -74,10 +73,10 @@ export function pendingCaptainRequests(world: World): CaptainRequestView[] {
   return world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid").map((r) => {
     const u = world.users.get(r.userId);
     const goal = world.goalTree.get(r.goalId);
-    const captainId = goal ? world.goalTree.ownerOf(r.goalId).userId : null;
+    const captainId = world.goalTree.ownerOf(r.goalId).userId;
     return {
       ...r, name: u?.name ?? r.userId, githubLogin: u?.githubLogin ?? null, avatarUrl: u?.avatarUrl ?? null, goalText: goal?.text ?? r.goalId,
-      captainId, captainName: captainId ? world.users.get(captainId)?.name ?? captainId : "the town admins",
+      captainId, captainName: world.users.get(captainId)?.name ?? captainId,
     };
   });
 }

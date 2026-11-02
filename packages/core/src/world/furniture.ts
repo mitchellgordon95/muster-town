@@ -1,11 +1,13 @@
 import { TILE, type Lot, type Tile } from "@muster-town/schema";
-import { facesNorth } from "./road.ts";
+import { defaultSide, doorOf, insideOf, type Side } from "./road.ts";
 
 /**
  * Movable furniture. Every piece of a room is a `Piece`: footprint cells and stand tiles relative to an anchor,
  * with a default anchor relative to the lot. `Building.furniture` stores only the moved pieces' anchors
  * (lot-relative); `computeLayout` places each piece at its stored anchor if it's legal, else at its default.
- * A lab has its door in the top wall (it hangs below its goal's plaza), so its default room is the Town Hall-style one upside down.
+ * The default room is laid out with its back wall at the top and the door in the bottom wall; a building whose door is
+ * in its top wall (a lab hanging below its street) gets that room upside down; one with its door in a side wall keeps it
+ * as is (road.ts `doorOf` puts a side door where the default room leaves the floor free).
  */
 export interface Piece {
   /** stable key, e.g. `board`, `desk:3`, `meeting` */
@@ -31,9 +33,9 @@ const row = (n: number, tile: number) => Array.from({ length: n }, (_, dx) => ({
 const one = (tile: number) => [{ dx: 0, dy: 0, tile }];
 
 /** The pieces of a building of this kind and lot size, at their default anchors. */
-export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number }): Piece[] {
+export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number }, side: Side = defaultSide(kind)): Piece[] {
   const pieces = southFacingPieces(kind, headcount, lot);
-  if (!facesNorth(kind)) return pieces;
+  if (side !== "n") return pieces;
   return pieces.map((p) => ({
     ...p,
     at: { x: p.at.x, y: lot.h - 1 - p.at.y },
@@ -59,8 +61,12 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       { key: "library", label: "Library shelves", at: { x: 2, y: 2 }, cells: row(5, TILE.SHELF), stands: [{ x: 2, y: 1 }] },
       // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
       { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },
-      { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(4, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
+      // the outbox counter, two tiles since the user stats stand took its right half (1:1 mt_ec2b7x80rg decision 2)
+      { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(2, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
+      { key: "stats", label: "User stats stand", at: { x: 5, y: 6 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
       { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
+      // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+      { key: "help", label: "Help sign", at: { x: 6, y: 9 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
       { key: "plant:0", label: "Plant", at: { x: 1, y: 1 }, cells: one(TILE.PLANT), stands: [] },
       { key: "plant:1", label: "Plant", at: { x: bw - 2, y: 1 }, cells: one(TILE.PLANT), stands: [] },
     ];
@@ -84,6 +90,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
     { key: "cabinet", label: "Filing cabinet", at: { x: bw - 2, y: cy }, cells: one(TILE.CABINET), stands: [{ x: -1, y: 0 }] },
     { key: "meeting", label: "Meeting table", at: { x: bw - 5, y: yMeet }, cells: row(3, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
     { key: "plant", label: "Plant", at: { x: 1, y: yMeet }, cells: one(TILE.PLANT), stands: [] },
+    // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+    { key: "help", label: "Help sign", at: { x: Math.floor(bw / 2) - 2, y: bh - 2 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
   ];
 }
 
@@ -95,11 +103,11 @@ const k = (x: number, y: number) => `${x},${y}`;
  * the door; no overlaps; stand tiles on free floor and not shared; every stand tile and 2 seats at each table
  * reachable from the door. Empty = legal.
  */
-export function validateLayout(kind: "lab" | "town-hall", lot: { w: number; h: number }, pieces: Piece[], anchors: Furniture = {}): LayoutError[] {
+export function validateLayout(kind: "lab" | "town-hall", lot: { w: number; h: number }, pieces: Piece[], anchors: Furniture = {}, side: Side = defaultSide(kind)): LayoutError[] {
   const { w, h } = lot;
   const errors: LayoutError[] = [];
-  const north = facesNorth(kind), back = north ? h - 1 : 0;
-  const door = { x: Math.floor(w / 2), y: north ? 0 : h - 1 }, inside = { x: door.x, y: north ? 1 : h - 2 };
+  const north = side === "n", back = north ? h - 1 : 0;
+  const room = { x: 0, y: 0, w, h }, door = doorOf(room, side), inside = insideOf(room, side);
   const interior = (x: number, y: number) => x >= 1 && y >= 1 && x <= w - 2 && y <= h - 2;
   const onWall = (x: number, y: number) => (x === 0 || x === w - 1) ? y >= 1 && y <= h - 2 : y === back && x >= 1 && x <= w - 2;
   const owner = new Map<string, string>();
@@ -159,14 +167,14 @@ export function validateLayout(kind: "lab" | "town-hall", lot: { w: number; h: n
  * Unknown keys (e.g. a desk beyond a lowered headcount) are dropped. Tries again after each accepted piece, so
  * swaps survive (A takes B's old spot only once B has moved).
  */
-export function resolveFurniture(kind: "lab" | "town-hall", lot: Lot, pieces: Piece[], stored: Furniture | undefined): { anchors: Furniture; dropped: string[] } {
+export function resolveFurniture(kind: "lab" | "town-hall", lot: Lot, pieces: Piece[], stored: Furniture | undefined, side: Side = defaultSide(kind)): { anchors: Furniture; dropped: string[] } {
   const anchors: Furniture = {};
   let pending = Object.keys(stored ?? {}).filter((key) => pieces.some((p) => p.key === key)).sort();
   for (let progress = true; progress && pending.length;) {
     progress = false;
     for (const key of [...pending]) {
       const trial = { ...anchors, [key]: stored![key] };
-      if (validateLayout(kind, lot, pieces, trial).length) continue;
+      if (validateLayout(kind, lot, pieces, trial, side).length) continue;
       anchors[key] = stored![key];
       pending = pending.filter((x) => x !== key);
       progress = true;

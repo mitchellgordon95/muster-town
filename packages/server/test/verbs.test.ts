@@ -1,4 +1,4 @@
-import { LookResult, MailboxDigest, VERB_NAMES } from "@muster-town/schema";
+import { DocType, LookResult, MailboxDigest, VERB_NAMES } from "@muster-town/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AddressInfo } from "node:net";
@@ -34,6 +34,20 @@ describe("v1.4 generic verbs endpoint", () => {
     expect(inbox.inputSchema.properties.markRead).toMatchObject({ type: "boolean", default: true });
     expect(inbox.inputSchema.required).toBeUndefined();
     expect(r.body.verbs.find((v) => v.name === "look")!.description).toMatch(/digest/);
+    // zod 4's z.toJSONSchema replaced a hand-written walker: one verb's whole schema, as the old walker gave it (plus the
+    // bounds it skipped), so a zod upgrade that changes the listing shows up here.
+    expect(r.body.verbs.find((v) => v.name === "search")!.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        type: { type: "string", enum: [...DocType.options] },
+        state: { type: "string", enum: ["draft", "building", "library"] },
+        buildingId: { type: "string", minLength: 1 },
+        limit: { type: "integer", exclusiveMinimum: 0, maximum: 50, default: 10 },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    });
   });
 
   it("`look` via /api/verbs/look equals the MCP tool result", async () => {

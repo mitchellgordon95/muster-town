@@ -106,7 +106,7 @@ describe("seed", () => {
     const cfg = join(dir, "collective.json");
     writeFileSync(cfg, JSON.stringify({
       name: "T", goal: "", workspace: { path: repo },
-      buildings: [{ id: "ws", name: "WS", codeAccess: true, residents: [{ name: "Pix", title: "x", direction: "y" }] }],
+      buildings: [{ id: "ws", name: "WS", codeAccess: true, manager: { name: "Pix" } }],
     }));
     world.seedDefaults({ collectivePath: cfg });
     expect(world.town.get().workspace?.repoUrl).toBe("git@github.com:me/agent-town.git");

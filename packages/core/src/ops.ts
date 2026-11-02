@@ -8,8 +8,9 @@ import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endM
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
-import { sessionView, unknownModels } from "./bank.ts";
+import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { isCheckpointAssignment } from "./lanes.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
@@ -119,7 +120,7 @@ export class Ops {
   setAgentModel(actor: Actor, agentId: string, model: string | null): Agent {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor && !this.canSetModel(actor, agent)) throw forbidden("building.manage");
-    if (agent.kind === "human" || agent.kind === "service") throw badRequest(`${agent.name} doesn't run model sessions.`);
+    if (agent.kind === "human") throw badRequest(`${agent.name} doesn't run model sessions.`);
     const next = model?.trim() || null;
     const updated = this.world.agents.patch(agentId, { model: next });
     this.world.events.append({ type: "system", agentId, text: `${agent.name}'s model: ${next ?? "building default"}`, payload: { model: next, by: actor ? this.world.holderOf(actor).id : "system" } });
@@ -260,14 +261,15 @@ export class Ops {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
     this.world.movement.cancel(agentId, "Stopped.");
-    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`);
+    return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   /** POST /agents/:id/resume: `stopped` → `idle` without creating an assignment. Pending assignments (if any) run as usual. */
   resumeAgent(actor: Actor, agentId: string): Agent {
     const agent = this.world.agents.require(agentId, "agent");
-    if (actor) this.requireAgentControl(actor, agent);
+    // the Planner: whoever plans with it (an admin, a goal's captain) may resume it; the Town Hall has no roles
+    if (actor && !(this.world.reorgs.isPlanner(agent) && this.world.reorgs.canPlan(actor))) this.requireAgentControl(actor, agent);
     if (agent.status !== "stopped") return agent;
-    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`);
+    return this.world.setStatus(agentId, "idle", `${agent.name} was resumed`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
   // ---- the assignment queue ----
   // Pending assignments run in `position` order (then createdAt, rowid). Owner, building.assign or admin.
@@ -324,10 +326,13 @@ export class Ops {
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
     if (agent.status === "banned" || (agent.status === "retired" && !agent.forkOf)) throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
+    // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
+    const system = { kind: "system" as const, id: "system" };
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
+      createdBy: isCheckpointAssignment(a) || !actor ? system : this.world.holderOf(actor),
     });
   }
 
@@ -357,6 +362,7 @@ export class Ops {
       funding: opts.funding ?? null,
       // the Bank input whose credential the session was handed (post-mortem 2026-10-30): booked at start, never from the desk's word
       credentialInputId: opts.credentialInputId ?? null,
+      bankModel: BANK_MODEL,
       // the desk Machine size it runs on (gr_uhh6u39vv9 step 3); null for host sessions and docker desks
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
@@ -396,6 +402,8 @@ export class Ops {
       byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
       wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
+    // the session's own login token dies with it (docs/secrets.md "Login tokens")
+    this.world.tokens.revokeSession(sessionId);
     const agent = this.world.agents.require(s.agentId, "agent");
     // a 1:1 answered beside a work session ends while the work goes on (and vice versa): idle only when neither runs
     if (agent.status === "working" && !this.world.sessions.count("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agent.id])) this.world.setStatus(agent.id, "idle");
@@ -404,6 +412,14 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // promised and available (availability.ts): what the session's end says about the input it ran on. A failure that is
+    // about the credential (a model or plan limit, billing, auth) records a limit on that input and model; a session that
+    // finished with tokens shows the input serves the model, so its limits for it clear. Interrupted sessions say nothing.
+    if (session.credentialInputId && session.status !== "interrupted") {
+      const said = [result.spendLimit, session.error].filter(Boolean).join(" ");
+      const limit = said ? this.world.bank.availability.recordFailure({ inputId: session.credentialInputId, model: session.model, text: said, sessionId: session.id }) : null;
+      if (!limit && session.status === "done" && session.tokens > 0) this.world.bank.availability.recordSuccess(session.credentialInputId, session.model, new Date(), `${agent.name}'s session on ${session.model} succeeded`);
+    }
     // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
     walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
@@ -452,7 +468,7 @@ export class Ops {
   /**
    * A request is open to every human as soon as an agent files it (no approval step); the human decides whether to do it.
    * claim: any human (avatar). done: the claimer (or admin) with `body` → creates a `human-report` in the library.
-   * delete: a moderator (town.approve_request) removes a request that misuses the town; returns `request: null`.
+   * delete: an admin (town.approve_request) removes a request that misuses the town; returns `request: null`.
    */
   requestAction(actor: Agent, docId: string, action: RequestAction, body?: string): { request: Doc | null; humanReport: Doc | null } {
     const doc = this.world.docs.require(docId, "doc");
@@ -468,7 +484,7 @@ export class Ops {
         this.world.permissions.require(actor, "town.approve_request");
         this.world.docs.delete(doc.id);
         this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
-        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `A moderator deleted your outbox request "${doc.title}".` });
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `An admin deleted your outbox request "${doc.title}".` });
         return { request: null, humanReport: null };
       }
       case "claim":
@@ -543,7 +559,9 @@ export class Ops {
   endMeeting(actor: Actor, meetingId: string, closing?: string, cause?: string): Meeting {
     if (actor) {
       const m = this.world.meetings.require(meetingId, "meeting");
-      if (m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      // a 1:1's own human ends it, member or not (gr_58n37j410s)
+      const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

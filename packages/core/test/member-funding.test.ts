@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, townKpis } from "../src/index.ts";
+import { buildingRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -36,14 +36,11 @@ describe("member funding (fundWith)", () => {
     expect(world.grantDesk.decide(member, g.id, { action: "fund", fundWith: input.id, tokens: 5_000 }).status).toBe("funded");
   });
 
-  it("funds with the member's own input: fundedBy, fundedWith, names, the event, and the Fund KPI", () => {
+  it("funds with the member's own input: fundedBy, fundedWith, names and the event", () => {
     const { world, g, member, user, input } = setup();
     const f = world.grantDesk.decide(member, g.id, { action: "fund", fundWith: input.id });
     expect(f).toMatchObject({ status: "funded", grantTokens: 20_000, fundedBy: user.id, fundedWith: input.id, fundedByName: "Member", fundedWithLabel: "Member key" });
     expect(world.events.list({ types: ["grant.funded"] }).at(-1)!.text).toMatch(/funded from Member key/);
-    const fund = townKpis(world).kpis.find((k) => k.key === "fund")!;
-    expect(fund.thisWeek).toBeGreaterThanOrEqual(1);
-    expect(fund.detail).toMatch(/1 grant funded \(20,000 adjusted tokens\)/);
   });
 
   it("an admin still funds from the pool (fundedWith null) and may also fund with an input", () => {

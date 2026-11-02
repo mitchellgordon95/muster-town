@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, NoCredential, type World, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
 import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
@@ -116,7 +116,21 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const error = o.error ?? null;
   const reportSubmitted = !!o.reportSubmitted || !!world.sessions.get(sessionId)?.reportId;
 
-  if (session.purpose === "work" && !reportSubmitted) {
+  // Promised and available (core availability.ts): a session that died because its credential couldn't serve it (a model
+  // or plan limit, billing, a revoked key) didn't fail the work. Its assignment goes back to the front of the queue to be
+  // funded by another credential, or to wait with the limit's reason; no fallback report. Only when the session ran on a
+  // Bank input, so the limit is recorded and dispatch won't hand the same credential straight back.
+  const credentialFailure = session.purpose === "work" && !stopped && !reportSubmitted && !!session.credentialInputId
+    && !!classifyFailure([o.spendLimit, error].filter(Boolean).join(" "), session.model);
+  const requeue = credentialFailure && session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
+  if (requeue && requeue.status === "active") {
+    const front = world.db.prepare("SELECT MIN(position) AS p FROM assignments WHERE buildingId = ? AND status = 'pending'").get(requeue.buildingId) as { p: number | null };
+    setAssignmentStatus(world, requeue.id, "pending", { position: front.p === null ? requeue.position : Math.min(requeue.position, front.p - 1) });
+    world.agents.patch(agentId, { currentAssignmentId: null });
+    world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session couldn't run on its credential; "${requeue.title}" is back at the front of the queue`, payload: { sessionId, assignmentId: requeue.id, requeued: "credential", error: (o.spendLimit || error || "").slice(0, 300) } });
+  }
+
+  if (session.purpose === "work" && !reportSubmitted && !requeue) {
     try {
       const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const body = fallbackReportBody(o.finalText ?? "", error, assignment);

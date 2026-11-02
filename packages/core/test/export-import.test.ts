@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { importV0, parseFrontmatter } from "../src/index.ts";
+import { importV0, newId, parseFrontmatter } from "../src/index.ts";
 import { exportLinks, importLinks } from "../src/export.ts";
 import { CARBON_DIR, freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
@@ -43,6 +43,7 @@ describe("export", () => {
     const r1 = world.export(dir);
     expect(r1.changed).toBe(true);
     expect(r1.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(r1.error).toBeNull();
     expect(existsSync(join(dir, "town.json"))).toBe(true);
     expect(existsSync(join(dir, "buildings/carbon-cycle/building.json"))).toBe(true);
     const files = (rel: string) => readdirSync(join(dir, rel), { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".md") || f.endsWith(".jsonl"));
@@ -85,6 +86,86 @@ describe("export", () => {
     expect(w2.docs.require(before.id)).toEqual(before);
     expect(w2.layout.deskOf(by("Ravi").id)?.pos).toEqual(world.layout.deskOf(by("Ravi").id)?.pos);
     expect(counts.meetings).toBe(1);
+  });
+
+  it("off the main thread: the worker writes the same tree as the in-process export and appends no event", async () => {
+    const { world, by } = seededWorld();
+    await world.verbs.request_human(by("Ingrid"), { title: "Field photo", body: "please" });
+    const inProcess = world.export(tempDir());
+    const done = () => world.events.list({ types: ["export.done"], limit: 100 }).length;
+    const before = done();
+    const off = await world.exportOffThread(tempDir());
+    expect(done()).toBe(before);
+    expect(off).toMatchObject({ changed: true, files: inProcess.files });
+    const tree = (r: { dir: string }) => execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: r.dir, encoding: "utf8" }).trim();
+    expect(tree(off)).toBe(tree(inProcess));
+    expect((await world.exportOffThread(off.dir)).changed).toBe(false);
+  });
+
+  it("off the main thread: a 5 ms timer never gaps 100 ms while a large town exports", async () => {
+    const { world } = seededWorld();
+    const tmpl = world.docs.first("state != 'draft'")!;
+    const body = "A report paragraph with words and a link dc_abcdefghij. ".repeat(50);
+    world.db.transaction(() => {
+      for (let i = 0; i < 400; i++) world.docs.upsert({ ...tmpl, id: newId("dc"), title: `Doc ${i}`, body, createdAt: new Date(Date.UTC(2026, 9, 20) + i * 600_000).toISOString() }, { silent: true });
+      for (let i = 0; i < 20_000; i++) world.events.append({ type: "agent.tool", text: `Reading files ${i}`, payload: { tool: "Bash", input: "x".repeat(300) } });
+    })();
+    let last = performance.now();
+    let maxGap = 0;
+    const tick = setInterval(() => { const t = performance.now(); maxGap = Math.max(maxGap, t - last); last = t; }, 5);
+    const started = performance.now();
+    const r = await world.exportOffThread(tempDir());
+    const took = performance.now() - started;
+    clearInterval(tick);
+    expect(r.changed).toBe(true);
+    expect(r.files).toBeGreaterThan(400);
+    expect(took).toBeGreaterThan(100); // long enough for a blocked loop to show
+    expect(maxGap).toBeLessThan(100);
+  }, 60_000);
+});
+
+describe("export: git failures are visible in export.done", () => {
+  const lastDone = (world: ReturnType<typeof freshWorld>["world"]) => world.events.list({ types: ["export.done"], limit: 100 }).at(-1)!;
+
+  it("a broken .git: the files are written, commit null, and payload.error carries git's first line", () => {
+    const { world } = freshWorld();
+    const dir = tempDir();
+    writeFileSync(join(dir, ".git"), "not a git dir\n");
+    const r = world.export(dir);
+    expect(r.files).toBeGreaterThan(0);
+    expect(r.commit).toBeNull();
+    expect(r.changed).toBe(false);
+    expect(r.error).toMatch(/^git add: .*gitfile/);
+    expect(lastDone(world).payload).toMatchObject({ commit: null, changed: false, error: r.error });
+  });
+
+  it("a stale .git/index.lock (a run killed mid-export) is cleared and the export commits; a fresh one is reported", () => {
+    const { world } = freshWorld();
+    const dir = tempDir();
+    expect(world.export(dir).error).toBeNull();
+    world.events.append({ type: "system", text: "something new" });
+    const lock = join(dir, ".git", "index.lock");
+    writeFileSync(lock, "");
+    const fresh = world.export(dir);
+    expect(fresh.commit).toBeNull();
+    expect(fresh.error).toMatch(/^git add: .*index\.lock/);
+    const old = new Date(Date.now() - 11 * 60_000);
+    utimesSync(lock, old, old);
+    const r = world.export(dir);
+    expect(r.error).toBeNull();
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("no git on PATH: payload.error says so", () => {
+    const { world } = freshWorld();
+    const path = process.env.PATH;
+    process.env.PATH = tempDir();
+    try {
+      const r = world.export(tempDir());
+      expect(r.commit).toBeNull();
+      expect(r.error).toMatch(/^git init: .*ENOENT/);
+      expect(lastDone(world).payload).toMatchObject({ error: r.error });
+    } finally { process.env.PATH = path; }
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustedOfUsage, buildingRoleId, createBuilding, createUser, goalSpend, intrayRoutes, intrayCount, reviewDeck, townHallIntray, worldGoalSpend, type GoalSpendInputs } from "../src/index.ts";
+import { adjustedOfUsage, buildingRoleId, createBuilding, createUser, goalSpend, holderOf, intrayRoutes, intrayCount, reviewDeck, townHallIntray, worldGoalSpend, type GoalSpendInputs } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -59,7 +59,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     expect(text(re.proposal.id)).not.toContain("What moves");
   });
 
-  it("routes: Mine is what ends at the viewer (admins get the root's), an owner decides and funds in their subtree only", async () => {
+  it("routes: Mine is what ends at the viewer (the root's captain gets the root's), an owner decides and funds in their subtree only", async () => {
     const { world, admin, mei, tree, labGoal, otherGoal, other } = setup();
     const lena = createUser(world, "Lena").user;
     const lenaAv = world.ops.ensureAvatar(lena.id);
@@ -74,7 +74,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     const forLena = intrayRoutes(world, lenaAv, items);
     expect(forLena.defaultView).toBe("mine");
     expect(forLena.routes[gLab.id]).toMatchObject({ goalId: labGoal.id, ownerId: lena.id, ownerName: "Lena", mine: true, canDecide: true });
-    expect(forLena.routes[gOther.id]).toMatchObject({ ownerId: null, ownerName: "the town admins", mine: false, canDecide: false });
+    expect(forLena.routes[gOther.id]).toMatchObject({ ownerId: holderOf(admin).id, ownerName: world.users.get(holderOf(admin).id)!.name, mine: false, canDecide: false });
     expect(forLena.routes[p.id]).toMatchObject({ mine: true, canDecide: true });
     const forAdmin = intrayRoutes(world, admin, items);
     expect(forAdmin.defaultView).toBe("all");

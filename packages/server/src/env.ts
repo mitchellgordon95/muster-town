@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { DesksConfig } from "@muster-town/schema";
+import { DesksConfig, patchOf } from "@muster-town/schema";
 
 /**
  * `MUSTER_TOWN_DESKS` (a JSON object, e.g. `{"backend":"fly","townUrl":"https://muster.town"}`) → desk settings that win over
@@ -8,7 +8,7 @@ import { DesksConfig } from "@muster-town/schema";
  */
 export function desksFromEnv(raw: string | undefined): Partial<DesksConfig> | null {
   if (!raw?.trim()) return null;
-  return DesksConfig.partial().parse(JSON.parse(raw));
+  return patchOf(DesksConfig).parse(JSON.parse(raw));
 }
 
 /** `<collective>/.env` → process.env (KEY=VALUE lines; already-set vars win). Never logs values. */

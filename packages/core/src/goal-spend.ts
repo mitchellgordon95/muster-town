@@ -1,12 +1,12 @@
 import { ROOT_GOAL_ID, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
-import { adjustedOfUsage } from "./bank.ts";
+import { sessionTokens } from "./bank.ts";
 import { funderWeights } from "./funders.ts";
 import type { World } from "./world.ts";
 
 /**
  * Spend by goal (docs/goals.md "Spend by goal", build step 4; the Bank's Spending tab): its subtree's spend over a window, read from the
  * sessions table only. Nothing here reads or writes the Bank's ledgers: each session is priced the way GET
- * /api/finance/spend prices it (adjusted output tokens, `adjustedOfUsage`), so the two views agree.
+ * /api/finance/spend prices it (what the Bank booked, `sessionTokens`), so the two views agree.
  *
  * A session belongs to a goal by its lane: `grant` → the grant's key result's goal; a session whose assignment names a
  * key result (exploration, directed) → that key result's goal; anything else (a gap, directed work with no key result,
@@ -15,7 +15,7 @@ import type { World } from "./world.ts";
 export interface GoalSpendInputs {
   /** the goal and every goal under it (retired ones too: their past spend stays theirs) */
   subtree: Set<string>;
-  sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "startedAt" | "endedAt">[];
+  sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "startedAt" | "endedAt">[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "keyResultId" | "lane">[];
   agents: { id: string; buildingId: string | null; homeBuildingId?: string | null }[];
   buildings: Pick<Building, "id" | "name" | "goalId">[];
@@ -61,7 +61,7 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
     if (!node || !inp.subtree.has(node)) continue;
     const weight = inp.weights ? inp.weights.get(s.id) ?? 0 : 1;
     if (!weight) continue;
-    const tokens = Math.round(adjustedOfUsage(s.model, s, s.byModel) * weight);
+    const tokens = Math.round(sessionTokens(s) * weight);
     const lane = (s.lane ?? a?.lane ?? "none") as keyof SpendByLane;
     out.total += tokens; out.sessions++; out.byLane[lane] += tokens;
     const i = Math.min(buckets - 1, Math.max(0, Math.floor((at - (to - buckets * step)) / step)));
