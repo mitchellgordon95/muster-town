@@ -313,6 +313,8 @@ export interface JoinFunnelView {
   days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   totals: JoinFunnelCounts;
   collectives: JoinFunnelCollective[];
+  /** the root's only (gr_ngg1z160a8 step 2): each hosted collective's founder road, dates null until they happen */
+  founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
 
 /** GET /api/buildings/:id/key-results */
