@@ -90,10 +90,10 @@ No clone, no server: press **Start a collective** on the homepage and sign in wi
 **First step:** the HUD says **Add your API key to start**; add it with the **Bank**'s **Donate** form and exploration starts by itself. Later, **+ Goal under it** in the goal tree and **New building** at the planning desk add lines of work.
 
 - **One per GitHub account.** Retire yours to start another.
-- **Your API key**: its agents run on your Anthropic Console key (`sk-ant-api…`), billed to you. Subscription tokens (`sk-ant-oat…`) are refused; to use one, [host your own Muster Town from the open-source repository](https://github.com/mitchellgordon95/muster-town#start-your-own-collective): the token then stays on your server. Until a key is in, its agents are held; a key from Start funds 1,000,000 tokens (about $20), then work stops until you add more (talk still uses it).
+- **Your API key**: agents run on your Anthropic Console key (`sk-ant-api…`). Subscription tokens (`sk-ant-oat…`) are refused: [host your own Muster Town](https://github.com/mitchellgordon95/muster-town#start-your-own-collective). Until a key is in, agents are held; a key from Start funds 1,000,000 tokens (about $20), then work stops until you add more (talk still runs).
 - **Retire**: planning desk, **System**, **This collective**. Its address then shows a retired notice; the name is never reused.
 
-**Getting a key:** create one in the [Console](https://platform.claude.com). On a Max or Team plan, link that Console organization under **API credits** in claude.ai **Settings > Billing** first: the plan's monthly API credits (Max 5x $100, Max 20x $200, Team up to $500) then pay for your agents ([Monthly API credits](https://support.claude.com/en/articles/17154008)).
+**Getting a key:** create one in the [Console](https://platform.claude.com). On a Max or Team plan, link its Console organization under **API credits** in claude.ai **Settings > Billing**: the plan's monthly credits (Max 5x $100, Max 20x $200, Team up to $500) pay for your agents ([Monthly API credits](https://support.claude.com/en/articles/17154008)).
 
 ## Getting help
 
