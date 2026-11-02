@@ -54,7 +54,43 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     near("usd sessions", "Σ spend building rows' usd", sum((s.rows ?? []).filter((r: Json) => r.kind === "building").map((r: Json) => Number(r.usd))), "spend.usd.sessionsTotal", Number(s.usd?.sessionsTotal), 0.005 * Math.max(2, (s.rows ?? []).length)),
     // the adjusted-token mix (1:1 mt_rbc3exb393): its parts add up, it prices back to its adj. tokens, one record, updated daily
     ...mixChecks(f.mix, bank.mix),
+    // what each grant bought (gr_dt1l35tydx): the grants block by outcome closes on the grant rows
+    ...grantChecks(s),
   ];
+}
+
+/** Every grant row of a known grant (it carries `outcomeGroup`), at any depth of the spend tree. */
+function grantRows(s: Json): Json[] {
+  const out: Json[] = [];
+  const walk = (n: Json) => { if (n.kind === "grant" && n.outcomeGroup) out.push(n); (n.children ?? []).forEach(walk); };
+  (s.rows ?? []).forEach(walk);
+  return out;
+}
+
+function grantChecks(s: Json): Check[] {
+  const g = s.grants;
+  if (!g) return [flag("grants present", false, "GET /api/finance/spend has no grants block")];
+  const rows = grantRows(s), bo = g.byOutcome ?? {};
+  const groups = ["done", "cut", "open"] as const;
+  const byGroup = (o: string) => sum(rows.filter((r) => r.outcomeGroup === o).map((r) => r.tokens));
+  return [
+    flag("grants check", s.grantsCheck?.ok, `ok ${s.grantsCheck?.ok}, diff ${fmt(s.grantsCheck?.diff)} (${s.grantsCheck?.identity})`),
+    eq("grants by outcome", "Σ byOutcome tokens", sum(groups.map((o) => Number(bo[o]?.tokens))), "Σ grant rows' tokens", sum(rows.map((r) => r.tokens))),
+    flag("grants each outcome", groups.every((o) => Number(bo[o]?.tokens) === byGroup(o)), groups.map((o) => `${o} ${fmt(bo[o]?.tokens)} = rows ${fmt(byGroup(o))}`).join(", ")),
+    eq("grants count", "grants.count", g.count, "distinct grant rows", new Set(rows.map((r) => r.id)).size),
+  ];
+}
+
+/** Three grant rows (the largest, the smallest, one cut if any) against GET /api/grants/:id: grantTokens, status and outcome agree. */
+async function grantSampleChecks(s: Json): Promise<Check[]> {
+  const rows = grantRows(s).sort((a, b) => b.tokens - a.tokens);
+  if (!rows.length) return [];
+  const pick = [...new Map([rows[0], rows[rows.length - 1], rows.find((r) => r.outcomeGroup === "cut") ?? rows[1]].filter(Boolean).map((r) => [r.id, r])).values()];
+  return Promise.all(pick.map(async (r) => {
+    const g = (await get(`/api/grants/${r.id}`)).grant ?? {};
+    const ok = g.grantTokens === r.grantTokens && g.status === r.status && (g.outcome ?? null) === (r.outcome ?? null);
+    return flag(`grant ${r.id}`, ok, `row ${fmt(r.grantTokens)} ${r.status} ${r.outcome} = /api/grants ${fmt(g.grantTokens)} ${g.status} ${g.outcome ?? null}`);
+  }));
 }
 
 const KINDS = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"] as const;
@@ -90,10 +126,12 @@ async function main(): Promise<number> {
     if (result.every((c) => c.ok)) break;
   }
   const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
+  if (s.grants) result.push(...await grantSampleChecks(s));
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);
   console.log(`fly today ${fly.today?.day}: desks $${Number(fly.today?.deskUsd).toFixed(2)} + town $${Number(fly.today?.townUsd).toFixed(2)} = $${Number(fly.today?.totalUsd).toFixed(2)}; last ${fly.windowDays} days $${Number(fly.totals?.totalUsd).toFixed(2)} (desk time ${(Number(fly.totals?.deskMs) / 3_600_000).toFixed(1)} h, ${fly.totals?.sessions} sessions)`);
+  if (s.grants) console.log(`grants: ${fmt(s.grants.spent)} spent on ${s.grants.count} (funded ${fmt(s.grants.funded)}): done ${fmt(s.grants.byOutcome.done.tokens)} on ${s.grants.byOutcome.done.count}, cut ${fmt(s.grants.byOutcome.cut.tokens)} on ${s.grants.byOutcome.cut.count}, open ${fmt(s.grants.byOutcome.open.tokens)} on ${s.grants.byOutcome.open.count}; ${s.grants.overFunding.count} over funding by ${fmt(s.grants.overFunding.tokens)}`);
   if (f.mix) console.log(`mix: 1 adj. token ≈ ${Number(f.mix.rawPerAdjusted).toFixed(1)} raw tokens, ${KINDS.map((k) => `${k} ${(f.mix.rawShare[k] * 100).toFixed(1)}%`).join(", ")} (${f.mix.formula})`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;

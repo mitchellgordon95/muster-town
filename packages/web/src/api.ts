@@ -148,6 +148,12 @@ export interface SpendNode {
   sessions: number;
   /** the row's dollars at API list price, to the cent (optional here: a server older than the dollars sends none) */
   usd?: number;
+  /** grant rows of a known grant only (gr_dt1l35tydx): tokens granted (null until funded), status, outcome once closed, its group (done / cut / open) and key results by status */
+  grantTokens?: number | null;
+  status?: string;
+  outcome?: string | null;
+  outcomeGroup?: "done" | "cut" | "open";
+  krCounts?: { met: number; missed: number; claimed: number; open: number };
   children?: SpendNode[];
 }
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
@@ -170,6 +176,10 @@ export interface FinanceSpend {
   usd?: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
   /** the rows' dollars summed vs `usd.used` */
   usdSumCheck?: { ok: boolean; diff: number; identity: string };
+  /** the grant rows summed by outcome, each grant once across buildings (optional here: an older server sends none) */
+  grants?: { count: number; funded: number; spent: number; byOutcome: Record<"done" | "cut" | "open", { count: number; tokens: number }>; overFunding: { count: number; tokens: number } };
+  /** byOutcome's tokens vs Σ the grant rows' tokens */
+  grantsCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
