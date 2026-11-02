@@ -66,6 +66,22 @@ export async function close_grant(world: World, me: Agent, input: VerbIn<"close_
   };
 }
 
+/**
+ * `withdraw_grant` (the manager, or a fork of it on the manager's behalf; 1:1 mt_a6wb51enia): take back the building's own
+ * proposed or countered grant with a note. It leaves the Town Hall in-tray and the deck; its key results archive.
+ */
+export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<"withdraw_grant">) {
+  const me = world.permissions.managerOfFork(caller) ?? caller;
+  const bid = homeOf(me);
+  const cur = world.grants.get(input.grantId);
+  if (!cur || cur.buildingId !== bid) throw badRequest(`${input.grantId} is not a grant of your building.`);
+  const g = world.grantDesk.withdraw(me, input.grantId, input.note);
+  return {
+    grantId: g.id, status: g.status, outcome: g.outcome, keyResults: g.keyResults.map((k) => ({ id: k.id, archived: !!k.archivedAt })),
+    note: `Withdrawn: ${g.id} left the Town Hall in-tray and its key results are archived; your note is on the grant. To try a new plan, propose_grant fresh (no grantId).`,
+  };
+}
+
 /** `propose_goal` (the manager or its fork): a change to the town goal tree for a human to accept or cut (docs/goals.md). */
 export async function propose_goal(world: World, me: Agent, input: VerbIn<"propose_goal">) {
   const p = world.goalTree.propose(me, { ...input, sourceDocIds: input.sourceDocIds ?? [], buildingId: homeOf(me) ?? undefined });

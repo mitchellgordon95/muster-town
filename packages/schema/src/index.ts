@@ -1113,7 +1113,7 @@ export type GrantStatus = z.infer<typeof GrantStatus>;
 /** done: the manager closed it early because the work is done (close_grant); "met" stays the human's word on the key result */
 export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut", "done"]);
 export type GrantOutcome = z.infer<typeof GrantOutcome>;
-export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit"]);
+export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit", "withdraw"]);
 export const GrantHistoryEntry = z.object({
   at: Iso,
   byId: Id,
@@ -1781,6 +1781,10 @@ export const VerbInputs = {
     note: z.string().trim().min(1).max(2000).describe("the evidence that the work is done: what a human can check in the live town; it becomes its key results' claimed note"),
     reportId: Id.optional().describe("an already filed report with the evidence; leave it out when you close first and then submit_report with rollup: true in this session (that report links itself as the close report)"),
   }),
+  withdraw_grant: z.object({
+    grantId: Id.describe("a proposed or countered grant of my building"),
+    note: z.string().trim().min(1).max(2000).describe("why you withdraw it: kept on the grant and sent to the humans who saw the proposal"),
+  }),
   set_objective: z.object({
     buildingId: Id.optional().describe("defaults to your building"),
     id: Id.optional().describe("an objective to edit; leave it out to add one (at most 3 per building)"),
@@ -1838,6 +1842,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks each key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
+  withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
