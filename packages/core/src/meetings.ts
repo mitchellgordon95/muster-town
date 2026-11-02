@@ -85,7 +85,7 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
   const inp = CreateMeetingInput.parse(input);
   const bid = inp.buildingId && inp.buildingId !== TOWN_HALL_ID ? inp.buildingId : null;
   const b = bid ? world.buildings.require(bid, "building") : null;
-  if (actor && !world.permissions.can(actor, "meeting.facilitate", bid ?? TOWN_HALL_ID) && !world.permissions.can(actor, "building.review", bid ?? TOWN_HALL_ID)) throw forbidden("meeting.facilitate");
+  if (actor && !world.permissions.can(actor, "meeting.facilitate", bid ?? TOWN_HALL_ID) && !world.permissions.can(actor, "building.review", bid ?? TOWN_HALL_ID) && !world.goalTree.captainsBuilding(actor, bid)) throw forbidden("meeting.facilitate");
   const attendeeIds = inp.attendeeIds ? [...new Set(inp.attendeeIds)] : defaultAttendees(world, bid);
   for (const id of inp.attendeeIds ?? []) {
     const a = world.agents.get(id);
@@ -148,9 +148,9 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
   return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
 }
 
-/** Whether a human runs 1:1s in a building as its staff (facilitator or reviewer), not as a member. */
+/** Whether a human runs 1:1s in a building as its staff (facilitator, reviewer, or captain of its goal or one above: gr_zsm1piyqyx), not as a member. */
 export function isOneOnOneStaff(world: World, human: Agent | Holder, buildingId: string): boolean {
-  return world.permissions.can(human, "meeting.facilitate", buildingId) || world.permissions.can(human, "building.review", buildingId);
+  return world.permissions.can(human, "meeting.facilitate", buildingId) || world.permissions.can(human, "building.review", buildingId) || world.goalTree.captainsBuilding(human, buildingId);
 }
 
 /**

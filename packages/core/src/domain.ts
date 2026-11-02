@@ -220,7 +220,8 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
   const building = world.buildings.require(buildingId, "building");
   if (building.kind === "town-hall") throw new AppError("bad_request", "Plant the flag in a building, not the Town Hall: it has no manager to delegate it.");
   if (actor.kind !== "human") throw new AppError("forbidden", "Only a human plants a flag; as an agent, give the work with `assign`.");
-  world.permissions.require(actor, "building.assign", buildingId);
+  // a captain of the building's goal (or one above) plants there too (gr_zsm1piyqyx); outside their subtree still 403
+  if (!world.goalTree.captainsBuilding(actor, buildingId)) world.permissions.require(actor, "building.assign", buildingId);
   const body = text.trim();
   if (!body) throw new AppError("bad_request", "A flag needs a note: what you want done.");
   const holder = world.holderOf(actor);

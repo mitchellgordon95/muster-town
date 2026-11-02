@@ -1,6 +1,6 @@
 import {
   CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
-  Event, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
+  Event, type Agent, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
 import { freeTokensAll, goalFunding } from "./free-tokens.ts";
@@ -155,6 +155,21 @@ export class Goals {
     const h = holderOf(actor);
     if (h.kind !== "user") return false;
     return this.ancestors(goalId).some((g) => g.ownerId === h.id);
+  }
+
+  /**
+   * Captain steering rights (gr_zsm1piyqyx): a human who captains the goal a building is attached to, or a goal above
+   * it, steers that building like its reviewer does: decides its rollups and reports, runs 1:1s there as staff, plants
+   * flags there. Agents never count, nor does the system (no actor), and never the Town Hall (its captain is the root
+   * captain; admins already pass every gate). Use beside the role checks, never instead of them.
+   */
+  captainsBuilding(actor: Agent | Holder | null | undefined, buildingId: string | null | undefined): boolean {
+    if (!actor || !buildingId) return false;
+    const b = this.world.buildings.get(buildingId);
+    if (!b || b.kind === "town-hall") return false;
+    const h = holderOf(actor);
+    if (h.kind !== "user") return false;
+    return this.ancestors(this.attachmentOf(b)).some((g) => g.ownerId === h.id);
   }
 
   /** `goals.edit` at the goal: town-wide (admins), or as an owner of it or an ancestor. */

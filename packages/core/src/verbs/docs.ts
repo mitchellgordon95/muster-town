@@ -392,7 +392,7 @@ const laneOf = (i: LaneFields): LaneFields | undefined =>
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
-  if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
+  if (!world.permissions.can(me, "building.review", doc.buildingId) && !world.goalTree.captainsBuilding(me, doc.buildingId)) throw forbidden("building.review");
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
   // a rollup waits for the humans
   if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
