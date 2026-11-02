@@ -354,7 +354,7 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`; manage sessions set `working` too. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; credentialInputId?: string | null; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; credentialInputId?: string | null; lane?: Session["lane"]; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
@@ -367,6 +367,8 @@ export class Ops {
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
       ...(opts.assignmentId ? (({ lane, grantId }) => ({ lane, grantId }))(this.world.assignments.require(opts.assignmentId, "assignment")) : {}),
+      // a host call with no assignment may name its lane (a grant cost estimate is directed: 1:1 mt_c9u1kr15jp)
+      ...(!opts.assignmentId && opts.lane ? { lane: opts.lane } : {}),
       // wakes step 1: the session works for its assignment's human, or for the human in its meeting (a 1:1, a mention reply)
       origin: (opts.assignmentId ? this.world.assignments.get(opts.assignmentId)?.origin : null)
         ?? (opts.meetingId ? (((m) => m && meetingOrigin(m))(this.world.meetings.get(opts.meetingId)) ?? null) : null),

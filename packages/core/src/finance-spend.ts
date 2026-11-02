@@ -1,4 +1,4 @@
-import { countsOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
+import { countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
 import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
@@ -71,6 +71,12 @@ export interface SpendGrants {
   byOutcome: Record<SpendOutcome, { count: number; tokens: number }>;
   /** the grants whose spend (all their rows) is above grantTokens, and Σ (spent − grantTokens) over them */
   overFunding: { count: number; tokens: number };
+  /**
+   * The closed grants that carry a cost estimate (docs/how-work-gets-done.md §4) and how many spent inside it (the
+   * model's range when it answered, else the similar grants'). Ranges are adjusted tokens; `badRanges` lists any whose
+   * low is above its high (npm run check:finance holds it empty).
+   */
+  estimates: { closed: number; inside: number; unit: "adjusted tokens"; badRanges: string[] };
 }
 
 export interface FinanceSpend {
@@ -135,7 +141,7 @@ export interface SpendInputs {
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "title">[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
-  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "grantTokens" | "status" | "outcome">>)[];
+  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "grantTokens" | "status" | "outcome" | "estimate">>)[];
   /** the grants' key results, for each grant row's `krCounts` (left out = none) */
   keyResults?: Pick<KeyResult, "grantId" | "status">[];
   /** when the Bank converted to adjusted tokens (the `bank.converted` event's ts); null = never, so no weight mismatch */
@@ -334,7 +340,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const usdDiff = cents(rows.reduce((s, r) => s + r.usd, 0) - usd.used);
   const nf = notFundedUsage(inp);
   const splitSum = nf.split.reduce((t, g) => t + g.tokens, 0);
-  const gs = spendGrants(rows);
+  const gs = spendGrants(rows, new Map(inp.grants.flatMap((g) => g.estimate ? [[g.id, g.estimate] as const] : [])));
   const grantsDiff = gs.grants.byOutcome.done.tokens + gs.grants.byOutcome.cut.tokens + gs.grants.byOutcome.open.tokens - gs.rowsSum;
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
   return {
@@ -359,7 +365,7 @@ export const GRANTS_IDENTITY = "done + cut + still open = Σ grant rows' tokens 
  * FinanceSpend.grants from the finished tree: per grant (by id, across buildings) its rows' tokens, then by outcome group.
  * `rowsSum` is Σ the same rows' tokens taken row by row, which `grantsCheck` holds the groups against.
  */
-export function spendGrants(rows: SpendNode[]): { grants: SpendGrants; rowsSum: number } {
+export function spendGrants(rows: SpendNode[], estimates: Map<string, GrantEstimate> = new Map()): { grants: SpendGrants; rowsSum: number } {
   const per = new Map<string, { tokens: number; node: SpendNode }>();
   let rowsSum = 0;
   const walk = (n: SpendNode) => {
@@ -383,7 +389,16 @@ export function spendGrants(rows: SpendNode[]): { grants: SpendGrants; rowsSum: 
     funded += f;
     if (node.grantTokens != null && tokens > f) { overFunding.count++; overFunding.tokens += tokens - f; }
   }
-  return { grants: { count: per.size, funded, spent, byOutcome, overFunding }, rowsSum };
+  const est: SpendGrants["estimates"] = { closed: 0, inside: 0, unit: "adjusted tokens", badRanges: [] };
+  for (const [id, { tokens, node }] of per) {
+    const e = node.status === "closed" ? estimates.get(id) : undefined;
+    const r = estimateRangeOf(e);
+    if (!e || !r) continue;
+    est.closed++;
+    if (tokens >= r.low && tokens <= r.high) est.inside++;
+    if ((e.low !== null && e.high !== null && e.low > e.high) || (e.model && e.model.low > e.model.high)) est.badRanges.push(id);
+  }
+  return { grants: { count: per.size, funded, spent, byOutcome, overFunding, estimates: est }, rowsSum };
 }
 
 /** The `bank.converted` event's time (migration 037, once per database), or null when the Bank was born adjusted. */

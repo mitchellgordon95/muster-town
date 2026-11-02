@@ -1151,8 +1151,32 @@ export const GrantEstimate = z.object({
   /** the one plain line shown next to the ask */
   sentence: z.string(),
   at: Iso,
+  /**
+   * The cheap model's range (step 2, runtime estimate.ts): one call on the building's cheapModel right after the propose,
+   * shown the closed grants and this plan. Adjusted tokens, like every grant amount. Null until it answers, and stays
+   * null when the call fails: the proposal never waits on it.
+   */
+  model: z.object({
+    low: z.number().int().nonnegative(), high: z.number().int().nonnegative(),
+    /** its one sentence of reasoning */
+    note: z.string(),
+    /** the model that answered */
+    modelId: z.string(),
+    /** the session it ran as (what it cost is that session's tokens) */
+    sessionId: Id.nullable().default(null),
+    at: Iso,
+  }).nullable().default(null),
 });
 export type GrantEstimate = z.infer<typeof GrantEstimate>;
+/**
+ * The range a grant's estimate is held to at close: the model's when it answered, else the closed grants' (low–high);
+ * null when there is none. `inside` compares a spend with it (docs/how-work-gets-done.md §4).
+ */
+export function estimateRangeOf(e: GrantEstimate | null | undefined): { low: number; high: number; by: "model" | "history" } | null {
+  if (e?.model) return { low: e.model.low, high: e.model.high, by: "model" };
+  if (e && e.low !== null && e.high !== null) return { low: e.low, high: e.high, by: "history" };
+  return null;
+}
 /**
  * A building's proposal and, once funded, its grant (docs/how-work-gets-done.md §4): filed against a goal, it carries
  * its own 1-5 key results (the checks of its work; `key_results.grantId`) and the plan (objective, approach, stop
@@ -1626,7 +1650,7 @@ export const Session = z.object({
   agentId: Id,
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
-  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply", "naming"]),
+  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply", "naming", "estimate"]),
   /** where the session runs: in-process on the host, or inside the agent's desk container */
   backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,
