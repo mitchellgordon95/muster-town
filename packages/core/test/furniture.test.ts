@@ -29,6 +29,19 @@ describe("furniture", () => {
     expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
   });
 
+  it("every building has a \"?\" help sign beside its door, read from a reachable tile (flag dc_8dwch9z5pi)", () => {
+    const { world } = seededWorld();
+    for (const b of world.buildings.all()) {
+      const p = world.layout.requirePlace(`help:${b.id}`);
+      expect(p.kind).toBe("help");
+      expect(p.buildingId).toBe(b.id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), b.id).toBe(true);
+      expect(findPath(world.layout.grid, world.layout.door(b.id)!, p.pos), b.id).not.toBeNull();
+      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => at(world, p.pos.x + dx, p.pos.y + dy) === TILE.HELP);
+      expect(near, b.id).toBe(true);
+    }
+  });
+
   it("rejects pieces on the door, overlapping, off the floor, or walling off a stand tile", () => {
     const lot = labSize(6), pieces = piecesFor("lab", 6, lot), v = (f: Parameters<typeof validateLayout>[3]) => validateLayout("lab", lot, pieces, f);
     const door = Math.floor(lot.w / 2), desk0 = pieces.find((p) => p.key === "desk:0")!.at;
