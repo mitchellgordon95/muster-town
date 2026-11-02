@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -170,6 +170,51 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     const cut = grantTitle("Every Bank row and every grant row reads as a plain sentence that a stranger understands");
     expect(cut).toBe("Every Bank row and every grant row reads as a plain…");
     expect(cut.length).toBeLessThanOrEqual(60);
+  });
+
+  it("grant rows carry funding, status, outcome and key results; the grants block sums them by outcome, a grant in two buildings counted once (gr_dt1l35tydx)", () => {
+    const inp: SpendInputs = {
+      ...base,
+      sessions: [...base.sessions, s("ag_lab", "a6", 250, "g1"), s("ag_lab", "a7", 90, "g2"), s("ag_lab", "a8", 40, "g3"), s("ag_lab", "a9", 5, "gx")],
+      assignments: [...base.assignments, { id: "a6", buildingId: "lab", grantId: "g1", title: "lab side of g1" }, { id: "a7", buildingId: "lab", grantId: "g2", title: "cut work" }, { id: "a8", buildingId: "lab", grantId: "g3", title: "open work" }, { id: "a9", buildingId: "lab", grantId: "gx", title: "unknown grant" }],
+      grants: [
+        { id: "g1", objective: "Spend breakdown", grantTokens: 700, status: "closed", outcome: "done" },
+        { id: "g2", objective: "Cut thing", grantTokens: 50, status: "closed", outcome: "cut" },
+        { id: "g3", objective: "Open thing", grantTokens: 100, status: "checkpoint", outcome: null },
+      ],
+      keyResults: [{ grantId: "g1", status: "met" }, { grantId: "g1", status: "claimed" }, { grantId: "g2", status: "missed" }, { grantId: "g3", status: "on-track" }, { grantId: null, status: "met" }],
+    };
+    const f = financeSpend(inp, 1_885, T0);
+    expect(f.check.ok).toBe(true);
+    const bankG1 = f.rows.find((r) => r.id === "bank")!.children!.find((c) => c.id === "g1")!;
+    expect(bankG1).toMatchObject({ grantTokens: 700, status: "closed", outcome: "done", outcomeGroup: "done", krCounts: { met: 1, missed: 0, claimed: 1, open: 0 }, tokens: 600 });
+    const lab = f.rows.find((r) => r.id === "lab")!.children!;
+    expect(lab.find((c) => c.id === "g3")).toMatchObject({ status: "checkpoint", outcome: null, outcomeGroup: "open", krCounts: { met: 0, missed: 0, claimed: 0, open: 1 } });
+    // an unknown grant keeps its bare row, no grant fields, and is left out of the block
+    const gx = lab.find((c) => c.id === "gx")!;
+    expect(gx.name).toBe("gx");
+    for (const k of ["grantTokens", "status", "outcome", "outcomeGroup", "krCounts"]) expect(gx).not.toHaveProperty(k);
+    // g1: 600 (Bank) + 250 (Lab) = 850 of 700, over by 150; g2: 90 of 50, over by 40
+    expect(f.grants).toEqual({
+      count: 3, funded: 850, spent: 980,
+      byOutcome: { done: { count: 1, tokens: 850 }, cut: { count: 1, tokens: 90 }, open: { count: 1, tokens: 40 } },
+      overFunding: { count: 2, tokens: 190 },
+    });
+    expect(f.grantsCheck).toEqual({ ok: true, diff: 0, identity: GRANTS_IDENTITY });
+  });
+
+  it("maps a grant's status and outcome to done, cut or still open", () => {
+    expect(spendOutcome({ status: "closed", outcome: "done" })).toBe("done");
+    expect(spendOutcome({ status: "closed", outcome: "met" })).toBe("done");
+    for (const o of ["cut", "stopped", "spent"] as const) expect(spendOutcome({ status: "closed", outcome: o })).toBe("cut");
+    expect(spendOutcome({ status: "rejected", outcome: null })).toBe("cut");
+    for (const st of ["funded", "checkpoint", "proposed", "draft", "countered"] as const) expect(spendOutcome({ status: st, outcome: null })).toBe("open");
+  });
+
+  it("an empty grants block when no grant is known, with an ok check", () => {
+    const f = financeSpend(base, 1_500, T0);
+    expect(f.grants).toMatchObject({ count: 0, spent: 0, funded: 0 });
+    expect(f.grantsCheck.ok).toBe(true);
   });
 
   it("balances on a real world: sessions booked through the Bank sum with the unattributed row to used", () => {
