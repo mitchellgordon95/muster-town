@@ -529,6 +529,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
           : checkpoint
           ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
           : <span title={ADJ_HINT}>asks {fmtTokens(g.askTokens)} {ADJ}</span>}
+        {g.estimate && g.status !== "closed" ? <span className="grant-estimate" title="What it is likely to cost, read from the grants already closed (advisory: the ask stands)">likely cost: {g.estimate.sentence}</span> : null}
         {g.checkpointDocId ? <button className="link" onClick={() => onOpenDoc(g.checkpointDocId!)}>{closedDone ? "close report" : "checkpoint report"}</button> : null}
       </div>
       {g.evidence ? <CheckpointEvidenceBlock e={g.evidence} onOpenDoc={onOpenDoc} earlier={!checkpoint} /> : null}

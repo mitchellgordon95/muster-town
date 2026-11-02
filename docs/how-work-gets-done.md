@@ -114,6 +114,8 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 - A **live grant** (none in the Workshop today) keeps its key result, which becomes the grant's first key result, with its `testingPlan` lines added after it.
 - This rewrites live data (open KRs become archived), so the rollup that ships it says so in its "Your call" (merge rules dc_vzqoh7ppen).
 
+**What a grant is likely to cost.** **Mitchell said** (1:1 mt_c9u1kr15jp, 2026-11-02): "right now they seem kind of randomly guessed? ... look at previous grants and what they closed at". Every ask now carries an estimate read from the grants already closed as done or cut (core `grant-estimate.ts`, `Grants.estimateFor`): how many there are, the median spent ÷ funded collective-wide and in the building, and the 3 nearest (by key-result count, then by funded tokens against the ask) with the least and most they spent as the range. It is one line, e.g. "ask 200,000 · 3 similar grants spent 180,000–610,000 (median spent/funded 1.21 across 39 closed grants; this building 0.95 across 12)", in the `propose_grant` answer, on the Town Hall proposal card and the grant page (`GET /api/grants/:id` `estimate`, signed out too) and on the review deck's proposal slide. It is advisory: the manager still names the ask and nothing is refused. It is pure arithmetic over existing rows, so it spends no tokens. Each propose records it on the grant (`grants.estimate`, migration 083) and the `grant.closed` event carries its `estimateLow`/`estimateHigh`, so estimate and actual can be compared; a grant proposed before that is estimated fresh when shown.
+
 ## 5. The review: fund, counter or reject
 
 Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchanged, except that proposals now arrive from the tick's explorers and not only when a human asked.
@@ -128,6 +130,8 @@ Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchang
 - **accepts or cuts** goal proposals (tree edits).
 
 **Counting open proposals' asks in free tokens** (§7) is what keeps the review from flooding: once the town has proposed as much as it can afford, exploration stops until the human decides. **Mitchell said** (mt_529jbnwvmi): "i think one change from #2 is that we count both funded and pending grants in that number". A rejected or countered proposal frees its ask.
+
+**Withdrawing a proposal** (Mitchell, 1:1 mt_a6wb51enia): a manager takes back its own proposed or countered grant with `withdraw_grant` (grantId, a required note saying why). It closes as `stopped` (history action `withdraw`, the note kept on the grant and sent to the humans who could fund it), leaves the Town Hall in-tray and the deck, frees its ask, and its key results archive like a rejected proposal's. To change a plan: withdraw, then `propose_grant` fresh. A funded grant is not withdrawn (`close_grant` or a human's cut).
 
 **Open.** Whether one goal needs a limit on open proposals, so twenty explorers don't file twenty variants of one idea (§12 q5).
 

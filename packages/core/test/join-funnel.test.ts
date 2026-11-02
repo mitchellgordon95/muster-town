@@ -73,7 +73,8 @@ describe("join funnel", () => {
     const join = (id: number, login: string, grant: boolean | null) => {
       const { user } = upsertGithubUser(world, { id, login });
       const req = requestAccess(world, user.id);
-      if (grant !== null) decideAccess(world, { kind: "user", id: seed.admin.id }, req.id, grant);
+      // let in with "direct work under" the building's goal (gr_cuobjlny6r): no permission, no 1:1
+      if (grant !== null) decideAccess(world, { kind: "user", id: seed.admin.id }, req.id, grant, grant ? world.goalTree.attachmentOf("carbon-cycle") : null);
       return { user, avatar: world.ops.ensureAvatar(user.id) };
     };
     const ana = join(5001, "ana", true);
