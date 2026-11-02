@@ -938,7 +938,7 @@ export const Schedule = z.object({
 });
 export type Schedule = z.infer<typeof Schedule>;
 /** A schedule as the API shows it: plus its retainer's runs left, ask (tokensPerRun × runs left), drawn so far and live claim on the Bank. */
-export interface ScheduleView extends Schedule { runsLeft: number; askTokens: number; drawnTokens: number; claimTokens: number; buildingName?: string }
+export interface ScheduleView extends Schedule { runsLeft: number; askTokens: number; drawnTokens: number; claimTokens: number; buildingName?: string; /** the Town Hall in-tray only: rollups asking about this retainer */ asks?: RollupAsk[] }
 /** POST /api/schedules/:id/retainer: a human approves, counters (per-run amount and/or end date, with a note) or rejects a retainer ask. */
 export const RetainerDecisionInput = z.object({
   action: z.enum(["approve", "counter", "reject"]),
@@ -1600,11 +1600,22 @@ export const evidenceKrLine = (k: CheckpointEvidence["keyResults"][number]) => `
 export const topUpLine = (e: Pick<CheckpointEvidence, "topUpTokens" | "whatTopUpBuys">) =>
   e.topUpTokens && e.whatTopUpBuys.trim() ? `A top-up of ${e.topUpTokens.toLocaleString("en-US")} tokens buys: ${e.whatTopUpBuys.replace(/\s+/g, " ").trim()}` : "A top-up: not stated";
 
+/**
+ * A manager's rollup asking about an item that has its own Town Hall in-tray row (1:1 mt_7b4zc7yja3): the row shows
+ * "<building> asks you to <verb> this: <line>" with a link to the rollup. `folded`: the rollup asked nothing else, so it
+ * was acknowledged on submit and is no card of its own.
+ */
+export const RollupAsk = z.object({
+  reportId: Id, buildingId: Id.nullable(), buildingName: z.string(), title: z.string(), line: z.string(), at: Iso, folded: z.boolean(),
+});
+export type RollupAsk = z.infer<typeof RollupAsk>;
 export const GrantView = Grant.extend({
   keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
   /** a checkpoint grant's evidence, or a proposal's earlier stopped grant's (null: none) */
   evidence: CheckpointEvidence.nullable().optional(),
+  /** the Town Hall in-tray only: rollups asking about this grant (RollupAsk) */
+  asks: z.array(RollupAsk).optional(),
 });
 export type GrantView = z.infer<typeof GrantView>;
 
@@ -1792,7 +1803,7 @@ export const VerbInputs = {
     provenance: Provenance.optional(),
     resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, your PR's CI checks finishing, a time), your continuation starts by itself. Waiting on CI: {pr: N} (the town watches the PR's checks and resumes you when they pass or fail), never an {after} guess. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
-    rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line."),
+    rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line. A rollup whose only ask is on an item with its own in-tray row (a proposal, checkpoint or retainer it names) is folded into that row on submit: the row shows your line about it, and the rollup is no card of its own."),
   }),
   request_human: z.object({ title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation") }),
   assignments: z.object({}),
