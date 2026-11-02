@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, type AccessRequestView, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, askVerb, type AccessRequestView, type RollupAsk, type CaptainRequestView, type Doc, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -164,6 +164,7 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
   const closes = grants.filter((g) => g.status === "closed");
+  const askedOn = askedOnOf(grants, retainers);
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
   const blockedList = blocked.length ? (
     <Section title={<>Blocked: no key results <Pill tone="bad">{blocked.length}</Pill></>}>
@@ -192,7 +193,7 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
   // retainers: standing money for scheduled jobs (1:1 mt_cyd2t5ioob decision 2), kept apart from grant proposals
   const retainerList = retainers.length ? (
     <Section title={<>Retainers for scheduled jobs <Pill>{retainers.length}</Pill></>}>
-      <div className="doc-list">{retainers.map((x) => <RetainerRow key={x.id} x={x} route={routes[x.id]} onDecided={onDecided} />)}</div>
+      <div className="doc-list">{retainers.map((x) => <RetainerRow key={x.id} x={x} route={routes[x.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
     </Section>
   ) : null;
   const goalList = goalProposals.length ? (
@@ -209,7 +210,7 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
       {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
-          <div className="doc-list">{reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} onOpenDoc={onOpen} showBuilding />)}</div>
+          <div className="doc-list">{reports.map((d) => <IntrayRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} onOpenDoc={onOpen} showBuilding askedOn={askedOn.get(d.id)} />)}</div>
         </Section>
       ) : null}
       {proposals.length ? (
@@ -229,6 +230,24 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
         </Section>
       ) : null}
     </>
+  );
+}
+
+/**
+ * A rollup's ask on this row (1:1 mt_7b4zc7yja3): "Workshop asks you to fund this: <line>" and a link to the rollup.
+ * A rollup that asked nothing else was folded into this row on submit (no card of its own).
+ */
+function RollupAsks({ asks, verb, onOpenDoc }: { asks?: RollupAsk[]; verb: string; onOpenDoc?: (id: string) => void }) {
+  if (!asks?.length) return null;
+  return (
+    <div className="rollup-asks">
+      {asks.map((a) => (
+        <div key={a.reportId} className="intray-proposal rollup-ask">
+          <b>{a.buildingName} asks you to {verb} this:</b> <DocText text={a.line} />{" "}
+          {onOpenDoc ? <button className="link" title={a.title} onClick={() => onOpenDoc(a.reportId)}>{a.folded ? "the rollup" : "the rollup (also in Manager reports)"} →</button> : <span className="muted">({a.reportId})</span>}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -303,7 +322,7 @@ export function CaptainRow({ req, route, onDecided }: { req: CaptainRequestView;
  * <title>, N tokens × M runs to <date> = T". Approve (claimed in the Bank), Counter (note, per-run amount and/or end
  * date; the manager's `schedule` edit asks again) or Reject. Countered ones wait on the manager and show no buttons.
  */
-export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number }) {
+export function RetainerRow({ x, route, onDecided, deckSlide, onOpenDoc }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
   useTown((s) => s.me);
   const canDecide = (route ? route.canDecide : store.can("building.fund", x.buildingId)) && x.retainer === "asked";
   const [note, setNote] = useState("");
@@ -325,6 +344,7 @@ export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleVie
       </div>
       <div className="doc-row-title">{x.title}</div>
       <RoutedTo route={route} />
+      {deckSlide ? null : <RollupAsks asks={x.asks} verb={askVerb(x.retainer)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         <span title="Bank tokens (Opus 5.5 output tokens)"><b>{n(x.tokensPerRun)}</b> tokens × {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"}{x.endsAt ? ` to ${x.endsAt.slice(0, 10)}` : ""} = <b>{n(x.askTokens)}</b></span>
         {x.drawnTokens ? <span>drawn so far {n(x.drawnTokens)}</span> : null}
@@ -455,6 +475,8 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       </div>
       <div className="doc-row-title">{g.objective}</div>
       <RoutedTo route={route} />
+      {/* on a deck slide the slide text carries the ask */}
+      {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         {closedDone
           ? <span title={breakdownTitle(g.spentCounts)}>spent {fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ}; returned {fmtTokens(unspent)} unspent to the Bank</span>
@@ -533,7 +555,14 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   );
 }
 
-function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; chain?: ReportChain; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean }) {
+/** Report id → the in-tray rows (grant or retainer ids) that show its ask (`asks`): the report's card says its ask moved there. */
+export function askedOnOf(grants: GrantView[], retainers: ScheduleView[]): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const x of [...grants, ...retainers]) for (const a of x.asks ?? []) m.set(a.reportId, [...(m.get(a.reportId) ?? []), x.id]);
+  return m;
+}
+
+function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding, askedOn }: { doc: Doc; chain?: ReportChain; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean; askedOn?: string[] }) {
   // a retired fork isn't in the snapshot: its row shows its manager's sprite
   const a = useTown((s) => s.agents[doc.authorId] ?? (chain?.forkOf ? s.agents[chain.forkOf] : undefined));
   const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
@@ -563,6 +592,7 @@ function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding }: { doc: Doc; 
         </div>
         <div className="doc-row-title">{doc.title}</div>
         {need ? <div className="intray-proposal">Needs: {need}</div> : null}
+        {askedOn?.length ? <div className="intray-proposal muted">Its ask on {askedOn.join(", ")} is on {askedOn.length === 1 ? "that row" : "those rows"} below.</div> : null}
         {preview ? <div className="intray-proposal">{preview}</div> : null}
         <div className="doc-row-meta">
           {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
