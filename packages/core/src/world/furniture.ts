@@ -65,6 +65,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(2, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
       { key: "stats", label: "User stats stand", at: { x: 5, y: 6 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
       { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
+      // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+      { key: "help", label: "Help sign", at: { x: 6, y: 9 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
       { key: "plant:0", label: "Plant", at: { x: 1, y: 1 }, cells: one(TILE.PLANT), stands: [] },
       { key: "plant:1", label: "Plant", at: { x: bw - 2, y: 1 }, cells: one(TILE.PLANT), stands: [] },
     ];
@@ -88,6 +90,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
     { key: "cabinet", label: "Filing cabinet", at: { x: bw - 2, y: cy }, cells: one(TILE.CABINET), stands: [{ x: -1, y: 0 }] },
     { key: "meeting", label: "Meeting table", at: { x: bw - 5, y: yMeet }, cells: row(3, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
     { key: "plant", label: "Plant", at: { x: 1, y: yMeet }, cells: one(TILE.PLANT), stands: [] },
+    // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+    { key: "help", label: "Help sign", at: { x: Math.floor(bw / 2) - 2, y: bh - 2 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
   ];
 }
 
