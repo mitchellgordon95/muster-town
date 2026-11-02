@@ -135,6 +135,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: stand("outbox") },
         { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: stand("stats") },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: stand("meeting") },
+        { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: stand("help") },
       );
       tables.set(`meeting-room:${b.id}`, cells("meeting"));
       continue;
@@ -156,6 +157,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
       { id: `intray:${b.id}`, kind: "intray", name: `${b.name} in-tray (manager's desk)`, buildingId: b.id, pos: stand("intray") },
       { id: `cabinet:${b.id}`, kind: "cabinet", name: `${b.name} filing cabinet`, buildingId: b.id, pos: stand("cabinet") },
       { id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: stand("meeting") },
+      { id: `help:${b.id}`, kind: "help", name: `${b.name} help sign (what this building is, what each thing here is, what to do)`, buildingId: b.id, pos: stand("help") },
     );
     tables.set(`meeting-room:${b.id}`, cells("meeting"));
   }

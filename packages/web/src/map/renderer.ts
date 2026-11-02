@@ -52,6 +52,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
   stats: () => ({ kind: "stats", verb: "Read the user stats" }),
+  help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
   // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);
@@ -68,6 +69,12 @@ function placeTarget(p: Place): Target | null {
   const f = PLACE_PANEL[p.kind]; if (!f) return null;
   const { verb, ...panel } = f(p);
   return { label: verb, panel };
+}
+
+/** The panel E opens at a place (the help card's "What's here" rows walk there and open it), or null. */
+export function placePanel(p: Place): PanelRef | null {
+  const t = placeTarget(p);
+  return t && !t.action ? t.panel : null;
 }
 
 /**
