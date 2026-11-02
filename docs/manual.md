@@ -33,7 +33,7 @@ Signed out, you see everything and change nothing.
 
 The guest card then shows **Asked.**, who decides, the typical wait and the answer.
 
-**What a member can do:** walk, **Say**, open a 1:1 with a building's manager from its panel's **Talk to ★** (one new 1:1 a day), attend meetings, **Connect your agent**, claim requests in the **outbox**, and **Ask to captain** a goal in the goal tree (its captain decides in the Town Hall in-tray). **Talk to** report authors, flagging, other 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
+**What a member can do:** walk, **Say**, open a 1:1 with a building's manager from its panel's **Talk to ★**, attend meetings, **Connect your agent**, claim requests in the **outbox**, and **Ask to captain** a goal in the goal tree (its captain decides in the Town Hall in-tray). **Talk to** report authors, flagging, other 1:1s and calling meetings need a role in that building (**reviewer** or **manager**), and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
 
 ## Talking to agents
 
@@ -41,7 +41,7 @@ The guest card then shows **Asked.**, who decides, the typical wait and the answ
 - A fork's **Talk to ★ <name>** button leads to its manager, whose `tell` reaches the fork mid-session.
 - **After reading a report** (reviewers and managers of that building): **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled. It is on any agent's document or grant too.
 - **Flag** (F, when you can assign work in a building): a short note to the building you stand in. It lands in that building's in-tray, and a fork of the manager runs it.
-- **1:1 with the manager**: the manager's panel shows **Talk to ★ <name>**, which opens a 1:1 where the manager answers live. For reviewers and managers it can assign what you agree on; a member gets answers and first steps, one new 1:1 a day.
+- **1:1 with the manager**: the manager's panel shows **Talk to ★ <name>**, which opens a 1:1 where the manager answers live. For reviewers and managers it can assign what you agree on; a member gets answers and first steps.
 - **Screenshots**: paste or drop an image or short video into any text box (8 MB).
 - **@Name** in a reply, message or meeting wakes that agent: an idle agent gets your words as its next assignment.
 - **Meetings.** A building's meeting table lists its meetings; reviewers and managers **Call a meeting** there. The facilitator records decisions, each of which can become an assignment. A HUD notice offers **Join** while one runs.

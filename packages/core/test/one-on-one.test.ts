@@ -125,7 +125,7 @@ describe("the manager's 1:1", () => {
 });
 
 describe("a member's 1:1 with a manager (gr_58n37j410s step 1)", () => {
-  it("a let-in member opens the default 1:1 (not a target, not the Town Hall), one new 1:1 a UTC day; returning is allowed; admins uncapped", async () => {
+  it("a let-in member opens the default 1:1 (not a target, not the Town Hall); returning is allowed; no daily cap", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
@@ -158,18 +158,14 @@ describe("a member's 1:1 with a manager (gr_58n37j410s step 1)", () => {
     await world.verbs.meeting(mei, { meetingId: m.id, action: "speak", text: "We track the carbon cycle. Start with Connect your agent." });
     // returning to the open one is not new
     expect(world.ops.openOneOnOne(ana, "carbon-cycle").id).toBe(m.id);
-    // a second NEW 1:1 the same UTC day is refused, in any building, with a clear sentence (409 conflict)
-    let err: unknown;
-    try { world.ops.openOneOnOne(ana, other.id); } catch (e) { err = e; }
-    expect(err).toMatchObject({ code: "conflict" });
-    expect((err as Error).message).toMatch(/You already opened a 1:1 today; members get one new 1:1 a day/);
-    // the member ends their own 1:1; a new one the same day is still refused
-    expect(world.ops.endMeeting(ana, m.id).phase).toBe("done");
-    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle")).toThrow(/one new 1:1 a day/);
-    // the next UTC day it opens (the count is from today's midnight)
-    world.meetings.upsert({ ...world.meetings.require(m.id), createdAt: "2000-01-01T12:00:00.000Z" });
+    // no daily cap (mt_hlizi9wxxc): a second new 1:1 the same day opens in another building
     expect(world.ops.openOneOnOne(ana, other.id).facilitatorId).toBe(by("Noor").id);
-    // admins are uncapped
+    // and after ending their own 1:1, a new one with the same manager opens the same day
+    expect(world.ops.endMeeting(ana, m.id).phase).toBe("done");
+    const again = world.ops.openOneOnOne(ana, "carbon-cycle");
+    expect(again.id).not.toBe(m.id);
+    expect(again.phase).toBe("discussing");
+    // admins too
     world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
     world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
     expect(world.ops.openOneOnOne(admin, other.id).phase).toBe("discussing");

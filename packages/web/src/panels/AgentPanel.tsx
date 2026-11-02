@@ -320,7 +320,7 @@ function TalkTab({ agent }: { agent: Agent }) {
       ) : isHuman || isService ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
           {!townHall && isMemberTalk(home?.id)
-            ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps. Members open one new 1:1 a day.</span>
+            ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps.</span>
             : <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>}
           <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}

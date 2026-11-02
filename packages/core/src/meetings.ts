@@ -148,9 +148,6 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
   return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
 }
 
-/** New 1:1s a member (no facilitate/review in the building) may open per UTC day, across all buildings (gr_58n37j410s). */
-export const MEMBER_ONE_ON_ONES_PER_DAY = 1;
-
 /** Whether a human runs 1:1s in a building as its staff (facilitator or reviewer), not as a member. */
 export function isOneOnOneStaff(world: World, human: Agent | Holder, buildingId: string): boolean {
   return world.permissions.can(human, "meeting.facilitate", buildingId) || world.permissions.can(human, "building.review", buildingId);
@@ -177,8 +174,8 @@ ${world.nameOf(m.withUserId)} is a new member of the town (let in, not an admin 
  * grant's "Talk to <manager>": its proposer, resolved the same way, else the building's manager) the human's first
  * line presents it, so the agent's prompt carries its id (and a grant's key result). Returns the human's open 1:1
  * with that agent if any (presenting the subject there if it isn't yet). Needs meeting.facilitate or building.review
- * on the building; a let-in member (town.interact) may open the default 1:1 with a non-Town-Hall manager, at most
- * MEMBER_ONE_ON_ONES_PER_DAY new ones a UTC day (returning to the open one is always allowed).
+ * on the building; a let-in member (town.interact) may open the default 1:1 with a non-Town-Hall manager, as many as
+ * they like (no daily cap: Mitchell, mt_hlizi9wxxc).
  */
 export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
@@ -186,7 +183,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
   if (townHall && opts.agentId && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
   const staff = townHall ? world.reorgs.canPlan(human, opts.goalId) : isOneOnOneStaff(world, human, b.id);
-  // a let-in member (town.interact, no facilitate/review here) talks to the manager only, one new 1:1 a UTC day (gr_58n37j410s)
+  // a let-in member (town.interact, no facilitate/review here) talks to the manager only (gr_58n37j410s)
   const member = !staff && !townHall && world.holderOf(human).kind === "user" && world.permissions.can(human, "town.interact", b.id);
   if (!staff && !member) throw forbidden("meeting.facilitate");
   if (member && (opts.agentId || opts.docId || opts.grantId || opts.goalId)) throw new AppError("forbidden", `As a member you talk to ${b.name}'s manager: open the 1:1 from its panel's "Talk to ★".`, 403, "meeting.facilitate");
@@ -233,9 +230,6 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   };
   if (open[0]) return present(open[0]);
   const ts = nowIso();
-  if (member && world.meetings.count("kind = 'one-on-one' AND withUserId = ? AND createdAt >= ?", [h.id, `${ts.slice(0, 10)}T00:00:00.000Z`]) >= MEMBER_ONE_ON_ONES_PER_DAY) {
-    throw new AppError("conflict", "You already opened a 1:1 today; members get one new 1:1 a day. Come back tomorrow (UTC) or continue the one you have.");
-  }
   const meeting = world.meetings.upsert(Meeting.parse({
     id: newId("mt"), kind: "one-on-one", buildingId: b.id, title: `1:1: ${world.nameOf(h.id)} and ${target.name}`, scheduledAt: ts, phase: "discussing",
     facilitatorId: target.id, attendeeIds: [target.id], withUserId: h.id, createdAt: ts, startedAt: ts,

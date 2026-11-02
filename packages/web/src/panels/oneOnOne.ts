@@ -6,7 +6,7 @@ import { store } from "../state";
 /** A human who can facilitate or review in the building opens 1:1s there. */
 export const canOneOnOne = (buildingId: string | null | undefined) => !!buildingId && (store.can("meeting.facilitate", buildingId) || store.can("building.review", buildingId));
 
-/** A let-in member (canInteract, no facilitate/review here): may open the default 1:1 with a building's manager, not the Town Hall's (one new 1:1 a UTC day; core createOneOnOne). */
+/** A let-in member (canInteract, no facilitate/review here): may open the default 1:1 with a building's manager, not the Town Hall's (core createOneOnOne). */
 export const isMemberTalk = (buildingId: string | null | undefined) =>
   !!buildingId && !canOneOnOne(buildingId) && !!store.state.me?.canInteract && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall";
 
