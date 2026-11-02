@@ -343,7 +343,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
       } else if (m.type === "rate_limit_event") {
         // the plan's own word on the window this session runs in (availability.ts): rejected records a limit with its
         // reset, allowed clears one. Only for a Bank input the session ran on.
-        const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number; rateLimitType?: string } }).rate_limit_info;
+        const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number; rateLimitType?: string; overageStatus?: string; isUsingOverage?: boolean } }).rate_limit_info;
         if (info && funding.credential.inputId) {
           try { world.bank.availability.observeRateLimit(funding.credential.inputId, info, session.id); }
           catch (e) { console.warn(`[runtime] rate_limit_event: ${e instanceof Error ? e.message : e}`); }

@@ -133,4 +133,16 @@ describe("availability per input and model (the Fable limit of 2026-11-01)", () 
     world.bank.availability.observeRateLimit(sub.id, { status: "allowed", rateLimitType: "seven_day_opus" });
     expect(world.bank.availability.available(sub.id, OPUS)).toBe(true);
   });
+
+  it("rate_limit_event: a rejected window the session runs past on extra usage records no limit", () => {
+    const { world, sub } = town();
+    const resetsAt = Math.floor(Date.now() / 1000) + 2 * 24 * 3600;
+    // the plan's included week is used up, but bought credits keep the session running (1:1 mt_a64faz59yr)
+    expect(world.bank.availability.observeRateLimit(sub.id, { status: "rejected", rateLimitType: "seven_day_overage_included", resetsAt, overageStatus: "allowed", isUsingOverage: true })).toBeNull();
+    expect(world.bank.availability.observeRateLimit(sub.id, { status: "rejected", rateLimitType: "seven_day", resetsAt, overageStatus: "allowed_warning" })).toBeNull();
+    expect(world.bank.availability.available(sub.id, FABLE)).toBe(true);
+    // no extra usage left: the window holds as before
+    world.bank.availability.observeRateLimit(sub.id, { status: "rejected", rateLimitType: "seven_day_overage_included", resetsAt, overageStatus: "rejected" });
+    expect(world.bank.availability.limitFor(sub.id, FABLE)).toMatchObject({ scope: "*", until: new Date(resetsAt * 1000).toISOString() });
+  });
 });
