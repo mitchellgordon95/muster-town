@@ -1,4 +1,4 @@
-import { Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
+import { NOT_GONE, Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
 import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { GoalNode } from "./goals.ts";
@@ -36,7 +36,7 @@ export class Reorgs {
   // ---- the Planner ----
   /** The Planner, if it has been created. */
   planner(): Agent | undefined {
-    return this.world.agents.first("homeBuildingId = ? AND kind = 'resident' AND title = ? AND forkOf IS NULL AND status NOT IN ('banned', 'retired')", [TOWN_HALL_ID, PLANNER_TITLE], "ORDER BY createdAt");
+    return this.world.agents.first(`homeBuildingId = ? AND kind = 'resident' AND title = ? AND forkOf IS NULL AND ${NOT_GONE}`, [TOWN_HALL_ID, PLANNER_TITLE], "ORDER BY createdAt");
   }
 
   isPlanner(a: Actor): boolean {

@@ -1,4 +1,5 @@
 /** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), @-replies as short read/search sessions, then a facilitated discussion over MCP. */
+import { isGone } from "@muster-town/schema";
 import { NoCredential, TOWN_HALL_ID, walkHome, type Funding } from "@muster-town/core";
 import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
@@ -76,7 +77,7 @@ export async function onMeetingMention(ctx: Ctx, st: MeetingState, meetingId: st
   const agent = world.agents.get(agentId);
   if (!m || !LIVE.has(m.phase) || !agent || !m.attendeeIds.includes(agentId) || agentId === m.facilitatorId) return;
   if (agent.kind !== "resident" && agent.kind !== "visitor") return;
-  if (agent.status === "banned" || agent.status === "retired") return;
+  if (isGone(agent)) return;
   if (byKind !== "user" && byId !== m.facilitatorId) return;
   const key = `${meetingId}:${agentId}`;
   if (st.replying.has(key)) { st.mentionedAgain.add(key); return; }

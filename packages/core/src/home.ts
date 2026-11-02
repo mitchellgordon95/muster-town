@@ -4,6 +4,7 @@
  * meeting ends (setMeetingPhase), when a session ends (ops.endSession), and by the runtime's tick for idle bodies left
  * elsewhere. Agents without a desk (visitors, humans, the librarian) keep today's behaviour.
  */
+import { isGone } from "@muster-town/schema";
 import type { World } from "./world.ts";
 
 /** how long a `say` or a `go` to another agent keeps a body where it is */
@@ -13,7 +14,7 @@ export const TALK_MS = 2 * 60_000;
 export function stayReason(world: World, agentId: string, now = Date.now()): string | null {
   const a = world.agents.get(agentId);
   if (!a || a.kind === "human") return "no body to move";
-  if (a.status === "banned" || a.status === "retired" || a.status === "in-meeting" || a.status === "walking") return a.status;
+  if (isGone(a) || a.status === "in-meeting" || a.status === "walking") return a.status;
   if (a.currentMeetingId) return "in a meeting";
   const desk = world.layout.deskOf(a.id);
   if (!desk) return "no desk";
