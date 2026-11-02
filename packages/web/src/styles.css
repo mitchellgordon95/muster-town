@@ -683,6 +683,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-share { text-align: right; min-width: 48px; font-variant-numeric: tabular-nums; }
 .spend-usd { text-align: right; min-width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .finance-usd { white-space: nowrap; }
+.spend-grant-line { display: block; font-size: 11.5px; padding: 0 0 2px; } /* a grant row's spent vs funded · outcome · key results (gr_dt1l35tydx) */
+.spend-grant-line .spend-over { color: var(--bad); }
 .spend-date { min-width: auto; } /* Sources dates: the column shrinks to one whole date, never below it; a range wraps after the arrow, never inside a date at its hyphens */
 .spend-date .day { white-space: nowrap; }
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }

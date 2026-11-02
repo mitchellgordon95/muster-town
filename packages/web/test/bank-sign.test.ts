@@ -25,6 +25,11 @@ describe("the Bank's marquee", () => {
     expect(texts).toEqual(expect.arrayContaining(["CLAIMED", "750", "FREE", "250"]));
     for (const old of ["EXPIRES TODAY", "PERMANENT", "HELD BY BUILDINGS"]) expect(texts).not.toContain(old);
   });
+  it("shows the overdraft as negative free tokens, with a real minus sign", () => {
+    const { g, texts } = fakeCtx();
+    drawBankSign(g, 0, 0, { townTokens: 10, free: { reservedTokens: 0, openAsksTokens: 0, fundedRemainingTokens: 0, freeTokens: 0, overdraftTokens: 400 } }, 0);
+    expect(texts).toEqual(expect.arrayContaining(["FREE", "\u2212400"]));
+  });
   it("shows … for claimed and free when the server has no free-tokens figure", () => {
     const { g, texts } = fakeCtx();
     drawBankSign(g, 0, 0, { townTokens: 10, free: null }, 0);

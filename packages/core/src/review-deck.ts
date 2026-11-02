@@ -144,7 +144,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
-    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject. Stops when: ${g.stopCondition}`,
+    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject.${g.estimate ? ` Likely cost: ${g.estimate.sentence}.` : ""} Stops when: ${g.stopCondition}`,
   }) };
 }
 

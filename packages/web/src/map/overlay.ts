@@ -1,6 +1,6 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
 import type { Agent, BuildingBudget, Stoplight } from "@muster-town/schema";
-import { claimedTokens, fmtTokens, stoplightLabel } from "../format";
+import { claimedTokens, fmtTokens, netFreeTokens, signed, stoplightLabel } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
@@ -377,13 +377,13 @@ export const BANK_SIGN_H = 112;
  * The Bank's marquee. `x, y` is its bottom centre, or with `left` its left edge and vertical middle. `maxW` (screen px)
  * shrinks it, about that anchor, to fit the clear ground it stands on (never under half size).
  */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number } | null } | null, now: number, align: "center" | "left" = "center", maxW = Infinity) {
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number; overdraftTokens?: number } | null } | null, now: number, align: "center" | "left" = "center", maxW = Infinity) {
   const n = (v: number) => v.toLocaleString("en-US");
   const total = bank ? n(bank.townTokens) : "…";
   const free = bank?.free ?? null;
   const parts = [
     { label: "CLAIMED", value: free ? n(claimedTokens(free)) : "…", color: "#ffb26b" },
-    { label: "FREE", value: free ? n(free.freeTokens) : "…", color: "#9ff0b4" },
+    { label: "FREE", value: free ? signed(netFreeTokens(free), n) : "…", color: free && netFreeTokens(free) < 0 ? "#ff8a7a" : "#9ff0b4" },
   ];
   g.font = `800 30px ${SANS}`;
   const tw = g.measureText(total).width;

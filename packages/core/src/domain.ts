@@ -352,7 +352,7 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
     `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
     [], "ORDER BY updatedAt, rowid",
-  ).map((g) => world.grantDesk.view(g));
+  ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */

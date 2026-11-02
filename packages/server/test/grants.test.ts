@@ -48,6 +48,10 @@ describe("grants routes", () => {
     const proposed = await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
     expect(proposed.status).toBe(200);
     expect(proposed.body.grant.status).toBe("proposed");
+    // what it is likely to cost (core grant-estimate.ts): recorded at propose, served signed out with the grant
+    const pub = await json(app, "GET", `/api/grants/${id}`);
+    expect(pub.body.grant.estimate).toMatchObject({ askTokens: 8_000_000, sample: expect.any(Number), similar: expect.any(Array) });
+    expect(pub.body.grant.estimate.sentence).toMatch(/^ask 8,000,000 · /);
     expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("proposed");
 
     // the board carries the goal, the open proposals and the exploration allowance

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, sessionMemory, workSystemPrompt } from "../src/index.ts";
+import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
 import { laneBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
 import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
@@ -258,6 +258,37 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
   });
 
+  it("withdraw_grant: the manager withdraws its own proposed grant with a note; out of the in-tray and deck, KRs archived, funded refused", async () => {
+    const { world, seed, mei, noor, admin, fund } = setup();
+    const propose = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, KRS[1]!], objective: "A plan to rewrite", stopCondition: "s", askTokens: 300_000 }).id);
+    const g = propose();
+    expect(townHallIntray(world).grants.map((x) => x.id)).toContain(g.id);
+    expect(JSON.stringify(reviewDeck(world).slides)).toContain(g.id);
+    // another building's manager can't
+    const other = createBuilding(world, { name: "Other lab" }, seed.admin.id);
+    world.permissions.grant({ kind: "agent", id: noor.id }, buildingRoleId(other.id, "manager"));
+    await expect(world.verbs.withdraw_grant(noor, { grantId: g.id, note: "mine now" })).rejects.toThrow(/not a grant of your building|building.manage/);
+    expect(() => world.grantDesk.withdraw({ kind: "agent", id: noor.id } as never, g.id, "x")).toThrow(/building.manage/);
+    // a funded grant is refused, pointing at close_grant
+    const f = fund();
+    await expect(world.verbs.withdraw_grant(mei, { grantId: f.id, note: "changed my mind" })).rejects.toThrow(/close_grant/);
+    const r = await world.verbs.withdraw_grant(mei, { grantId: g.id, note: "the Bank funds all approved work; rewriting" });
+    expect(r).toMatchObject({ grantId: g.id, status: "closed", outcome: "stopped", keyResults: [{ archived: true }, { archived: true }] });
+    const after = world.grants.require(g.id);
+    expect(after.history.at(-1)).toMatchObject({ action: "withdraw", byId: mei.id, note: "the Bank funds all approved work; rewriting" });
+    for (const k of world.grantDesk.keyResultsOf(g.id)) expect(k.statusNote).toMatch(/withdrawn: the Bank funds/);
+    expect(townHallIntray(world).grants.map((x) => x.id)).not.toContain(g.id);
+    expect(JSON.stringify(reviewDeck(world).slides)).not.toContain(g.id);
+    const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
+    expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "stopped", withdrawn: true, note: "the Bank funds all approved work; rewriting" });
+    expect(world.messages.where("1 = 1", []).some((m) => m.body.includes("withdrew the proposal") && m.body.includes("rewriting"))).toBe(true);
+    await expect(world.verbs.withdraw_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
+    // a countered proposal can be withdrawn too, then a fresh one proposed
+    const c = world.grantDesk.decide(admin, propose().id, { action: "counter", note: "smaller" });
+    expect((await world.verbs.withdraw_grant(mei, { grantId: c.id, note: "rewriting from scratch" })).status).toBe("closed");
+    expect((await world.verbs.propose_grant(mei, { objective: "fresh", stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
+  });
+
   it("close_grant: the manager closes a funded grant early as done; all its open KRs claimed, unspent returned, in the Town Hall in-tray until a human marks them", async () => {
     const { world, mei, noor, admin, fund, spend } = setup();
     const g = fund(4_000_000, KRS);
@@ -458,7 +489,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const decide = (text: string, extra = {}) => world.ops.meetingDecide(mei, m.id, [{ text, assigneeId: noor.id, assignmentId: null, ...extra }]);
     // meeting decisions stay exempt (directed); without a human in the meeting they cite no source
     expect(world.assignments.require(decide("no lane").decisions[0]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: null });
-    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ speakerId: "us_x", speakerKind: "user", text: "please do X", at: nowIso() }] });
+    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ speakerId: world.holderOf(admin).id, speakerKind: "user", text: "please do X", at: nowIso() }] });
     const out = decide("do X");
     expect(world.assignments.require(out.decisions[1]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: m.id });
     expect((await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: m.id })).lane).toBe("directed");

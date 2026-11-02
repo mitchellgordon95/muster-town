@@ -95,17 +95,17 @@ export class MockApi implements Api {
     await wait(60);
     // `?as=visitor` signs in as a plain visitor so read-only views can be checked; `?as=member` as a let-in member (Ask to captain)
     const as = new URLSearchParams(location.search).get("as");
-    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null });
+    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: null });
     // `?as=newmember`: let in while away (gr_58n37j410s step 2): the HUD shows the one-time "You're in" card
     if (as === "newmember") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true,
-      accessRequest: { status: "granted", message: "", decidedAt: "2026-11-01T01:00:00.000Z", deciders: [this.sim.users[0].name], typicalWaitMs: 900_000, decidedByName: this.sim.users[0].name } });
+      accessRequest: { status: "granted", message: "", decidedAt: "2026-11-01T01:00:00.000Z", deciders: [this.sim.users[0].name], typicalWaitMs: 900_000, decidedByName: this.sim.users[0].name }, direct: [], directDefaultGoalId: null });
     if (as === "visitor") {
       const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
       return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
-        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null, decidedByName: mine.decidedAt ? this.sim.users[0].name : null } : null });
+        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null, decidedByName: mine.decidedAt ? this.sim.users[0].name : null } : null, direct: [], directDefaultGoalId: null });
     }
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
-    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null });
+    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: "gl_town" });
   }
   async town(): Promise<Snapshot> { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
@@ -737,13 +737,24 @@ export class MockApi implements Api {
       { buildingId: null, buildingName: "unattributed", usageRows: 1, tokens: 100 },
     ] : [];
     const share = (t: number) => (used ? t / used : 0);
+    // two toy grants splitting the building's spend: one done within its funding, one cut past it (gr_dt1l35tydx)
+    const done = Math.round((used + notFunded) * 0.6), cut = used + notFunded - done;
+    const toyGrants = [
+      { kind: "grant" as const, id: "gr_toy_done", name: "The Bank shows its spending", objective: "The Bank shows its spending", tokens: done, sessions: 1, grantTokens: Math.round(done * 1.1), status: "closed", outcome: "done", outcomeGroup: "done" as const, krCounts: { met: 1, missed: 0, claimed: 0, open: 0 } },
+      { kind: "grant" as const, id: "gr_toy_cut", name: "A tour of the Bank", objective: "A tour of the Bank", tokens: cut, sessions: 1, grantTokens: Math.round(cut * 0.6), status: "closed", outcome: "cut", outcomeGroup: "cut" as const, krCounts: { met: 0, missed: 0, claimed: 2, open: 0 } },
+    ];
+    const grants: FinanceSpend["grants"] = used ? {
+      count: 2, funded: toyGrants[0].grantTokens + toyGrants[1].grantTokens, spent: done + cut,
+      byOutcome: { done: { count: 1, tokens: done }, cut: { count: 1, tokens: cut }, open: { count: 0, tokens: 0 } },
+      overFunding: { count: 1, tokens: cut - toyGrants[1].grantTokens },
+    } : undefined;
     const rows: FinanceSpend["rows"] = used ? [
-      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 1, usd: toyUsd(used + notFunded) },
+      { kind: "building", id: "workshop", name: "Town Workshop", tokens: used + notFunded, share: share(used + notFunded), sessions: 2, usd: toyUsd(used + notFunded), children: toyGrants.map((g) => ({ ...g, share: share(g.tokens), usd: toyUsd(g.tokens) })) },
       { kind: "not-funded", id: null, name: "Not funded: work sessions the Bank never charged", tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: toyUsd(-notFunded) },
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, at: now() };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {

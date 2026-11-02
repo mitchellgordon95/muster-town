@@ -50,7 +50,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(rest[0]!.text).toMatch(/\*\*What it is:\*\* Plan for/);
     expect(rest[0]!.text).toMatch(/\*\*What you'd see:\*\* Open the lab banner/); // testing plan howToCheck
     expect(rest[0]!.text).toMatch(/_no picture_/);
-    expect(rest[0]!.text).toMatch(/\*\*Your call:\*\* Fund 1M adjusted tokens, counter or reject. Stops when: two failed tries/);
+    expect(rest[0]!.text).toMatch(/\*\*Your call:\*\* Fund 1M adjusted tokens, counter or reject\. Likely cost: ask 1,000,000 · no closed grants yet to compare it with\. Stops when: two failed tries/);
     expect(rest[1]!.text).toMatch(/\*\*What you'd see:\*\* The board shows Usage/); // propose_grant whatYoudSee wins
     expect(rest[2]).toMatchObject({ kind: "rollup", docIds: [r1.id], itemId: r1.id });
     expect(rest[2]!.pictures).toEqual([{ alt: "shot", src: "/api/media/mf_x0.png" }]);
