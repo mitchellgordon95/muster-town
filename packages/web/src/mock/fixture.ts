@@ -137,7 +137,7 @@ export const docs: Doc[] = [
 
 const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "" };
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"] };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
@@ -150,6 +150,14 @@ export const grants: GrantView[] = [
     objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
     findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
+    // what it is likely to cost, recorded at propose (core grant-estimate.ts)
+    estimate: {
+      askTokens: 4_000_000, sample: 5, buildingSample: 2, medianRatio: 1.21, buildingMedianRatio: 0.95, low: 1_800_000, high: 6_100_000, at: ago(35),
+      similar: [
+        { id: "gr_stress", buildingId: "bl_carbon", objective: "Stress-test the lab's session runner at 10 parallel desks", keyResults: 1, grantTokens: 1_000_000, spentTokens: 1_800_000, outcome: "done" },
+      ],
+      sentence: "ask 4,000,000 · 3 similar grants spent 1,800,000–6,100,000 (median spent/funded 1.21 across 5 closed grants; this building 0.95 across 2)",
+    },
     createdAt: ago(60), updatedAt: ago(35),
   },
   // a second open proposal from the same lab, for another key result: the in-tray lists both side by side

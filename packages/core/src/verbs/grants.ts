@@ -38,6 +38,8 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
+    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask stands as given
+    estimate: g.estimate?.sentence ?? null,
     note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
   };
 }
