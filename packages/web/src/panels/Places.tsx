@@ -485,7 +485,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   // Talk to and the decision buttons sit together under the grant, big (Mitchell's flag dc_4uiv48047s)
   const talk = <TalkAboutGrant grant={g} />;
   const footer = <div className="actions decide-footer">{talk}</div>;
-  const pct = g.grantTokens ? Math.min(100, Math.round((g.spentTokens / g.grantTokens) * 100)) : 0;
+  const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
   // the key results and stop condition: under the fold on a checkpoint, where the evidence comes first (mt_7b4zc7yja3)
   const folded = checkpoint && !!g.evidence;
   const planList = (<>
