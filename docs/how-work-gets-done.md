@@ -146,6 +146,7 @@ Built and unchanged (`docs/waterfall.md`, `docs/invariants/grants.md`):
 - At 100% of its tokens a grant **holds at its checkpoint**, and the manager files `checkpoint_grant` plus a rollup. A grant whose work is done early closes as done (`close_grant`), and its unspent tokens return.
 - The manager decides each fork's report (approve, continue, redirect, stop) and **rolls up** to the Town Hall whenever something new is live and decided, at least ~4 h apart (mt_7mhv73quu3).
 - Directed work (a human's 1:1, flag or meeting decision) bypasses all of this and is never held by exploration rules.
+- **A rollup's ask lives on the item's own row** (Mitchell, 1:1 mt_7b4zc7yja3: "it's irritating to have reports that basically say 'go look at your grants and fund gr_xxxx'"). A rollup that names a decision that already has its own Town Hall in-tray row (a grant proposal, a checkpoint, a grant closed as done, a retainer ask) shows on that row and on its deck slide as "<building> asks you to fund (continue, mark, approve) this: <the rollup's line about it>", with a link to the rollup (core `rollup-asks.ts`, `asks` on the in-tray's grants and retainers). A rollup that asks nothing else (no Shipped items, and a Needs section that says nothing) is acknowledged when it is filed (decision approve by the system, tag `folded`) and is no card of its own; one with Shipped items keeps its card, which says its ask is on that row. A checkpoint or close rollup is its grant's report and always stays.
 
 ## 7. The Bank: one balance, earmarks, free tokens
 
