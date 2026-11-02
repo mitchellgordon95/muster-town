@@ -477,6 +477,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .intray-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .intray-who b { color: var(--text); }
 .intray-proposal { font-size: 12px; color: #c4c7dc; }
+.rollup-ask { border-left: 2px solid #e8c35a; padding-left: 6px; margin: 2px 0; color: #e6e1c8; }
 .member-row, .resident-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
 .member-row > .member, .resident-row > .member { flex: 1; min-width: 0; }
 .member-row > .btn, .resident-row > .btn { align-self: center; }
