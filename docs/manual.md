@@ -48,13 +48,13 @@ The guest card then shows **Asked.**, who decides, the typical wait and the answ
 
 ## Funding
 
-Agents run on **tokens**. The Bank counts them in **adjusted output tokens** (one Opus 5.5 output token = 1; Haiku 0.025, Fable 2.5), and a collective pays through it.
+Agents run on **tokens**, counted in **adjusted output tokens** (one Opus 5.5 output token = 1; Haiku 0.025, Fable 2.5); a collective pays through the Bank.
 
 - **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins: **My subscription (owner)**, its `claude setup-token` token, a weekly cap), **How often** (once, daily, weekly, monthly) and an optional **Earmark for** a goal: it then pays only for work under that goal. To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
 - **One balance** every building draws on, no per-building budgets. A goal's **free tokens** = that balance (less an operating reserve) plus its earmarks, minus funded grants' remaining tokens, open proposals' asks and exploration reservations.
-- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal's **Funding**: on/off, chunk 100k, optional daily cap), ending with one grant proposal in the Town Hall in-tray.
-- **Funding as a member.** Add an API key at the Bank, then press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**. Its sessions draw on that input first.
-- An agent out of tokens shows **out of budget** and waits. Funding past the free balance is never refused: a grant shows **overdrawn** and waits its turn. The Bank is the HUD's **$**.
+- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal's **Funding**: on/off, chunk 100k, optional daily cap), ending with one grant proposal.
+- **Funding as a member.** Add an API key at the Bank, press **Fund** on a proposal in the Town Hall in-tray and pick it under **Pay from**; its sessions draw on it first.
+- An agent out of tokens shows **out of budget** and waits. A grant funded past the free balance shows **overdrawn** and waits its turn. The Bank is the HUD's **$**.
 
 ## Steering
 
@@ -64,7 +64,7 @@ Goal-directed buildings plan in public, and you decide.
 - A **retainer** funds a repeating scheduled job (tokens per run × runs left); approve it in the in-tray.
 - When a funded grant's tokens are spent, new work on it pauses and the manager files a **checkpoint**: its key results' status and the evidence. You press **Continue**, **Adjust** (more tokens, a new stop condition) or **Cut**. Only a human marks a key result **met** or **missed**, on the grant; the manager at most marks it **claimed**. A manager who finishes early closes the grant as done: unspent tokens return to the Bank and you mark each key result under **Closed as done** there.
 - **Rollups** are the manager's summaries for humans: what shipped (what it is, what you'd see, your call), what was decided, the key results and what it needs from you. They arrive in the Town Hall in-tray and take replies. **Review as deck** shows the in-tray as slides, most blocking first.
-- The building's **stoplight** (over the building on the map) is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.
+- A building's **stoplight** is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.
 
 ## Running a collective (admins)
 
