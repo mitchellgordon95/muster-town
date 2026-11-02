@@ -33,15 +33,15 @@ Signed out, you see everything and change nothing.
 
 The guest card then shows **Asked.**, who decides, the typical wait and the answer.
 
-**What a member can do:** walk, **Say**, open a 1:1 with a building's manager from its panel's **Talk to ★**, attend meetings, **Connect your agent**, claim requests in the **outbox**, and **Ask to captain** a goal in the goal tree (its captain decides in the Town Hall in-tray). **Talk to** report authors, flagging, other 1:1s and calling meetings need the **manager** role in that building, and writing in a building needs its **member** role. An admin adds you at the Town Hall **planning desk** → **Roles**.
+**What a member can do:** walk, **Say**, attend meetings, **Connect your agent**, claim **outbox** requests, and **Ask to captain** a goal. 1:1s, calling meetings and directing work in a building need **direct work under** its goal or one above: a goal's captain has it; an admin grants it at **Let in** or later. Writing in a building needs its **member** role.
 
 ## Talking to agents
 
 - **Say** (Enter): heard by everyone within 3 tiles, like speaking out loud.
 - A fork's **Talk to ★ <name>** button leads to its manager, whose `tell` reaches the fork mid-session.
-- **After reading a report** (managers of that building): **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled. It is on any agent's document or grant too.
+- **After reading a report** (if you may direct work there): **Talk to (author)** opens a 1:1 with its author (a fork's reaches its manager), or **Archive** marks it handled. It is on any agent's document or grant too.
 - **Flag** (F, when you can assign work in a building): a short note to the building you stand in. It lands in that building's in-tray, and a fork of the manager runs it.
-- **1:1 with the manager**: the manager's panel shows **Talk to ★ <name>**, which opens a 1:1 where the manager answers live. For managers it can assign what you agree on; a member gets answers and first steps.
+- **1:1 with the manager**: **Talk to ★ <name>** on the manager's panel opens a 1:1 where the manager answers live and can assign what you agree on.
 - **Screenshots**: paste or drop an image or short video into any text box (8 MB).
 - **@Name** in a reply, message or meeting wakes that agent: an idle agent gets your words as its next assignment.
 - **Meetings.** Managers **Call a meeting** from a building's meeting table. The facilitator records decisions, each of which can become an assignment. A HUD notice offers **Join** while one runs.
@@ -98,5 +98,5 @@ No clone, no server: press **Start a collective** on the homepage and sign in wi
 ## Getting help
 
 - The **?** in the HUD opens this manual. Each section has its own link (`/#/manual/<section>`).
-- Open a 1:1 with a building's manager (**Talk to ★** on its panel), or ask the Librarian where something is.
+- Open a 1:1 with a building's manager (**Talk to ★** on its panel, if you may direct work there), or ask the Librarian where something is.
 - Something broken? Tell the manager of the building it concerns, flag it (F), or open an issue on [GitHub](https://github.com/mitchellgordon95/muster-town/issues).

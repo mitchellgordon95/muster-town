@@ -5,10 +5,11 @@
  * declines. A declined user may ask again after `ASK_AGAIN_MS`.
  */
 import type { AccessRequest, AccessRequestView } from "@muster-town/schema";
-import { AppError, badRequest } from "./errors.ts";
+import { AppError, badRequest, forbidden } from "./errors.ts";
 import { townRoleId, type Holder } from "./permissions.ts";
 import type { Agent } from "@muster-town/schema";
 import { countFunnel, countFunnelDecision } from "./join-funnel.ts";
+import { canGrantDirect, grantDirect } from "./direct.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -57,11 +58,22 @@ export function requestAccess(world: World, userId: string, message = ""): Acces
   return req;
 }
 
-/** An admin (`town.manage_roles`) lets the person in as `member`, or declines. Only a pending request can be decided. */
-export function decideAccess(world: World, actor: Holder | Agent, id: string, grant: boolean): AccessRequest {
+/**
+ * An admin (`town.manage_roles`) lets the person in as `member`, or declines. Only a pending request can be decided.
+ * `directGoalId` (Let in + direct work, gr_cuobjlny6r): also let them direct work under that goal (direct.ts) in the
+ * same step; a plain Let in grants nothing more (no 1:1s until someone grants it).
+ */
+export function decideAccess(world: World, actor: Holder | Agent, id: string, grant: boolean, directGoalId?: string | null): AccessRequest {
   world.permissions.require(actor, "town.manage_roles");
   const req = world.accessRequests.require(id, "access request");
   if (req.status !== "pending") throw new AppError("conflict", `This request was already ${req.status}.`);
+  if (directGoalId && !grant) throw badRequest("Direct work comes with Let in: a declined request grants nothing.");
+  if (directGoalId) {
+    // checked before anything changes, so a bad goal doesn't leave them let in without it
+    const goal = world.goalTree.get(directGoalId);
+    if (!goal || goal.status !== "active") throw badRequest(`Goal ${directGoalId} is unknown or retired.`);
+    if (!canGrantDirect(world, actor, directGoalId)) throw forbidden("goals.edit", "Only an admin or the goal's captain can let someone direct work under it.");
+  }
   const decider = holderId(world, actor);
   const out = world.transaction(() => {
     if (grant) {
@@ -75,6 +87,7 @@ export function decideAccess(world: World, actor: Holder | Agent, id: string, gr
   const user = world.users.get(req.userId);
   const who = user?.githubLogin ? `@${user.githubLogin}` : user?.name ?? req.userId;
   world.events.append({ type: "system", text: grant ? `${who} was let in as a member` : `${who}'s request to join was declined`, payload: { accessRequestId: id, userId: req.userId, granted: grant } });
+  if (grant && directGoalId) grantDirect(world, actor, req.userId, directGoalId);
   emitTownHall(world);
   return out;
 }
