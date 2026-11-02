@@ -183,11 +183,19 @@ export function withoutWaitingLine(body: string): string {
 
 const plainLine = (l: string) => l.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
 
-/** The rollup's own words about `id`: its first line naming it (as plain text), else its title when that names it; null if neither does. */
+/** The rollup's own words about `id`: its Needs line naming it, else its first other line naming it outside "## Decided" (as plain text), else its title when that names it; null if neither does. */
 export function askLineFor(title: string, body: string, id: string): string | null {
   const re = new RegExp(`\\b${id}\\b`);
-  const hit = withoutWaitingLine(body).split("\n").find((l) => re.test(l) && !HEADING.test(l) && plainLine(l));
-  if (hit) return plainLine(hit);
+  // the Needs section's line first; a "## Decided" line ("dc_x → approve (checkpoint for gr_y)") reports a decision, it asks nothing
+  const lines: { text: string; section: string | undefined }[] = [];
+  let section: string | undefined;
+  for (const l of withoutWaitingLine(body).split("\n")) {
+    const h = HEADING.exec(l);
+    if (h) { section = sectionOf(h[1]!); continue; }
+    if (section !== "Decided" && re.test(l) && plainLine(l)) lines.push({ text: l, section });
+  }
+  const hit = lines.find((l) => l.section === "Needs from") ?? lines[0];
+  if (hit) return plainLine(hit.text);
   return re.test(title) ? plainLine(title) : null;
 }
 

@@ -19,6 +19,10 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     expect(rollupAsksOnly(rollup(ITEM, "gr_abc1 proposed"), ["gr_abc1"])).toBe(false);
     expect(rollupAsksOnly(rollup("None.", "gr_abc1", "Decide whether forks may redeploy."), ["gr_abc1"])).toBe(false);
     expect(rollupAsksOnly(rollup("None.", "gr_abc1", "- Nothing."), ["gr_abc1"])).toBe(true);
+    // a "## Decided" line reports a decision, it asks nothing; the Needs line wins over a Key results line
+    const decided = "## Shipped\nNone.\n\n## Decided\n- dc_x → approve (checkpoint for gr_abc1)\n\n## Key results\n- gr_abc1 on track\n\n## Needs from Mitchell\n- Continue gr_abc1: it buys the deck.";
+    expect(askLineFor("Rollup 10", decided, "gr_abc1")).toBe("Continue gr_abc1: it buys the deck.");
+    expect(askLineFor("Rollup 10", decided.replace(/## Key results[\s\S]*$/, "## Needs from Mitchell\nNothing."), "gr_abc1")).toBeNull();
     expect([askVerb("proposed"), askVerb("checkpoint"), askVerb("closed"), askVerb("asked")]).toEqual(["fund", "continue", "mark", "approve"]);
   });
 
@@ -60,5 +64,10 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     world.grants.upsert({ ...world.grants.require(g), status: "rejected" });
     const after = await roll(`About ${g}`, rollup("None.", `- ${g} was rejected.`));
     expect(after.decision).toBe("pending");
+
+    // a checkpoint row doesn't list its own checkpoint report as an ask (it links it already)
+    world.grants.upsert({ ...world.grants.require(g), status: "checkpoint", checkpointDocId: mixed.id, history: [] });
+    const cp = townHallIntray(world).grants.find((x) => x.id === g)!;
+    expect(cp.asks?.map((a) => a.reportId) ?? []).not.toContain(mixed.id);
   }, 30_000);
 });
