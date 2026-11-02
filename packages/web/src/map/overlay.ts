@@ -33,7 +33,7 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
     case "stopped": return { text: "Stopped", tone: "bad" };
     case "banned": return { text: "Banned", tone: "bad" };
     case "in-meeting": return { text: a.activity || "In a meeting", tone: "meet" };
-    default: return a.kind === "service" ? { text: a.activity || "Ask me about the library", tone: "muted" } : null;
+    default: return null;
   }
 }
 

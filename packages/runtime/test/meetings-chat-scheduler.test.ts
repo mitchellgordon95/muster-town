@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { COLLECTING_MS, MEETING_REPLIES_MAX, MEETING_REPLY_MAX_TURNS, MEETING_REPLY_VERBS, SUMMARY_MODEL } from "../src/index.ts";
-import { callVerb, deferred, init, result, setup, text, type FakeSession } from "./helpers.ts";
+import { callVerb, deferred, init, managerless, result, setup, text, type FakeSession } from "./helpers.ts";
 
 /** the system prompt as text: a one-shot passes a string, a host session a preset object with `append` */
 const systemOf = (s: FakeSession) => { const sp = s.options.systemPrompt as string | { append?: string } | undefined; return typeof sp === "string" ? sp : sp?.append ?? ""; };
@@ -238,6 +238,7 @@ describe("scheduler", () => {
       yield* callVerb(s, "submit_report", { title: "t", body: "## Summary\nx", verdict: "continue" });
       yield result(10, 0);
     });
+    managerless(world);
     const tomas = by("Tomas");
     world.ops.createWork(null, tomas.id, { title: "Soil carbon" });
     await runtime.tickOnce();

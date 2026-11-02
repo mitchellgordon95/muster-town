@@ -211,7 +211,7 @@ describe("manager forks: stop_fork (agent teams step 4)", () => {
     for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
     // only someone with building.assign on the fork's building; not the fork itself
     const other = world.agents.where("kind = 'resident' AND status != 'retired' AND id NOT IN (?, ?)", [mei.id, forkId])[0]!;
-    await expect(world.verbs.stop_fork(other.id, { forkId })).rejects.toThrow(/manager or a reviewer/);
+    await expect(world.verbs.stop_fork(other.id, { forkId })).rejects.toThrow(/Only the manager/);
     await expect(world.verbs.stop_fork(forkId, { forkId })).rejects.toThrow(/stop yourself/);
     const r = await world.verbs.stop_fork(mei.id, { assignmentId: a, reason: "Mitchell changed plans" });
     expect(r.forkId).toBe(forkId);
