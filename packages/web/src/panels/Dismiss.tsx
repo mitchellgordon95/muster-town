@@ -1,4 +1,5 @@
 /** Dismiss (retire) a resident from its agent panel: admins only, with the confirm step inside the panel (no browser dialog). */
+import { isGone } from "@muster-town/schema";
 import { useState } from "react";
 import type { Agent } from "@muster-town/schema";
 import { api } from "../api";
@@ -7,7 +8,7 @@ import { Act } from "./ui";
 
 /** Admins may dismiss a live resident that is not its building's manager; forks retire on their own (1:1 mt_lb7tm75jgb). */
 export function canDismiss(a: Agent, managerAgentId: string | null | undefined, isAdmin: boolean): boolean {
-  return isAdmin && a.kind === "resident" && !a.forkOf && a.id !== managerAgentId && a.status !== "retired" && a.status !== "banned";
+  return isAdmin && a.kind === "resident" && !a.forkOf && a.id !== managerAgentId && !isGone(a);
 }
 
 export function DismissButton({ agent }: { agent: Agent }) {

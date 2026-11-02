@@ -1,4 +1,5 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
+import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { AccessRequestView, AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
@@ -140,7 +141,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
       const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
+      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && !isGone(manager)) continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"

@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -11,6 +11,7 @@ import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
+import { AppError } from "./errors.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
 import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
@@ -361,10 +362,14 @@ export class World {
     return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? (id === "system" ? "Town" : id);
   }
 
-  /** Set status (no-op if unchanged) and append `agent.status`. */
+  /**
+   * Set status (no-op if unchanged) and append `agent.status`. Only the moves in STATUS_TRANSITIONS (schema) are allowed:
+   * any other throws a 409 conflict ("X is retired"), so nothing revives a gone agent (docs/invariants/agent-lifecycle.md).
+   */
   setStatus(agentId: string, status: AgentStatus, text?: string, extra: Record<string, unknown> = {}): Agent {
     const a = this.agents.require(agentId, "agent");
     if (a.status === status) return a;
+    if (!canTransition(a.status, status)) throw new AppError("conflict", `${a.name} is ${a.status}: can't become ${status}.`);
     const updated = this.agents.upsert({ ...a, status });
     this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { ...extra, status, from: a.status } });
     return updated;
@@ -379,7 +384,7 @@ export class World {
     if (!place || place.kind !== "meeting-room") return place?.pos;
     const taken = new Set<string>();
     let mine: Tile | undefined;
-    for (const a of this.agents.where("status NOT IN ('banned','retired')")) {
+    for (const a of this.agents.where(NOT_GONE)) {
       const t = this.movement.destination(a.id) ?? a.pos;
       if (a.id === agentId) mine = t;
       else taken.add(`${t.x},${t.y}`);
@@ -425,7 +430,7 @@ export class World {
       type: "snapshot",
       town: this.town.get(),
       buildings: this.buildingsWithIntray(),
-      agents: this.agents.where("status NOT IN ('banned','retired')"),
+      agents: this.agents.where(NOT_GONE),
       places: this.layout.places,
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
