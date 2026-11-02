@@ -172,8 +172,8 @@ export function releaseRetainer(world: World, s: Schedule, reason: string, at = 
 }
 
 /**
- * A human decides an asked retainer: approve (funded at tokensPerRun × runs left; 409 when that would dip into the
- * operating reserve, the grants' rule), counter (a note, optionally the per-run amount and/or end date to give; the
+ * A human decides an asked retainer: approve (funded at tokensPerRun × runs left, whatever the Bank holds today: a run
+ * the usable balance can't cover when it comes due is missed), counter (a note, optionally the per-run amount and/or end date to give; the
  * manager answers by editing the schedule, which asks again) or reject (a note). The manager hears in their inbox.
  */
 export function decideRetainer(world: World, actor: Agent, id: string, input: RetainerDecisionInput, now = new Date()): ScheduleView {
@@ -189,10 +189,7 @@ export function decideRetainer(world: World, actor: Agent, id: string, input: Re
   if (input.action === "approve") {
     const ask = retainerAsk(s, now);
     if (ask <= 0) throw badRequest("This retainer asks for nothing (tokensPerRun 0 or no runs left): the manager sets tokensPerRun first.");
-    const free = freeTokens(world, retainerGoalOf(world, s), now);
-    if (free.reserveTokens > 0 && ask > free.freeTokens) {
-      throw new AppError("conflict", `Approving ${fmt(ask)} tokens would dip into the operating reserve (${fmt(free.reserveTokens)} tokens kept for 1:1s, meetings and directed work): ${fmt(free.freeTokens)} tokens are free under its goal. Counter with a smaller per-run amount or an earlier end, add tokens to the Bank, or lower the reserve on the Bank page.`);
-    }
+    // no Bank gate (2026-11-02, as for grants): what the usable balance can't cover is overdrawn and the run is missed
     next = world.schedules.upsert({ ...s, ...base, retainer: "funded", retainerTokens: drawn + ask, retainerNote: note || null });
     said = `Approved: ${fmt(ask)} tokens (${fmt(s.tokensPerRun)} × ${runsLeft(s, now)} runs)`;
   } else if (input.action === "counter") {

@@ -189,13 +189,12 @@ describe("retainers", () => {
     expect(() => decideRetainer(world, me(), id, { action: "approve", note: "" })).toThrow();
   });
 
-  it("approving refuses (409) when the ask would dip into the operating reserve", async () => {
+  it("approving never depends on the Bank: an ask past what is free is approved, and what the walk can't cover is overdrawn", async () => {
     const { world, sixHourly, admin } = lab();
-    const id = await sixHourly(Date.now(), 100_000); // 500,000 asked
-    world.town.set({ operatingReserveTokens: 600_000 });
-    expect(() => decideRetainer(world, admin, id, { action: "approve", note: "" })).toThrow(/operating reserve/);
-    world.town.set({ operatingReserveTokens: 0 });
+    const id = await sixHourly(Date.now(), 100_000); // 500,000 asked; the next run's 100,000 is claimed
+    world.town.set({ operatingReserveTokens: 950_000 });
     expect(decideRetainer(world, admin, id, { action: "approve", note: "" }).retainer).toBe("funded");
+    expect(freeTokens(world, "gl_town")).toMatchObject({ freeTokens: 0, overdraftTokens: 50_000 });
   });
 
   it("lanes: a repeating schedule is never lane grant; an agent's repeating job needs tokensPerRun; nobody assigns lane retainer by hand", async () => {

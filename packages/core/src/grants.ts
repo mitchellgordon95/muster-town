@@ -392,10 +392,11 @@ export class Grants {
         this.requireStatus(g, ["proposed"], "funded");
         if (!this.keyResultsOf(g.id).length) throw badRequest("This grant carries no key results: counter it so the manager adds them.");
         const fundedWith = inp.fundWith ?? null;
-        if (!fundedWith) this.requireAboveReserve(g, tokens);
+        // no Bank gate (Mitchell, 1:1 mt_fgsticyyhr, 2026-11-02): a human may fund whatever they choose; what the usable
+        // balance can't cover today is overdrawn and the grant's work waits its turn in the overdraft walk (free-tokens.ts)
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
-        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})`, deck);
+        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
         this.decisionAssignment(next, actor, "funded", inp.note);
         break;
       }
@@ -427,10 +428,9 @@ export class Grants {
         this.requireStatus(g, ["checkpoint"], "adjusted");
         const tokens = inp.tokens ?? g.grantTokens ?? 0;
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
-        if (!g.fundedWith && tokens > (g.grantTokens ?? 0)) this.requireAboveReserve(g, tokens - spent);
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note);
-        this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)`, deck);
+        this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
         break;
       }
       case "cut":
@@ -444,15 +444,13 @@ export class Grants {
   }
 
   /**
-   * The operating reserve's gate (1:1 mt_lb7tm75jgb): funding `claim` tokens (a grant's remaining once funded) is refused
-   * when it is more than what is free under the grant's goal besides the grant's own claim, i.e. it would dip into the
-   * reserve kept for 1:1s, meetings and directed work. A reserve of 0 keeps the old rule (no check). Member funding with a
-   * funder's own input (`fundWith`) is paid from that input and skips it.
+   * What the overdraft walk says about a grant just funded or adjusted, for its event: "; N tokens overdrawn, its work
+   * waits until the Bank can cover it" (or "partly covered, it runs"), or "" when the usable balance covers all of it.
    */
-  private requireAboveReserve(g: Grant, claim: number): void {
-    const free = freeTokens(this.world, grantGoalOf(this.world, g), new Date(), g.id);
-    if (free.reserveTokens <= 0 || claim <= free.freeTokens) return;
-    throw new AppError("conflict", `Funding ${fmt(claim)} tokens would dip into the operating reserve (${fmt(free.reserveTokens)} tokens kept for 1:1s, meetings and directed work): ${fmt(free.freeTokens)} tokens are free under this grant's goal. Fund ${fmt(free.freeTokens)} or fewer, add tokens to the Bank, or lower the reserve on the Bank page.`);
+  private overdraftNote(g: Grant): string {
+    const o = freeTokens(this.world, grantGoalOf(this.world, g)).overdrafted?.find((x) => x.id === g.id);
+    if (!o) return "";
+    return `; ${fmt(o.shortTokens)} tokens overdrawn, ${o.shortTokens >= o.tokens ? "its work waits" : "partly covered, it runs"} until the Bank can cover it`;
   }
 
   /**

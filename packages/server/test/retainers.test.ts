@@ -31,9 +31,6 @@ describe("retainers over HTTP", () => {
     const url = `/api/schedules/${id}/retainer`;
     expect((await json(app, "POST", url, { headers: { authorization: `Bearer ${token}` }, body: { action: "approve" } })).status).toBe(403);
     expect((await json(app, "POST", url, { headers: auth, body: { action: "nope" } })).status).toBe(400);
-    world.town.set({ operatingReserveTokens: 1_000_000_000 });
-    expect((await json(app, "POST", url, { headers: auth, body: { action: "approve" } })).status).toBe(409);
-    world.town.set({ operatingReserveTokens: 0 });
     const inp = world.bank.subscriptionInput()!;
     world.db.prepare("INSERT INTO bank_credits (id, inputId, output, tokens, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?)").run("bc_retainer_test", inp.id, 1_000_000, 1_000_000, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
     const ok = await json(app, "POST", url, { headers: auth, body: { action: "approve", note: "fine" } });
