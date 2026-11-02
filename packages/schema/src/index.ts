@@ -1126,6 +1126,33 @@ export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
 /** One line of a grant's testing plan (grants from before key results merged into grants, migration 069; read-only now). */
 export const TestingPlanItem = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
 export type TestingPlanItem = z.infer<typeof TestingPlanItem>;
+/** One closed grant an estimate compares an ask with (`GrantEstimate.similar`). */
+export const SimilarGrant = z.object({
+  id: Id, buildingId: Id, objective: z.string(), keyResults: z.number().int().nonnegative(),
+  grantTokens: z.number().int().nonnegative(), spentTokens: z.number().int().nonnegative(), outcome: z.string(),
+});
+export type SimilarGrant = z.infer<typeof SimilarGrant>;
+/**
+ * What a grant is likely to cost, read from the grants already closed (docs/how-work-gets-done.md §4 "What a grant is
+ * likely to cost"): pure arithmetic over existing data, advisory only. `low`/`high` = the least and most the (up to) 3
+ * closest closed grants spent (nearest by key-result count, then by funded tokens); null when none has closed.
+ */
+export const GrantEstimate = z.object({
+  askTokens: z.number().int().nonnegative(),
+  /** closed grants (done or cut) it read, collective-wide and in the grant's own building */
+  sample: z.number().int().nonnegative(),
+  buildingSample: z.number().int().nonnegative(),
+  /** median spent ÷ funded over them (null: none) */
+  medianRatio: z.number().nullable(),
+  buildingMedianRatio: z.number().nullable(),
+  similar: z.array(SimilarGrant),
+  low: z.number().int().nullable(),
+  high: z.number().int().nullable(),
+  /** the one plain line shown next to the ask */
+  sentence: z.string(),
+  at: Iso,
+});
+export type GrantEstimate = z.infer<typeof GrantEstimate>;
 /**
  * A building's proposal and, once funded, its grant (docs/how-work-gets-done.md §4): filed against a goal, it carries
  * its own 1-5 key results (the checks of its work; `key_results.grantId`) and the plan (objective, approach, stop
@@ -1167,6 +1194,8 @@ export const Grant = z.object({
   fundedWith: Id.nullable().default(null),
   fundedAt: Iso.nullable().default(null),
   closedAt: Iso.nullable().default(null),
+  /** the history-based estimate recorded when it was (last) proposed; null on grants proposed before migration 083 */
+  estimate: GrantEstimate.nullable().default(null),
   /** the negotiation: every propose / counter / fund / checkpoint decision / close, oldest first */
   history: z.array(GrantHistoryEntry).default([]),
   createdAt: Iso,
@@ -1838,7 +1867,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
-  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), an objective, the approach, a stop condition and a token ask. Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id.",
+  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), an objective, the approach, a stop condition and a token ask. Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks each key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
