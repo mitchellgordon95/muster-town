@@ -75,6 +75,48 @@ export function spendCheckLine(sp: FinanceSpend): { ok: boolean; text: string } 
     : { ok: false, text: `Does not add up (off by ${n(sp.check.diff)}): the rows come to ${n(sum)}, but used is ${n(sp.used)}.` };
 }
 
+/** A grant group's word on the Spending tab. */
+const OUTCOME_WORD = { done: "done", cut: "cut", open: "still open" } as const;
+
+/**
+ * A grant row's one line (gr_dt1l35tydx): spent vs funded, its outcome and key results, e.g. "spent 543,933 of 600,000
+ * funded (91%) · done · key results 1 of 1 met"; `over` ("over by N") when it spent more than it was funded. Null for a
+ * row the server sent no grant fields for (an unknown grant, or an older server).
+ */
+export function grantLine(node: SpendNode): { spent: string; outcome: string; over: string | null; krs: string | null } | null {
+  if (node.kind !== "grant" || node.grantTokens === undefined || !node.outcomeGroup) return null;
+  const f = node.grantTokens;
+  const spent = f == null ? `spent ${n(node.tokens)}, not funded yet`
+    : node.tokens > f ? `spent ${n(node.tokens)} of ${n(f)} funded`
+    : `spent ${n(node.tokens)} of ${n(f)} funded (${f ? Math.round((node.tokens / f) * 100) : 0}%)`;
+  const k = node.krCounts, total = k ? k.met + k.missed + k.claimed + k.open : 0;
+  const krs = !k || !total ? null
+    : `key results ${n(k.met)} of ${n(total)} met${k.missed ? `, ${n(k.missed)} missed` : ""}${k.claimed ? ` (${n(k.claimed)} claimed, waiting for a human)` : ""}`;
+  return { spent, outcome: OUTCOME_WORD[node.outcomeGroup], over: f != null && node.tokens > f ? `over by ${n(node.tokens - f)}` : null, krs };
+}
+
+/** The Spending tab's opening sentence from `grants`: spend by outcome and how many grants spent past their funding; null on an older server. */
+export function grantsSentence(sp: FinanceSpend): string | null {
+  const g = sp.grants;
+  if (!g || !g.count) return null;
+  const grants = (c: number) => `${n(c)} grant${c === 1 ? "" : "s"}`;
+  const parts = (["done", "cut", "open"] as const).filter((o) => g.byOutcome[o].count).map((o) => `${n(g.byOutcome[o].tokens)} on ${n(g.byOutcome[o].count)} ${OUTCOME_WORD[o]}`);
+  const over = g.overFunding.count
+    ? `${grants(g.overFunding.count)} spent more than ${g.overFunding.count === 1 ? "it was" : "they were"} funded (${n(g.overFunding.tokens)} over in total).`
+    : "No grant spent more than it was funded.";
+  return `Grants: ${n(g.spent)} tokens spent on ${grants(g.count)}: ${parts.join(", ")}. ${over}`;
+}
+
+/** The grants check in words: done + cut + still open vs the grant rows (`grantsCheck`); null when the server sent none. */
+export function grantsCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
+  const g = sp.grants, c = sp.grantsCheck;
+  if (!g || !c) return null;
+  const groups = g.byOutcome.done.tokens + g.byOutcome.cut.tokens + g.byOutcome.open.tokens;
+  return c.ok
+    ? { ok: true, text: `The server checked that spend on done, cut and still-open grants adds up to the grant rows, ${n(g.spent)} tokens.` }
+    : { ok: false, text: `Does not add up (off by ${n(c.diff)}): done, cut and still-open grants come to ${n(groups)}, but the grant rows come to ${n(groups - c.diff)}.` };
+}
+
 /** The dollar check in words: the top-level rows' dollars vs used dollars (`usdSumCheck`); null when the server sent no dollars. */
 export function spendUsdCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
   if (!sp.usd || !sp.usdSumCheck) return null;
@@ -139,6 +181,14 @@ const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNo
   "not-funded": <NotFundedNote sp={sp} />,
 });
 
+function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
+  return (
+    <span className="spend-grant-line muted">
+      {g.spent} · {g.outcome}{g.over ? <> · <span className="spend-over">{g.over}</span></> : null}{g.krs ? ` · ${g.krs}` : null}
+    </span>
+  );
+}
+
 function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>>; top?: boolean }) {
   const line = (
     <span className="spend-line">
@@ -150,11 +200,12 @@ function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partia
       <span className="spend-share muted">{pct(node.share)}</span>
     </span>
   );
-  const note = notes[node.kind];
+  const gl = grantLine(node);
+  const note = gl ? <GrantLine g={gl} /> : notes[node.kind];
   if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? (typeof note === "string" ? <div className="muted">{note}</div> : note) : null}</div>;
   return (
     <details className={`spend-row spend-${node.kind}`}>
-      <summary>{line}</summary>
+      <summary>{line}{gl ? note : null}</summary>
       <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} notes={notes} />)}</div>
     </details>
   );
@@ -162,9 +213,12 @@ function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partia
 
 export function SpendingView({ sp }: { sp: FinanceSpend }) {
   const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp);
+  const grants = grantsSentence(sp), grantsCheck = grantsCheckLine(sp);
   const notes = spendNotes(sp);
   return (
     <Section title="Spending">
+      {grants ? <p className="spend-grants">{grants}</p> : null}
+      {grants && grantsCheck ? <Check c={grantsCheck} /> : null}
       <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
       <div className="spend-tree">
         {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} top />)}
