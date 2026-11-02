@@ -60,6 +60,10 @@ export interface BuildAppOptions {
   directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
+  /** recompute `GET /api/health`'s database-backed figures this often and serve the cached copy (main.ts: 5000); 0 = per request (tests) */
+  healthRefreshMs?: number;
+  /** MUSTER_TOWN_RUNTIME=off (throwaway.ts): a drill town; `GET /api/health` says `throwaway: true` */
+  throwaway?: boolean;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -75,10 +79,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const load = new LoadMonitor();
   app.decorate("load", load);
   app.decorate("backup", opts.backup ?? null);
+  app.decorate("throwaway", !!opts.throwaway);
   app.decorate("monitor", opts.monitor ?? null);
   app.decorate("hub", opts.hub ?? null);
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
+  app.decorate("healthRefreshMs", opts.healthRefreshMs ?? 0);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
   const prefix = opts.prefix ?? "";
@@ -186,14 +192,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
-  // The join funnel (grant gr_fibsfwr4tz step 3): public counts only, never who. The guest card pings `view` once per load;
+  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load;
   // the root's GET also lists every hosted collective, so their strangers are rows too.
   app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
     const all = [own, ...hosted];
-    return { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    const funnel = { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
+    return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.

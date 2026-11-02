@@ -21,6 +21,10 @@ A **schedule** belongs to a building (table `schedules`, migration `057_schedule
 Status is `active` or `ended` with `endedReason` (`ran`, `past its end`, `ran N times`, `cancelled by …`, or the lane problem), plus
 `runs`, `lastRunAt`, `lastAssignmentId`.
 
+**Retainers** (1:1 mt_cyd2t5ioob decision 2): a repeating schedule is never lane grant (a one-shot may be). A recurring job runs on a retainer: `tokensPerRun`
+(Bank tokens) asks for tokensPerRun × runs left in the Town Hall in-tray; each fire's assignment runs in lane `retainer`
+with `sourceId` = the schedule and is held until a human approves. Full rules: docs/how-work-gets-done.md §7a.
+
 ## How it fires (`packages/core/src/schedules.ts`)
 
 The runtime tick calls `fireSchedules(world, now)` after `checkWaits`. For each active, unpaused schedule with `nextRunAt <= now`:
@@ -41,7 +45,7 @@ Each fire is ordinary work that ends in a report the manager decides, so "nothin
 
 ## How it is made and seen
 
-- **Town tool** `schedule` (managers and reviewers, `building.assign`): title, description, `runsAt` and/or `repeat
+- **Town tool** `schedule` (managers, `building.assign`): title, description, `runsAt` and/or `repeat
   {everyHours | dailyAt, until, times}`, lane fields, pages, model. `schedule {scheduleId, …}` edits one (title,
   description, `runsAt`, a new `repeat` that replaces the old one or `null` for a one-shot, pages, model; the lane stays)
   and `paused: true|false` pauses or resumes it (a run that passed while paused is not fired late: a repeat moves to its

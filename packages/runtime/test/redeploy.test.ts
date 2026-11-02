@@ -115,6 +115,7 @@ describe("redeploy", () => {
       "git rev-list --count abc123..HEAD",
       "git diff --name-only abc123 HEAD -- package-lock.json",
       "npm run build --workspace packages/web",
+      "npm run build --workspace packages/server",
       // pulls again after the drain: nothing new, so no rebuild
       "git rev-parse HEAD",
       "git pull --rebase origin main",
@@ -127,6 +128,7 @@ describe("redeploy", () => {
       "Redeploy: git pull --rebase origin main … ok (3 commits)",
       "Redeploy: npm install … skipped (package-lock.json unchanged)",
       "Redeploy: build web … ok",
+      "Redeploy: build server … ok",
       "Redeploy: restarting server",
     ]));
     expect(h.exit).toHaveBeenCalledWith(75);

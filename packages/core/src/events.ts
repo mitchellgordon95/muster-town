@@ -81,6 +81,21 @@ export class EventLog {
     return r ? Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }) : undefined;
   }
 
+  /**
+   * Whether `agentId` has an event of one of `types` at or after `from` that passes `test`. Reads the agent's events
+   * newest first and stops at the first one older than `from`, so it costs the window's events, not the agent's history
+   * (`list` with `from` walks the events_agent index from the oldest row and tests `ts` on each).
+   */
+  anySince(agentId: string, types: EventType[], from: string, test: (e: Event) => boolean = () => true): boolean {
+    const want = new Set<string>(types);
+    for (const r of this.db.prepare("SELECT * FROM events WHERE agentId = ? ORDER BY id DESC").iterate(agentId) as IterableIterator<Record<string, unknown>>) {
+      if (String(r.ts) < from) return false;
+      if (!want.has(String(r.type))) continue;
+      if (test(Event.parse({ ...r, payload: JSON.parse(String(r.payload ?? "{}")) }))) return true;
+    }
+    return false;
+  }
+
   lastId(): number {
     const r = this.db.prepare("SELECT MAX(id) AS id FROM events").get() as { id: number | null };
     return r.id ?? 0;

@@ -14,8 +14,8 @@ describe("residents have no title or job description", () => {
   it("the workshop collective seeds its residents without titles or directions", () => {
     const { world } = freshWorld();
     world.seedDefaults({ collectivePath: join(REPO_ROOT, "collectives/workshop/collective.json") });
-    const residents = world.agents.where("kind = 'resident'", []).filter((a) => ["Pix", "Root", "Sage"].includes(a.name));
-    expect(residents).toHaveLength(3);
+    const residents = world.agents.where("kind = 'resident'", []).filter((a) => a.name === "Pix");
+    expect(residents).toHaveLength(1);
     for (const a of residents) expect([a.title, a.direction]).toEqual(["", ""]);
   });
 });

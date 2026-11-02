@@ -237,7 +237,7 @@ function pageRef(ref: string): PanelRef | null {
   if (k === "grant" || k === "agent" || k === "building") return id ? { kind: k, id } : null;
   if (k === "manual") return { kind: "manual", ...(id ? { id } : {}) };
   if (k === "finance") return { kind: "bank" }; // the old Finance page is part of the Bank now
-  if (k === "bank" || k === "dashboard" || k === "connect") return { kind: k };
+  if (k === "bank" || k === "connect") return { kind: k };
   return null;
 }
 

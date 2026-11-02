@@ -93,7 +93,7 @@ describe("WebSocket", () => {
   });
 
   it("GET /api/health says the Bank counts adjusted output tokens (Bank grant step 3, kr_vyrhhiyotb)", async () => {
-    expect(await (await fetch(`${base}/api/health`)).json()).toMatchObject({ ok: true, accounting: "adjusted" });
+    expect(await (await fetch(`${base}/api/health`)).json()).toMatchObject({ ok: true, accounting: "adjusted", accountingModel: "claude-opus-5-5" });
   });
 
   it("GET /api/health carries `load` and counts open /ws clients", async () => {

@@ -26,7 +26,7 @@ export async function goalRoutes(app: FastifyInstance) {
     const owner = tree.ownerOf(goal.id);
     return {
       goal, path: tree.ancestors(goal.id).reverse().map((g) => ({ id: g.id, text: g.text })),
-      owner: { ...owner, name: owner.userId ? world.users.get(owner.userId)?.name ?? owner.userId : "the town admins" },
+      owner: { ...owner, name: world.users.get(owner.userId)?.name ?? owner.userId },
       children: tree.children(goal.id), keyResults: world.keyResults.where("goalId = ?", [goal.id], "ORDER BY position, rowid"),
       buildings: world.buildings.where("goalId = ?", [goal.id], "ORDER BY createdAt, rowid").map((b) => ({ id: b.id, name: b.name })),
       funding: goalFunding(world, goal.id),

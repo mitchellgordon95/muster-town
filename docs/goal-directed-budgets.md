@@ -4,11 +4,11 @@ Status: **steps 1a–c built** (7bef911, 2eae49f, 441a7f3: schema, `Grants` serv
 
 ## Objectives and KPIs (2026-10-27, 1:1 mt_akz25kqo2q, decisions 3 and 4; migration 043)
 
-Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel (HUD ▤ button, and Town Hall → Settings). The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
+Status: **built** (Lena, as_g943yt9cr4): migration 043, `core/src/kpis.ts` (`townKpis`), `Grants.objectiveTree` / `createObjective` / `updateObjective` / `deleteObjective`, the routes and verbs below, the grouped board, desk brief and Settings editor, and the Dashboard panel. **2026-11-01 (1:1 mt_ec2b7x80rg, decision 1): the Dashboard panel, its KPI tiles, `core/src/kpis.ts` and `GET /api/kpis` are removed**; the `kpis` table and each objective's KPI label stay. The join funnel (`GET /api/join-funnel`) is unaffected: its numbers (30-day totals, by day, per collective; steps guestCardViews, signIns, asked, letIn, declined and `acted`, a let-in member's first Say or 1:1 line, counted once) are the Town Hall's **User stats** stand beside the outbox (`panels/StatsPanel.tsx`, decision 2). The Workshop's objectives below are still a draft: nobody has entered them yet. Mitchell and Pix asked for it; there is no North Star metric.
 
 ### The framing: the town goal is three KPIs
 
-The town goal "Make Muster Town something strangers can fund, join, and trust" is not a key result anyone meets; it is three standing indicators, **Fund**, **Join** and **Trust**, that should rise week over week. They sit at the top of the town dashboard. Every building objective names the one of the three it moves. Key results are how a building commits to moving it this quarter; KPIs are how the town sees whether it moved. (Short form in `docs/goals.md`.)
+The town goal "Make Muster Town something strangers can fund, join, and trust" is not a key result anyone meets; it is three standing indicators, **Fund**, **Join** and **Trust**, that should rise week over week. Every building objective names the one of the three it moves. Key results are how a building commits to moving it this quarter; KPIs are how the town sees whether it moved. (Short form in `docs/goals.md`.)
 
 ### Shape
 
@@ -23,7 +23,7 @@ building goal
 - **Objective** (`objectives` table): `id`, `buildingId`, `position`, `text` (1–300 chars, one sentence), `horizon` (a quarter label, e.g. `2026-Q4`, default the current quarter), `kpiId` (the town KPI it moves; nullable while drafting), `createdBy`, `editedBy`, `sourceDocIds`, `updatedAt`. Who writes them: the same rule as key results (a human with `building.manage`, or the building's own manager agent; a manager's writes go into its next rollup); deleting one is human-only and refused while it holds key results.
 - **Key result** gains `objectiveId` (nullable). New key results should name one; at most 4 per objective (the 5th is refused). At most 3 objectives per building (the 4th is refused). The minimums (2 objectives, 2 KRs each) are shown as hints, not enforced, so a building can be built up one row at a time.
 - **Grants, lanes, stoplight, blocked, checkpoints: unchanged.** They all key on the key result id, so they keep working whether or not the KR has an objective.
-- **KPI** (`kpis` table): `id`, `scope` (`town` for now), `key` (`fund`, `join`, `trust`), `name`, `measure` (one sentence: what is counted), `position`. The value is computed live from town data by `core/src/kpis.ts` (one function per key), never typed in, for the last 7 days and the 7 days before, plus 8 weekly points for a sparkline. Seeded by the migration with the three rows below.
+- **KPI** (`kpis` table): `id`, `scope` (`town` for now), `key` (`fund`, `join`, `trust`), `name`, `measure` (one sentence: what is counted), `position`. No value is computed any more (the live computation went with the Dashboard on 2026-11-01). Seeded by the migration with the three rows below.
 
 ### The three town KPIs (weekly; "the owner" = users holding a town-scope admin role, i.e. Mitchell today)
 
@@ -33,19 +33,18 @@ building goal
 | **Join** | Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days (their human avatar or a visitor they own appears in the event log). | `users.createdAt`, `agents.ownerUserId`, `events.agentId`/`ts` |
 | **Trust** | Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before. | `docs` type `human-report` (outbox answers), `grants.fundedBy` |
 
-Today all three read 0 or close to it: the town has one funder. That is the honest starting line, and the dashboard says so.
+Today all three read 0 or close to it: the town has one funder. That was the honest starting line.
 
 ### API
 
 - `GET /api/buildings/:id/objectives` → `{ objectives: [{...objective, keyResults: GoalKeyResult[]}], unsorted: GoalKeyResult[] }` (public). `POST /api/buildings/:id/objectives`, `PATCH /api/objectives/:id`, `DELETE /api/objectives/:id`.
 - `POST /api/buildings/:id/key-results` and `PATCH /api/key-results/:id` accept `objectiveId`.
-- `GET /api/kpis` → `{ framing, kpis: [{ id, key, name, measure, thisWeek, lastWeek, weeks: number[8], detail }] }` (public).
 - Verbs: `set_objective` (manager: `text`, `kpi` fund|join|trust, `horizon`, `sourceDocIds`; `id` to edit) and `set_key_result` gains `objectiveId`.
 - The desk brief's key-results block groups the KRs under their objectives ("Objective O1 (moves Trust, 2026-Q4): …"), then "Not under an objective yet".
 
 ### UI
 
-- **Town dashboard**: a panel opened from the top bar and the Town Hall ("Dashboard"): the framing paragraph, then three KPI tiles (Fund, Join, Trust: this week, last week, an 8-week sparkline, the measure in one line), then each goal-directed building's objectives with the KPI each moves and its KRs' statuses.
+- ~~**Town dashboard**~~: removed 2026-11-01 (1:1 mt_ec2b7x80rg). The join numbers it showed are the Town Hall's **User stats** stand (place `stats`, `panels/StatsPanel.tsx`).
 - **Building → Settings → Objectives and key results** replaces the flat Key results editor: objectives with their KRs nested, an "Add key result" under each objective, a KPI picker per objective, and an "Unsorted" group with a "Move under…" select.
 - **The board** groups its Key results rows by objective the same way.
 
@@ -70,34 +69,6 @@ Horizon 2026-Q4. Only kr_vyrhhiyotb exists today; the other KRs are suggestions 
 ## Model change (2026-10-25, migration 032): key results live on the building goal
 
 > Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: a grant is filed against a goal and carries its own key results; goals keep none.
-
-Mitchell decided this in his 1:1s with Pix (notes `dc_bo7xuobtbv`, meeting `mt_593ps69z8y`). It supersedes "a grant carries 2-3 key results" everywhere below.
-
-- **Goal key results.** Key results belong to the building goal, not to a grant. A human writes them (`building.manage`), and since 2026-10-26 so does the building's own manager agent (see "Managers write key results" below); other agents are refused. Each has `text`, `howToCheck` and a `status` (`not-started`, `on-track`, `at-risk`, `claimed`, `met`, `missed`; the manager sets up to `claimed`, only `building.fund` sets or undoes `met` / `missed`).
-- **A grant is the plan for one key result.** It names exactly one goal key result (`keyResultId`) and carries the plan: `objective`, `approach` (how), `stopCondition`, `askTokens`. What used to be the grant's key results is an optional **testing plan** (`testingPlan: [{text, howToCheck}]`, no status). A grant can't be proposed or funded without a `keyResultId`; funding it runs the plan.
-- **Lanes.** `grant` names a grant (`grantId`); its key result is implied and stored on the assignment (`keyResultId`, null only on the manager's checkpoint assignment). `exploration` names a goal key result that has **no** funded grant, or a gap sentence. `laneHold` is unchanged.
-- **Checkpoints and the board** read key-result status off the goal. `checkpoint_grant` sets the status of the grant's one key result (up to `claimed`).
-- **Blocked.** A lab whose goal has no key results and that has no funded grant is `"blocked: no key results to work toward"`. It shows on `GET /api/buildings/:id` (`blocked`), the board and the Town Hall in-tray (`blocked: [{buildingId, name, reason, since}]`, not counted in the badge). On each transition into blocked, core stamps `buildings.blockedAt` and gives the manager agent one assignment (front of its queue, lane directed, created by the system): "Get human decisions: … is blocked", which tells it to draft key results, settle them in the 1:1 or a meeting and write them with `set_key_result` (or put them in a rollup). It doesn't fire again while the building stays blocked; leaving blocked clears `blockedAt`. Checked after every grant / key-result / building-settings change and on every scheduler tick.
-- **Stoplight** (town hall 2026-10-25: buildings show no visual sign of being blocked). Every lab (not the Town Hall) carries `stoplight: { light, reason }` (`Stoplight` in schema; the rule is `stoplightOf`, shared with the web mock): **green** = a funded grant runs on every key result, **yellow** = partly blocked (a key result with no funded grant, or a grant held at its checkpoint), **red** = fully blocked (no key results, or no funded grant at all). `reason` is one line ("2 of 4 key results have no funded grant"). It rides on the building GET, the board, the snapshot's buildings and the WS `building` message (resent after grant, key-result and building events); the web client draws a three-lamp housing on the building's map banner (the reason in a tip on hover) and a `.kr-light` row at the top of the board's Key results panel.
-- **Managers write key results (2026-10-26, Mitchell's 1:1 mt_ayi4y9ybyj, migration 033).** Key results are no longer human-only: they come out of meetings. The building's manager agent (`buildings.managerAgentId`, its own building only) creates and edits them with the `set_key_result` verb (`buildingId` default own, `id` to edit, `text`, `howToCheck`, `sourceDocIds` = the meeting notes or report it comes from, required for a new one), on the same core path as `POST /api/buildings/:id/key-results` / `PATCH /api/key-results/:id`. Humans keep everything; deleting a key result and marking it `met` / `missed` stay human-only. Each key result records `createdBy`, `editedBy` (who last changed its words; a user or agent id) and `sourceDocIds`; the API view adds `createdByName` / `editedByName`. `kr.created` / `kr.updated` events carry the actor (`agentId`, `payload.by`, `payload.byKind`, `payload.edited` for a words edit, and the new words). Every key result a manager created or edited since its last rollup is appended to its next rollup as a "Key results I wrote" section (id, text, how to check, sources), so Mitchell can keep or cut it; the manager's in-tray block lists them too, and such a rollup needs no covered reports. Building → Settings → Key results shows "Written by …, edited by …" and the source docs under each one.
-- **Managers move queued work (2026-10-26, Mitchell via Kelly ms_h1dg2za6h1).** Two manager verbs on the existing queue paths: `reassign {assignmentId, agentId}` moves a queued (`pending`) assignment of the building to another resident of the same building (`ops.delegateAssignment`, the web's Delegate button: the original is cancelled, the copy keeps lane, `grantId`, `keyResultId`, `gap` and `waitFor`, joins the end of the new queue, `assignment.delegated` event, a system message to the new assignee); `cancel {assignmentId}` cancels a queued one (`ops.cancelAssignment`). Both need `building.assign` on the manager's home building and refuse started / ended assignments and those of another building (the assignment's building and its agent's home must both be the manager's). The Delegate button now keeps `waitFor` too.
-- **Migration 032.** Every old key result was a grant's, so each grant's became its testing plan (in order) and grants start with `keyResultId` null. Assignments that named an old key result keep its text as their `gap` (exploration) or drop it (grant). The Workshop's `gr_jqsqra0dlx` keeps its three KRs as its testing plan, and the Workshop shows blocked until a human writes its goal's key results.
-
-API (the parts Root's UI uses):
-
-| Route | Who | Shape |
-|---|---|---|
-| `GET /api/buildings/:id` | anyone | adds `keyResults: (KeyResult & { grantId: string \| null })[]` (the live grant on each), `blocked: string \| null` and `stoplight: Stoplight \| null` |
-| `GET /api/buildings/:id/key-results` | anyone | `{ keyResults, blocked }` |
-| `POST /api/buildings/:id/key-results` | human, `building.manage` | `{ text, howToCheck }` → 201 `{ keyResult }` |
-| `PATCH /api/key-results/:id` | see above | `{ status?, note?, text?, howToCheck? }` (text / howToCheck: human, `building.manage`) → `{ keyResult }` |
-| `DELETE /api/key-results/:id` | human, `building.manage` | 409 while a draft / open / live grant names it |
-| `GET /api/buildings/:id/board` | anyone | adds `keyResults`, `blocked` and `stoplight`; each grant is a `GrantView` |
-| `POST /api/buildings/:id/grants` | `building.manage` | `{ keyResultId, objective, approach?, stopCondition, askTokens, testingPlan?: [{text, howToCheck}] (≤ 5), findingsDocIds? }` |
-| `POST /api/grants/:id/decide` | `building.fund` | `keyResults` replaced by `testingPlan?` |
-| `GET /api/buildings/town-hall/intray` | anyone | `{ reports, grants, blocked }` |
-
-`GrantView` = `Grant` (now with `keyResultId`, `approach`, `testingPlan`) + `keyResult: KeyResult | null` + `spentTokens`. `KeyResult` has `buildingId` instead of `grantId`. `Building` has `blockedAt`. New events: `kr.created`, `kr.deleted`, `building.blocked`. Verbs: `propose_grant` takes `keyResultId`, `approach`, `testingPlan`; `checkpoint_grant` takes `{ grantId, reportId?, status?, note? }`; `assign`'s lane rules as above.
 
 ## Why
 
@@ -140,18 +111,6 @@ The board becomes the place where this lives. It is the first thing a resident l
 ### Three spend lanes
 
 > Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3 and §8: exploration has no daily allowance; it runs in reserved chunks while there are free tokens and idle desks.
-
-Every assignment, and so every session, runs in exactly one lane:
-
-| lane | what | gated by |
-|---|---|---|
-| `grant` | work toward a funded grant's key results | grant is `funded` and below its checkpoint / cap |
-| `exploration` | goal-scoped investigation (names a key result or a goal gap) | building's exploration spend today < allowance |
-| `directed` | work that traces to a human ask: created by a user, a decision of a meeting a human took part in, or an agent's assignment citing a human source | today's rules (daily per-agent cap, pool); never the exploration allowance |
-
-**Human-directed work (Mitchell, 1:1 mt_ryw7ejayvu, 2026-10-26).** Unguided exploration (no human source) stays on the daily exploration allowance and is held when it is spent. Work that traces to a human ask runs in lane `directed`: a manager's `assign`, `review` continue / redirect and meeting decisions (`MeetingDecision` takes the same lane fields) may name lane `directed` with `sourceId`, a human-authored source: a meeting a human took part in (a 1:1, or a human spoke) or its meeting notes, a doc a human wrote (a flag, a human-report), a report or rollup a human decided with a reply, or a human's `tell` (`ms_…`). `lanes.ts` `humanSource` checks it; without one an agent gets the old error ("…; agents can't create directed work"). Meeting decisions stay exempt as before (directed when they name no lane, since meetings are started by humans or the scheduler); a decision of a meeting a human took part in records the meeting as its `sourceId`. The assignment stores `sourceId` (migration 038). Directed work is never held by the allowance; it is metered in its own bucket: `grantDesk.directed(buildingId)` (today's `lane = 'directed'` session tokens of the residents), on the board (`directed.spentTodayTokens`), in `GET /api/health` (`budgets: [{ buildingId, name, exploration: { allowanceTokens, spentTodayTokens }, directed: { spentTodayTokens } }]`, goal-directed buildings), in every resident's Key results block ("Directed today") and in the manager's rollup template (Key results section: today's spend by lane). It runs until its stop condition; by default, directed work that names a `keyResultId` is held ("done once a grant proposal names its key result") as soon as a non-draft, non-rejected grant names that key result, and naming a key result that already has one is refused. A `gap` has no automatic stop (grants name key results, not gaps).
-
-When a manager agent creates other work, it has to say `grant` (with a key result) or `exploration` (with a key result or gap). Continuations (review `continue` / `redirect`, parked `resumeWhen` chains, retries) inherit the lane of the assignment they come from. Check-in sessions (no assignment) count as exploration. A human's **flag** (`POST /api/buildings/:id/flags`, `docs/waterfall.md` §3.1) is directed work too: the manager delegates it with `review` + `assigneeId`, and the assignment is `directed` in any building, since a human asked for it; the manager only chooses the resident.
 
 ### Sizes, with today's numbers
 

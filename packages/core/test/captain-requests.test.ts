@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideCaptain, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
+import { decideCaptain, holderOf, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks, the goal's current captain decides.
@@ -21,10 +21,9 @@ function setup() {
 }
 
 describe("captain requests (gr_bwm0iz7rwl)", () => {
-  it("only a member can ask; not for the root; one pending ask per (goal, user)", () => {
+  it("only a member can ask; one pending ask per (goal, user)", () => {
     const { world, ana, vic, child, parent } = setup();
     expect(() => requestCaptain(world, vic.user.id, child.id)).toThrow(/Only a member/);
-    expect(() => requestCaptain(world, ana.user.id, "gl_town")).toThrow(/town admins/);
     const r = requestCaptain(world, ana.user.id, child.id, "  I run this work  ");
     expect(r).toMatchObject({ status: "pending", goalId: child.id, userId: ana.user.id, note: "I run this work" });
     expect(() => requestCaptain(world, ana.user.id, child.id)).toThrow(/already asked/);
@@ -32,15 +31,15 @@ describe("captain requests (gr_bwm0iz7rwl)", () => {
     expect(requestCaptain(world, ana.user.id, parent.id).status).toBe("pending");
   });
 
-  it("is a Town Hall in-tray item with the goal's words and requester, counted in the badge, routed to the admins when nobody captains it", () => {
+  it("is a Town Hall in-tray item with the goal's words and requester, counted in the badge, routed to the root's captain when nobody below captains it", () => {
     const { world, ana, bo, admin, child, th } = setup();
     const before = intrayCount(world, th.id);
     const r = requestCaptain(world, ana.user.id, child.id);
     expect(intrayCount(world, th.id)).toBe(before + 1);
     const tray = townHallIntray(world);
-    expect(tray.captains).toEqual([expect.objectContaining({ id: r.id, name: "Ana", goalText: "Grant pages show sessions", captainId: null, captainName: "the town admins" })]);
+    expect(tray.captains).toEqual([expect.objectContaining({ id: r.id, name: "Ana", goalText: "Grant pages show sessions", captainId: holderOf(admin).id, captainName: world.users.get(holderOf(admin).id)!.name })]);
     const forAdmin = intrayRoutes(world, admin, tray).routes[r.id];
-    expect(forAdmin).toMatchObject({ goalId: "gl_town", ownerId: null, mine: true, canDecide: true });
+    expect(forAdmin).toMatchObject({ goalId: "gl_town", ownerId: holderOf(admin).id, mine: true, canDecide: true });
     const forBo = intrayRoutes(world, bo.avatar, tray).routes[r.id];
     expect(forBo).toMatchObject({ mine: false, canDecide: false });
   });
@@ -66,6 +65,27 @@ describe("captain requests (gr_bwm0iz7rwl)", () => {
     expect(() => requestCaptain(world, ana.user.id, child.id)).toThrow(/already captain/);
   });
 
+  it("a request for the root itself routes to the root's captain like any node; accepting hands the root over", () => {
+    const { world, ana, bo, admin } = setup();
+    const root = holderOf(admin).id;
+    const r = requestCaptain(world, ana.user.id, "gl_town", "I'll steer the town");
+    const tray = townHallIntray(world);
+    expect(tray.captains[0]).toMatchObject({ goalId: "gl_town", captainId: root });
+    expect(intrayRoutes(world, admin, tray).routes[r.id]).toMatchObject({ goalId: "gl_town", ownerId: root, mine: true, canDecide: true });
+    expect(intrayRoutes(world, bo.avatar, tray).routes[r.id]).toMatchObject({ mine: false, canDecide: false });
+    decideCaptain(world, admin, r.id, true);
+    expect(world.goalTree.ownerOf("gl_trust")).toEqual({ goalId: "gl_town", userId: ana.user.id });
+  });
+
+  it("an admin who captains nothing has an empty Mine (admin is permission, not routing)", () => {
+    const { world, ana, bo, admin, child } = setup();
+    world.goalTree.update(admin, "gl_town", { ownerId: bo.user.id });
+    const r = requestCaptain(world, ana.user.id, child.id);
+    const forAdmin = intrayRoutes(world, admin, townHallIntray(world));
+    expect(forAdmin.routes[r.id]).toMatchObject({ ownerId: bo.user.id, mine: false, canDecide: true });
+    expect(Object.values(forAdmin.routes).some((x) => x.mine)).toBe(false);
+  });
+
   it("decline leaves ownerId unset; the same user may ask again", () => {
     const { world, ana, admin, child } = setup();
     const r = requestCaptain(world, ana.user.id, child.id);
@@ -81,7 +101,7 @@ describe("captain requests (gr_bwm0iz7rwl)", () => {
     expect(slide).toMatchObject({ key: `captain:${r.id}`, itemId: r.id, group: 4 });
     expect(slide!.text).toContain('Ana asks to captain "Grant pages show sessions"');
     expect(slide!.text).toContain('Why: "I run this work"');
-    expect(slide!.text).toContain("captained by the town admins");
+    expect(slide!.text).toContain(`captained by ${world.users.get(holderOf(admin).id)!.name}`);
     decideCaptain(world, admin, r.id, true);
     expect(reviewDeck(world).slides.some((s) => s.kind === "captain")).toBe(false);
   });

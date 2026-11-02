@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Agent, Doc } from "@muster-town/schema";
 import { store } from "../src/state";
 import { DocView } from "../src/panels/DocView";
-import { grantTalkTarget, talkTarget } from "../src/panels/oneOnOne";
+import { canOneOnOne, canTalkToManager, grantTalkTarget, isMemberTalk, talkTarget } from "../src/panels/oneOnOne";
 import { GrantRow } from "../src/panels/Places";
 import { SlideDecision } from "../src/panels/ReviewDeck";
 
@@ -93,5 +93,25 @@ describe("a report's Talk to <author> (1:1 mt_uf1bwd3exq)", () => {
     expect(foot).toBeGreaterThan(row.indexOf("Stop when"));
     expect(row.indexOf(">Fund</button>")).toBeGreaterThan(foot);
     expect(row.indexOf("Talk to Pix")).toBeGreaterThan(foot);
+  });
+});
+
+describe("a member's Talk to ★ <manager> (gr_58n37j410s step 1)", () => {
+  it("a let-in member may open the manager's 1:1 (not the Town Hall's, no Talk to <author>); a visitor or guest may not", () => {
+    const blds = [...BUILDINGS, { id: "town-hall", kind: "town-hall", managerAgentId: "ag_planner" }];
+    store.state = { ...store.state, agents: AGENTS, buildings: blds as never, me: { isAdmin: false, canInteract: true, roles: [], user: { id: "us_ana" } } as never };
+    expect(canOneOnOne("workshop")).toBe(false);
+    expect(isMemberTalk("workshop")).toBe(true);
+    expect(canTalkToManager("workshop")).toBe(true);
+    expect(canTalkToManager("town-hall")).toBe(false);
+    const html = renderToStaticMarkup(<DocView doc={report("ag_lena")} />);
+    expect(html).not.toContain("Talk to Lena");
+    store.state = { ...store.state, me: { isAdmin: false, canInteract: false, roles: [], user: { id: "us_vic" } } as never };
+    expect(canTalkToManager("workshop")).toBe(false);
+    store.state = { ...store.state, me: null };
+    expect(canTalkToManager("workshop")).toBe(false);
+    store.state = { ...store.state, me: { isAdmin: true, canInteract: true, roles: [], user: { id: "us_m" } } as never };
+    expect(isMemberTalk("workshop")).toBe(false);
+    expect(canTalkToManager("workshop")).toBe(true);
   });
 });

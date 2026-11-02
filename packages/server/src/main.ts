@@ -1,7 +1,7 @@
 /**
  * Process entry: open the world, seed if empty, start the tick, the HTTP/WS/MCP server, and the runtime.
  * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
- * EXPORT (<collective>/export), DEV, ADMIN_NAME. Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
+ * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { World } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
@@ -11,11 +11,14 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
 import { BackupJob } from "./backup/index.ts";
+import { restoreOnFirstBoot } from "./backup/restore.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
+import { runtimeOff, startRuntimeUnlessOff } from "./throwaway.ts";
 import type { RuntimeHooks } from "./context.ts";
 import type { FastifyInstance } from "fastify";
 
@@ -31,16 +34,22 @@ assertNoEnvCredentials();
 const collectiveCfg = existsSync(COLLECTIVE_JSON) ? (JSON.parse(readFileSync(COLLECTIVE_JSON, "utf8")) as { port?: number; name?: string }) : {};
 const PORT = Number(process.env.PORT ?? collectiveCfg.port ?? 4321);
 const HOST = process.env.HOST ?? "0.0.0.0";
+/** `GET /api/health` recomputes its database-backed figures this often and serves the cached copy (503 post-mortem follow-up A) */
+const HEALTH_REFRESH_MS = 5_000;
 const DATA_DIR = resolve(REPO_ROOT, townEnv("DATA") ?? join(COLLECTIVE_DIR, "data"));
 // world.export() and the export route read it back through townEnv; set both names so either spelling sees it
 process.env.MUSTER_TOWN_EXPORT = process.env.AGENT_TOWN_EXPORT = resolve(REPO_ROOT, townEnv("EXPORT") ?? join(COLLECTIVE_DIR, "export"));
 // opt-in only: dev mode hands the admin token to any local browser that asks (`npm run dev` sets it)
 /** the hosted collectives (docs/hosted-collectives.md): hub.db and one dir per collective, beside the Workshop's dir (/data/hosted on Fly) */
 const HOSTED_DIR = resolve(DATA_DIR, "../..", "hosted");
+/** MUSTER_TOWN_RUNTIME=off: a drill town restored from a copy runs no sessions and never writes to the bucket (throwaway.ts) */
+const RUNTIME_OFF = runtimeOff(townEnv("RUNTIME"));
 const DEV = ["1", "true", "yes"].includes((townEnv("DEV") ?? "").trim().toLowerCase());
 
 async function main() {
   mkdirSync(DATA_DIR, { recursive: true });
+  // a new volume with the backup env is a dead town's, not a new one: town.db from the newest good off-site copy before seeding
+  await restoreOnFirstBoot({ dbPath: join(DATA_DIR, "town.db") });
   const world = World.open(join(DATA_DIR, "town.db"));
   const seed = world.seedDefaults({
     adminName: townEnv("ADMIN_NAME"),
@@ -59,7 +68,7 @@ async function main() {
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
-  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups") });
+  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
@@ -75,10 +84,15 @@ async function main() {
    * A hosted collective's runtime (step 5, docs/hosted-collectives.md): its own scrubbed env and claude dir, its own key only
    * (held "No key yet" without one), in-process sessions only, one at a time, its own export dir, no redeploy.
    */
+  /** post-mortem 2026-10-31 item 8: one timer ticks the hosted worlds round-robin, at most MUSTER_TOWN_HOSTED_TICK_CAP per 5 s */
+  const hostedTicks = new TickRotation({ cap: hostedTickCap(townEnv("HOSTED_TICK_CAP")) });
   const startHosted = async (app: FastifyInstance, w: World, slug: string, dir: string): Promise<void> => {
-    if (!runtimeMod || !url || app.runtime) return;
+    if (RUNTIME_OFF || !runtimeMod || !url || app.runtime) return;
     try {
-      app.runtime = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir } });
+      // no timer of its own: the host's rotation ticks the hosted worlds one at a time, staggered and capped (ticks.ts)
+      const rt = await runtimeMod.startRuntime({ world: w, mcpUrl: `${url}/${slug}/mcp`, repoRoot: REPO_ROOT, collective: slug, exportDir: join(dir, "export"), hosted: { dir }, intervalMs: 0 });
+      app.runtime = rt;
+      if (rt.tickOnce) hostedTicks.add(slug, () => rt.tickOnce!());
     } catch (e) {
       console.warn(`[server] /${slug}/ runtime not started (${e instanceof Error ? e.message : String(e)})`);
     }
@@ -89,22 +103,26 @@ async function main() {
     const app = await buildApp({
       world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
       auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-      retire: (): unknown => hub.retire(row.slug),
+      retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
-    app.addHook("onClose", async () => { await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
     await startHosted(app, w, row.slug, dir);
     return app;
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
   // the token itself never goes to stdout (it would land in journald): seedDefaults wrote it to <data>/admin-token (0600)
   console.log(`[server] admin (${seed.admin.name}) token: in ${join(DATA_DIR, "admin-token")}`);
   console.log(world.secrets.keyConfigured() ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
+  if (world.secrets.keyConfigured()) {
+    const enc = world.secrets.encryptBankSecrets();
+    console.log(`[secrets] encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
+  } else console.log("[secrets] no MUSTER_TOWN_DATA_KEY: Bank input secrets and donor keys stay in plaintext");
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
   backup.start();
@@ -112,10 +130,12 @@ async function main() {
   directory?.start();
 
   try {
-    if (!runtimeMod) throw new Error(runtimeError);
     // the manager reads the live code (Read, Grep, Glob) from a snapshot under .tmp/ (gitignored)
-    app.runtime = await runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
-    console.log("[server] runtime started");
+    const rt = await startRuntimeUnlessOff(RUNTIME_OFF, async () => {
+      if (!runtimeMod) throw new Error(runtimeError);
+      return runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
+    });
+    if (rt) { app.runtime = rt; console.log("[server] runtime started"); }
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); interrupts queue for the desk`);
   }
@@ -133,11 +153,12 @@ async function main() {
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string } }) => RuntimeHooks | Promise<RuntimeHooks> };
+type RuntimeModule = { startRuntime: (o: { world: World; mcpUrl: string; repoRoot: string; collective: string; exportDir?: string; codeDir?: string; hosted?: { dir: string }; intervalMs?: number }) => RuntimeHooks | Promise<RuntimeHooks> };
 let runtimeError = "";
 async function loadRuntime(): Promise<RuntimeModule | null> {
   try {
-    const runtimePkg = "@muster-town/runtime"; // variable specifier: the server typechecks and runs without it
+    // variable specifier: the server typechecks and runs without it. The prebuilt server (build.mjs) ships it as dist/runtime.js.
+    const runtimePkg = import.meta.url.endsWith(".ts") ? "@muster-town/runtime" : "./runtime.js";
     const mod = (await import(runtimePkg)) as Partial<RuntimeModule>;
     if (typeof mod.startRuntime !== "function") throw new Error("@muster-town/runtime does not export startRuntime");
     return mod as RuntimeModule;

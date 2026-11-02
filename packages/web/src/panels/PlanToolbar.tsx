@@ -8,7 +8,7 @@ import { useGoalTree } from "./GoalPicker";
 
 /** The three shapes of the map (1:1 mt_q10xf3bkoq; mocks dc_fvgi5nq36j), in the picker's order. */
 const SHAPES: { id: MapLayout; label: string; hint: string }[] = [
-  { id: "fountain", label: "Fountain plazas", hint: "each first-level goal is a plaza with a fountain, its buildings on streets below" },
+  { id: "fountain", label: "Town square", hint: "the Town Hall and the Bank on a square with a fountain; each first-level goal a district on its own street off the main street" },
   { id: "tree", label: "Plain tree", hint: "a street per goal, packed: the goal tree as a diagram" },
   { id: "radial", label: "Radial", hint: "the Town Hall in the middle, each first-level goal a spoke" },
 ];

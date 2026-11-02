@@ -3,6 +3,8 @@
 # built from GitHub main) and the same size as muster-town (fly.town.toml: shared-cpu-2x / 2 GB, iad, a 10 GB volume), booted fresh:
 # no copy of the live state, none of the live secrets (no Claude token, no GitHub OAuth, no repo token, no FLY_API_TOKEN), so it can
 # neither start desks nor spend tokens. Its only secret is a random MUSTER_TOWN_DATA_KEY of its own.
+# It keeps its runtime on (the load tests measure the runtime tick): a drill town made from a COPY of the live state is a different
+# thing and runs with MUSTER_TOWN_RUNTIME=off (deploy/recover.sh, scripts/backup/restore.sh; server throwaway.ts).
 #
 # Usage: FLY_STRESS_TOKEN=... deploy/fly/throwaway.sh [create|status|admin-token|destroy|--destroy]
 #   create (default)  app + volume + data key, build and deploy the image, wait for /api/health, fetch the admin token
