@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
+import { isGone, Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
@@ -178,7 +178,8 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   if (decision === "stop") {
     for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [author.id])) setAssignmentStatus(world, a.id, "cancelled");
     if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });
-    world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
+    // a gone author stays gone: stop would be the first step of a revive (docs/invariants/agent-lifecycle.md)
+    if (!isGone(author)) world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
     return { doc, assignment };
   }
   // P2: a parked report (its author queued its own continuation with `resumeWhen`). Approve leaves it parked (it
@@ -279,7 +280,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
       assignee = world.agents.require(opts.assigneeId, "agent");
       const home = assignee.homeBuildingId ?? assignee.buildingId;
       if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name the manager itself or a visitor of the building.`);
-      if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+      if (isGone(assignee)) throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
     }
   }
   const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
@@ -305,7 +306,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
   if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
   const a = world.agents.get(building.managerAgentId);
-  return a && a.kind !== "human" && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired" ? a : undefined;
+  return a && a.kind !== "human" && a.status !== "stopped" && !isGone(a) ? a : undefined;
 }
 
 /** Who works this building's in-tray right now. */

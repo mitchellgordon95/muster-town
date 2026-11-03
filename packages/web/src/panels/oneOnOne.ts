@@ -1,4 +1,5 @@
 /** 1:1s (docs/waterfall.md §3.4): "Talk to ★ <manager>", a doc's "Talk to <author>" and a grant's "Talk to <manager>" open a meeting with that agent. */
+import { isGone } from "@muster-town/schema";
 import type { Agent } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
@@ -27,7 +28,7 @@ export async function openPlanner(goalId?: string): Promise<void> {
   store.open({ kind: "meeting", id: m.id });
 }
 
-const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**
  * Who a doc's "Talk to <author>" reaches (mirrors core oneOnOneTarget): the author if it's a working resident; a

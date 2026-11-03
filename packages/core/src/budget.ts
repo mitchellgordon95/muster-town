@@ -1,4 +1,4 @@
-import { DonateInput, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
+import { DonateInput, canTransition, type TokenCounts, type Agent, type Allocation, type AllocationAuth, type Assignment, type Building, type BuildingBudget, type ServerMessage } from "@muster-town/schema";
 import { limitText } from "./availability.ts";
 import { type Bank, type Booked, type Credential, HOSTED_KEY_ONLY_HOLD, NO_TOKEN_HOLD, NoCredential, booked } from "./bank.ts";
 import { badRequest } from "./errors.ts";
@@ -30,10 +30,6 @@ interface ChargePrice {
    */
   running?: boolean;
 }
-
-// retired: a dismissed resident must never come back as out-of-budget, which the recovery sweeps turn into idle (2026-10-31: 7 dismissed
-// residents, Root, Sage, Keel and Lena among them, were revived that way when the workshop ran dry and the Bank was refilled)
-const SKIP_STATUSES = new Set(["stopped", "banned", "retired"]);
 
 /** Draw order: the subscription first, then donors' own keys, then the town's API key; oldest first within each. */
 const DRAW_ORDER = "ORDER BY CASE auth WHEN 'subscription' THEN 0 WHEN 'donor-key' THEN 1 ELSE 2 END, createdAt, rowid";
@@ -353,7 +349,7 @@ export class Budget {
         exhausted = "building";
         this.events.append({ type: "budget.exhausted", buildingId: bid, agentId: agent.id, text: `${b.name} has run out of budget`, payload: { scope: "building" } });
         for (const r of this.repos.agents.where("homeBuildingId = ? AND kind = 'resident'", [bid])) {
-          if (!SKIP_STATUSES.has(r.status) && r.status !== "out-of-budget") this.setStatus(r, "out-of-budget");
+          this.setStatus(r, "out-of-budget");
         }
       }
     }
@@ -443,7 +439,13 @@ export class Budget {
     };
   }
 
+  /**
+   * The budget sweeps' status flip, held to the same STATUS_TRANSITIONS as World.setStatus but skipping instead of throwing:
+   * a stopped, banned or retired agent is never made out-of-budget, so the recovery sweeps can't revive it
+   * (2026-10-31: 7 dismissed residents were revived that way). Unchanged status is a no-op.
+   */
   private setStatus(a: Agent, status: Agent["status"]): Agent {
+    if (a.status === status || !canTransition(a.status, status)) return a;
     const updated = this.repos.agents.upsert({ ...a, status });
     this.events.append({ type: "agent.status", agentId: a.id, buildingId: a.homeBuildingId, text: `${a.name} is ${status}`, payload: { status, from: a.status } });
     return updated;

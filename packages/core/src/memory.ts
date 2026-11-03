@@ -7,6 +7,7 @@
  * Also the manager's **team** block: who is in the building, what each one knows (wiki page titles) and is doing, so
  * the manager, the building's only conversational surface, can turn a human's request into the right assignment.
  */
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, Assignment, Building, Doc } from "@muster-town/schema";
 import { buildingQueue, createDoc, homeOf, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
@@ -313,7 +314,7 @@ export function topicsOf(world: World, authorId: string): string[] {
  * (pending, held, waiting, resuming: a parked continuation's time still ahead, not a block) and the building's schedules, and the routing rule is "attach the topic pages that cover it".
  */
 export function teamBlock(world: World, building: Building, managerId: string): string {
-  const forks = world.agents.where("forkOf = ? AND status NOT IN ('retired', 'banned')", [managerId], "ORDER BY forkN");
+  const forks = world.agents.where(`forkOf = ? AND ${NOT_GONE}`, [managerId], "ORDER BY forkN");
   const forkLines = forks.map((f) => {
     const cur = f.currentAssignmentId ? world.assignments.get(f.currentAssignmentId) : undefined;
     const chain = cur ? reportChain(world, { id: "", assignmentId: cur.id, createdAt: cur.createdAt }) : null;

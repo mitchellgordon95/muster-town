@@ -1,4 +1,4 @@
-import {
+import { isGone, NOT_GONE,
   Agent, CreateBuildingInput, patchOf, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
@@ -110,7 +110,7 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   if (p.managerAgentId) {
     const a = world.agents.get(p.managerAgentId);
     if (!a || a.kind !== "resident" || a.homeBuildingId !== id || a.forkOf) throw badRequest("The manager must be a (named) resident of this building.");
-    if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
+    if (a.status === "stopped" || isGone(a)) throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
   }
   const { goalId, ...rest } = p;
   const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
@@ -205,7 +205,7 @@ function spawnPoint(world: World, buildingId?: string | null): Tile {
 
 /** The nearest walkable tile to `p` (within 3 tiles) no live body stands on, so two newcomers don't arrive stacked; `p` when all are taken. */
 function freeTileNear(world: World, p: Tile): Tile {
-  const taken = new Set(world.agents.where("status NOT IN ('retired','banned')").map((o) => `${o.pos.x},${o.pos.y}`));
+  const taken = new Set(world.agents.where(NOT_GONE).map((o) => `${o.pos.x},${o.pos.y}`));
   for (let r = 0; r <= 3; r++) {
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;

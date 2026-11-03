@@ -290,6 +290,7 @@ describe("say / tell / inbox / look", () => {
     expect(idle.note).toMatch(/Noor is idle.*does not start work/);
     world.setStatus(noor.id, "stopped");
     expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toMatch(/Noor is stopped/);
+    world.setStatus(noor.id, "idle"); // resumed first: stopped → working is not in STATUS_TRANSITIONS
     world.setStatus(noor.id, "working");
     expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toBeUndefined();
   });

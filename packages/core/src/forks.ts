@@ -3,7 +3,7 @@
  * short-lived resident row ("Pix 3", forkOf = the manager) that takes a free desk (never growing the lab), works one
  * assignment and is retired when its session ends. The runtime (step 2) calls `forkManager` and `retireFork`.
  */
-import { Agent, type Assignment, type Building, type Session } from "@muster-town/schema";
+import { isGone, Agent, type Assignment, type Building, type Session } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
 import { interruptNow, isWorking } from "./wakes.ts";
@@ -40,7 +40,7 @@ export function nextForkN(world: World, managerId: string): number {
  */
 export function forkableQueue(world: World, b: Building): Assignment[] {
   const manager = managerAgentOf(world, b);
-  if (!manager || manager.status === "banned" || manager.status === "retired") return [];
+  if (!manager || isGone(manager)) return [];
   if (world.budget.remaining(b.id) <= 0) return [];
   return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
 }
@@ -304,7 +304,7 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   if (fork.id === me.id) throw badRequest("You can't stop yourself: submit_report ends your session.");
   const bid = homeOf(fork);
   if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager of ${fork.name}'s building can stop it (building.assign).`);
-  if (fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
+  if (fork.status === "stopped" || isGone(fork)) throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
   const session = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [fork.id], "ORDER BY startedAt DESC, rowid DESC");
   if (!session || !isWorking(world, fork.id)) throw new AppError("conflict", `${fork.name} has no running work session.`);
   if (input.assignmentId && session.assignmentId !== input.assignmentId) throw new AppError("conflict", `${fork.name} is not running ${input.assignmentId} now (it is on ${session.assignmentId ?? "no assignment"}).`);
@@ -347,7 +347,7 @@ export function stopOverdueForks(world: World, now = new Date()): string[] {
     // past its deadline: stopped now or never (a session that is not running at the deadline never runs again)
     const fork = world.agents.get(p.forkId);
     const session = world.sessions.get(p.sessionId);
-    if (!fork || session?.status !== "running" || fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") continue;
+    if (!fork || session?.status !== "running" || fork.status === "stopped" || isGone(fork)) continue;
     const by = world.agents.get(p.by)?.name ?? "its manager";
     world.events.append({ type: "system", agentId: fork.id, buildingId: homeOf(fork), text: `${fork.name} ${session.reportId ? "filed its report but was still running" : "did not file its report"} ${STOP_FORK_TIMEOUT_MS / 60_000} min after ${by} asked it to stop: session stopped`, payload: { stopFork: "hard", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: p.by, reportId: session.reportId ?? null, requestEventId: p.eventId } });
     world.ops.stopAgent(null, fork.id);
