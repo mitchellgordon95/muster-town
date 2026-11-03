@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { approxUsd, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } from "../src/api";
+import { approxUsd, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
@@ -182,6 +182,51 @@ describe("finance page: spending", () => {
   });
   it("leaves the section out when the spend can't be loaded", () => {
     expect(page({})).not.toContain("Spending");
+  });
+});
+
+// gr_dt1l35tydx: the same spend with the grant fields and the grants block
+const grantRow = (over: Partial<SpendNode>): SpendNode => ({ kind: "grant", id: "gr_x", name: "X", tokens: 543_933, share: 0.1, sessions: 3, grantTokens: 600_000, status: "closed", outcome: "done", outcomeGroup: "done", krCounts: { met: 1, missed: 0, claimed: 0, open: 0 }, ...over });
+const spG: FinanceSpend = {
+  ...sp,
+  rows: sp.rows.map((r) => r.id !== "workshop" ? r : { ...r, children: r.children!.map((c) => c.kind !== "grant" ? c : { ...c, grantTokens: 400, status: "closed", outcome: "cut", outcomeGroup: "cut" as const, krCounts: { met: 0, missed: 0, claimed: 2, open: 1 } }) }),
+  grants: { count: 1, funded: 400, spent: 500, byOutcome: { done: { count: 0, tokens: 0 }, cut: { count: 1, tokens: 500 }, open: { count: 0, tokens: 0 } }, overFunding: { count: 1, tokens: 100 } },
+  grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" },
+};
+
+describe("finance page: what each grant bought (gr_dt1l35tydx)", () => {
+  const text = (g: ReturnType<typeof grantLine>) => g && [g.spent, g.outcome, g.over, g.krs].filter(Boolean).join(" · ");
+  it("reads spent vs funded, outcome and key results on a grant row", () => {
+    expect(text(grantLine(grantRow({})))).toBe("spent 543,933 of 600,000 funded (91%) · done · key results 1 of 1 met");
+    expect(text(grantLine(grantRow({ tokens: 203_676, grantTokens: 120_000, outcome: "cut", outcomeGroup: "cut", krCounts: { met: 0, missed: 0, claimed: 0, open: 0 } }))))
+      .toBe("spent 203,676 of 120,000 funded · cut · over by 83,676");
+    expect(grantLine(grantRow({ tokens: 203_676, grantTokens: 120_000 }))!.over).toBe("over by 83,676");
+    expect(text(grantLine(grantRow({ status: "funded", outcome: null, outcomeGroup: "open", krCounts: { met: 0, missed: 0, claimed: 2, open: 1 } }))))
+      .toBe("spent 543,933 of 600,000 funded (91%) · still open · key results 0 of 3 met (2 claimed, waiting for a human)");
+    // no line for an unknown grant (no fields) or any other row
+    expect(grantLine({ kind: "grant", id: "gr_y", name: "gr_y", tokens: 5, share: 0, sessions: 1 })).toBeNull();
+    expect(grantLine({ ...grantRow({}), kind: "assignment" })).toBeNull();
+  });
+  it("opens the tab with one sentence by outcome and a ✓ line, ✗ when it does not add up", () => {
+    expect(grantsSentence(spG)).toBe("Grants: 500 tokens spent on 1 grant: 500 on 1 cut. 1 grant spent more than it was funded (100 over in total).");
+    const many = { ...spG, grants: { count: 39, funded: 1, spent: 14_336_699, byOutcome: { done: { count: 23, tokens: 11_200_000 }, cut: { count: 6, tokens: 2_593_904 }, open: { count: 10, tokens: 542_795 } }, overFunding: { count: 10, tokens: 3_000_000 } } };
+    expect(grantsSentence(many)).toBe("Grants: 14,336,699 tokens spent on 39 grants: 11,200,000 on 23 done, 2,593,904 on 6 cut, 542,795 on 10 still open. 10 grants spent more than they were funded (3,000,000 over in total).");
+    expect(grantsSentence({ ...many, grants: { ...many.grants, overFunding: { count: 0, tokens: 0 } } })).toMatch(/No grant spent more than it was funded\.$/);
+    expect(grantsCheckLine(spG)).toEqual({ ok: true, text: "The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens." });
+    expect(grantsCheckLine({ ...spG, grantsCheck: { ...spG.grantsCheck!, ok: false, diff: 7 } })).toEqual({ ok: false, text: "Does not add up (off by 7): done, cut and still-open grants come to 500, but the grant rows come to 493." });
+    const html = page({ spend: spG });
+    const section = html.slice(html.indexOf("<h3>Spending</h3>"));
+    expect(section.indexOf("Grants: 500 tokens spent on 1 grant")).toBeGreaterThan(-1);
+    expect(section.indexOf("Grants: 500 tokens")).toBeLessThan(section.indexOf("Town Workshop"));
+    expect(section).toContain("✓ The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens.");
+    expect(section).toContain(`<span class="spend-grant-line muted">spent 500 of 400 funded · cut · <span class="spend-over">over by 100</span> · key results 0 of 3 met (2 claimed, waiting for a human)</span>`);
+  });
+  it("shows nothing new when the server sends no grant fields or block (an older server)", () => {
+    const html = page({ spend: sp });
+    expect(html).not.toContain("spend-grant-line");
+    expect(html).not.toContain("Grants: ");
+    expect(grantsSentence(sp)).toBeNull();
+    expect(grantsCheckLine(sp)).toBeNull();
   });
 });
 

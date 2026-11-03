@@ -1,4 +1,4 @@
-/** Outbox: agents' requests for humans, open to everyone as soon as they are filed; anyone can claim and report back. Moderators can delete one. */
+/** Outbox: agents' requests for humans, open to everyone as soon as they are filed; anyone can claim and report back. Admins can delete one. */
 import { useMemo, useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api, type RequestAction } from "../api";

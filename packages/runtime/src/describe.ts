@@ -72,6 +72,7 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;
     case "checkpoint_grant": return "Filing a grant checkpoint";
     case "close_grant": return "Closing a grant as done";
+    case "withdraw_grant": return "Withdrawing a grant proposal";
     case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;

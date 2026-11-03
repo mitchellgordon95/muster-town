@@ -1,7 +1,48 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Building, Meeting, Town } from "@muster-town/schema";
-import { facilitatePrompt, managePrompt, managerIntrayBlock, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
+import { facilitatePrompt, managePrompt, managerIntrayBlock, managerStateBlock, managerSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
+
+describe("the team-lead prompt is split for the provider's cache (docs/prompt-caching.md)", () => {
+  it("the system prompt is byte-identical across wakes, whatever the clock, in-tray or wiki did meanwhile; the state block carries all of that, clock first", async () => {
+    const { world, by, admin } = seededWorld();
+    const mei = by("Mei");
+    const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const t = world.town.get();
+    const opts = { purpose: "Measure the sink", buildings: "Other buildings: none.", skills: "## Skills\n- none", code: true };
+    const before = managerSystemPrompt(mei, b, t, opts);
+    const r = await world.verbs.submit_report(by("Noor"), { title: "Ocean sink 2024", body: "## What I did\nx\n## Findings\ny\n## What I need from you\nMerge PR #12.", verdict: "stop" });
+    await world.verbs.write(mei, { type: "wiki", title: "The sink", body: "The ocean sink is 2.4 GtC/yr; see dc_x." });
+    const after = managerSystemPrompt(mei, b, t, opts);
+    expect(after).toBe(before);
+    // nothing live in it: no clock, no report ids, no wiki body, no commit
+    expect(after).not.toMatch(/Clock: it is/);
+    expect(after).not.toContain(r.id);
+    expect(after).not.toContain("2.4 GtC/yr");
+    expect(after).not.toContain("## Your in-tray (you work it");
+    // what it does carry: the fixed rules (decide, rollup format) and the pointer to the first message
+    expect(after).toContain("Working the in-tray.");
+    expect(after).toMatch(/rollup: true/);
+    expect(after).toContain("opens the first message");
+    expect(after).toContain("Read, Grep and Glob");
+
+    const now = Date.parse("2026-11-02T20:00:00Z");
+    const state = managerStateBlock(world, mei, b, { now });
+    expect(state.startsWith("Clock: it is 2026-11-02 20:00 UTC")).toBe(true);
+    expect(state).toContain(`${r.id} "Ocean sink 2024" by Noor (verdict stop`);
+    expect(state).toContain("Last rollup: never; reports decided since: 0");
+    expect(state).toContain("## Your team (you are the manager of");
+    expect(state).toContain("## Grants (this building is goal-directed)");
+    // the wiki as an index (title, id, gist), never the page; the pages are `read` on demand
+    expect(state).toMatch(/## Your wiki \(`read` the pages that matter/);
+    expect(state).toMatch(/- "The sink" \(dc_[a-z0-9]+, .*\): The ocean sink is 2\.4 GtC\/yr/);
+    expect(state).not.toContain("### The sink");
+    expect(state).toContain("## Your log");
+    // the in-tray comes before the memory, so the first doc id in the message is a report, not a wiki page
+    expect(state.indexOf("## Your in-tray")).toBeLessThan(state.indexOf("## Your wiki"));
+    expect(state.indexOf(r.id)).toBeLessThan(state.indexOf("The sink"));
+  });
+});
 
 const agent = { id: "ag_1", name: "Root", title: "Backend", direction: "Core, server, and runtime only." } as Agent;
 const building = { id: "workshop", name: "Town Workshop", goal: "Ship PRs", maxTurnsPerSession: 120 } as Building;

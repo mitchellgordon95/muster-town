@@ -55,7 +55,13 @@ describe("manager team-lead session", () => {
     expect(s.received[0]).toContain(r1.id);
     expect(s.received[1]).toContain(r2.id);
     expect(s.options.tools).toEqual([]); // no web, no code tools
-    expect(s.options.systemPrompt).toMatchObject({ append: expect.stringContaining("## Your in-tray") });
+    // the cached prefix: a plain string (no Claude Code preset) with the in-tray rules but nothing live (docs/prompt-caching.md);
+    // the live state opens the first message, before the task
+    expect(typeof s.options.systemPrompt).toBe("string");
+    expect(s.options.systemPrompt).toContain("Working the in-tray.");
+    expect(s.options.systemPrompt).not.toMatch(/Clock: it is|## Your in-tray \(you work it|## Your team \(|## Your wiki \(/);
+    expect(s.received[0]).toMatch(/^Clock: it is .* as this starts/);
+    expect(s.received[0].indexOf("## Your in-tray")).toBeLessThan(s.received[0].indexOf("This is a team-lead session"));
     expect(world.docs.require(r1.id).decision).toBe("approve");
     expect(world.docs.require(r2.id).decision).toBe("approve");
     expect(intrayOf(world, lab.id)).toHaveLength(0);
@@ -237,7 +243,9 @@ describe("a team-lead session cut by a restart resumes (gr_w9ue1k1p0c step 2)", 
     const mine = manageSessions(sdk.sessions, mei);
     expect(mine).toHaveLength(1);
     expect(mine[0].options.resume).toBe("sdk-cut-1");
-    expect(mine[0].received[0]).toBe(resumePrompt({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" }));
+    // the live state (clock, in-tray) opens the message; the resume instruction ends it
+    expect(mine[0].received[0]).toMatch(/^Clock: it is/);
+    expect(mine[0].received[0].endsWith(resumePrompt({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" }))).toBe(true);
     const running = world.sessions.first("agentId = ? AND status = 'running'", [mei])!;
     expect(running).toMatchObject({ purpose: "manage", sdkSessionId: "sdk-session-1" });
     expect(world.events.list({ agentId: mei, limit: 200 }).some((e) => (e.payload as { resumedFrom?: string }).resumedFrom === cut.id)).toBe(true);

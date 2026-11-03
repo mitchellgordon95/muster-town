@@ -1,6 +1,7 @@
 /**
- * Agent panel: status, model, budget; tabs Talk (live activity and tells; a building's manager agent is talked to in a
- * 1:1) | Assignments | Memory (the resident's wiki pages and log: what it knows and did).
+ * Agent panel: opens on one plain "Now: …" line (nowLine.ts); tabs Talk (live activity and tells, with model, spend and
+ * session lines folded behind Details; a building's manager agent is talked to in a 1:1) | Assignments | Memory (the
+ * resident's wiki pages and log: what it knows and did) | Helpers (a manager's forks) | Details (a fork's own fields).
  * Reports live in the in-tray and library.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -16,6 +17,7 @@ import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
 import { canOneOnOne, canTalkToManager, isMemberTalk, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
+import { isPlumbing, latestThought, nowLine } from "./nowLine";
 import { DismissButton, canDismiss } from "./Dismiss";
 
 
@@ -32,9 +34,10 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
   if (!agent) return <PanelShell title="Unknown agent">{detail.loading ? <Loading /> : <Empty>This agent isn't in the town.</Empty>}</PanelShell>;
   const building = buildings.find((b) => b.id === (agent.homeBuildingId ?? agent.buildingId));
   const fork = detail.data?.agent.id === id ? detail.data.fork : undefined;
-  // a fork has no private memory (it writes topic pages); a building's manager gets its Forks tab
-  const tabs = agent.forkOf ? ["Fork", "Talk", "Assignments"]
-    : agent.kind === "resident" ? ["Talk", "Assignments", "Memory", ...(building?.managerAgentId === agent.id && building.kind !== "town-hall" ? ["Forks"] : [])]
+  // a fork has no private memory (it writes topic pages); a building's manager gets its Helpers tab (its forks)
+  // a fork opens on what it's doing (Talk); its session and chain fields sit under Details
+  const tabs = agent.forkOf ? ["Talk", "Assignments", "Details"]
+    : agent.kind === "resident" ? ["Talk", "Assignments", "Memory", ...(building?.managerAgentId === agent.id && building.kind !== "town-hall" ? ["Helpers"] : [])]
     : agent.kind === "visitor" ? ["Talk", "Assignments"] : ["Talk"];
   const mailbox = detail.data?.agent.id === id ? detail.data.mailbox : undefined;
   const role = [roleOf(agent) || agent.kind, building?.name].filter(Boolean).join(" · ");
@@ -45,7 +48,8 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
       title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={<>
-        {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : agent.forkOf ? <span title={forkTip(agent, nameOf, fork?.assignmentId, fork?.sessionId)}>fork of {nameOf(agent.forkOf)}{building ? ` · ${building.name}` : ""}</span> : role}
+        <NowLine agent={agent} forkTask={fork?.assignmentTitle ?? null} />
+        {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : agent.forkOf ? <span title={forkTip(agent, nameOf, fork?.assignmentId, fork?.sessionId)}>a helper copy of {nameOf(agent.forkOf)}{building ? ` · ${building.name}` : ""}</span> : role}
         {perms ? <AgentPermissions agent={agent} view={perms} effective={detail.data?.effectivePermissions ?? []} reload={detail.reload} /> : null}
         {perms?.canSetModel ? <AgentModel agent={agent} buildingModel={building?.model} reload={detail.reload} /> : null}
       </>}
@@ -54,8 +58,8 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
     >
       {(t) => (
         <>
-          {t === "Fork" ? <ForkTab fork={fork} loading={!detail.data} /> : null}
-          {t === "Forks" ? <ForksTab managerId={agent.id} /> : null}
+          {t === "Details" ? <ForkTab fork={fork} loading={!detail.data} /> : null}
+          {t === "Helpers" ? <ForksTab managerId={agent.id} /> : null}
           {t === "Talk" ? <TalkTab agent={agent} /> : null}
           {t === "Assignments" ? <AssignmentsTab agent={agent} /> : null}
           {t === "Assignments" && canDismiss(agent, building?.managerAgentId, isAdmin) ? (
@@ -68,6 +72,26 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/** The panel's first line: what the agent is doing now in plain words, and what it's working on (nowLine.ts). */
+function NowLine({ agent, forkTask }: { agent: Agent; forkTask: string | null }) {
+  const events = useTown((s) => s.events);
+  const all = useTown((s) => s.assignments);
+  const thought = useMemo(() => latestThought(events, agent.id), [events, agent.id]);
+  const { active, lastDone } = useMemo(() => {
+    const mine = Object.values(all).filter((a) => a.agentId === agent.id);
+    const done = mine.filter((a) => a.status === "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    return { active: mine.find((a) => a.status === "active"), lastDone: done?.title ?? null };
+  }, [all, agent.id]);
+  const line = nowLine({ agent, thought: agent.status === "working" ? thought : null, task: active?.title ?? forkTask, lastDone });
+  if (!line) return null;
+  return (
+    <div className={`now-line ${agent.status === "working" ? "working" : ""}`}>
+      <div className="now-what">{agent.status === "working" ? <span className="dot" /> : null}<DocText text={line.now} /></div>
+      {line.task ? <div className="now-task">{line.task.label} “<DocText text={line.task.title} />”</div> : null}
+    </div>
   );
 }
 
@@ -96,7 +120,7 @@ function ForkTab({ fork, loading }: { fork?: ForkSummary; loading: boolean }) {
   );
 }
 
-/** The manager's Forks tab: its live ghosts, then the last 50 retired forks (GET /api/agents/:id/forks). */
+/** The manager's Helpers tab: its live ghosts, then the last 50 retired forks (GET /api/agents/:id/forks). */
 function ForksTab({ managerId }: { managerId: string }) {
   const rev = useTown((s) => s.rev);
   const list = useLoad(() => api().forks(managerId), [managerId, rev]);
@@ -243,7 +267,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const events = useTown((s) => s.events);
   const me = useTown((s) => s.me);
   const avatarId = me?.avatarAgentId ?? null;
-  const isService = agent.kind === "service", isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
+  const isHuman = agent.kind === "human", isVisitor = agent.kind === "visitor";
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: its manager takes requests */
@@ -255,7 +279,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
   const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
-  const s = useLoad(() => (isHuman || isService ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
+  const s = useLoad(() => (isHuman ? Promise.resolve(null) : api().session(agent.id)), [agent.id, working]);
   const th = useLoad(() => (threaded ? api().thread(agent.id) : Promise.resolve([] as ThreadMessage[])), [agent.id, threaded]);
   const timeline = useMemo(() => {
     const out: Item[] = [];
@@ -284,16 +308,26 @@ function TalkTab({ agent }: { agent: Agent }) {
   const fam = family.data && family.data.forks > 0 ? family.data : null;
   // a fork's own row is booked only when its session ends: show the manager's family count too
   const root = useTown((st) => (agent.forkOf ? st.agents[agent.forkOf] : undefined));
-  const canControl = !isHuman && !isService && canControlAgent(agent);
+  const canControl = !isHuman && canControlAgent(agent);
+  // the town's plumbing (model, spend, session starts and ends, secrets) folds behind Details; the panel opens on what the agent does
+  const [details, setDetails] = useState(false);
+  const plain = useMemo(() => timeline.filter((it) => it.kind !== "ev" || !isPlumbing(it.ev)), [timeline]);
+  const folded = timeline.length - plain.length;
+  const hasStats = !isHuman && !isVisitor;
   return (
     <div className="chat-wrap">
-      {isService ? <div className="actions"><button className="btn" onClick={() => store.open({ kind: "library" })}>Browse the library</button></div> : null}
       {isVisitor ? (
         <KV items={[
           ["Runs", "outside the town (its owner's Claude Code session), through the agent API"],
           ["Last call", agent.lastSeenAt ? `${timeAgo(agent.lastSeenAt)} · ${clock(agent.lastSeenAt)}` : "never"],
         ]} />
-      ) : !isHuman && !isService ? (
+      ) : null}
+      {hasStats || folded ? (
+        <button type="button" className="details-toggle" aria-expanded={details} onClick={() => setDetails(!details)}>
+          {details ? "▾" : "▸"} Details{!details ? <span className="muted"> ({[hasStats ? "model and spend" : "", folded ? `${folded} behind-the-scenes line${folded === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ")})</span> : null}
+        </button>
+      ) : null}
+      {hasStats && details ? (
         <KV items={[
           ["Model", sess?.model ?? agent.model ?? building?.model ?? "default"],
           agent.forkOf ? ["Today", <span title={`${root?.name ?? "The manager"} and its forks, today. A fork's spend is booked when its session ends.`}>
@@ -305,19 +339,18 @@ function TalkTab({ agent }: { agent: Agent }) {
           ...(sess ? [["Session", <><Pill tone={sess.status === "running" ? "ok" : sess.status === "error" ? "bad" : ""}>{sess.status}</Pill> {sess.purpose} · started {timeAgo(sess.startedAt)} · {sess.turns} turns · <span title={breakdownTitle(sess)}>{fmtTokens(sess.adjustedOutputTokens ?? 0)} {ADJ}</span> · {usd(sess.costUsd)}{s.data?.transcriptFile ? <> · <a href={s.data.transcriptFile.url} title={`${s.data.transcriptFile.lines} lines · kept until ${s.data.transcriptFile.expiresAt.slice(0, 10)}`} onClick={(e) => { e.preventDefault(); void api().openTranscript?.(s.data!.transcriptFile!.url).catch((err: Error) => store.toast(err.message, "bad")); }}>transcript</a></> : null}</>] as [string, ReactNode]] : [["Last active", timeAgo(agent.lastActiveAt)] as [string, ReactNode]]),
         ]} />
       ) : null}
-      {agent.activity ? <div className="now"><span className="dot" /> {agent.activity}</div> : null}
       {agent.status === "stopped" && canControl ? (
         <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
-      <Timeline items={timeline} agentName={agent.name} empty={isService ? `${agent.name} keeps the library: browse it for what the town has written.` : `${agent.name} hasn't done anything yet.`} />
+      <Timeline items={details ? timeline : plain} agentName={agent.name} empty={`${agent.name} hasn't done anything yet.`} />
       {viaManager && manager ? (
         <div className="callout via-manager">
-          <span>{agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.</span>
+          <span>{agent.forkOf ? `${agent.name} is a helper ${manager.name} started for one task; it doesn't take messages.` : `${agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.`}</span>
           {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
             : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
-      ) : isHuman || isService ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
+      ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
           {!townHall && isMemberTalk(home?.id)
             ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps.</span>

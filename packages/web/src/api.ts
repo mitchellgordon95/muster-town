@@ -148,6 +148,12 @@ export interface SpendNode {
   sessions: number;
   /** the row's dollars at API list price, to the cent (optional here: a server older than the dollars sends none) */
   usd?: number;
+  /** grant rows of a known grant only (gr_dt1l35tydx): tokens granted (null until funded), status, outcome once closed, its group (done / cut / open) and key results by status */
+  grantTokens?: number | null;
+  status?: string;
+  outcome?: string | null;
+  outcomeGroup?: "done" | "cut" | "open";
+  krCounts?: { met: number; missed: number; claimed: number; open: number };
   children?: SpendNode[];
 }
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
@@ -170,6 +176,10 @@ export interface FinanceSpend {
   usd?: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
   /** the rows' dollars summed vs `usd.used` */
   usdSumCheck?: { ok: boolean; diff: number; identity: string };
+  /** the grant rows summed by outcome, each grant once across buildings (optional here: an older server sends none) */
+  grants?: { count: number; funded: number; spent: number; byOutcome: Record<"done" | "cut" | "open", { count: number; tokens: number }>; overFunding: { count: number; tokens: number }; estimates?: { closed: number; inside: number; unit: string; badRanges: string[] } };
+  /** byOutcome's tokens vs Σ the grant rows' tokens */
+  grantsCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
@@ -252,7 +262,7 @@ export interface Bank {
   buildings: BankBuildingShare[];
   /** town-wide free tokens (the root goal's; docs/how-work-gets-done.md §7); null or left out by older servers */
   free?: FreeTokens | null;
-  /** the operating reserve (1:1s, meetings and directed work draw on it; exploration and grant funding can't) and the town-wide free tokens; older servers leave them out */
+  /** the operating reserve (manager sessions draw on it; work of every lane waits while the balance is within it; exploration and grant funding can't claim it) and the town-wide free tokens; older servers leave them out */
   reserveTokens?: number;
   freeTokens?: number;
   contributors: BankContributor[];
@@ -313,6 +323,8 @@ export interface JoinFunnelView {
   days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   totals: JoinFunnelCounts;
   collectives: JoinFunnelCollective[];
+  /** the root's only (gr_ngg1z160a8 step 2): each hosted collective's founder road, dates null until they happen */
+  founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
 
 /** GET /api/buildings/:id/key-results */
@@ -494,7 +506,7 @@ export interface Api {
   secrets(): Promise<{ secrets: SecretView[]; keyConfigured: boolean }>;
   putSecret(name: string, input: In<typeof PutSecretInput>): Promise<SecretView>;
   deleteSecret(name: string): Promise<{ removed: boolean }>;
-  /** delete (moderators) resolves to null: the request is gone */
+  /** delete (admins) resolves to null: the request is gone */
   request(docId: string, action: RequestAction, body?: string): Promise<Doc | null>;
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;

@@ -1,6 +1,6 @@
 import {
-  CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective,
+  type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
+  UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
   type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
@@ -10,6 +10,7 @@ import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { DIRECTED } from "./lanes.ts";
 import { freeTokens, goalFunding, grantGoalOf } from "./free-tokens.ts";
+import { estimateGrant, estimateVsActual, type EstimateVsActual } from "./grant-estimate.ts";
 import { holderOf } from "./permissions.ts";
 import { queuePostmortem } from "./postmortems.ts";
 import { whereOf } from "./table.ts";
@@ -75,7 +76,72 @@ export class Grants {
     return {
       ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, keyResults: this.keyResultsOf(g.id), spentTokens: this.adjustedSum(sessions), spentCounts,
       fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
+      evidence: this.evidenceFor(g),
     };
+  }
+
+  /**
+   * What a checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): a checkpoint grant's own evidence; on a proposal, the
+   * evidence of the same building's latest grant on the same goal that a checkpoint stopped (cut, or closed after its
+   * hold): the work the proposal asks money for again. Null otherwise.
+   */
+  private evidenceFor(g: Grant): CheckpointEvidence | null {
+    if (g.status === "checkpoint") return this.evidence(g);
+    if (g.status !== "proposed" && g.status !== "countered") return null;
+    const prior = this.world.grants.where("buildingId = ? AND status = 'closed' AND id != ? AND (goalId = ? OR (goalId IS NULL AND ? IS NULL))", [g.buildingId, g.id, g.goalId, g.goalId], "ORDER BY closedAt DESC, rowid DESC")
+      .find((p) => p.history.some((h) => h.action === "checkpoint") && p.outcome !== "done" && p.outcome !== "met");
+    return prior ? this.evidence(prior) : null;
+  }
+
+  /** One grant's checkpoint evidence: per key result its verdict and the manager's note, spend, the top-up line, the report's Shipped titles. */
+  evidence(g: Grant): CheckpointEvidence {
+    const report = g.checkpointDocId ? this.world.docs.get(g.checkpointDocId) : undefined;
+    return {
+      grantId: g.id, objective: g.objective,
+      keyResults: this.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote })),
+      spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
+      topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
+      reportId: report ? report.id : null,
+      shipped: report ? parseRollup(report.body).items.map((i) => i.title) : [],
+    };
+  }
+
+  /**
+   * What a grant (or a plan not saved yet) is likely to cost, from the closed grants (grant-estimate.ts): advisory, read-only.
+   * A grant's recorded estimate is its propose-time one; this computes a fresh one.
+   */
+  estimateFor(g: Grant | { buildingId: string; keyResults: number; askTokens: number }): GrantEstimate {
+    if ("id" in g) return estimateGrant(this.world, { id: g.id, buildingId: g.buildingId, keyResults: this.keyResultsOf(g.id).length || g.testingPlan.length, askTokens: g.askTokens });
+    return estimateGrant(this.world, g);
+  }
+
+  /** Record a fresh history estimate on a grant that has none (proposed before migration 083), without a history entry. */
+  recordEstimate(id: string): void {
+    const g = this.world.grants.require(id, "grant");
+    if (!g.estimate) this.world.grants.upsert({ ...g, estimate: this.estimateFor(g) }); // advisory: updatedAt (the in-tray order) stays
+  }
+
+  /**
+   * The cheap model's range (runtime estimate.ts), saved beside the propose-time estimate. Kept only while the grant still
+   * carries the estimate the call was made for (`at`): a re-propose in between made a new one. No history entry, no event
+   * the in-tray reacts to: advisory only. Returns whether it was saved.
+   */
+  recordModelEstimate(id: string, estimateAt: string, model: NonNullable<GrantEstimate["model"]>): boolean {
+    const g = this.world.grants.get(id);
+    if (!g?.estimate || g.estimate.at !== estimateAt) return false;
+    this.world.grants.upsert({ ...g, estimate: { ...g.estimate, model } }); // advisory: updatedAt (the in-tray order) stays
+    return true;
+  }
+
+  /** A closed grant's event payload part: its estimate against what it spent (empty when it had none). */
+  private estimateVsActual(g: Grant): Partial<EstimateVsActual> {
+    return estimateVsActual(g.estimate, this.spent(g.id)) ?? {};
+  }
+
+  /** A grant as GET /api/grants/:id and the Town Hall in-tray serve it: an open or live one carries `estimate` (recorded at propose, else fresh). */
+  withEstimate(g: GrantView): GrantView {
+    if (g.estimate || !["proposed", "countered", "funded", "checkpoint"].includes(g.status)) return g;
+    return { ...g, estimate: this.estimateFor(g) };
   }
 
   /** A grant's own key results (docs/how-work-gets-done.md §4), in order. */
@@ -304,8 +370,8 @@ export class Grants {
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
       id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [],
       stopCondition: inp.stopCondition, askTokens: inp.askTokens,
-      grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null,
-      proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], createdAt: now, updatedAt: now,
+      grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
+      proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, createdAt: now, updatedAt: now,
     }), inp.keyResults));
     this.event("grant.created", g, actor, `Draft proposal: ${g.objective}`);
     return this.view(g);
@@ -363,7 +429,8 @@ export class Grants {
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
     if (!this.keyResultsOf(g.id).length) throw badRequest("A grant carries 1-5 key results: give keyResults (text, howToCheck, due) first.");
-    const next = this.save(g, actor, { status: "proposed" }, "propose", g.askTokens, note);
+    // the estimate is recorded at (each) propose so the close can compare it with what the grant spent
+    const next = this.save(g, actor, { status: "proposed", estimate: this.estimateFor(g) }, "propose", g.askTokens, note);
     this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens)`);
     this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${next.objective}" for ${fmt(next.askTokens)} tokens. Fund, counter or reject it on the board.`);
     return this.view(next);
@@ -436,7 +503,7 @@ export class Grants {
       case "cut":
         this.requireStatus(g, ["checkpoint"], "cut");
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note);
-        this.event("grant.closed", next, actor, `Cut: ${next.objective}`, deck);
+        this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });
         this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
         break;
     }
@@ -483,9 +550,33 @@ export class Grants {
     }
     if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
     if (!LIVE.includes(g.status) && inp.outcome !== "stopped") throw badRequest(`A ${g.status} proposal can only be withdrawn (outcome "stopped").`);
+    if (!LIVE.includes(g.status)) return this.withdraw(actor, id, inp.note || "Withdrawn.");
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
-    this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`);
+    this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`, this.estimateVsActual(next));
     return this.view(next);
+  }
+
+  /**
+   * The manager's `withdraw_grant` (1:1 mt_a6wb51enia): the manager takes back its own proposed or countered grant with a
+   * note saying why. It closes as `stopped` (history action "withdraw", the note kept on it), leaves the Town Hall in-tray
+   * and the review deck, and its open key results archive like a rejected proposal's. The humans who could fund it are
+   * told why it vanished. A funded grant is refused: close_grant (done) or a human's cut.
+   */
+  withdraw(actor: Actor, id: string, note: string): GrantView {
+    const g = this.world.grants.require(id, "grant");
+    if (actor && !this.canFund(actor, g)) this.world.permissions.require(actor, "building.manage", g.buildingId);
+    const why = (note ?? "").trim();
+    if (!why) throw badRequest("Say why you withdraw it (note): it stays on the grant for the humans who saw the proposal.");
+    if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
+    if (LIVE.includes(g.status)) throw new AppError("conflict", `${g.id} is ${g.status}: a funded grant is not withdrawn. Close it with close_grant when its work is done, or ask a human to cut it.`);
+    this.requireStatus(g, ["draft", "proposed", "countered"], "withdrawn");
+    return this.world.transaction(() => {
+      const next = this.save(g, actor, { status: "closed", outcome: "stopped", closedAt: nowIso() }, "withdraw", null, why);
+      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} withdrawn: ${why}`.slice(0, 2000), updatedAt: nowIso() });
+      this.event("grant.closed", next, actor, `Withdrawn: ${next.objective}: ${why}`, { outcome: "stopped", withdrawn: true, note: why });
+      if (g.status !== "draft") this.notifyFunders(next, actor, `${actor ? this.world.nameOf(actor.id) : "The manager"} withdrew the proposal "${next.objective}" (${next.id}, ${fmt(next.askTokens)} tokens asked): ${why}`);
+      return this.view(next);
+    });
   }
 
   /**
@@ -517,7 +608,7 @@ export class Grants {
       const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "claimed", note });
-      this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens });
+      this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
       this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Mark each of its key results met or missed in the Town Hall in-tray.`);
       return this.view(next);
     });
@@ -539,7 +630,8 @@ export class Grants {
       const pct = Math.round((spent / tokens) * 100);
       const at = Math.max(...crossed);
       const next = this.world.transaction(() => {
-        const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
+        // a new hold asks for a new top-up line: the last one was about the tokens a human already granted
+        const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort(), topUpTokens: null, whatTopUpBuys: "" }, "checkpoint", spent,
           `Spend crossed ${at * 100}% (${fmt(spent)} of ${fmt(tokens)} tokens, ${pct}%): new sessions on it are held until a human decides.`);
         this.checkpointAssignment(next, spent, at);
         return next;
@@ -588,7 +680,7 @@ ${krs}
 
 Stop condition: ${g.stopCondition}
 
-1. \`checkpoint_grant\` with grantId ${g.id}, a status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence: for all its open key results, or one at a time with keyResultId.
+1. \`checkpoint_grant\` with grantId ${g.id}, a status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence: one key result at a time with keyResultId, since the checkpoint card shows each one's note on its line (claimed = "✓ shipped", on-track / at-risk = "~ partly", not-started = "✗ not shipped"). Say what shipped and where a human sees it, or what did not and why. Once, give whatTopUpBuys and topUpTokens: what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see); the card shows "A top-up of N tokens buys: …" next to Continue / Adjust / Cut.
 2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). The usual rollup format (the four sections; Shipped items with **What it is:**, **What you'd see:** and **Your call:**); Key results carries each of the grant's key results, its status, how to check it and what the check showed, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens; Needs from Mitchell asks to continue, adjust or cut, and why. Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
     });
   }
@@ -661,7 +753,7 @@ ${krs}
    * A funded grant whose checkpoint already fired is accepted too: a human may adjust (top up) or continue it from the in-tray before
    * the manager's checkpoint session files (gr_iq5m7dug56, 2026-10-26: continued 4 min after the 50% hold).
    */
-  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string; keyResultId?: string | null }): GrantView {
+  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string; keyResultId?: string | null; whatTopUpBuys?: string | null; topUpTokens?: number | null }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
     if (!(g.status === "funded" && g.history.some((h) => h.action === "checkpoint"))) this.requireStatus(g, ["checkpoint"], "checkpointed");
@@ -674,8 +766,14 @@ ${krs}
       const d = this.world.docs.get(input.reportId);
       if (!d || d.type !== "report" || d.buildingId !== g.buildingId) throw badRequest(`${input.reportId} is not a report of this building.`);
     }
+    // the top-up line (mt_7b4zc7yja3): required once per checkpoint, both halves together; a later call may restate it
+    const buys = input.whatTopUpBuys?.trim() ?? "";
+    if (!!buys !== !!input.topUpTokens) throw badRequest("Give whatTopUpBuys and topUpTokens together: what the next tokens would deliver, and how many tokens that is.");
+    // (a human who already continued or topped it up has decided: no top-up line to ask for)
+    if (!buys && g.status === "checkpoint" && !g.whatTopUpBuys.trim()) throw badRequest("whatTopUpBuys and topUpTokens are required at a checkpoint: say what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see). The checkpoint card shows it next to Continue / Adjust / Cut.");
     return this.world.transaction(() => {
       if (input.status) for (const k of targets) this.updateKeyResult(actor, k.id, { status: input.status, note: input.note ?? "" });
+      if (buys) this.world.grants.upsert({ ...this.world.grants.require(g.id), topUpTokens: input.topUpTokens!, whatTopUpBuys: buys, updatedAt: nowIso() });
       if (input.reportId) this.world.grants.upsert({ ...this.world.grants.require(g.id), checkpointDocId: input.reportId, updatedAt: nowIso() });
       return this.get(g.id);
     });
@@ -824,6 +922,7 @@ ${krs}
     sendMessage(this.world, { kind: "system", fromId: from.id, fromKind: from.kind, toId: g.proposedBy, body });
   }
 }
+
 
 /** Checkpoint fractions already behind a grant of `tokens` with `spent` so far (they won't fire again). */
 function passed(spent: number, tokens: number): number[] {

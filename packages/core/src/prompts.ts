@@ -5,7 +5,7 @@
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
-import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
+import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -86,9 +86,10 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string; now?: number } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string } = {}): string {
+  // no clock here: it changes every session and would break the provider's cache on the whole prefix; the work
+  // prompt (the first message) opens with it (docs/prompt-caching.md)
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
-${clockLine(opts.now)}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
@@ -223,16 +224,19 @@ export function managerGrantsBlock(world: World, building: Building): string {
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   return `## Grants (this building is goal-directed)
 The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it. Admins and a goal's captain (the human who owns it) edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids (\`set_objective\`). Key results belong to grants (docs/how-work-gets-done.md §4): a grant is filed against a goal in your subtree and carries its own 1-5 key results, each something a human can check in the live town by a date. \`propose_grant\` with goalId (default your building's goal), keyResults (text, howToCheck, due), an objective, the approach, a stop condition and a token ask. Funding it runs the plan; only a human marks a key result met or missed, on the grant.
-Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key results are implied), or "exploration" with a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work is never held for money (it is metered on its own: "Directed today"); a gap says what it is for. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
+Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key results are implied), or "exploration" with a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work draws the free tokens under your goal like exploration (held while none are free; metered on its own: "Directed today"); a gap says what it is for. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
 ${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another plan can get its own proposal now.` : "No proposal is open. Explorers propose on their own: the runtime's explore tick reserves a chunk and queues an explorer on an idle desk while tokens are free under your goal, and its proposal goes straight to the Town Hall in-tray."}
-A human's decision on your proposal wakes you with an assignment: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (the status of its key results up to claimed, all or one at a time, with evidence), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks each key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done.`;
+A human's decision on your proposal wakes you with an assignment: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (the status of its key results up to claimed, one at a time, each with a note on what shipped or did not; once, \`whatTopUpBuys\` + \`topUpTokens\`: what a top-up of how many more tokens would deliver; the checkpoint card shows these first), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and a human marks each key result met or missed from the Town Hall in-tray. Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done. To change a proposal that is still waiting (proposed or countered), \`withdraw_grant\` (grantId, why as note: it leaves the in-tray, its key results archive, the note stays on the grant), then \`propose_grant\` fresh.`;
 }
 
-export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string): string {
+export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string, now = Date.now()): string {
   const prev = chain !== undefined ? `\n\n${chain}` : lastReport
     ? `\n\nYour previous report: "${lastReport.title}" (${lastReport.id}, verdict ${lastReport.verdict ?? "?"}, decision ${lastReport.decision ?? "?"}${lastReport.decisionNote ? `, note: ${lastReport.decisionNote}` : ""}). \`read\` it if you need the details.`
     : "\n\nThis is your first session.";
-  return `Your assignment (${assignment.id}): ${assignment.title}
+  // the clock opens the brief (standing rule 5) here, in the first message, not in the cached system prompt (docs/prompt-caching.md)
+  return `${clockLine(now)}
+
+Your assignment (${assignment.id}): ${assignment.title}
 
 ${assignment.description}${prev}${recentWork ? `\n\n${recentWork}` : ""}
 
@@ -294,13 +298,21 @@ function liveLine(world: World, lastRollupAt: string | undefined, now: number): 
  * itself: Mitchell reads rollups in the Town Hall in-tray.
  */
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
+  return `${managerIntrayRows(world, building, managerId, now)}\n\n${MANAGER_INTRAY_RULES}`;
+}
+
+/**
+ * The live half of the in-tray: "## Your in-tray" with its pending rows, then one status line (the live commit, the
+ * last rollup, reports decided since, today's spend by lane). It changes every session, so it belongs in the first
+ * message of a team-lead session (`managerStateBlock`), never in the cached system prompt (docs/prompt-caching.md).
+ */
+function managerIntrayRows(world: World, building: Building, managerId: string, now = Date.now()): string {
   const pending = intrayOf(world, building.id);
   const rows = pending.map((d) => {
     if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${fromNow(d.createdAt, now)})${flagWhere(d)}: ${oneLine(d.body, 200)}`;
     const need = sectionOf(d.body, NEED);
     return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${fromNow(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
   });
-  const flags = pending.some((d) => d.type === "flag");
   const lastRollup = world.docs.first("type = 'report' AND authorId = ? AND tags LIKE '%\"rollup\"%'", [managerId], "ORDER BY createdAt DESC, rowid DESC");
   const sinceLast = lastRollup ? `${fromNow(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
   const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
@@ -308,14 +320,66 @@ export function managerIntrayBlock(world: World, building: Building, managerId: 
   return `## Your in-tray (you work it; Mitchell doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
 
-Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops.${flags ? " A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with `review`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked), so it is never held for money." : ""} Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
+${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}. Spend today by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.`;
+}
+
+/**
+ * The fixed half of the in-tray: how to decide reports and flags, when and how to roll up. Byte-identical from one
+ * session to the next, so it sits in the cached system prompt. The numbers it refers to are in the in-tray rows' status line.
+ */
+const MANAGER_INTRAY_RULES = `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
 Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. The format, one screen: an optional one-line intro (the live commit), then
 - \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`), each with \`**What it is:**\` (plain words, ids after), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line, or "None"). The in-tray shows them as cards.
 - \`## Decided\`: one line per covered report (id → decision).
-- \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.
+- \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray").
 - \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup. ${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}.`;
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+
+/**
+ * The system prompt of a manager's team-lead session (purpose \`manage\`): only what is the same from one wake to the
+ * next, so the provider's prompt cache matches it across wakes (docs/prompt-caching.md). No clock, no in-tray rows,
+ * no team, no grants, no board, no wiki, no commit: those change every session and open the first message instead
+ * (\`managerStateBlock\`). The runtime passes it to the SDK as a plain string, without the Claude Code preset: a
+ * manager decides and talks here; it edits no code.
+ */
+export function managerSystemPrompt(agent: Agent, building: Building, town: Town, opts: { skills?: string; buildings?: string; purpose?: string; code?: boolean } = {}): string {
+  return `You are ${agent.name}, the manager of the ${building.name} of ${town.name}. ${OWNERSHIP}
+Town goal: ${town.goal || "(none set)"}
+Building goal: ${opts.purpose ?? (building.goal || "(none set)")}
+Your agent id: ${agent.id}. Your building id: ${building.id}.
+This prompt holds only what is the same every session. What is live now (the server's clock, your in-tray, your team and queue, your grants, the board, the index of your wiki and log) opens the first message: read it there, and \`read\` a wiki page or a report before you rely on it.
+
+${WORLD_RULES}
+
+${RESEARCH_RULES}
+
+${REPORT_FORMAT}
+
+You have about ${building.maxTurnsPerSession} turns; budget them. Your only tools are the town tools (mcp__town__*)${opts.code ? ", plus Read, Grep and Glob over a read-only snapshot of the town's code (the first message names its commit and directory): read the code before you answer how something works, and cite file:line" : ""}.${opts.buildings ? `\n\n${opts.buildings}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}
+
+${MANAGER_INTRAY_RULES}`;
+}
+
+/**
+ * The first message of a manager's team-lead session: everything that is live now, in one block, after the cached
+ * system prompt (docs/prompt-caching.md). The clock first (standing rule 5), then the in-tray rows and status line,
+ * the team and queue, the grants, the town board, and the index of the manager's wiki and the tail of its log (the
+ * pages themselves are \`read\` on demand: they change every session and were 29% of the old prefix). The session's
+ * task (\`managePrompt\`, a 1:1, a resume) follows it.
+ */
+export function managerStateBlock(world: World, agent: Agent, building: Building, opts: { now?: number } = {}): string {
+  const now = opts.now ?? Date.now();
+  const grants = managerGrantsBlock(world, building);
+  const board = townBoardBlock(world);
+  return [
+    clockLine(now),
+    managerIntrayRows(world, building, agent.id, now),
+    teamBlock(world, building, agent.id),
+    grants,
+    board,
+    memoryIndexBlock(world, agent.id, { now }),
+  ].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -656,6 +720,6 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
       agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
-    : `${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+    : `${clockLine()}\n\n${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

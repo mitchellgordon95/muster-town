@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, endMeeting, oneOnOneMemberBlock, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -210,7 +210,7 @@ const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
  * and, beside a live work session, what that session is doing and how to hand it the human's request.
  */
 const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
-  [oneOnOneMemberBlock(world, m), humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
+  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
@@ -243,14 +243,19 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   const [first, ...more] = talks;
   // the snapshot as it is now (the runtime tick keeps it within minutes of main; the session never waits on a fetch)
   const code = ctx.code?.current() ?? null;
+  // the system prompt holds only what is the same every wake, so the provider's cache matches it across wakes; the
+  // live state (clock, in-tray, team, grants, board, wiki index, the code snapshot's commit) opens the first message
+  // (docs/prompt-caching.md). No Claude Code preset: a manager decides and talks, it edits no code.
+  const state = [managerStateBlock(world, agent, building), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n");
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
     ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
-    system: [workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n"),
+    system: managerSystemPrompt(agent, building, world.town.get(), { purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), skills: skillsBlock(world.skills.forAgent(agentId)), code: !!code }),
+    bare: true,
     // main's code, read-only (Read, Grep, Glob): the manager reads before it answers how something works
     ...(code ? { code } : {}),
-    prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf),
+    prompt: `${state}\n\n${first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf)}`,
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
     ...(resume && !first ? { resume: resume.sdkSessionId } : {}),
   });
