@@ -202,7 +202,10 @@ export class Sim {
     if (moved && i.objectiveId && [...this.keyResults.values()].filter((x) => x.objectiveId === i.objectiveId).length >= 4) throw new Error("That objective already has 4 key results (at most 4).");
     const next: KeyResult = { ...k, ...words, ...(moved && { objectiveId: i.objectiveId ?? null }), ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
-    for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
+    for (const g of this.grants.values()) {
+      if (g.keyResultId === id) g.keyResult = { ...next };
+      if (g.keyResults.some((x) => x.id === id)) g.keyResults = g.keyResults.map((x) => (x.id === id ? { ...next } : x));
+    }
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);
     return next;
   }
@@ -535,7 +538,7 @@ export class Sim {
   }
 }
 
-/** Closed early as done by the manager (close_grant) and its key result still claimed: a human marks it met or missed. */
+/** Closed early as done by the manager (close_grant) and any key result still claimed (as core's domain.ts): a human marks each met or missed. */
 function awaitingMark(g: GrantView): boolean {
-  return g.status === "closed" && g.outcome === "done" && g.keyResult?.status === "claimed";
+  return g.status === "closed" && g.outcome === "done" && (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []).some((k) => k.status === "claimed");
 }
