@@ -10,7 +10,7 @@ The first code span is the test file. The second is the `it` text, copied exactl
 
 ## Invariants
 
-1. **The status machine moves only along its legal edges.** draft or countered → proposed (propose); proposed → funded, countered or rejected (fund, counter, reject); checkpoint → funded (continue, adjust) or closed (cut). Any other status × action pair is refused with a conflict. (`close` withdraws or closes a grant from any status that isn't terminal. Its rules are tested separately.)
+1. **The status machine moves only along its legal edges.** draft or countered → proposed (propose); proposed → funded, countered or rejected (fund, counter, reject); checkpoint → funded (continue, adjust) or closed (cut); funded or checkpoint → stopping (a human's stop) → closed (when no session runs on it). Any other status × action pair is refused with a conflict. (`close` withdraws or closes a grant from any status that isn't terminal. Its rules are tested separately.)
    - Test: `packages/core/test/grants.test.ts` › `every grant status × action: only the legal transitions pass`
    - Test: `packages/core/test/grants.test.ts` › `close: the manager only as stopped; funders any outcome; proposals can only be withdrawn`
 2. **Only a human with `building.fund` (or a member paying from their own Bank input) decides a grant, and agents never hold `building.fund`.**
@@ -37,6 +37,10 @@ The first code span is the test file. The second is the `it` text, copied exactl
    - Test: `packages/core/test/lanes.test.ts` › `checkpoint_grant sets the status of the grant's key results up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray`
 9. **The owner of a goal (a human) decides and funds grants, and marks key results met or missed, only within the goal's subtree;** admins and `building.fund` holders as before. Agents never fund.
    - Test: `packages/core/test/goals.test.ts` › `owners (humans) inherit down the tree, edit and fund in their subtree only; routing ends at the owner`
+
+10. **Only a human who can fund stops a funded or checkpoint grant, and a stop winds it down before it closes.** `Grants.stop` moves it to `stopping` (not live: no new work, no claim on free tokens), interrupts every fork running on it, cancels its queued work with the reason, archives its open key results as missed with the reason and tells the manager. `finishStopping` closes it as `stopped` only once no session runs on it, recording spent, granted and unspent; a pool-funded rest is free tokens again, a member-funded rest stays on the input. A manager's close as `stopped` of a live grant is refused (403).
+   - Test: `packages/core/test/grant-stop.test.ts` › `one running fork and one queued assignment: …`, `pool-funded with nothing running: …`, `member-funded: nothing moves, …`, `only a human who can fund stops a live grant; …`
+   - Test: `packages/server/test/grants.test.ts` › `stopping a funded grant is a human's: …`
 
 ## How it connects
 

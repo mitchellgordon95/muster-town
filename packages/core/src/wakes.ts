@@ -55,7 +55,7 @@ function describe(world: World, e: Event): { title: string; what: string; summar
     const tokens = e.type === "grant.funded" ? `: ${fmt(g.grantTokens ?? 0)} tokens` : "";
     return {
       title: `Grant ${g.id} ${verb}${tokens}`,
-      what: `${human} ${verb} grant ${g.id} at its checkpoint`,
+      what: `${human} ${verb} grant ${g.id}${action === "cut" || e.type === "grant.funded" ? " at its checkpoint" : ""}`,
       summary: [`Grant ${g.id} "${g.objective}" ${verb} by ${human}${tokens}.`, grantLine(world, g), ...(note ? [`The note: ${note}`] : [])].join("\n\n"),
     };
   }
