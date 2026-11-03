@@ -9,6 +9,7 @@ import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
 import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
+import { decideJoin, letInGoal } from "./panels/letIn";
 import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
@@ -139,18 +140,19 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       });
     }
     // someone asked to join (gr_fibsfwr4tz step 2): one line each for an admin, so a request never waits unseen behind the badge
+    const goal = access.rows.length ? letInGoal() : null;
     for (const r of access.rows) {
       const who = r.githubLogin ? `@${r.githubLogin}` : r.name;
-      const decide = async (grant: boolean) => {
-        await api().decideAccess(r.id, grant);
-        store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
-        access.reload();
-      };
+      const decide = (grant: boolean, g?: typeof goal) => async () => { await decideJoin(r, grant, g); access.reload(); };
       out.push({
         key: `access:${r.id}`, icon: "intray", tone: "warn", cta: "",
         text: <><b>{who}</b> asked to join ({timeAgo(r.createdAt)})</>, hint: r.message ? `"${r.message}"` : undefined,
         go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
-        actions: [{ label: "Let in", primary: true, run: () => decide(true) }, { label: "Decline", run: () => decide(false) }],
+        actions: [
+          { label: "Let in", primary: true, run: decide(true) },
+          ...(goal ? [{ label: `Let in + direct work under ${goal.short}`, run: decide(true, goal) }] : []),
+          { label: "Decline", run: decide(false) },
+        ],
       });
     }
     // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).

@@ -20,6 +20,7 @@ import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { canOneOnOne, grantTalkTarget, openOneOnOne } from "./oneOnOne";
+import { decideJoin, letInGoal } from "./letIn";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { ReviewDeckView } from "./ReviewDeck";
 import { fundedOnly, isFunder, type IntrayView } from "./funderFilter";
@@ -261,14 +262,12 @@ function RoutedTo({ route }: { route?: IntrayRoute }) {
  * Someone signed in with GitHub asks to join (dc_f0cumcfubk). Let in grants the town `member` role (they can move,
  * talk, message agents and write); Decline leaves them read-only, and they may ask again after a day.
  */
-function AccessRow({ req, onDecided }: { req: AccessRequestView; onDecided: () => void }) {
+export function AccessRow({ req, onDecided }: { req: AccessRequestView; onDecided: () => void }) {
   const admin = useTown((s) => !!s.me?.isAdmin);
+  useTown((s) => s.me?.directDefaultGoalId);
+  const goal = admin ? letInGoal() : null;
   const who = req.githubLogin ? `@${req.githubLogin}` : req.name;
-  const decide = async (grant: boolean) => {
-    await api().decideAccess(req.id, grant);
-    store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
-    onDecided();
-  };
+  const decide = (grant: boolean, g?: typeof goal) => async () => { await decideJoin(req, grant, g); onDecided(); };
   return (
     <div className="doc-row intray-row">
       <div className="intray-who">
@@ -278,8 +277,9 @@ function AccessRow({ req, onDecided }: { req: AccessRequestView; onDecided: () =
       {req.message ? <div className="doc-row-meta"><span>"{req.message}"</span></div> : null}
       {admin ? (
         <div className="actions">
-          <Act small tone="primary" run={() => decide(true)}>Let in</Act>
-          <Act small run={() => decide(false)}>Decline</Act>
+          <Act small tone="primary" run={decide(true)} title="They can move, message agents and write. No 1:1s yet.">Let in</Act>
+          {goal ? <Act small run={decide(true, goal)} title={`Also lets them open 1:1s with managers under "${goal.text}" and ask for work there`}>Let in + direct work under {goal.short}</Act> : null}
+          <Act small run={decide(false)}>Decline</Act>
         </div>
       ) : <div className="doc-row-meta"><span className="muted">An admin decides.</span></div>}
     </div>

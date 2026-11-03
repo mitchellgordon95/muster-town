@@ -688,6 +688,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
       timed("waits", () => checkWaits(world, d));
       timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
+      // a stopped grant (Grants.stop) closes as stopped once no session runs on it
+      timed("stoppingGrants", () => world.grantDesk.finishStopping(), "stopping grants");
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
       timed("schedules", () => fireSchedules(world, d));
       // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle

@@ -16,7 +16,7 @@ import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, Statu
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, canTalkToManager, isMemberTalk, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
 import { isPlumbing, latestThought, nowLine } from "./nowLine";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -348,17 +348,17 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout via-manager">
           <span>{agent.forkOf ? `${agent.name} is a helper ${manager.name} started for one task; it doesn't take messages.` : `${agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.`}</span>
           {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
-            : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
+            : canTalk ? <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
       ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          {!townHall && isMemberTalk(home?.id)
-            ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps.</span>
-            : <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>}
+          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
           <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
+      ) : isManager && !townHall && me.canInteract ? (
+        <div className="muted">A 1:1 with {agent.name} is for people who direct work under {home!.name}'s goal. An admin or the goal's captain can give you that.</div>
       ) : working && canControl ? (
         <div className="actions"><Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act></div>
       ) : null}

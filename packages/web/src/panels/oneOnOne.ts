@@ -4,15 +4,15 @@ import type { Agent } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 
-/** A human who can facilitate or review in the building opens 1:1s there. */
+/** A human who can facilitate or review in the building (its staff). */
 export const canOneOnOne = (buildingId: string | null | undefined) => !!buildingId && (store.can("meeting.facilitate", buildingId) || store.can("building.review", buildingId));
 
-/** A let-in member (canInteract, no facilitate/review here): may open the default 1:1 with a building's manager, not the Town Hall's (core createOneOnOne). */
-export const isMemberTalk = (buildingId: string | null | undefined) =>
-  !!buildingId && !canOneOnOne(buildingId) && !!store.state.me?.canInteract && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall";
-
-/** "Talk to ★ <manager>" opens a 1:1 with the building's manager: its facilitators and reviewers, and members. */
-export const canTalkToManager = (buildingId: string | null | undefined) => canOneOnOne(buildingId) || isMemberTalk(buildingId);
+/**
+ * "Talk to ★ <manager>" and a 1:1 in a building (not the Town Hall): where the server's `canDirect` holds for me (gr_cuobjlny6r,
+ * /api/me `directBuildingIds`: its staff, a captain over its goal, or a member granted "direct work under" it). No permission, no Talk.
+ */
+export const canTalkToManager = (buildingId: string | null | undefined) =>
+  !!buildingId && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall" && (canOneOnOne(buildingId) || !!store.state.me?.directBuildingIds?.includes(buildingId));
 
 /** Open (or return to) my 1:1 with the building's manager agent, or with `opts.agentId` about `opts.docId` / `opts.grantId`, in the meeting panel. */
 export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<void> {

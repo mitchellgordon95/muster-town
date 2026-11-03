@@ -3,7 +3,7 @@
  * short-lived resident row ("Pix 3", forkOf = the manager) that takes a free desk (never growing the lab), works one
  * assignment and is retired when its session ends. The runtime (step 2) calls `forkManager` and `retireFork`.
  */
-import { isGone, Agent, type Assignment, type Building } from "@muster-town/schema";
+import { isGone, Agent, type Assignment, type Building, type Session } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
 import { interruptNow, isWorking } from "./wakes.ts";
@@ -308,15 +308,27 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   const session = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [fork.id], "ORDER BY startedAt DESC, rowid DESC");
   if (!session || !isWorking(world, fork.id)) throw new AppError("conflict", `${fork.name} has no running work session.`);
   if (input.assignmentId && session.assignmentId !== input.assignmentId) throw new AppError("conflict", `${fork.name} is not running ${input.assignmentId} now (it is on ${session.assignmentId ?? "no assignment"}).`);
+  return interruptFork(world, me, fork, session, input.reason ?? "", now);
+}
+
+/**
+ * The interrupt half of `requestForkStop`, no permission check: tell the fork to wrap up, log the request with its
+ * deadline and leave it to `stopOverdueForks`. A human stopping a grant (`Grants.stop`) calls it for each of the
+ * grant's forks. Asking twice for one session keeps the first deadline.
+ */
+export function interruptFork(world: World, me: Agent, fork: Agent, session: Session, why: string, now = new Date()) {
+  const bid = homeOf(fork);
   const prior = world.events.list({ agentId: fork.id, types: ["system"], payloadKey: "stopFork", desc: true, limit: 20 })
     .find((e) => e.payload.stopFork === "requested" && e.payload.sessionId === session.id);
   if (prior) return { forkId: fork.id, sessionId: session.id, deadline: String(prior.payload.deadline), note: `${fork.name} was already asked to stop; the hard stop stays at ${stamp(String(prior.payload.deadline))}.` };
   const deadline = new Date(now.getTime() + STOP_FORK_TIMEOUT_MS).toISOString();
   const at = stamp(deadline);
-  const reason = (input.reason ?? "").trim();
+  const reason = why.trim();
+  // read before this request's event is appended: with no marker yet, the seeding would count it twice
+  const pending = pendingStops(world, now);
   interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
   const req = world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
-  setPendingStops(world, [...pendingStops(world, now), { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
+  setPendingStops(world, [...pending, { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
   return { forkId: fork.id, sessionId: session.id, deadline, note: `${fork.name} was interrupted: finish its step, write its pages and submit_report. If no report by ${at}, the town stops it and files "Session ended without a report"; either way the fork retires and its report reaches your in-tray.` };
 }
 
