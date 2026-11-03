@@ -51,6 +51,11 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     const brief = keyResultsBlock(world, world.buildings.require(LAB), a);
     expect(brief).toMatch(/end with ONE grant proposal/);
     expect(brief).toMatch(new RegExp(r.id));
+    // required reading before proposing: the Bank and free tokens (§7), the caps (§8) (gr_yu6qw3j9x5, kr_h0pqsgkov8)
+    expect(a.description).toContain("docs/how-work-gets-done.md");
+    expect(a.description).toContain("§7");
+    expect(a.description).toContain("§8");
+    expect(a.description).toMatch(/Before you propose anything, read/);
   });
 
   it("closes the reservation when its work ends (spent booked, rest returns), then waits 30 min before the next explorer", () => {
@@ -88,6 +93,15 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     expect(exploreBlock(world, lab())).toMatch(/cap/);
     world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: null, exploreChunkTokens: null });
     expect(exploreBlock(world, lab())).toBeNull();
+    // caps combine as the minimum: a looser cap below can't lift a tighter one above (gr_yu6qw3j9x5)
+    if (goalId !== "gl_town") {
+      world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 50_000 });
+      world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: 5_000_000 });
+      expect(exploreBlock(world, lab())).toMatch(/cap set on goal gl_town/);
+      world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: null });
+      world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: null });
+      expect(exploreBlock(world, lab())).toBeNull();
+    }
     const g = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000 });
     world.grantDesk.propose(mei, g.id);
     expect(exploreBlock(world, lab())).toMatch(/proposal of this building is open/);

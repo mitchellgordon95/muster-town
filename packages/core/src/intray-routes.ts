@@ -11,7 +11,8 @@ import type { World } from "./world.ts";
  * or parent, rollups by the building's attachment. "Mine" = routed to the viewer, nothing else: the root always has a
  * captain, so an admin who captains nothing has an empty Mine. `canDecide`: grants by `Grants.canFund` (building.fund, or the goal's owner); goal
  * proposals by `goals.edit` at their node (a human only); captain requests to the goal asked about, decided by `goals.edit`
- * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, as today.
+ * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, or by
+ * the captain of the report's building's goal or a goal above it (`Goals.captainsBuilding`, gr_zsm1piyqyx).
  * Anonymous viewers get routes with nothing theirs and nothing decidable.
  */
 export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[] }): IntrayRoutes {
@@ -36,7 +37,7 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
   for (const c of items.captains ?? []) add(c.id, { goalId: c.goalId }, canDecideCaptain(world, human, c.goalId));
   // a retainer routes like its building's rollups (its attachment); decided by building.fund there or the goal's captain
   for (const r of items.retainers ?? []) add(r.id, { buildingId: r.buildingId }, r.retainer === "asked" && canDecideRetainer(world, human, r));
-  for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && !!th && world.permissions.can(human, "building.review", th.id));
+  for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && ((!!th && world.permissions.can(human, "building.review", th.id)) || world.goalTree.captainsBuilding(human, d.buildingId)));
   // an owner who is not an admin starts on Mine; everyone else on All
   const ownsNode = !!userId && world.goals.count("ownerId = ? AND status = 'active'", [userId]) > 0;
   return { routes, defaultView: ownsNode && !admin ? "mine" : "all" };
