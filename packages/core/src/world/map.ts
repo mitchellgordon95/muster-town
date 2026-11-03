@@ -23,6 +23,8 @@ export class WorldMap {
   plazas: Plaza[] = [];
   /** called after a rebuild that moved places or lots, so bodies follow (set by the World) */
   follow: ((before: Before, moved: Moved[]) => void) | null = null;
+  /** called before a full lab grows by a desk (`claimDesk` with `grow`); throws to refuse it (set by the World: the subtree desk totals) */
+  beforeGrow: ((buildingId: string, headcount: number) => void) | null = null;
   /** increments on every rebuild (lets the server know to resend the grid) */
   version = 0;
   private byId = new Map<string, Place>();
@@ -141,7 +143,8 @@ export class WorldMap {
 
   /**
    * Give the agent the lowest free desk in the building (or desk `prefer` when it is free), never a taken one; rebuilds
-   * the layout. With `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing.
+   * the layout. With `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT and the desk totals on its goal path,
+   * `beforeGrow`) instead of refusing.
    */
   claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean; prefer?: number | null } = {}): Place {
     const existing = this.deskOf(agentId);
@@ -157,6 +160,8 @@ export class WorldMap {
       if (!opts.grow || b.kind === "town-hall" || n >= MAX_HEADCOUNT) {
         throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);
       }
+      // the subtree desk totals hold here too (gr_yu6qw3j9x5): a named resident joining a full lab is a raise
+      this.beforeGrow?.(b.id, n + 1);
       this.repos.buildings.upsert({ ...b, headcount: n + 1 });
     }
     this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);
