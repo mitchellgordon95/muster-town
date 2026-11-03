@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDoc, intrayRoutes, isOneOnOneStaff, oneOnOneMemberBlock, townHallIntray, townRoleId } from "../src/index.ts";
+import { canDirect, createDoc, intrayRoutes, townHallIntray, townRoleId } from "../src/index.ts";
 import { buildingRoleId } from "../src/permissions.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -70,22 +70,21 @@ describe("captain steering rights (gr_zsm1piyqyx)", () => {
     expect(world.docs.require(rollup.id, "doc").decision).not.toBe("pending");
   });
 
-  it("1:1s: the captain is staff inside the subtree (no member block); outside or plain, a member's 1:1", () => {
+  it("1:1s: the captain directs work inside the subtree (canDirect, 1:1 opens); outside or plain, no 1:1 (403)", () => {
     const { world, cap, out, plain } = setup();
-    expect(isOneOnOneStaff(world, cap, LAB)).toBe(true);
-    expect(isOneOnOneStaff(world, out, LAB)).toBe(false);
-    expect(isOneOnOneStaff(world, plain, LAB)).toBe(false);
+    expect(canDirect(world, cap, LAB)).toBe(true);
+    expect(canDirect(world, out, LAB)).toBe(false);
+    expect(canDirect(world, plain, LAB)).toBe(false);
     const mc = world.ops.openOneOnOne(cap, LAB);
-    expect(oneOnOneMemberBlock(world, mc)).toBe("");
-    expect(oneOnOneMemberBlock(world, world.ops.openOneOnOne(out, LAB))).toMatch(/new member of the town/);
-    expect(oneOnOneMemberBlock(world, world.ops.openOneOnOne(plain, LAB))).toMatch(/new member of the town/);
+    expect(() => world.ops.openOneOnOne(out, LAB)).toThrow(/meeting.facilitate|direct work/);
+    expect(() => world.ops.openOneOnOne(plain, LAB)).toThrow(/meeting.facilitate|direct work/);
     // they speak and end it
     world.ops.meetingSay(cap, mc.id, "Ship the captain gates.");
     expect(world.ops.endMeeting(cap, mc.id).phase).toBe("done");
     // and call a meeting in the building; outsiders can't
     expect(world.ops.createMeeting(cap, { kind: "standup", buildingId: LAB }).buildingId).toBe(LAB);
-    expect(() => world.ops.createMeeting(out, { kind: "standup", buildingId: LAB })).toThrow(/meeting.facilitate/);
-    expect(() => world.ops.createMeeting(plain, { kind: "standup", buildingId: LAB })).toThrow(/meeting.facilitate/);
+    expect(() => world.ops.createMeeting(out, { kind: "standup", buildingId: LAB })).toThrow(/direct work/);
+    expect(() => world.ops.createMeeting(plain, { kind: "standup", buildingId: LAB })).toThrow(/direct work/);
   });
 
   it("flags: the captain plants one in a building under their goal; outside and plain members get 403", () => {

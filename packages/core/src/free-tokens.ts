@@ -13,7 +13,7 @@ type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
  * retainers (tokensPerRun × runs left of a schedule a human approved, retainers.ts). Each claim
  * is paid where its session would draw (the draw order): the nearest earmark walking up from its goal, then the general
  * balance. Free tokens under a goal = what the claims leave of the general balance less the operating reserve (town
- * `operatingReserveTokens`, 1:1 mt_lb7tm75jgb: kept for 1:1s, meetings and directed work) + of the earmarks at or above it.
+ * `operatingReserveTokens`, 1:1 mt_lb7tm75jgb: kept for manager sessions: deciding reports, 1:1s, meetings; work sessions of every lane wait while the balance is within it, lanes.ts) + of the earmarks at or above it.
  * Read-only: nothing is stored but the reservations.
  */
 

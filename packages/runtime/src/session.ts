@@ -83,6 +83,8 @@ interface SessionSpec {
   alongside?: boolean;
   /** read the town's code: Read, Grep and Glob over this snapshot (its dir is the cwd; a guard denies paths outside it) */
   code?: CodeCheckout | null;
+  /** `system` is the whole system prompt, without the Claude Code preset in front of it (team-lead sessions: docs/prompt-caching.md) */
+  bare?: boolean;
   /** continue this SDK session (its JSONL under the claude dir) instead of starting a new one: a team-lead session cut by a restart (manage.ts `resumableManage`) */
   resume?: string | null;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
@@ -239,7 +241,9 @@ export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential,
   return {
     model: spec.model,
     maxTurns: spec.maxTurns,
-    systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
+    // a bare prompt (team-lead sessions) is sent as is: the Claude Code preset's own sections were a third of the
+    // prefix those sessions re-wrote to cache on every wake (docs/prompt-caching.md); work sessions keep the preset
+    systemPrompt: spec.bare ? spec.system : { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
     // In-process sessions never edit or run code (that happens in desks); a manage session may read it (code.ts).

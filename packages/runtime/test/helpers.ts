@@ -102,12 +102,20 @@ export function setup(script: Script, extra: Partial<RuntimeOptions> = {}) {
   world.goals.patch(ROOT_GOAL_ID, { explore: false });
   // test Banks hold a few million tokens: the 500,000 operating reserve would block their grant funding (core free-tokens tests cover it)
   world.town.set({ operatingReserveTokens: 0 });
+  // the imported lab's manager (Moss) would wake on the v0 reports the import left pending in its in-tray: mark them handled
+  world.db.prepare("UPDATE docs SET decision = 'approve' WHERE type = 'report' AND decision = 'pending' AND buildingId = ?").run(seed.lab!.id);
   const sdk = fakeSdk(world, script);
   const clock = { t: new Date("2026-10-19T10:00:00Z").getTime() };
   const runtime: Runtime = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, now: () => new Date(clock.t), deskBackend: new HostBackend(), ...extra });
   const by = (name: string) => world.agents.first("name = ?", [name])!;
   cleanups.push(async () => { await runtime.stop(); world.close(); });
   return { world, seed, sdk, runtime, clock, by, lab: seed.lab! };
+}
+
+/** The imported lab without its manager agent: a scheduler test whose reports would otherwise wake Moss's team-lead session (running the test's work script) and skew its session counts. */
+export function managerless(world: World): void {
+  const lab = world.buildings.require("carbon-cycle", "building");
+  world.buildings.upsert({ ...lab, managerAgentId: null });
 }
 
 const cleanups: (() => Promise<void>)[] = [];

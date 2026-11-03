@@ -13,6 +13,7 @@ import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRed
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
+import { estimateGrantWithModel, estimateOpenProposals } from "./estimate.ts";
 import { nameBuilding } from "./naming.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
@@ -388,10 +389,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       facilitate: (id) => facilitate(ctx, mst, id),
       meetingMention: (id, toId, byId, byKind) => onMeetingMention(ctx, mst, id, toId, byId, byKind),
       wakeManagers: (bid) => wakeManagers(bid),
+      estimateGrant: (grantId) => estimateGrantWithModel(ctx, grantId),
       abort: (agentId) => abortWork(ctx, agentId, killGraceMs),
     },
   });
   void track(waker.booted.catch(log("waker replay")));
+  // open proposals the grant-estimate wake rule missed (made while down, or before it shipped) get the model's range once
+  void track(waker.booted.then(() => stopped ? 0 : estimateOpenProposals(ctx)).catch(log("grant estimates")));
 
   function scheduleMeetings(t: number): void {
     const meetings = world.meetings.all();

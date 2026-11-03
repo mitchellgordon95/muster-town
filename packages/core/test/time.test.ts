@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clockLine, fromNow, guessedTimes, guessedTimesWarning, stamp, waitedFor, whenFor } from "../src/time.ts";
-import { oneOnOnePrompt, oneOnOneUtterance, workSystemPrompt } from "../src/prompts.ts";
+import { oneOnOnePrompt, oneOnOneUtterance, workPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
 const NOW = Date.parse("2026-10-31T20:30:00Z");
@@ -69,7 +69,10 @@ describe("time in words (core/time.ts, 1:1 mt_3jtclcoxl2)", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     const building = world.buildings.require("carbon-cycle", "building");
-    expect(workSystemPrompt(mei, building, world.town.get(), { now: NOW })).toContain("Clock: it is 2026-10-31 20:30 UTC as this starts");
+    // the clock is in the brief (the first message), never in the system prompt: that prefix is cached across sessions (docs/prompt-caching.md)
+    expect(workSystemPrompt(mei, building, world.town.get())).not.toContain("Clock: it is");
+    const asg = world.ops.createWork(admin, mei.id, { title: "measure" });
+    expect(workPrompt(asg, undefined, undefined, undefined, NOW).startsWith("Clock: it is 2026-10-31 20:30 UTC as this starts")).toBe(true);
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     const m = world.ops.openOneOnOne(admin, "carbon-cycle");
     world.ops.meetingSay(admin, m.id, "wait what time is it right now");

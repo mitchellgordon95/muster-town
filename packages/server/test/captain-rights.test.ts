@@ -9,7 +9,7 @@ const LAB = "carbon-cycle";
 
 /** Captain steering rights over HTTP (gr_zsm1piyqyx, kr_xx9wtfnwh8): captain of the lab's goal (yes), captain elsewhere and a plain member (no). */
 describe("captain steering rights routes", () => {
-  it("rollup decide + in-tray canDecide, 1:1 as staff, plant a flag: inside the subtree yes; outside and plain member no", async () => {
+  it("rollup decide + in-tray canDecide, 1:1, plant a flag: inside the subtree yes; outside and plain member no", async () => {
     const s = await seededApp();
     cleanups.push(s.close);
     const { world, app, seed, by } = s;
@@ -40,12 +40,14 @@ describe("captain steering rights routes", () => {
     expect((await tray(out.h)).routes[rollup.id]).toMatchObject({ mine: false, canDecide: false });
     expect((await tray(plain.h)).routes[rollup.id]).toMatchObject({ mine: false, canDecide: false });
 
-    // 1:1: staff inside (an agent target is a staff right; a member gets "As a member you talk to"), member elsewhere
+    // 1:1: a captain directs work inside (canDirect); outside the subtree, or a plain member, no 1:1 (403)
     const one = (h: Record<string, string>, body: object = {}) => json(app, "POST", `/api/buildings/${LAB}/one-on-one`, { headers: h, body });
     expect((await one(cap.h, { agentId: mei.id })).status).toBe(200);
     expect((await one(out.h, { agentId: mei.id })).status).toBe(403);
     expect((await one(plain.h, { agentId: mei.id })).status).toBe(403);
-    expect((await one(out.h)).status).toBe(200);
+    expect((await one(cap.h)).status).toBe(200);
+    expect((await one(out.h)).status).toBe(403);
+    expect((await one(plain.h)).status).toBe(403);
 
     // flags: 201 inside, 403 outside
     const flag = (h: Record<string, string>) => json(app, "POST", `/api/buildings/${LAB}/flags`, { headers: h, body: { text: "Look at the banner" } });

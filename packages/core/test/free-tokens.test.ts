@@ -96,17 +96,22 @@ describe("free tokens (docs/how-work-gets-done.md §7)", () => {
       expect(world.events.list({ types: ["grant.funded"] }).at(-1)?.text).toMatch(/5,000 tokens overdrawn, its work waits until the Bank can cover it$/);
     });
 
-    it("directed work, 1:1s and meetings still draw on the balance below the reserve", () => {
+    it("manager sessions (1:1s, meetings, the team-lead wake) still draw on the balance below the reserve; work of every lane waits at it (Mitchell, 2026-11-02)", () => {
       const { world, admin, b } = setup();
       world.town.set({ operatingReserveTokens: 8_000 });
       const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
       const dir = world.ops.createWork(admin, manager.id, { title: "directed" });
+      // above the reserve: directed work runs (there are free tokens: 10,000 + 3,000 earmark − 8,000)
+      expect(world.budget.canStart(manager.id, dir)).toBe(true);
       const before = world.bank.balance();
       world.budget.charge(manager.id, 5_000, 0);
       expect(world.bank.balance()).toBe(before - 5_000);
       expect(world.bank.balance()).toBeLessThan(8_000);
       expect(freeTokens(world, b.id).freeTokens).toBe(0);
-      expect(world.budget.canStart(manager.id, dir)).toBe(true);
+      // within the reserve: a session with no assignment (the manager's) starts and is still charged; directed work waits
+      expect(world.budget.canStart(manager.id)).toBe(true);
+      expect(world.budget.canStart(manager.id, dir)).toBe(false);
+      expect(world.assignments.require(dir.id).heldReason).toMatch(/within the operating reserve/);
     });
   });
 });

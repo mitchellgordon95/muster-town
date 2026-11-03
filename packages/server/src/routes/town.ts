@@ -1,5 +1,5 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -92,8 +92,17 @@ export async function townRoutes(app: FastifyInstance) {
       isAdmin: world.permissions.isAdmin(holder),
       canInteract: canInteract(world, user.id),
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
+      direct: directGoals(user.id),
+      directDefaultGoalId: defaultDirectGoal(world, holder),
     };
   });
+
+  /** The goals a user may direct work under: granted rows, then the goals they captain (gr_cuobjlny6r). */
+  const directGoals = (userId: string): AuthMe["direct"] => {
+    const granted = directGrantsOf(world, userId).map((r) => ({ goalId: r.goalId, text: world.goalTree.get(r.goalId)?.text ?? r.goalId, how: "granted" as const }));
+    const captained = world.goals.where("ownerId = ? AND status = 'active'", [userId], "ORDER BY createdAt, rowid").map((g) => ({ goalId: g.id, text: g.text, how: "captain" as const }));
+    return [...granted, ...captained];
+  };
 
   // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the Town Hall in-tray.
   app.post("/api/access-requests", async (req) => {
@@ -110,7 +119,28 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/access-requests/:id/decide", async (req) => {
     const input = parse(AccessDecisionInput, req.body);
-    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant) };
+    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant, input.directGoalId ?? null) };
+  });
+
+  // "Direct work under <goal>" (gr_cuobjlny6r): let-in members with their goals (User stats' Members table), for an
+  // admin or a captain; grant and revoke one goal at a time (an admin, or a captain of the goal or one above it).
+  app.get("/api/members", async (req) => {
+    const actor = actorOf(world, req);
+    const h = world.holderOf(actor);
+    if (!world.permissions.can(actor, "town.manage_roles") && !(h.kind === "user" && world.goals.first("ownerId = ?", [h.id]))) {
+      throw new AppError("forbidden", "Only an admin or a goal's captain sees the members list.", 403, "town.manage_roles");
+    }
+    return { members: membersView(world) };
+  });
+
+  app.post<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body);
+    return { direct: grantDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
+  });
+
+  app.delete<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body ?? req.query);
+    return { removed: revokeDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
   });
 
   app.get("/api/events", async (req) => {

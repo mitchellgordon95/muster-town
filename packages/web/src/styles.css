@@ -198,9 +198,15 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .rules-head b { color: var(--gold); }
 .rules-head span { color: var(--muted); font-size: 12px; flex: 1; }
 .rules-card .form textarea { font-family: var(--mono); font-size: 12.5px; }
-.now { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ok); background: #18241c; border: 1px solid #284232; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
-.now .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .3; } }
+/* the agent panel's first line: what it's doing now, in plain words (panels/nowLine.ts) */
+.now-line { margin: 6px 0 2px; font-size: 13.5px; line-height: 1.4; color: var(--text, #e8e9f0); }
+.now-line.working .now-what { color: var(--ok); }
+.now-what { display: flex; align-items: baseline; gap: 7px; }
+.now-what .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; transform: translateY(-1px); }
+.now-task { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.details-toggle { display: block; background: none; border: 0; padding: 2px 0; margin: 0 0 6px; color: var(--text, #e8e9f0); font: inherit; font-size: 12.5px; cursor: pointer; }
+.details-toggle:hover { text-decoration: underline; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0 0 6px; font-size: 13px; }
 .kv > div { display: contents; }
 .kv dt { color: var(--muted); }
@@ -477,6 +483,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .intray-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .intray-who b { color: var(--text); }
 .intray-proposal { font-size: 12px; color: #c4c7dc; }
+.rollup-ask { border-left: 2px solid #e8c35a; padding-left: 6px; margin: 2px 0; color: #e6e1c8; }
 .member-row, .resident-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
 .member-row > .member, .resident-row > .member { flex: 1; min-width: 0; }
 .member-row > .btn, .resident-row > .btn { align-self: center; }
@@ -605,6 +612,13 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 @media (max-width: 520px) { .rollup-card-field, .rollup-card-call { grid-template-columns: 1fr; gap: 0; } }
 .grant-row { cursor: default; }
 .grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
+/* the checkpoint card's evidence (mt_7b4zc7yja3): what shipped per key result, the top-up line; the plan sits under the fold */
+.checkpoint-evidence { font-size: 12px; margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+.evidence-krs { margin: 0 0 2px 18px; padding: 0; }
+.evidence-shipped { color: #8fd694; }
+.evidence-not { color: #f08a8a; }
+.evidence-partly { color: #e8c76a; }
+.grant-plan > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; margin-top: 4px; }
 .grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .grant-inputs { display: grid; grid-template-columns: 170px 1fr; gap: 6px; }
 /* waterfall step 6: the board's key-results view (goal-directed buildings) */
@@ -682,6 +696,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-share { text-align: right; min-width: 48px; font-variant-numeric: tabular-nums; }
 .spend-usd { text-align: right; min-width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .finance-usd { white-space: nowrap; }
+.spend-grant-line { display: block; font-size: 11.5px; padding: 0 0 2px; } /* a grant row's spent vs funded · outcome · key results (gr_dt1l35tydx) */
+.spend-grant-line .spend-over { color: var(--bad); }
 .spend-date { min-width: auto; } /* Sources dates: the column shrinks to one whole date, never below it; a range wraps after the arrow, never inside a date at its hyphens */
 .spend-date .day { white-space: nowrap; }
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }

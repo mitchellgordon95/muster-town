@@ -1,6 +1,6 @@
 /** Screen-space text: name labels and bubbles, drawn crisp on top of the scaled pixel layer. */
 import type { Agent, BuildingBudget, Stoplight } from "@muster-town/schema";
-import { claimedTokens, fmtTokens, stoplightLabel } from "../format";
+import { claimedTokens, fmtTokens, netFreeTokens, signed, stoplightLabel } from "../format";
 
 export const STATUS_COLOR: Record<string, string> = {
   idle: "#9a9db3", walking: "#7cc4ff", working: "#6fdc8c", "in-meeting": "#c79bff",
@@ -33,7 +33,7 @@ export function bubbleFor(a: Agent, said: { text: string; at: number } | undefin
     case "stopped": return { text: "Stopped", tone: "bad" };
     case "banned": return { text: "Banned", tone: "bad" };
     case "in-meeting": return { text: a.activity || "In a meeting", tone: "meet" };
-    default: return a.kind === "service" ? { text: a.activity || "Ask me about the library", tone: "muted" } : null;
+    default: return null;
   }
 }
 
@@ -244,16 +244,58 @@ export function drawPill(g: CanvasRenderingContext2D, x: number, y: number, text
  * A goal's signpost label (docs/goals.md "The map is the tree"): the goal's words on a wooden board, bottom-left at
  * (x, y), cut to `max` px wide (the full words are in the place's name).
  */
-export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, text: string, max = 220) {
+export function drawGoalSign(g: CanvasRenderingContext2D, x: number, y: number, text: string, max = 220): number {
   g.font = "700 10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif";
   let t = text;
   if (g.measureText(t).width > max) { while (t.length > 1 && g.measureText(`${t}…`).width > max) t = t.slice(0, -1); t = `${t.trimEnd()}…`; }
-  const w = g.measureText(t).width + 10, h = 15;
+  const w = g.measureText(t).width + 10, h = GOAL_SIGN_H;
   const bx = Math.round(x), by = Math.round(y - h);
   g.fillStyle = "#8a5a2b"; g.strokeStyle = "#3b2410"; g.lineWidth = 2;
   roundRect(g, bx, by, w, h, 3); g.stroke(); g.fill();
   g.fillStyle = "#fff4dc"; g.textBaseline = "middle";
   g.fillText(t, bx + 5, by + h / 2 + 0.5);
+  return bx + w;
+}
+
+const GOAL_SIGN_H = 15;
+const SIGN_MIN = 24;
+
+/**
+ * Where each goal's sign label goes this frame (kr_c3c7651d18, "no map sign is hidden"): wanted with its left edge
+ * at its signpost (x) and its bottom at y (moved down inside the view at the top edge); slid right so it starts on screen, clear of every `avoid` rect on its row
+ * (the HUD card, the minimap) and of the label before it on that row; its width (`max`, before the text is cut with
+ * "…") stops short of the next signpost on the row, the next `avoid` rect and the view's right edge. `measure(i, x, y, max)` draws
+ * a label and returns its right edge. null: the post is off screen (or so far left its label wouldn't reach the screen) or no room is left on its row.
+ */
+export function placeGoalSigns(items: { x: number; y: number; max: number }[], view: Rect, avoid: Rect[], measure: (i: number, x: number, y: number, max: number) => number): ({ x: number; y: number; max: number } | null)[] {
+  const out: ({ x: number; y: number; max: number } | null)[] = items.map(() => null);
+  const order = items.map((_, i) => i).sort((a, b) => items[a].y - items[b].y || items[a].x - items[b].x);
+  let row = NaN, after = -Infinity;
+  for (const i of order) {
+    const { x: px, y, max } = items[i];
+    if (y !== row) { row = y; after = -Infinity; }
+    if (y < view.y || y - GOAL_SIGN_H > view.y + view.h || px > view.x + view.w || px + max < view.x) continue;
+    // a post at the top edge keeps its label just inside the view
+    const bottom = Math.max(y, view.y + EDGE + GOAL_SIGN_H), top = bottom - GOAL_SIGN_H;
+    const onRow = avoid.filter((o) => top < o.y + o.h && o.y < bottom);
+    let x = Math.max(px, view.x + EDGE, after + GAP * 2);
+    for (let moved = true; moved;) {
+      moved = false;
+      for (const o of onRow) if (x < o.x + o.w && o.x < x + SIGN_MIN) { x = o.x + o.w + GAP * 2; moved = true; }
+    }
+    // the next signpost on the row, if its label can still start there (one hidden under the HUD slides after this one)
+    const next = Math.min(...items.filter((o) => o.y === y && o.x > px && o.x > x + SIGN_MIN + 16).map((o) => o.x));
+    const wall = Math.min(view.x + view.w - EDGE, ...onRow.filter((o) => o.x >= x).map((o) => o.x - GAP * 2));
+    const want = Math.min(max, next - x - 16);
+    // squeezed by the right edge or the minimap: slide back left (still clear of the label before it and the HUD) for room
+    const back = Math.max(after + GAP * 2, wall - 10 - want);
+    if (wall - x - 10 < want && back < x && !onRow.some((o) => back < o.x + o.w && o.x < x)) x = back;
+    const room = Math.min(want, wall - x - 10);
+    if (room < SIGN_MIN) continue;
+    out[i] = { x, y: bottom, max: room };
+    after = measure(i, x, bottom, room);
+  }
+  return out;
 }
 
 /** Break `text` into lines no wider than `max` px in the current font (a single over-long word gets its own line). */
@@ -377,13 +419,13 @@ export const BANK_SIGN_H = 112;
  * The Bank's marquee. `x, y` is its bottom centre, or with `left` its left edge and vertical middle. `maxW` (screen px)
  * shrinks it, about that anchor, to fit the clear ground it stands on (never under half size).
  */
-export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number } | null } | null, now: number, align: "center" | "left" = "center", maxW = Infinity) {
+export function drawBankSign(g: CanvasRenderingContext2D, x: number, y: number, bank: { townTokens: number; free?: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; freeTokens: number; overdraftTokens?: number } | null } | null, now: number, align: "center" | "left" = "center", maxW = Infinity) {
   const n = (v: number) => v.toLocaleString("en-US");
   const total = bank ? n(bank.townTokens) : "…";
   const free = bank?.free ?? null;
   const parts = [
     { label: "CLAIMED", value: free ? n(claimedTokens(free)) : "…", color: "#ffb26b" },
-    { label: "FREE", value: free ? n(free.freeTokens) : "…", color: "#9ff0b4" },
+    { label: "FREE", value: free ? signed(netFreeTokens(free), n) : "…", color: free && netFreeTokens(free) < 0 ? "#ff8a7a" : "#9ff0b4" },
   ];
   g.font = `800 30px ${SANS}`;
   const tw = g.measureText(total).width;

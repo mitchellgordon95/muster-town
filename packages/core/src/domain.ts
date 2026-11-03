@@ -11,6 +11,7 @@ import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
+import { withAsks } from "./rollup-asks.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -352,13 +353,14 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
     `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
     [], "ORDER BY updatedAt, rowid",
-  ).map((g) => world.grantDesk.view(g));
+  ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
 export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world), blocked: world.grantDesk.blockedBuildings() };
+  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts)
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings() };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */

@@ -27,7 +27,8 @@ export async function grantRoutes(app: FastifyInstance) {
     if (grant.status === "draft" && !(req.auth && desk.canManage(actorOf(world, req), grant.buildingId))) {
       throw new AppError("not_found", "grant not found");
     }
-    return { grant };
+    // an open or live grant carries what it is likely to cost (core grant-estimate.ts), signed out too
+    return { grant: desk.withEstimate(grant) };
   });
 
   app.post<{ Params: Params }>("/api/buildings/:id/grants", async (req, reply) => {

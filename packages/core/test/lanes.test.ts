@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, sessionMemory, workSystemPrompt } from "../src/index.ts";
+import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
 import { laneBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
 import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
@@ -115,21 +115,29 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.assignments.require(held.id).heldReason).toBeNull();
   });
 
-  it("exploration is held with no free tokens, or once its goal's optional cap is reached today; uncapped by default; directed is never held", () => {
-    const { world, admin, noor, spend } = setup();
+  it("exploration and directed work are held with no free tokens; exploration also once its goal's optional cap is reached today, uncapped by default", () => {
+    const { world, admin, noor, spend, fund } = setup();
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     const dir = world.ops.createWork(admin, noor.id, { title: "directed" });
-    // the seeded Bank holds nothing: no free tokens
+    // the seed's pools-era allocations to the lab would still run directed work: retire them (prod has none)
+    for (const al of world.allocations.where("buildingId = ?", [LAB])) world.allocations.upsert({ ...al, retired: true });
+    // the Bank holds 5,000 and a funded grant claims all of it: no free tokens, for exploration and for directed work alike (Mitchell, 2026-11-02)
+    creditBank(world, 5000);
+    fund(5000);
     expect(world.budget.canStart(noor.id, ex)).toBe(false);
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: no free tokens under its goal/);
-    expect(world.budget.canStart(noor.id, dir)).toBe(true);
+    expect(world.budget.canStart(noor.id, dir)).toBe(false);
+    expect(world.assignments.require(dir.id).heldReason).toMatch(/^held: no free tokens under its goal for directed work/);
+    expect(laneBlock(world, dir)?.kind).toBe("directed");
     creditBank(world, 5000);
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
+    expect(world.budget.canStart(noor.id, dir)).toBe(true);
+    expect(world.assignments.require(dir.id).heldReason).toBeNull();
     // no cap anywhere up the tree: spend doesn't hold it
     spend(noor.id, 2000, "exploration");
     expect(world.grantDesk.exploration(LAB).cap).toBeNull();
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
-    // a cap on the root is town-wide; it holds once today's exploration under it reaches it
+    // a cap on the root is town-wide; it holds once today's exploration under it reaches it; the cap is exploration's alone
     world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 2000 });
     expect(world.budget.canStart(noor.id, ex)).toBe(false);
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: exploration cap reached today \(2,000 \/ 2,000 tokens, set on goal gl_town\)/);
@@ -137,6 +145,29 @@ describe("goal-directed budgets: the canStart gate", () => {
     // null = inherit: uncapped again
     world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: null });
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
+  });
+
+  it("the operating reserve is for manager sessions: every lane's work waits while the balance is within it; a manager wake, 1:1 or meeting (no assignment) still starts", () => {
+    const { world, admin, mei, noor, fund } = setup();
+    creditBank(world, 10_000);
+    const g = fund(3_000);
+    const gr = world.ops.createWork(admin, noor.id, { title: "grant step", lane: "grant", grantId: g.id });
+    const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
+    const dir = world.ops.createWork(admin, noor.id, { title: "directed" });
+    for (const a of [gr, ex, dir]) expect(world.budget.canStart(noor.id, a)).toBe(true);
+    // the balance (10,000) falls within an 11,000 reserve: all three lanes wait, with the reason at the Bank
+    world.town.set({ operatingReserveTokens: 11_000 });
+    for (const a of [gr, ex, dir]) {
+      expect(world.budget.canStart(noor.id, a)).toBe(false);
+      expect(world.assignments.require(a.id).heldReason).toMatch(/^held: the Bank's balance is within the operating reserve \(11,000 tokens kept for manager sessions/);
+      expect(laneBlock(world, a)?.kind).toBe("reserve");
+    }
+    // the manager's own sessions without an assignment (team-lead wake, 1:1, meeting) run on the reserve
+    expect(world.budget.canStart(mei.id)).toBe(true);
+    expect(world.budget.canStart(noor.id)).toBe(true);
+    // a reserve of 0 keeps the old rule: nothing waits at it
+    world.town.set({ operatingReserveTokens: 0 });
+    for (const a of [gr, ex, dir]) expect(world.budget.canStart(noor.id, a)).toBe(true);
   });
 
   it("the Town Hall never holds on lanes; a lab does", () => {
@@ -215,7 +246,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
   });
 
   it("checkpoint_grant sets the status of the grant's key results up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
-    const { world, mei, noor, fund, spend } = setup();
+    const { world, mei, noor, admin, fund, spend } = setup();
     const g = fund(4_000_000, KRS);
     const krs = g.keyResults;
     spend(noor.id, 4_100_000, "grant", g.id);
@@ -227,19 +258,36 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     await expect(world.verbs.checkpoint_grant(noor, { grantId: g.id })).rejects.toThrow(/building.manage/);
     await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "met" as never })).rejects.toThrow();
     await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", keyResultId: "kr_nope" })).rejects.toThrow(/not an open key result of grant/);
+    // the top-up line is required once per checkpoint (mt_7b4zc7yja3), both halves together
+    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id })).rejects.toThrow(/whatTopUpBuys and topUpTokens are required/);
+    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, whatTopUpBuys: "the board" })).rejects.toThrow(/together/);
+    expect(world.keyResults.require(krs[1]!.id).status).toBe("not-started");
     // one at a time with keyResultId
-    await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id });
+    const first = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id, whatTopUpBuys: "KR 2: the board ships", topUpTokens: 500_000 });
+    expect(first.topUp).toEqual({ tokens: 500_000, buys: "KR 2: the board ships" });
     expect(world.keyResults.require(krs[1]!.id)).toMatchObject({ status: "at-risk", statusNote: "board not yet" });
     expect(world.keyResults.require(krs[0]!.id).status).toBe("not-started");
     // no keyResultId: every open key result of the grant
     const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "claimed", note: "banner shows it" });
     expect(r).toMatchObject({ status: "checkpoint", checkpointDocId: null, keyResults: krs.map((k) => ({ id: k.id, status: "claimed" })) });
     for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "banner shows it" });
-    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
+    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\n1. **The banner**\n**What it is:** x\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
     expect(up).toMatchObject({ intray: "town-hall" });
     expect(world.docs.require(up.id).tags).toEqual(["rollup", "checkpoint"]);
     expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
     expect(world.assignments.require(cp.id).status).toBe("done");
+    // the checkpoint card's evidence (mt_7b4zc7yja3): per key result verdict + note, spend, the top-up line, the report's Shipped titles
+    const e = world.grantDesk.get(g.id).evidence!;
+    expect(e).toMatchObject({ grantId: g.id, grantTokens: 4_000_000, spentTokens: 4_100_000, topUpTokens: 500_000, whatTopUpBuys: "KR 2: the board ships", reportId: up.id });
+    expect(e.keyResults.map((k) => [k.verdict, k.note])).toEqual([["shipped", "banner shows it"], ["shipped", "banner shows it"]]);
+    expect(e.shipped.length).toBe(1);
+    expect(e.shipped[0]).toMatch(/The banner/);
+    // a human continues; the next hold clears the line, so the next checkpoint asks for it again
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 5_000_000 });
+    spend(noor.id, 1_000_000, "grant", g.id);
+    world.budget.charge(noor.id, 0, 0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", topUpTokens: null, whatTopUpBuys: "" });
+    expect(world.grantDesk.get(g.id).evidence).toMatchObject({ topUpTokens: null, whatTopUpBuys: "" });
   });
 
   it("checkpoint_grant still files after a human topped up the grant before the manager's checkpoint session; a never-held funded grant refuses", async () => {
@@ -256,6 +304,37 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect(r).toMatchObject({ status: "funded", keyResults: [{ id: g.keyResultId, status: "on-track" }] });
     const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nnothing", verdict: "continue", rollup: true });
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
+  });
+
+  it("withdraw_grant: the manager withdraws its own proposed grant with a note; out of the in-tray and deck, KRs archived, funded refused", async () => {
+    const { world, seed, mei, noor, admin, fund } = setup();
+    const propose = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, KRS[1]!], objective: "A plan to rewrite", stopCondition: "s", askTokens: 300_000 }).id);
+    const g = propose();
+    expect(townHallIntray(world).grants.map((x) => x.id)).toContain(g.id);
+    expect(JSON.stringify(reviewDeck(world).slides)).toContain(g.id);
+    // another building's manager can't
+    const other = createBuilding(world, { name: "Other lab" }, seed.admin.id);
+    world.permissions.grant({ kind: "agent", id: noor.id }, buildingRoleId(other.id, "manager"));
+    await expect(world.verbs.withdraw_grant(noor, { grantId: g.id, note: "mine now" })).rejects.toThrow(/not a grant of your building|building.manage/);
+    expect(() => world.grantDesk.withdraw({ kind: "agent", id: noor.id } as never, g.id, "x")).toThrow(/building.manage/);
+    // a funded grant is refused, pointing at close_grant
+    const f = fund();
+    await expect(world.verbs.withdraw_grant(mei, { grantId: f.id, note: "changed my mind" })).rejects.toThrow(/close_grant/);
+    const r = await world.verbs.withdraw_grant(mei, { grantId: g.id, note: "the Bank funds all approved work; rewriting" });
+    expect(r).toMatchObject({ grantId: g.id, status: "closed", outcome: "stopped", keyResults: [{ archived: true }, { archived: true }] });
+    const after = world.grants.require(g.id);
+    expect(after.history.at(-1)).toMatchObject({ action: "withdraw", byId: mei.id, note: "the Bank funds all approved work; rewriting" });
+    for (const k of world.grantDesk.keyResultsOf(g.id)) expect(k.statusNote).toMatch(/withdrawn: the Bank funds/);
+    expect(townHallIntray(world).grants.map((x) => x.id)).not.toContain(g.id);
+    expect(JSON.stringify(reviewDeck(world).slides)).not.toContain(g.id);
+    const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
+    expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "stopped", withdrawn: true, note: "the Bank funds all approved work; rewriting" });
+    expect(world.messages.where("1 = 1", []).some((m) => m.body.includes("withdrew the proposal") && m.body.includes("rewriting"))).toBe(true);
+    await expect(world.verbs.withdraw_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
+    // a countered proposal can be withdrawn too, then a fresh one proposed
+    const c = world.grantDesk.decide(admin, propose().id, { action: "counter", note: "smaller" });
+    expect((await world.verbs.withdraw_grant(mei, { grantId: c.id, note: "rewriting from scratch" })).status).toBe("closed");
+    expect((await world.verbs.propose_grant(mei, { objective: "fresh", stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
   });
 
   it("close_grant: the manager closes a funded grant early as done; all its open KRs claimed, unspent returned, in the Town Hall in-tray until a human marks them", async () => {
@@ -396,6 +475,7 @@ describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1
 
   it("countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'", () => {
     const { world, admin, mei } = setup();
+    creditBank(world); // directed work needs free tokens (2026-11-02)
     const g = propose(world, mei);
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
     const c = world.assignments.first("agentId = ? AND status = 'pending'", [mei.id])!;
@@ -432,6 +512,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
 
   it("an agent creates directed work only when it cites a human source; it is stored and never held by the allowance", async () => {
     const { world, mei, noor, admin, spend } = setup();
+    creditBank(world);
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "directed" })).rejects.toThrow(/goal-directed.*agents can't create directed work\.$/);
     const own = await world.verbs.write(mei, { title: "my note", body: "x", type: "note", state: "building" });
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: own.id })).rejects.toThrow(/isn't human-authored/);
@@ -458,7 +539,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const decide = (text: string, extra = {}) => world.ops.meetingDecide(mei, m.id, [{ text, assigneeId: noor.id, assignmentId: null, ...extra }]);
     // meeting decisions stay exempt (directed); without a human in the meeting they cite no source
     expect(world.assignments.require(decide("no lane").decisions[0]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: null });
-    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ speakerId: "us_x", speakerKind: "user", text: "please do X", at: nowIso() }] });
+    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ speakerId: world.holderOf(admin).id, speakerKind: "user", text: "please do X", at: nowIso() }] });
     const out = decide("do X");
     expect(world.assignments.require(out.decisions[1]!.assignmentId!)).toMatchObject({ lane: "directed", sourceId: m.id });
     expect((await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: m.id })).lane).toBe("directed");
@@ -466,6 +547,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
 
   it("exploration names a gap and directed work may; neither names a key result", async () => {
     const { world, mei, admin } = setup();
+    creditBank(world);
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "exploration" })).rejects.toThrow(/names a goal gap/);
     const ex = await world.verbs.assign(mei, { ...base(mei.id), lane: "exploration", gap: "nobody reads the board" });
     expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "nobody reads the board", keyResultId: null, grantId: null });
