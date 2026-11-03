@@ -1106,6 +1106,7 @@ export const GrantStatus = z.enum([
   "countered",   // a human sent it back with changes; the manager's move
   "funded",      // sessions may draw on it
   "checkpoint",  // spend reached 100%: new sessions held until a human decides
+  "stopping",    // a human stopped it (Grants.stop): its forks are wrapping up, nothing new starts; closes as stopped when they end
   "closed",      // done: see outcome
   "rejected",
 ]);
@@ -1113,7 +1114,7 @@ export type GrantStatus = z.infer<typeof GrantStatus>;
 /** done: the manager closed it early because the work is done (close_grant); "met" stays the human's word on the key result */
 export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut", "done"]);
 export type GrantOutcome = z.infer<typeof GrantOutcome>;
-export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit", "withdraw"]);
+export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit", "withdraw", "stop"]);
 export const GrantHistoryEntry = z.object({
   at: Iso,
   byId: Id,
@@ -2182,6 +2183,9 @@ export const DecideGrantInput = z.object({
 export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
 export const CloseGrantInput = z.object({ outcome: GrantOutcome, note: z.string().max(2000).default("") });
+/** POST /api/grants/:id/stop: a human stops a funded (or checkpoint) grant mid-work; the reason is kept on it and its key results. */
+export const StopGrantInput = z.object({ reason: z.string().trim().min(1, "Say why you stop it (reason).").max(2000) });
+export type StopGrantInput = z.input<typeof StopGrantInput>;
 export type CloseGrantInput = z.input<typeof CloseGrantInput>;
 /**
  * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `building.fund` for `met` / `missed`.
@@ -2414,6 +2418,8 @@ export const AuthMe = z.object({
    * or one below it. The web's `store.can` honours it for review and facilitate there, and flags; the server is the gate.
    */
   captainOf: z.array(Id).optional(),
+  /** the buildings (not the Town Hall) where core `canDirect` holds for them: the web shows "Talk to ★ <manager>" there and nowhere else */
+  directBuildingIds: z.array(Id).default([]),
 });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */
