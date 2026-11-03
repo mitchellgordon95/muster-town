@@ -17,14 +17,29 @@ type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
  * Read-only: nothing is stored but the reservations.
  */
 
-/** The nearest ancestor-or-self goal that sets an exploration cap; null = uncapped. Walks up `parentId` (cycle-safe). */
-export function exploreCapAt(goals: Repos["goals"], goalId: string): { tokensPerDay: number; goalId: string } | null {
+/**
+ * Every exploration cap on the path from a goal up to the root, nearest first (cycle-safe). The sum of exploration
+ * opened today under each of these goals can't pass its cap (docs/how-work-gets-done.md §8).
+ */
+export function exploreCapsOnPath(goals: Repos["goals"], goalId: string): { tokensPerDay: number; goalId: string }[] {
+  const caps: { tokensPerDay: number; goalId: string }[] = [];
   const seen = new Set<string>();
   for (let g = goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? goals.get(g.parentId) : undefined) {
     seen.add(g.id);
-    if (g.exploreCapTokensPerDay !== null) return { tokensPerDay: g.exploreCapTokensPerDay, goalId: g.id };
+    if (g.exploreCapTokensPerDay !== null) caps.push({ tokensPerDay: g.exploreCapTokensPerDay, goalId: g.id });
   }
-  return null;
+  return caps;
+}
+
+/**
+ * The binding exploration cap at a goal: the SMALLEST cap on the path to the root, with the goal that sets it (the
+ * nearest one on a tie); null = uncapped. Caps combine as the minimum (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): a captain
+ * can tighten a cap set above them but never loosen it.
+ */
+export function exploreCapAt(goals: Repos["goals"], goalId: string): { tokensPerDay: number; goalId: string } | null {
+  let min: { tokensPerDay: number; goalId: string } | null = null;
+  for (const c of exploreCapsOnPath(goals, goalId)) if (!min || c.tokensPerDay < min.tokensPerDay) min = c;
+  return min;
 }
 
 /** The root's explore rule when nothing up the tree sets one (docs/how-work-gets-done.md §3): on, 100,000-token chunks. */
