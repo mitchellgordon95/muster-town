@@ -51,7 +51,7 @@ export async function townRoutes(app: FastifyInstance) {
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}),
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress() } : {}),
   }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 

@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -431,9 +431,15 @@ export class World {
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
-        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const } : {}) },
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress() } : {}) },
       outbox: this.outboxOpen(),
     };
+  }
+
+  /** A hosted collective's founder road (TownHealth `founder`): latest exploration start, open proposals, ever funded. */
+  founderProgress(): FounderProgress {
+    const ex = this.db.prepare("SELECT ts FROM events WHERE type = 'exploration.started' ORDER BY id DESC LIMIT 1").get() as { ts: string } | undefined;
+    return { exploringSince: ex?.ts ?? null, proposals: this.grants.count("status IN ('proposed', 'countered')"), funded: this.grants.count("fundedAt IS NOT NULL") > 0 };
   }
 
   /** Outbox requests nobody has claimed yet (requestStatus open): the map's outbox badge. */

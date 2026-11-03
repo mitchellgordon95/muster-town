@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
+  ReviewDeck, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
@@ -574,7 +574,7 @@ export interface Api {
   decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
-  health(): Promise<{ ok?: boolean; commit?: string | null }>;
+  health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
   /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
@@ -803,7 +803,7 @@ class HttpApi implements Api {
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
-  async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
+  async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
