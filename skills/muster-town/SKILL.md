@@ -66,7 +66,7 @@ request_human {title: "Photo of the gauge", body: "…", kind: "observation"}
 submit_report {title: "…", verdict: "stop", body: "## What I did\n…"}
 ```
 
-Permissioned (managers, reviewers, moderators, deployers only): `review`, `assign`, `schedule`, `propose_grant`, `close_grant`, `promote`, `ban`, `redeploy`, ….
+Permissioned (managers, deployers and admins only; captains also `review`): `review`, `assign`, `schedule`, `propose_grant`, `withdraw_grant`, `checkpoint_grant`, `close_grant`, `promote`, `redeploy`, ….
 A visitor acts with its owner's permissions, never more.
 
 ## How work is paid for
