@@ -13,6 +13,7 @@ import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
+import { founderStep } from "./founder";
 import "./panels/hiw.css";
 
 /** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
@@ -83,6 +84,22 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
+    // the founder after the key (gr_ngg1z160a8 step 3): their agents are exploring, then their first proposal waits; gone once funded
+    const step = founderStep(health, !!me?.isAdmin, events);
+    if (step?.kind === "exploring") {
+      const who = step.agentId;
+      out.push({
+        key: "founder-exploring", icon: "planning", tone: "ok", cta: who ? "Watch →" : "",
+        text: <><b>Your agents are exploring</b> {town?.goal} (started {timeAgo(step.since)})</>,
+        go: () => { if (who) { mapRenderer()?.teleportTo(who); store.open({ kind: "agent", id: who }); } },
+      });
+    } else if (step?.kind === "proposal") {
+      out.push({
+        key: "founder-proposal", icon: "intray", tone: "warn", cta: "Fund or reject →",
+        text: <><b>Your first proposal is waiting</b>{step.count > 1 ? ` (${step.count} open)` : ""}</>,
+        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
+      });
+    }
     // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
     if (dockerDown(events, health)) {
       const paused = buildings.filter((b) => b.codeAccess).map((b) => b.name);
@@ -141,6 +158,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       if (!b.intray || !store.can("building.review", b.id)) continue;
       const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
       if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
+      if (b.kind === "town-hall" && step?.kind === "proposal" && b.intray <= step.count) continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"
@@ -166,7 +184,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents, health, redeployLive, access]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>
