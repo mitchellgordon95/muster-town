@@ -10,7 +10,7 @@
 import type { Assignment, BankReservation, Building } from "@muster-town/schema";
 import { buildingQueue, createAssignment, managerAgentOf } from "./domain.ts";
 import { sessionView } from "./bank.ts";
-import { exploreCapAt, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
+import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
@@ -50,8 +50,10 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id])) return "a proposal of this building is open and undecided";
   const f = free.get(goalId)?.freeTokens ?? 0;
   if (f < rule.chunkTokens) return `free tokens under the goal (${f.toLocaleString("en-US")}) are less than one chunk (${rule.chunkTokens.toLocaleString("en-US")})`;
-  const cap = exploreCapAt(world.goals, goalId);
-  if (cap && exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > cap.tokensPerDay) return `the exploration cap set on goal ${cap.goalId} would be passed today`;
+  // every cap on the path holds (the smallest binds, but a looser one above may already be used up by other subtrees)
+  for (const cap of exploreCapsOnPath(world.goals, goalId)) {
+    if (exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > cap.tokensPerDay) return `the exploration cap set on goal ${cap.goalId} would be passed today`;
+  }
   return null;
 }
 
@@ -67,7 +69,7 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
     const a = createAssignment(world, {
       agentId: manager.id, buildingId: b.id, queue: "building", createdBy: { kind: "system", id: r.id },
       title: `Explore under "${truncate(goal?.text ?? b.name, 70)}"`,
-      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, askTokens, 2-4 keyResults with howToCheck and due), or, if nothing is worth a grant, a short report on why. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
+      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, askTokens, 2-4 keyResults with howToCheck and due), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your ask to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
       lane: { lane: "exploration", gap: `Explore under: ${goalText}`.slice(0, 300) }, reservationId: r.id,
     });
     world.bankReservations.upsert({ ...r, assignmentId: a.id });
