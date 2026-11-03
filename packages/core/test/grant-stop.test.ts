@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, freeTokens, newId, nowIso } from "../src/index.ts";
+import { buildingRoleId, createAssignment, freeTokens, newId, nowIso, reviewDeck, townHallIntray, intrayCount } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -106,5 +106,34 @@ describe("Grants.stop (gr_8i952perny)", () => {
     const ev = world.events.list({ types: ["grant.closed"] }).at(-1)!;
     expect(ev.payload).toMatchObject({ outcome: "stopped", spentTokens: 40_000, grantTokens: 200_000, unspentTokens: 160_000, returnedTo: "input", fundedWith: input.id });
     expect(ev.text).toMatch(/the unspent 160,000 tokens stay on Member key/);
+  });
+
+  it("a stopped grant shows on the Town Hall in-tray and the review deck for the record (who, why, spent and returned), uncounted, for 3 days after it closes", () => {
+    const { world, admin, manager, proposal, session } = setup();
+    const th = world.buildings.first("kind = 'town-hall'")!;
+    const g = proposal();
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    const withdrawn = proposal();
+    world.grantDesk.close(manager, withdrawn.id, { outcome: "stopped", note: "superseded" });
+    const fork = world.agents.upsert({ ...manager, id: newId("ag"), name: `${manager.name} 1`, forkOf: manager.id, forkN: 1, status: "working" });
+    const running = session(fork.id, g.id, "running");
+    const count = intrayCount(world, th.id);
+    world.grantDesk.stop(admin, g.id, { reason: "the plan is wrong" });
+    // stopping: listed already; a withdrawn proposal is not a stop
+    expect(townHallIntray(world).stopped.map((x) => [x.id, x.status])).toEqual([[g.id, "stopping"]]);
+    expect(intrayCount(world, th.id)).toBe(count);
+    world.sessions.upsert({ ...running, status: "done", output: 30_000, endedAt: nowIso() } as never);
+    world.grantDesk.finishStopping();
+    expect(townHallIntray(world).stopped.map((x) => [x.id, x.status, x.outcome])).toEqual([[g.id, "closed", "stopped"]]);
+    const slide = reviewDeck(world).slides.find((x) => x.kind === "stopped")!;
+    expect(slide).toMatchObject({ grantId: g.id, key: `stopped:${g.id}` });
+    expect(slide.text).toContain(`stopped ${g.id}:** the plan is wrong`);
+    expect(slide.text).toContain("Spent 30k of 200k adjusted tokens granted; 170k unspent returned to the Bank as free tokens.");
+    expect(slide.text).toContain("**Your call:** None");
+    // not a decision: slide 1's count leaves it out
+    expect(reviewDeck(world).slides[0]!.text).not.toMatch(/\b1 decision/);
+    // 3 days after it closed it leaves
+    world.grants.upsert({ ...world.grants.require(g.id), closedAt: new Date(Date.now() - 4 * 24 * 3_600_000).toISOString() });
+    expect(townHallIntray(world).stopped).toEqual([]);
   });
 });

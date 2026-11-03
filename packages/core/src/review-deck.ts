@@ -4,13 +4,13 @@
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
  *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4), asks to captain a goal and retainer asks · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
- *   6. grants closed as done whose key result needs met or missed · then one "For the record" slide for rollups whose
- *   every call is None.
+ *   6. grants closed as done whose key result needs met or missed, then grants a human stopped (nothing to decide: who,
+ *   why, spent and returned; gr_8i952perny) · then one "For the record" slide for rollups whose every call is None.
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, grantStopOf, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -27,7 +27,7 @@ import { waitedFor } from "./time.ts";
 const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
-const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited" };
+const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited", stop: "stopped" };
 /** Collapses whitespace to one line; never cuts (no-truncation rule): the slide scrolls. */
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
@@ -166,6 +166,27 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   }) };
 }
 
+/**
+ * A grant a human stopped (gr_8i952perny): nothing to decide, the stop was the decision. Who stopped it and why, its key
+ * results (all missed with the reason), and once it closed, spent vs granted and where the unspent rest went.
+ */
+function stoppedSlide(world: World, g: GrantView): Draft | null {
+  const s = grantStopOf(g);
+  if (!s) return null;
+  const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
+  const who = world.nameOf(s.byId);
+  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const money = s.closed
+    ? `Spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} adjusted tokens granted; ${s.returnedTo === "pool" ? `${fmt(s.unspentTokens)} unspent returned to the Bank as free tokens` : `the unspent ${fmt(s.unspentTokens)} stay on ${g.fundedWithLabel ?? g.fundedWith ?? "the funder's input"}`}.`
+    : `Stopping: its forks are wrapping up (spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} so far); it closes as stopped when no session runs on it.`;
+  return { kind: "stopped", group: 6, itemId: g.id, buildingId: g.buildingId, grantId: g.id, since: s.at, history: "", title: `${b}: stopped by ${who} — ${g.objective}`, body: [
+    `**${who} stopped ${g.id}:** ${oneLine(s.reason)}`,
+    `**Money:** ${money}`,
+    `**Key results:** ${krs.length ? krs.map((k, i) => `${i + 1}) ${KR_LIGHT[k.status] ?? ""} ${k.text}`).join(" · ") : "none"}`,
+    `**Your call:** None: for the record. ${world.buildings.get(g.buildingId)?.name ?? "The building"}'s manager was told.`,
+  ].join("\n\n") };
+}
+
 const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
 
 /** The words after a move or retire proposal's old text, as the goal editor's card says them (web goalTree proposalVerb). */
@@ -250,6 +271,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     if (g.status === "countered") continue; // waiting on the manager, not a human
     drafts.push(grantSlide(world, g, now));
   }
+  for (const g of intray.stopped) { const d = stoppedSlide(world, g); if (d) drafts.push(d); }
   for (const p of intray.goalProposals) drafts.push(goalProposalSlide(world, p));
   for (const r of intray.captains) drafts.push(captainSlide(world, r));
   for (const v of intray.retainers) drafts.push(retainerSlide(world, v));
@@ -287,12 +309,12 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || goalLast(a) - goalLast(b) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
 
   const slides: ReviewSlide[] = [];
-  const decisions = new Set(drafts.map((d) => d.itemId)).size + record.length;
+  const decisions = new Set(drafts.filter((d) => d.kind !== "stopped").map((d) => d.itemId)).size + record.length;
   const oldest = [...drafts.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
   slides.push(townSlide(world, now, decisions, oldest, intray.access.length));
   for (const d of drafts) {
     const w = waitersOf(d);
-    const top = [d.since ? `Waiting ${waitedFor(d.since, now)}` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
+    const top = [d.since && d.kind !== "stopped" ? `Waiting ${waitedFor(d.since, now)}` : d.since ? `Stopped ${waitedFor(d.since, now)} ago` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
     const text = `${top ? `_${top}_\n\n` : ""}## ${d.title}\n\n${d.body}${d.history ? `\n\n_History: ${d.history}_` : ""}`;
     slides.push({ text, notes: "", title: d.title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
       key: `${d.kind}:${d.itemId}${d.keySuffix ? `:${d.keySuffix}` : ""}`, kind: d.kind, itemId: d.itemId, group: d.group, buildingId: d.buildingId,
