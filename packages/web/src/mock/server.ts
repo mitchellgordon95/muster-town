@@ -260,7 +260,7 @@ export class MockApi implements Api {
   /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
   async reviewDeck(): Promise<ReviewDeck> {
     await wait();
-    const t = this.sim.intray("town-hall");
+    const t = this.sim.intray(this.sim.buildings.find((b) => b.kind === "town-hall")?.id ?? "town-hall");
     const slide = (x: Omit<ReviewSlide, "notes" | "pictures" | "since" | "waiters" | "history" | "buildingId">, since: string | null = null): ReviewSlide =>
       ({ notes: "", pictures: [], since, waiters: 0, history: "", buildingId: null, ...x });
     const slides: ReviewSlide[] = [slide({ key: "town", kind: "town", itemId: null, group: 0, title: "State of the town", text: `# Review deck: the state of the town\n\n**${t.grants.length + t.reports.length} decisions below.**` })];
