@@ -235,7 +235,7 @@ export function App() {
   const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
   useTown((s) => s.me);
   // human-only: a guest has no roles, and agents don't use the web client
-  const canAssign = (id: string) => store.can("building.assign", id);
+  const canAssign = (id: string) => store.canFlag(id);
   const canFlag = flagTargets(buildings, canAssign).length > 0;
   const [pw, setPw] = usePanelWidth();
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.

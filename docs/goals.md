@@ -97,6 +97,7 @@ There is no "town admins" fallback: the root's captain is a user like any other,
 - **Rollups and reports**: they decide (review, archive) the building's rollups routed into their subtree; the Town Hall in-tray shows them on Mine with `canDecide` true.
 - **1:1s and meetings**: they direct work there (core `canDirect`): they open 1:1s with the building's manager (or any of its agents), the 1:1 is a human source for directed work, and they call, start and end meetings there.
 - **Flags**: they plant flags in those buildings.
+- **In the web**: `GET /api/me` lists those buildings as `captainOf`; `store.can` honours it for `building.review` and `meeting.facilitate` (so the building panel shows "Talk to ★ <manager>" as staff and a report's decide box), and `store.canFlag` for flags (the building panel's "⚑ Plant a flag" and F on the map). Not `building.assign`: a captain doesn't cancel queued work or stop agents there.
 
 Outside their subtree a captain is a plain member: no decisions, flags or 1:1s there (403) unless an admin or that goal's captain grants them "direct work under" it. The Town Hall is never a captain's building: its captain is the root captain, and admins keep every power there.
 

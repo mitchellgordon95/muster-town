@@ -94,6 +94,7 @@ export async function townRoutes(app: FastifyInstance) {
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
       direct: directGoals(user.id),
       directDefaultGoalId: defaultDirectGoal(world, holder),
+      captainOf: world.buildings.all().filter((b) => world.goalTree.captainsBuilding(holder, b.id)).map((b) => b.id),
     };
   });
 
