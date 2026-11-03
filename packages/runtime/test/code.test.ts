@@ -123,6 +123,8 @@ describe("the manager's read-only code checkout", () => {
     const s = sdk.sessions.find((x) => x.agentId === by("Mei").id)!;
     expect(s.options.tools).toEqual([...CODE_TOOLS]);
     expect(s.options.cwd).toMatch(/code-main$/);
-    expect(s.options.systemPrompt).toMatchObject({ append: expect.stringContaining("## The town's code") });
+    // the snapshot's commit changes between wakes, so its line is in the first message, not the cached system prompt
+    expect(s.options.systemPrompt).toContain("read-only snapshot of the town's code");
+    expect(s.received[0]).toContain("## The town's code");
   });
 });

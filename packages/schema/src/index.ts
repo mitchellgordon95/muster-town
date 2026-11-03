@@ -1181,8 +1181,32 @@ export const GrantEstimate = z.object({
   /** the one plain line shown next to the ask */
   sentence: z.string(),
   at: Iso,
+  /**
+   * The cheap model's range (step 2, runtime estimate.ts): one call on the building's cheapModel right after the propose,
+   * shown the closed grants and this plan. Adjusted tokens, like every grant amount. Null until it answers, and stays
+   * null when the call fails: the proposal never waits on it.
+   */
+  model: z.object({
+    low: z.number().int().nonnegative(), high: z.number().int().nonnegative(),
+    /** its one sentence of reasoning */
+    note: z.string(),
+    /** the model that answered */
+    modelId: z.string(),
+    /** the session it ran as (what it cost is that session's tokens) */
+    sessionId: Id.nullable().default(null),
+    at: Iso,
+  }).nullable().default(null),
 });
 export type GrantEstimate = z.infer<typeof GrantEstimate>;
+/**
+ * The range a grant's estimate is held to at close: the model's when it answered, else the closed grants' (low–high);
+ * null when there is none. `inside` compares a spend with it (docs/how-work-gets-done.md §4).
+ */
+export function estimateRangeOf(e: GrantEstimate | null | undefined): { low: number; high: number; by: "model" | "history" } | null {
+  if (e?.model) return { low: e.model.low, high: e.model.high, by: "model" };
+  if (e && e.low !== null && e.high !== null) return { low: e.low, high: e.high, by: "history" };
+  return null;
+}
 /**
  * A building's proposal and, once funded, its grant (docs/how-work-gets-done.md §4): filed against a goal, it carries
  * its own 1-5 key results (the checks of its work; `key_results.grantId`) and the plan (objective, approach, stop
@@ -1217,6 +1241,12 @@ export const Grant = z.object({
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
   checkpointDocId: Id.nullable().default(null),
+  /**
+   * The manager's checkpoint line (checkpoint_grant, Mitchell 1:1 mt_7b4zc7yja3): what a top-up of `topUpTokens` more
+   * tokens would deliver. Cleared when a new checkpoint holds the grant; null / "" = not stated (old checkpoints).
+   */
+  topUpTokens: z.number().int().positive().nullable().default(null),
+  whatTopUpBuys: z.string().max(1000).default(""),
   proposedBy: Id,
   /** a user id; never an agent */
   fundedBy: Id.nullable().default(null),
@@ -1595,6 +1625,35 @@ export type Kpi = z.infer<typeof Kpi>;
  * A grant as the API returns it: its key results (`keyResults`, in order; `keyResult` = the first, null if none) and derived spend. `spentTokens` is
  * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
  */
+/** A key result at a checkpoint, in one word: claimed (or met) = shipped, not-started / missed = not shipped, on-track / at-risk = partly. */
+export type KrVerdict = "shipped" | "not" | "partly";
+export function krVerdict(status: KeyResultStatus): KrVerdict {
+  return status === "claimed" || status === "met" ? "shipped" : status === "on-track" || status === "at-risk" ? "partly" : "not";
+}
+const VERDICT_MARK: Record<KrVerdict, string> = { shipped: "✓ shipped", not: "✗ not shipped", partly: "~ partly" };
+/**
+ * What a checkpoint shows a human (Mitchell 1:1 mt_7b4zc7yja3): per key result shipped / not / partly with the manager's
+ * note, spent vs granted, what a top-up buys, and the Shipped titles of the checkpoint report. On a proposal it is the
+ * evidence of the same building's earlier grant on the same goal that stopped at a checkpoint (the work it re-asks for).
+ */
+export const CheckpointEvidence = z.object({
+  grantId: Id,
+  objective: z.string(),
+  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string() })),
+  spentTokens: z.number().int().nonnegative(),
+  grantTokens: z.number().int().nonnegative(),
+  topUpTokens: z.number().int().positive().nullable(),
+  whatTopUpBuys: z.string(),
+  reportId: Id.nullable(),
+  shipped: z.array(z.string()),
+});
+export type CheckpointEvidence = z.infer<typeof CheckpointEvidence>;
+/** "✓ shipped: <note>" for one key result (the note, else its text). */
+export const evidenceKrLine = (k: CheckpointEvidence["keyResults"][number]) => `${VERDICT_MARK[k.verdict]}: ${(k.note || k.text).replace(/\s+/g, " ").trim()}`;
+/** "A top-up of 200,000 buys: …", or "A top-up: not stated" on a checkpoint filed before the line existed. */
+export const topUpLine = (e: Pick<CheckpointEvidence, "topUpTokens" | "whatTopUpBuys">) =>
+  e.topUpTokens && e.whatTopUpBuys.trim() ? `A top-up of ${e.topUpTokens.toLocaleString("en-US")} tokens buys: ${e.whatTopUpBuys.replace(/\s+/g, " ").trim()}` : "A top-up: not stated";
+
 /**
  * A manager's rollup asking about an item that has its own Town Hall in-tray row (1:1 mt_7b4zc7yja3): the row shows
  * "<building> asks you to <verb> this: <line>" with a link to the rollup. `folded`: the rollup asked nothing else, so it
@@ -1607,6 +1666,8 @@ export type RollupAsk = z.infer<typeof RollupAsk>;
 export const GrantView = Grant.extend({
   keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
+  /** a checkpoint grant's evidence, or a proposal's earlier stopped grant's (null: none) */
+  evidence: CheckpointEvidence.nullable().optional(),
   /** the Town Hall in-tray only: rollups asking about this grant (RollupAsk) */
   asks: z.array(RollupAsk).optional(),
 });
@@ -1619,7 +1680,7 @@ export const Session = z.object({
   agentId: Id,
   assignmentId: Id.nullable(),
   meetingId: Id.nullable().default(null),
-  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply", "naming"]),
+  purpose: z.enum(["work", "manage", "review", "facilitate", "summary", "meeting-reply", "naming", "estimate"]),
   /** where the session runs: in-process on the host, or inside the agent's desk container */
   backend: z.enum(["host", "docker"]).default("host"),
   status: SessionStatus,
@@ -1844,7 +1905,9 @@ export const VerbInputs = {
     grantId: Id, reportId: Id.optional().describe("an already filed checkpoint report; leave it out when you file the checkpoint first and then submit_report with rollup: true in this session (that report links itself)"),
     status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).optional().describe("the status of the grant's open key results (only a human marks met or missed)"),
     keyResultId: Id.optional().describe("set the status of this one key result of the grant only (default: all its open ones)"),
-    note: z.string().max(2000).default("").describe("the evidence for that status"),
+    note: z.string().max(2000).default("").describe("the evidence for that status: what shipped (or did not) and where a human checks it; the checkpoint card shows it on the key result's line"),
+    whatTopUpBuys: z.string().trim().min(1).max(1000).optional().describe("required once per checkpoint: what the next tokens would deliver if a human tops the grant up (concrete: which key results it finishes, what a human would then see)"),
+    topUpTokens: z.number().int().positive().optional().describe("required with whatTopUpBuys: how many more tokens that top-up is"),
   }),
   close_grant: z.object({
     grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
@@ -1909,7 +1972,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), an objective, the approach, a stop condition and a token ask. Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
-  checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence; then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
+  checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (only a human marks met or missed), with a note on the evidence (what shipped or did not), and once per checkpoint whatTopUpBuys + topUpTokens (what the next tokens would deliver); then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to claimed with your note as the evidence, and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report); a human marks each key result met or missed from the Town Hall in-tray. Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",

@@ -101,4 +101,28 @@ describe("grants routes", () => {
     expect((await json(app, "GET", `/api/grants/gr_missing`)).status).toBe(404);
     expect((await json(app, "GET", `/api/buildings/nowhere/grants`)).status).toBe(404);
   });
+  it("a checkpoint grant in the Town Hall in-tray and the review deck carries its evidence: per key result verdict and note, spend, the top-up line (mt_7b4zc7yja3)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const admin = null; // the system decides (no session needed for a funding decision here)
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 1_000_000 });
+    world.grants.patch(g.id, { status: "checkpoint", history: [...world.grants.require(g.id).history, { at: new Date().toISOString(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    const [k1] = world.grantDesk.get(g.id).keyResults;
+    world.grantDesk.fileCheckpoint(manager, g.id, { status: "claimed", note: "live on the banner", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the board", topUpTokens: 200_000 });
+    const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
+    const row = intray.body.grants.find((x: { id: string }) => x.id === g.id);
+    expect(row.evidence).toMatchObject({
+      grantId: g.id, grantTokens: 1_000_000, spentTokens: 0, topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board", shipped: [],
+      keyResults: [{ verdict: "shipped", note: "live on the banner", status: "claimed" }, { verdict: "not", note: "", status: "not-started" }],
+    });
+    const deck = await json(app, "GET", "/api/review-deck");
+    const slide = deck.body.slides.find((x: { key: string }) => x.key === `checkpoint:${g.id}`);
+    expect(slide.text).toContain("1. ✓ shipped: live on the banner");
+    expect(slide.text).toContain(`2. ✗ not shipped: ${KRS[1]!.text}`);
+    expect(slide.text).toContain("A top-up of 200,000 tokens buys: KR 2: the board");
+  });
 });

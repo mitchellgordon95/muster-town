@@ -28,6 +28,8 @@ afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });
 async function setup() {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ importDir: join(REPO_ROOT, "buildings/carbon-cycle"), townJsonPath: join(REPO_ROOT, "town.json") });
+  // the 500,000 operating reserve would hold every work session of this test Bank (bank.md 7c): off, like the shared helpers
+  world.town.set({ operatingReserveTokens: 0 });
   // the Bank is the only place a credential lives: the test town's subscription token (never credited: first renewal far off)
   world.bank.addInput(seed.admin.id, { label: "Test subscription", source: "subscription", model: "claude-sonnet-5-5", tokens: 1, recurrence: "daily", weeklyCapTokens: 1, nextCreditAt: "2099-01-01T00:00:00.000Z", token: "sk-ant-oat01-test-subscription-token" });
   const desk = new FakeDesk();

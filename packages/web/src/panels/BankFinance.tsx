@@ -104,7 +104,9 @@ export function grantsSentence(sp: FinanceSpend): string | null {
   const over = g.overFunding.count
     ? `${grants(g.overFunding.count)} spent more than ${g.overFunding.count === 1 ? "it was" : "they were"} funded (${n(g.overFunding.tokens)} over in total).`
     : "No grant spent more than it was funded.";
-  return `Grants: ${n(g.spent)} tokens spent on ${grants(g.count)}: ${parts.join(", ")}. ${over}`;
+  // the cost estimates against what closed grants spent (1:1 mt_c9u1kr15jp), once any closed grant had one
+  const est = g.estimates?.closed ? ` ${n(g.estimates.inside)} of ${n(g.estimates.closed)} closed grant${g.estimates.closed === 1 ? "" : "s"} landed inside ${g.estimates.closed === 1 ? "its" : "their"} estimate.` : "";
+  return `Grants: ${n(g.spent)} tokens spent on ${grants(g.count)}: ${parts.join(", ")}. ${over}${est}`;
 }
 
 /** The grants check in words: done + cut + still open vs the grant rows (`grantsCheck`); null when the server sent none. */

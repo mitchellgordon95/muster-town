@@ -10,7 +10,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, isNoCall, parseRollup, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -108,6 +108,11 @@ function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: s
   ].join("\n\n");
 }
 
+/** One numbered line per key result: "1. ✓ shipped: <the manager's note>". */
+function evidenceLines(e: CheckpointEvidence): string {
+  return e.keyResults.length ? e.keyResults.map((k, i) => `${i + 1}. ${evidenceKrLine(k)}`).join("\n") : "_No key results._";
+}
+
 /** The rollups' asks on an item, as the slide's first lines: "Workshop asks you to fund this: <line> (rollup dc_…)". */
 function asksLines(asks: RollupAsk[] | undefined, verb: string): string {
   return (asks ?? []).map((a) => `**${a.buildingName} asks you to ${verb} this:** ${oneLine(a.line)} (rollup ${a.reportId})\n\n`).join("");
@@ -124,6 +129,17 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   if (g.status === "checkpoint") {
     const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
+    // evidence first (Mitchell 1:1 mt_7b4zc7yja3): what shipped per key result, spend, what a top-up buys; the plan below the fold
+    const e = g.evidence;
+    if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + [
+      `**What shipped** (${g.id}; its grant work is stopped until you decide):`,
+      evidenceLines(e),
+      `**Spent:** ${fmt(e.spentTokens)} of ${fmt(e.grantTokens)} adjusted tokens granted (${pct}%).`,
+      `**${topUpLine(e)}**`,
+      ...(e.shipped.length ? [`**Shipped in the checkpoint report${e.reportId ? ` ${e.reportId}` : ""}:** ${e.shipped.map(oneLine).join(" · ")}`] : []),
+      `**Your call:** Continue, adjust (top up) or cut.`,
+      `_The plan as funded (below the fold):_ ${kr}. Stops when: ${oneLine(g.stopCondition)}`,
+    ].join("\n\n") };
     return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
       whatYoudSee: testing,
@@ -140,11 +156,13 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
-  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + card({
+  // a proposal that asks again for work an earlier grant stopped at its checkpoint: that checkpoint's evidence first
+  const earlier = g.evidence ? `**Asks again for work ${g.evidence.grantId} stopped at its checkpoint** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
-    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject.${g.estimate ? ` Likely cost: ${g.estimate.sentence}.` : ""} Stops when: ${g.stopCondition}`,
+    yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject.${g.estimate?.model ? ` Model estimate: ${fmt(g.estimate.model.low)}–${fmt(g.estimate.model.high)}.` : ""}${g.estimate ? ` Likely cost: ${g.estimate.sentence}.` : ""} Stops when: ${g.stopCondition}`,
   }) };
 }
 

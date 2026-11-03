@@ -281,6 +281,28 @@ export function memoryBlock(world: World, authorId: string, opts: { now?: number
   return out.join("\n");
 }
 
+/**
+ * "## Your wiki" as an index (title, id, age, one-line gist) and "## Your log" as the last `tail` lines: the memory of
+ * a manager's team-lead session. The pages stay out of the prompt and are `read` on demand, so the cached system prompt
+ * doesn't change every time the manager rewrites one (docs/prompt-caching.md).
+ */
+export function memoryIndexBlock(world: World, authorId: string, opts: { now?: number; tail?: number } = {}): string {
+  const now = opts.now ?? Date.now();
+  const pages = wikiOf(world, authorId);
+  const out: string[] = ["## Your wiki (`read` the pages that matter before you decide or rewrite them)"];
+  out.push(pages.length ? pages.map((p) => `- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${oneLine(docGist(p), 120)}`).join("\n")
+    : `(no pages yet. Before \`submit_report\`, write one page per topic you worked on: \`write\` type "wiki", title = the topic.)`);
+  const log = logOf(world, authorId);
+  const total = log ? log.body.split("\n").filter((l) => l.trim()).length : 0;
+  const tail = logTail(log, opts.tail ?? MEMORY_INDEX_LOG_TAIL);
+  out.push(`\n## Your log${total > tail.length ? ` (last ${tail.length} of ${total}${log ? `; \`read\` ${log.id} for all` : ""})` : ""}`);
+  out.push(tail.length ? tail.join("\n") : "(empty)");
+  return out.join("\n");
+}
+
+/** Log lines a team-lead session's memory index carries (the full tail, LOG_TAIL, is for work sessions). */
+const MEMORY_INDEX_LOG_TAIL = 4;
+
 /** Titles of the author's wiki pages (what they know), newest first. */
 export function topicsOf(world: World, authorId: string): string[] {
   return wikiOf(world, authorId).map((p) => p.title);
