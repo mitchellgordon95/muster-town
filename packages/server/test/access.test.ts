@@ -164,6 +164,9 @@ describe("direct work under <goal> (gr_cuobjlny6r, Mitchell mt_hlizi9wxxc decisi
     expect(texts.some((t) => /Octo was let in as a member/.test(t))).toBe(true);
     expect(texts.some((t) => /may direct work under "Carbon goal"/.test(t))).toBe(true);
     expect((await json(app, "GET", "/api/me", { headers: visitor })).body.direct).toEqual([{ goalId: goal, text: "Carbon goal", how: "granted" }]);
+    // the web's Talk gate: the buildings where canDirect holds (never the Town Hall)
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.directBuildingIds).toContain("carbon-cycle");
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.directBuildingIds).not.toContain("town-hall");
     expect((await json(app, "GET", "/api/me", { headers: auth })).body.directDefaultGoalId).toEqual(expect.any(String));
 
     // a plain Let in grants nothing: no 1:1, no meeting (403)
@@ -172,7 +175,7 @@ describe("direct work under <goal> (gr_cuobjlny6r, Mitchell mt_hlizi9wxxc decisi
     const patH = { authorization: `Bearer ${pat.token}` };
     const patAsk = await json(app, "POST", "/api/access-requests", { headers: patH, body: {} });
     await json(app, "POST", `/api/access-requests/${patAsk.body.accessRequest.id}/decide`, { headers: auth, body: { grant: true } });
-    expect((await json(app, "GET", "/api/me", { headers: patH })).body).toMatchObject({ canInteract: true, direct: [] });
+    expect((await json(app, "GET", "/api/me", { headers: patH })).body).toMatchObject({ canInteract: true, direct: [], directBuildingIds: [] });
     const refused = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: patH, body: {} });
     expect(refused.status).toBe(403);
     expect(refused.body.error).toMatch(/direct work under/);

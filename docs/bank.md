@@ -70,7 +70,7 @@ Haiku 5.5 over 100k-token prompts costs 5× every column, so its weights are the
 A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the unit model's output tokens (`adjustedOfUsage(model, counts, byModel, unit)`; the Bank's unit is Opus 5.5, see step 3).
 
 Where it shows (always next to `tokens` and the five counters):
-- `GET /api/sessions?agentId=&limit=` (new; newest first), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
+- `GET /api/sessions?agentId=&limit=` (new; newest first); `GET /api/sessions?grantId=` every session of one grant, newest first, no cap, each row with `usd` (list price, `sessionListUsd`), `agentName`, `assignmentTitle`, plus top-level `tokens` (= the grant's `spentTokens`) and `usd` (gr_4tf9hd64d5), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
 - events: `session.ended`, `bank.input`, `bank.credited` carry `adjustedOutputTokens`.
 - `GET /api/bank` (the Bank page's payload): `creditedCounts` and `adjustedCreditedTokens`, overall and per input.
 
