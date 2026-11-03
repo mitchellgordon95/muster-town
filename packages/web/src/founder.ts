@@ -6,7 +6,7 @@
  */
 import type { Event, TownHealth } from "@muster-town/schema";
 
-export type FounderStep = { kind: "exploring"; since: string; agentId: string | null } | { kind: "proposal"; count: number } | null;
+type FounderStep = { kind: "exploring"; since: string; agentId: string | null } | { kind: "proposal"; count: number } | null;
 
 export function founderStep(health: TownHealth | null, isAdmin: boolean, events: readonly Event[] = []): FounderStep {
   const f = health?.founder;
