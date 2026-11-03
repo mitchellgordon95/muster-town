@@ -2,9 +2,10 @@
  * v1.4 visitor presence. A visitor's loop runs outside the town (someone's Claude Code session) and reaches it only
  * through authenticated agent calls (MCP tools, `/api/verbs/*`). Every such call `touch`es the agent: `lastSeenAt`
  * is written at most every 10 s. The runtime's presence tick (`sweep`, every 30 s) marks visitors with no call in
- * the last 90 s `offline` and sends their bodies home (desk or the Town Hall visitor bench). The next call from an
- * offline visitor is the "back" transition: status idle (working while it holds an active assignment), an
- * `agent.status` event "<name> is back", and a mailbox digest for its next `look`. Residents are never offline.
+ * the last 90 s `offline`, releases their desk (a visitor desk is beyond the headcount and held only while online) and
+ * sends their bodies to the Town Hall visitor bench. The next call from an offline visitor is the "back" transition: a
+ * desk again in its home building, status idle (working while it holds an active assignment), an `agent.status` event
+ * "<name> is back", and a mailbox digest for its next `look`. Residents are never offline.
  *
  * Assignments to visitors are offers (`offered: true`): never scheduled; `accept_assignment` takes one. Offers left
  * for 24 h are cancelled by `expireOffers` with a note in the building's in-tray.
@@ -12,6 +13,7 @@
 import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, Assignment, MailboxDigest, Mailbox, Tile } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
+import { claimVisitorDesk } from "./entities.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
@@ -49,7 +51,10 @@ export class Presence {
       this.windows.set(a.id, { since, until: iso, fresh: true });
       this.stamped.set(a.id, t);
       const holding = !!w.assignments.count("agentId = ? AND status = 'active'", [a.id]);
-      w.agents.upsert({ ...a, lastSeenAt: iso }, { silent: true });
+      // back at a desk beyond the headcount in its home building (released when it went offline), else the bench
+      const desk = a.homeBuildingId && !w.layout.deskOf(a.id) ? claimVisitorDesk(w, a.id, a.homeBuildingId) : null;
+      const pos = desk ? desk.pos : a.pos;
+      w.agents.upsert({ ...a, lastSeenAt: iso, pos, buildingId: desk ? (w.layout.buildingAt(pos)?.id ?? null) : a.buildingId }, { silent: true });
       const agent = w.setStatus(a.id, holding ? "working" : "idle", `${a.name} is back`);
       return { agent, back: true, offlineSince: since };
     }
@@ -70,6 +75,8 @@ export class Presence {
       const seen = Math.max(this.stamped.get(a.id) ?? 0, Date.parse(a.lastSeenAt ?? a.createdAt));
       if (t - seen < OFFLINE_AFTER_MS) continue;
       w.movement.cancel(a.id, "Went offline.");
+      // a visitor holds its desk (beyond the headcount) only while online: an offline one waits at the bench
+      if (w.layout.deskOf(a.id)) w.layout.releaseDesk(a.id);
       const home = this.homeSpot(a);
       const lastSeenAt = a.lastSeenAt ?? a.createdAt;
       // body back at its desk/bench (teleport: nobody is driving it), then the status change broadcasts it
@@ -80,7 +87,7 @@ export class Presence {
     return out;
   }
 
-  /** Where a visitor sits: its desk (registered into a building), else a seat at the Town Hall visitor bench. */
+  /** Where a visitor sits: its desk (while online in a building), else a seat at the Town Hall visitor bench. */
   homeSpot(a: Agent): Tile {
     const desk = this.world.layout.deskOf(a.id);
     if (desk) return { ...desk.pos };

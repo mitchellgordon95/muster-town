@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import type { AuthMe } from "@muster-town/schema";
 
-const registerVisitor = vi.fn(async (i: { name: string; buildingId?: string }) => ({ agent: { name: i.name }, token: "mt_secret" }));
+const registerVisitor = vi.fn(async (i: { name: string; goalId?: string }) => ({ agent: { name: i.name }, token: "mt_secret" }));
 vi.mock("../src/api", () => ({ api: () => ({ registerVisitor }), ApiError: class extends Error {}, API_BASE: "" }));
 
-const { connectStep, defaultAgentName, mcpAddLine, registerAgent, TokenOnce } = await import("../src/panels/ConnectAgent");
+const { connectStep, defaultAgentName, joinableGoals, mcpAddLine, registerAgent, TokenOnce } = await import("../src/panels/ConnectAgent");
 
 const me = (canInteract: boolean) => ({ user: { name: "Ada", githubLogin: "ada" }, canInteract } as unknown as AuthMe);
 
@@ -28,8 +28,18 @@ describe("Connect your agent", () => {
     expect(registerVisitor).toHaveBeenCalledWith({ name: "ada's Claude" });
     expect(done.line).toBe('claude mcp add --transport http town https://muster.town/mcp --header "Authorization: Bearer mt_secret"');
     expect(mcpAddLine("http://x", "t")).toContain("http://x/mcp");
-    await registerAgent("b", "bl_1", "http://x");
-    expect(registerVisitor).toHaveBeenLastCalledWith({ name: "b", buildingId: "bl_1" });
+    await registerAgent("b", "gl_1", "http://x");
+    expect(registerVisitor).toHaveBeenLastCalledWith({ name: "b", goalId: "gl_1" });
+  });
+
+  it("offers the goals with desks: a lab's goal and the goals under it, not the Town Hall's", () => {
+    const node = (id: string, buildings: { id: string; headcount: number }[], children: unknown[] = []) => ({ id, text: id, status: "active", buildings, children });
+    const root = node("gl_town", [{ id: "town-hall", headcount: 4 }], [
+      node("gl_lab", [{ id: "bl_1", headcount: 3 }], [node("gl_sub", [])]),
+      node("gl_empty", [], [node("gl_empty_sub", [{ id: "bl_0", headcount: 0 }])]),
+    ]) as never;
+    expect(joinableGoals(root).map((g) => [g.id, g.depth])).toEqual([["gl_lab", 1], ["gl_sub", 2]]);
+    expect(joinableGoals(null)).toEqual([]);
   });
 
   it("shows the token once with the warning and the skill link", () => {
