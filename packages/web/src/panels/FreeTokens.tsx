@@ -47,12 +47,15 @@ export function FreeTokensLine({ free }: { free: FreeTokens }) {
   );
 }
 
-/** "uncapped", or "N / day (from goal X), M used today". `root` names the capping goal when it isn't `node` itself. */
+/**
+ * "uncapped", or "N / day, set on X, M used today": the binding cap is the smallest on the path to the root
+ * (core free-tokens.ts `exploreCapAt`), so X names the goal it comes from ("this goal" when it is `node` itself).
+ */
 export function capText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTreeNode | null): string {
   const cap = node.funding.exploreCap;
   if (!cap) return "uncapped";
-  const from = cap.goalId === node.id ? "" : ` (from goal ${goalShortName(root ? findGoal(root, cap.goalId)?.text ?? cap.goalId : cap.goalId)})`;
-  return `${fmtTokens(cap.tokensPerDay)} / day${from}, ${fmtTokens(node.funding.exploreSpentTodayTokens)} used today`;
+  const from = cap.goalId === node.id ? "this goal" : `goal ${goalShortName(root ? findGoal(root, cap.goalId)?.text ?? cap.goalId : cap.goalId)}`;
+  return `${fmtTokens(cap.tokensPerDay)} / day, set on ${from}, ${fmtTokens(node.funding.exploreSpentTodayTokens)} used today`;
 }
 
 /** The Bank Overview's town-wide free tokens (GET /api/bank `free`, the root goal's): each term of the sum, then the total. */

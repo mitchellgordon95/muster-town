@@ -142,7 +142,9 @@ export class MockApi implements Api {
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", i.headcount ?? desksForLot(NEW_LAB_LOT), i.goalId)); }
   /** the nearest goal at or above (one level: the mock tree is flat) that sets an exploration cap; null = uncapped */
   private capAt(goalId: string): { tokensPerDay: number; goalId: string } | null {
-    return [goalId, "gl_town"].map((g) => MOCK_CAP[g] ? { tokensPerDay: MOCK_CAP[g], goalId: g } : null).find(Boolean) ?? null;
+    // the smallest cap on the path wins, like core free-tokens.ts exploreCapAt
+    const caps = [goalId, "gl_town"].flatMap((g) => MOCK_CAP[g] ? [{ tokensPerDay: MOCK_CAP[g], goalId: g }] : []);
+    return caps.reduce<{ tokensPerDay: number; goalId: string } | null>((m, c) => !m || c.tokensPerDay < m.tokensPerDay ? c : m, null);
   }
   /** Free tokens under a goal, like core free-tokens.ts: the general balance + earmarks at or above it, less every live grant's remaining and open ask (no reservations in the toy) */
   private free(goalId: string): FreeTokens {
