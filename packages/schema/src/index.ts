@@ -2413,6 +2413,11 @@ export const AuthMe = z.object({
   direct: z.array(z.object({ goalId: Id, text: z.string(), how: z.enum(["granted", "captain"]) })).default([]),
   /** the goal the Let in card offers for "Let in + direct work under <goal>": their captained goal, else the town goal for an admin; null = they can't grant */
   directDefaultGoalId: Id.nullable().default(null),
+  /**
+   * the buildings they steer as a captain (gr_zsm1piyqyx, core `Goals.captainsBuilding`): attached to a goal they captain
+   * or one below it. The web's `store.can` honours it for review and facilitate there, and flags; the server is the gate.
+   */
+  captainOf: z.array(Id).optional(),
   /** the buildings (not the Town Hall) where core `canDirect` holds for them: the web shows "Talk to ★ <manager>" there and nowhere else */
   directBuildingIds: z.array(Id).default([]),
 });

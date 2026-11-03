@@ -17,6 +17,7 @@ import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
 import { IdLink } from "./Markdown";
+import { PlantFlag } from "./Places";
 
 /** "Captain: <captain>" (docs/goals.md "Captains on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
@@ -73,6 +74,10 @@ function Overview({ b }: { b: SnapshotBuilding }) {
     ? { today: row.tokensToday ?? 0, allTime: row.tokensAllTime } : live ? { today: live.tokensToday ?? 0, allTime: live.tokensAllTime ?? 0 } : null;
   const places = useTown((s) => s.places);
   const hasBoard = places.some((p) => p.id === `board:${b.id}`);
+  // Plant a flag here (gr_zsm1piyqyx): whoever may (building.assign, or a captain of its goal), same form as F on the map
+  const canInteract = useTown((s) => s.me?.canInteract !== false);
+  const flagHere = b.kind !== "town-hall" && canInteract && store.canFlag(b.id);
+  const [flagging, setFlagging] = useState(false);
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
@@ -99,9 +104,13 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
         </div>
       ) : null}
-      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? (
-        <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
+      {b.kind !== "town-hall" && ((b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id)) || flagHere) ? (
+        <div className="actions">
+          {b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? <Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act> : null}
+          {flagHere && !flagging ? <button className="btn" onClick={() => setFlagging(true)} title="A quick request for this building's manager to delegate (F on the map)">⚑ Plant a flag</button> : null}
+        </div>
       ) : null}
+      {flagging ? <PlantFlag targets={[b]} onClose={() => setFlagging(false)} /> : null}
       {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
         <div className="actions"><Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
       ) : null}
