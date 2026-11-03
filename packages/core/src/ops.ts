@@ -1,7 +1,7 @@
 import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
@@ -38,6 +38,7 @@ export class Ops {
   createUser(name: string, opts: { id?: string } = {}) { return createUser(this.world, name, opts); }
   ensureAvatar(userId: string): Agent { return ensureAvatar(this.world, userId); }
   registerVisitor(userId: string, input: (typeof RegisterVisitorInput)["_input"]) { return registerVisitor(this.world, userId, input); }
+  adoptGoal(agentId: string, goalId: string) { return adoptGoal(this.world, agentId, goalId); }
 
   createBuilding(actor: Actor, input: (typeof CreateBuildingInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "town.manage_buildings");
@@ -164,6 +165,8 @@ export class Ops {
       if (deskFreed) this.world.layout.releaseDesk(agentId);
       this.world.agents.patch(agentId, { currentAssignmentId: null, currentMeetingId: null, activity: "" });
       const retired = this.world.setStatus(agentId, "retired", `${agent.name} was dismissed`);
+      // a dismissed visitor manager leaves its building unmanaged (adoptGoal); a resident manager's row is kept as before
+      if (agent.kind === "visitor") for (const b of this.world.buildings.where("managerAgentId = ?", [agentId])) this.world.buildings.upsert({ ...b, managerAgentId: null });
       const by = actor ? this.world.holderOf(actor).id : "system";
       this.world.events.append({ type: "agent.retired", agentId, buildingId: bid, text: `${agent.name} was dismissed${actor ? ` by ${actor.name}` : ""}`, payload: { by, purge: !!opts.purge, cancelledAssignments: cancelled, deskFreed } });
       return { agent: retired, cancelledAssignments: cancelled, revokedTokens, removedMemberships, deskFreed };

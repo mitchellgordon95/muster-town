@@ -5,7 +5,7 @@
  */
 import { isGone, Agent, type Assignment, type Building, type Session } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
-import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
+import { buildingQueue, forkableManagerOf, homeOf } from "./domain.ts";
 import { interruptNow, isWorking } from "./wakes.ts";
 import { sessionView } from "./bank.ts";
 import { buildingRoleId } from "./permissions.ts";
@@ -39,7 +39,8 @@ export function nextForkN(world: World, managerId: string): number {
  * are skipped; a row the lane gate holds keeps its `heldReason` (as for a resident's queue).
  */
 export function forkableQueue(world: World, b: Building): Assignment[] {
-  const manager = managerAgentOf(world, b);
+  // a visitor manager is never forked: its building's queue is held (forkableManagerOf)
+  const manager = forkableManagerOf(world, b);
   if (!manager || isGone(manager)) return [];
   if (world.budget.remaining(b.id) <= 0) return [];
   return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
@@ -115,7 +116,7 @@ export function forkDeskSlot(world: World, agentId: string, defaults: (buildingI
  */
 export function forkManager(world: World, buildingId: string, assignmentId: string): { fork: Agent; desk: number; assignment: Assignment } {
   const b = world.buildings.require(buildingId, "building");
-  const manager = managerAgentOf(world, b);
+  const manager = forkableManagerOf(world, b);
   if (!manager) throw new AppError("conflict", `${b.name} has no manager agent to fork.`);
   const a = world.assignments.require(assignmentId, "assignment");
   if (a.buildingId !== b.id || a.queue !== "building") throw badRequest(`"${a.title}" isn't on ${b.name}'s building queue.`);

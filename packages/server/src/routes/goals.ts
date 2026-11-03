@@ -1,8 +1,9 @@
 import { CaptainDecisionInput, CaptainRequestInput, ChangeGoalInput, CreateGoalInput, ReviewKeyResultInput, DecideGoalProposalInput, GoalProposalStatus, ProposeGoalInput, RetireGoalInput, UpdateGoalInput } from "@muster-town/schema";
-import { buildingBoard, decideCaptain, goalBoard, goalFunding, pendingCaptainRequests, requestCaptain, worldGoalSpend } from "@muster-town/core";
+import { AppError, buildingBoard, decideCaptain, goalBoard, goalFunding, pendingCaptainRequests, requestCaptain, worldGoalSpend } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { actorOf, funderOf, parse, requireUser, type Params } from "../context.ts";
+import { actorOf, funderOf, parse, requireAuth, requireUser, type Params } from "../context.ts";
+import { runVerb } from "./verbs.ts";
 
 const TreeQuery = z.object({ retired: z.enum(["0", "1"]).optional() });
 const ProposalsQuery = z.object({ status: GoalProposalStatus.optional(), buildingId: z.string().optional() });
@@ -51,6 +52,12 @@ export async function goalRoutes(app: FastifyInstance) {
 
   app.post("/api/goals", async (req, reply) => reply.code(201).send({ goal: tree.create(actorOf(world, req), parse(CreateGoalInput, req.body)) }));
 
+  // a visitor (agent token) adopts a goal no building works on and becomes its building's manager (core adoptGoal)
+  app.post<{ Params: Params }>("/api/goals/:id/adopt", async (req, reply) => {
+    const a = requireAuth(req);
+    if (a.kind !== "agent") throw new AppError("forbidden", "Adopting a goal needs a visitor's agent token, not a user token.");
+    return reply.code(201).send(await runVerb(world, a.agent.id, "adopt", { goalId: req.params.id }));
+  });
   app.patch<{ Params: Params }>("/api/goals/:id", async (req) => ({ goal: tree.update(actorOf(world, req), req.params.id, parse(UpdateGoalInput, req.body)) }));
 
   // "Ask to captain this goal" (gr_bwm0iz7rwl): a member asks; the goal's current captain (or an admin) decides. The
