@@ -9,6 +9,7 @@ import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, E
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
+import { founderStale } from "./founder";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -145,6 +146,8 @@ class Store {
   onAssignmentChanged?: () => void;
   /** refetch `me`: an admin decided this person's request to join (set at boot) */
   onAccessDecided?: () => void;
+  /** a hosted collective: refetch `health.funding` / `health.founder` (a key added, an exploration, a proposal or funding; set at boot) */
+  onFounderChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
@@ -197,6 +200,7 @@ class Store {
     if (e.type.startsWith("grant.") || e.type === "building.blocked") this.onAssignmentChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
     if (isMyAccessDecision(e, s.me?.user.id)) this.onAccessDecided?.();
+    if (s.health?.funding && founderStale(e)) this.onFounderChanged?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;

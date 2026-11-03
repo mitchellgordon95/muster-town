@@ -98,6 +98,18 @@ async function boot(): Promise<Phase> {
     }, () => undefined);
   };
   store.onRedeployEvent = loadRedeployLive;
+  // a hosted collective: a key added, an exploration started, a proposal filed or funded moves the founder's HUD notice
+  // (health figures are recomputed every 5 s on the server, so wait a little longer than that before refetching)
+  let founderTimer: ReturnType<typeof setTimeout> | null = null;
+  store.onFounderChanged = () => {
+    founderTimer ??= setTimeout(() => {
+      founderTimer = null;
+      a.health().then(({ funding, founder }) => {
+        const h = store.state.health;
+        if (h && funding) store.set({ health: { ...h, funding, ...(founder ? { founder } : {}) } });
+      }, () => undefined);
+    }, 6000);
+  };
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
