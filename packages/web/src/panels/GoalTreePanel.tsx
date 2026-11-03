@@ -19,7 +19,7 @@ import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
-import { FreeTokensLine, capText } from "./FreeTokens";
+import { FreeTokensLine, capText, desksText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
 import { GeDivider, useGeDetailWidth } from "./panelResize";
 
@@ -307,6 +307,31 @@ function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: G
         <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
       </div>
       <ExploreRow node={node} can={can} onDone={onDone} />
+      <DesksRow root={root} node={node} can={can} onDone={onDone} />
+    </div>
+  );
+}
+
+/**
+ * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks the buildings under this goal may have, set here
+ * or above (the smallest on the path binds). Same editors as the cap; a captain can't go above the total over them.
+ */
+function DesksRow({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
+  const own = node.desksTotal ?? null;
+  const [total, setTotal] = useState(own == null ? "" : String(own));
+  useEffect(() => setTotal(own == null ? "" : String(own)), [node.id, own]);
+  const line = desksText(node, root);
+  if (!can && !line) return null;
+  const next = total.trim() === "" ? null : Math.max(0, Math.round(Number(total)) || 0);
+  const above = node.parentId ? findGoal(root, node.parentId)?.funding.desksTotal ?? null : null;
+  return (
+    <div className="ge-funding-row">
+      <span className="ge-funding-label">Desk total</span>
+      {can ? <>
+        <input className="ge-desks-input" type="number" min={0} style={{ width: 64 }} value={total} placeholder={above ? String(above.total) : "none"} onChange={(e) => setTotal(e.target.value)} />
+        <Act small tone="primary" disabled={next === own} title="The most desks the buildings under this goal may have; blank = none set here (the smallest total on the path binds)" run={() => api().updateGoal(node.id, { desksTotal: next }).then(onDone)}>Save</Act>
+      </> : null}
+      <span className={line ? undefined : "muted"}>{line ?? "none"}</span>
     </div>
   );
 }

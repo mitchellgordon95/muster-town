@@ -42,6 +42,27 @@ export function exploreCapAt(goals: Repos["goals"], goalId: string): { tokensPer
   return min;
 }
 
+/**
+ * The desk total in force at a goal (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the SMALLEST `desksTotal` on the path to the
+ * root, with the goal that sets it (the nearest one on a tie); null = none. Like the exploration cap, a captain can
+ * tighten a total set above them but never loosen it.
+ */
+export function desksTotalAt(goals: Repos["goals"], goalId: string): { total: number; goalId: string } | null {
+  let min: { total: number; goalId: string } | null = null;
+  const seen = new Set<string>();
+  for (let g = goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? goals.get(g.parentId) : undefined) {
+    seen.add(g.id);
+    if (g.desksTotal != null && (!min || g.desksTotal < min.total)) min = { total: g.desksTotal, goalId: g.id };
+  }
+  return min;
+}
+
+/** Desks under a goal: the sum of the headcounts of the buildings attached at or under it. */
+export function desksUnder(world: World, goalId: string): number {
+  const under = world.goalTree.subtreeIds(goalId);
+  return world.buildings.all().filter((b) => under.has(world.goalTree.attachmentOf(b))).reduce((s, b) => s + b.headcount, 0);
+}
+
 /** The root's explore rule when nothing up the tree sets one (docs/how-work-gets-done.md §3): on, 100,000-token chunks. */
 export const EXPLORE_CHUNK_TOKENS = 100_000;
 
@@ -194,5 +215,9 @@ export function exploreSpentToday(world: World, goalId: string, now = new Date()
 /** A goal's funding as GET /api/goals shows it: the effective explore rule and exploration cap (and what it has used today) and the free tokens. */
 export function goalFunding(world: World, goalId: string, free?: FreeTokens, now = new Date()): GoalFunding {
   const exploreCap = exploreCapAt(world.goals, goalId);
-  return { exploreCap, explore: exploreRuleAt(world.goals, goalId), exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0, free: free ?? freeTokens(world, goalId, now) };
+  const desks = desksTotalAt(world.goals, goalId);
+  return {
+    exploreCap, explore: exploreRuleAt(world.goals, goalId), exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0,
+    desksTotal: desks ? { ...desks, desks: desksUnder(world, desks.goalId) } : null, free: free ?? freeTokens(world, goalId, now),
+  };
 }
