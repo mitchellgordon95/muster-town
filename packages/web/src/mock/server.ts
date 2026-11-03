@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -337,6 +337,22 @@ export class MockApi implements Api {
       heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt,
       sessions: live ? [{ id: `se_${a.agentId}`, status: "running", startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null, adjustedOutputTokens: 0, turns: 12, reportId: null }] : [],
     };
+  }
+  /** The toy grant's spend as three sessions (one errored with no tokens), so the grant page's Sessions section has rows that sum to spentTokens. */
+  async grantSessions(grantId: string): Promise<GrantSessions> {
+    await wait(60);
+    const g = this.sim.grants.get(grantId);
+    const spent = g?.spentTokens ?? 0;
+    if (!g || !spent) return { grantId, sessions: [], tokens: 0, usd: 0 };
+    const agentId = g.proposedBy;
+    const parts = [Math.round(spent * 0.6), 0, spent - Math.round(spent * 0.6)];
+    const sessions = parts.map((tokens, i): GrantSession => ({
+      id: `se_${grantId}_${i}`, agentId, assignmentId: null, meetingId: null, purpose: "work", backend: "docker", status: i === 1 ? "error" : "done", model: "claude-opus-5-5", sdkSessionId: null,
+      input: 0, output: tokens, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, tokens, costUsd: 0, turns: 10, reportId: i === 1 ? null : `dc_${grantId}_${i}`,
+      error: i === 1 ? "desk lost" : null, startedAt: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(), endedAt: new Date(Date.now() - (i + 1) * 3_000_000).toISOString(),
+      adjustedOutputTokens: tokens, usd: tokens * 20 / 1e6, agentName: this.sim.agents.get(agentId)?.name ?? agentId, assignmentTitle: `${g.objective}, step ${3 - i}`,
+    } as GrantSession));
+    return { grantId, sessions, tokens: spent, usd: spent * 20 / 1e6 };
   }
   async sessionById(id: string): Promise<SessionDetail> {
     const d = await this.agent(this.need(id.startsWith("se_") ? id.slice(3) : undefined, "session"));

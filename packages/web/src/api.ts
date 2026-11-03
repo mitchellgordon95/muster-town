@@ -17,6 +17,10 @@ export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
 export type Grid = Snapshot["grid"];
 
 /** GET /api/sessions/:id: the session and, for an admin, its building's manager or its agent, its kept transcript file. */
+/** GET /api/sessions?grantId=: one session of a grant, with its list-price dollars (core sessionListUsd), agent name and assignment title. */
+export type GrantSession = SessionView & { usd: number; agentName: string; assignmentTitle: string | null };
+/** GET /api/sessions?grantId=: every session the grant paid for, newest first; `tokens` = Σ adjustedOutputTokens (= the grant's spentTokens). */
+export interface GrantSessions { grantId: string; sessions: GrantSession[]; tokens: number; usd: number }
 export interface SessionDetail { session: SessionView; transcript: { url: string; bytes: number; lines: number; expiresAt: string } | null }
 
 export interface AgentDetail {
@@ -454,6 +458,8 @@ export interface Api {
   assignmentCard(id: string): Promise<AssignmentCard>;
   /** One session by id (a se_ id link's panel); `transcript` (its kept file) only for those who may read it. */
   sessionById(id: string): Promise<SessionDetail>;
+  /** Every session a grant paid for (public), newest first (gr_4tf9hd64d5). */
+  grantSessions(grantId: string): Promise<GrantSessions>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -710,6 +716,7 @@ class HttpApi implements Api {
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
   async assignmentCard(id: string) { return unwrap<AssignmentCard>(await this.get(`/api/assignments/${id}`), "assignment"); }
   sessionById(id: string) { return this.get<SessionDetail>(`/api/sessions/${id}`); }
+  grantSessions(grantId: string) { return this.get<GrantSessions>(`/api/sessions?grantId=${encodeURIComponent(grantId)}`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }

@@ -33,4 +33,22 @@ describe("adjusted output tokens in the API", () => {
     expect(bank.adjustedCreditedTokens).toBe(1_000);
     expect(bank.inputs.find((i: { label: string }) => i.label === "Key")).toMatchObject({ creditedTokens: 1_000, adjustedCreditedTokens: 1_000 });
   });
+  it("GET /api/sessions?grantId= lists every session of that grant, newest first, with usd, agent name and a sum equal to spentTokens", async () => {
+    const t = await seededApp();
+    close = t.close;
+    const ravi = t.by("Ravi");
+    const up = (grantId: string, output: number, startedAt: string, extra: object = {}) => t.world.sessions.upsert({
+      id: `se_${grantId}_${output}`, agentId: ravi.id, assignmentId: null, purpose: "work", status: "done", model: "claude-opus-5-5",
+      output, startedAt, endedAt: startedAt, lane: "grant", grantId, ...extra,
+    } as never);
+    up("gr_a", 1_000, "2026-11-01T00:00:00.000Z", { reportId: "dc_r1" });
+    up("gr_a", 2_500, "2026-11-02T00:00:00.000Z", { status: "error", error: "boom" });
+    up("gr_b", 9_000, "2026-11-02T00:00:00.000Z");
+    const r = await json(t.app, "GET", "/api/sessions?grantId=gr_a");
+    expect(r.status).toBe(200);
+    expect(r.body.sessions.map((s: { id: string }) => s.id)).toEqual(["se_gr_a_2500", "se_gr_a_1000"]);
+    expect(r.body.sessions[1]).toMatchObject({ adjustedOutputTokens: 1_000, usd: 0.02, agentName: "Ravi", assignmentTitle: null, reportId: "dc_r1" });
+    expect(r.body).toMatchObject({ grantId: "gr_a", tokens: 3_500, usd: 0.07 });
+    expect(t.world.grantDesk.spent("gr_a")).toBe(r.body.tokens);
+  });
 });

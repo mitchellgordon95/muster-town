@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -12,7 +12,7 @@ const EventsQuery = z.object({
   buildingId: z.string().optional(),
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
-const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
+const SessionsQuery = z.object({ agentId: z.string().optional(), grantId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
 const FunderQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
@@ -156,6 +156,16 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get("/api/sessions", async (req) => {
     const q = parse(SessionsQuery, req.query);
+    // one grant's sessions (gr_4tf9hd64d5): every one, newest first, each with its list-price dollars, agent name and
+    // assignment title; their adjustedOutputTokens sum to GET /api/grants/:id spentTokens (Grants.spent reads the same rows)
+    if (q.grantId) {
+      const rows = world.sessions.where("grantId = ?", [q.grantId], "ORDER BY startedAt DESC, rowid DESC");
+      const sessions = rows.map((s) => ({
+        ...sessionView(s), usd: cents(sessionListUsd(s)), agentName: world.nameOf(s.agentId),
+        assignmentTitle: (s.assignmentId && world.assignments.get(s.assignmentId)?.title) || null,
+      }));
+      return { sessions, grantId: q.grantId, tokens: sessions.reduce((n, s) => n + s.adjustedOutputTokens, 0), usd: cents(rows.reduce((n, s) => n + sessionListUsd(s), 0)) };
+    }
     const rows = q.agentId
       ? world.sessions.where("agentId = ?", [q.agentId], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`)
       : world.sessions.where("1 = 1", [], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`);
