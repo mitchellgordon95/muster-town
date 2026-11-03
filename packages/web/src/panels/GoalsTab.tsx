@@ -131,6 +131,7 @@ function grantStatusLine(g: GrantView): ReactNode {
     case "proposed": return `Asks ${fmtTokens(g.askTokens)} ${ADJ} · proposed ${timeAgo(g.createdAt)}`;
     case "countered": return `Countered: the manager revises it and proposes again · asks ${fmtTokens(g.askTokens)} ${ADJ}`;
     case "closed": return `Closed${g.outcome ? `: ${g.outcome}` : ""}${g.closedAt ? ` ${timeAgo(g.closedAt)}` : ""} · spent ${grantSpendLine(g)}`;
+    case "stopping": return `Stopping: a human stopped it; it closes as stopped once its forks have filed their reports · spent ${grantSpendLine(g)}`;
     case "rejected": return `Rejected · asked ${fmtTokens(g.askTokens)} ${ADJ}`;
     default: return null;
   }

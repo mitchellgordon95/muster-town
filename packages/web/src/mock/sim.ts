@@ -255,6 +255,20 @@ export class Sim {
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
+  /** POST /api/grants/:id/stop, as core's Grants.stop with no fork running: it closes as stopped at once, its key results missed. */
+  stopGrant(id: string, reason: string): GrantView {
+    const g = this.grants.get(id);
+    if (!g) throw new Error("grant not found");
+    if (g.status !== "funded" && g.status !== "checkpoint") throw new Error(`This grant is ${g.status}.`);
+    const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
+    g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "stop", tokens: null, note: reason });
+    for (const k of g.keyResults) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "missed", note: `Grant stopped: ${reason}` });
+    Object.assign(g, { status: "closed", outcome: "stopped", closedAt: now(), updatedAt: now() });
+    g.history.push({ at: now(), byId: "system", byKind: "agent", action: "close", tokens: unspent, note: `Stopped: ${reason}` });
+    this.event("grant.closed", null, `Stopped: ${g.objective}: ${reason}`, { grantId: g.id }, g.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
+    return g;
+  }
   budgetOf(buildingId: string) {
     const al = this.allocations.filter((a) => a.buildingId === buildingId && !a.retired);
     const allocatedTokens = al.reduce((s, a) => s + a.tokens, 0), spentTokens = al.reduce((s, a) => s + a.spentTokens, 0);

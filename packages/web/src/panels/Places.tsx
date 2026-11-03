@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, topUpLine, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
 import { forkTip } from "../forks";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
@@ -59,6 +59,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const goalProposals = mineOnly(list.data?.goalProposals ?? [], routes, view, funder);
   const captains = mineOnly(list.data?.captains ?? [], routes, view, funder);
   const retainers = mineOnly(list.data?.retainers ?? [], routes, view, funder);
+  // grants a human stopped: shown, never counted (nothing to decide)
+  const stopped = mineOnly(list.data?.stopped ?? [], routes, view, funder);
   const hidden = isHall ? allReports.length + (list.data?.grants?.length ?? 0) + (list.data?.goalProposals?.length ?? 0) + (list.data?.captains?.length ?? 0) + (list.data?.retainers?.length ?? 0) - reports.length - grants.length - goalProposals.length - captains.length - retainers.length : 0;
   useEffect(() => { if (list.data) store.putDocs(list.data.reports); }, [list.data]);
   const stored = useTown((s) => (openId ? s.docs[openId] : undefined));
@@ -77,7 +79,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
       {open ? (
         <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
       ) : hall && asDeck ? (
-        <ReviewDeckView grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
+        <ReviewDeckView grants={[...grants, ...stopped]} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} view={view} funder={funder} onClose={() => setAsDeck(false)} onDecided={list.reload} onOpenDoc={openDoc} />
       ) : (
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager.</div> : null}
@@ -85,7 +87,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <IntrayRow key={d.id} doc={d} chain={list.data?.chains?.[d.id]} onOpen={() => setOpenId(d.id)} onOpenDoc={openDoc} />)}
@@ -161,10 +163,16 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ reports, grants, goalProposals, routes, access, captains, retainers, blocked, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; onOpen: (id: string) => void; onDecided: () => void }) {
+function TownHallIntray({ reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void }) {
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  const closes = grants.filter((g) => g.status === "closed");
+  const closes = grants.filter((g) => g.status === "closed" && g.outcome === "done");
+  // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
+  const stoppedList = stopped.length ? (
+    <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
+      <div className="doc-list">{stopped.map((g) => <GrantRow key={g.id} grant={g} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+    </Section>
+  ) : null;
   const askedOn = askedOnOf(grants, retainers);
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
   const blockedList = blocked.length ? (
@@ -202,7 +210,7 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
       <div className="goal-proposals">{goalProposals.map((p) => <div key={p.id}><RoutedTo route={routes[p.id]} /><GoalProposalItem p={p} onDone={onDecided} /></div>)}</div>
     </Section>
   ) : null;
-  if (!reports.length && !grants.length && !goalProposals.length) return <>{asking}{captainList}{retainerList}{blockedList}{asking || captainList || retainerList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
+  if (!reports.length && !grants.length && !goalProposals.length) return <>{asking}{captainList}{retainerList}{blockedList}{stoppedList}{asking || captainList || retainerList || stoppedList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
   return (
     <>
       {asking}
@@ -230,6 +238,7 @@ function TownHallIntray({ reports, grants, goalProposals, routes, access, captai
           <div className="doc-list">{closes.map((g) => <GrantRow key={g.id} grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
         </Section>
       ) : null}
+      {stoppedList}
     </>
   );
 }
@@ -383,11 +392,19 @@ function GrantLink({ id, className }: { id: string; className?: string }) {
 function grantSettledLine(g: GrantView): string {
   switch (g.status) {
     case "funded": return `Funded ${fmtTokens(g.grantTokens ?? 0)} ${ADJ}${g.fundedAt ? ` ${timeAgo(g.fundedAt)}` : ""}${funderLine(g)}; sessions draw on it until the next checkpoint.`;
+    case "stopping": return "Stopping: its forks are wrapping up and filing their reports; it closes as stopped when no session runs on it.";
     case "closed": return `Closed${g.outcome ? `: ${g.outcome}` : ""}${g.closedAt ? `, ${timeAgo(g.closedAt)}` : ""}.`;
     case "rejected": return "Rejected.";
     case "draft": return "Draft: the manager is still writing it.";
     default: return g.status;
   }
+}
+
+/** A stopped grant's money: "spent 120k of 500k adj. tokens; 380k unspent returned to the Bank as free tokens" (or kept on the funder's input; while stopping, so far). */
+function stopMoneyLine(g: GrantView, s: GrantStop): string {
+  const spent = `spent ${fmtTokens(s.spentTokens)} of ${fmtTokens(s.grantTokens)} ${ADJ}`;
+  if (!s.closed) return `${spent} so far; stopping`;
+  return `${spent}; ${fmtTokens(s.unspentTokens)} unspent ${s.returnedTo === "pool" ? "returned to the Bank as free tokens" : `stays on ${g.fundedWithLabel ?? g.fundedWith ?? "the funder's input"}`}`;
 }
 
 /** " by Ada from Ada's key": who funded a member-funded grant and with which Bank input (grants paid by the Bank: ""). */
@@ -446,6 +463,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
+  const signedInHuman = useTown((s) => !!s.me);
   const checkpoint = g.status === "checkpoint";
   // the manager closed it early as done (close_grant): a human marks each of its claimed key results met or missed
   const closedDone = g.status === "closed" && g.outcome === "done";
@@ -482,6 +500,26 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
     store.toast("Grant closed: the unspent tokens are back in the Bank", "ok");
     onDecided();
   };
+  // Stop grant (gr_8i952perny): a human with building.fund or the goal's captain, a reason required
+  const [stopping, setStopping] = useState(false);
+  const [reason, setReason] = useState("");
+  const stopGrant = async () => {
+    await api().stopGrant(g.id, { reason });
+    store.toast("Grant stopped: its forks wrap up, its queued work is cancelled and its key results are missed", "ok");
+    setStopping(false);
+    onDecided();
+  };
+  const stop = grantStopOf(g);
+  const stopForm = (g.status === "funded" || g.status === "checkpoint") && canFund && signedInHuman ? (stopping ? (
+    <div className="grant-decide grant-stop">
+      <div className="grant-inputs"><Field label="Why stop it"><input value={reason} autoFocus placeholder="required: the manager and the in-tray see it" onChange={(e) => setReason(e.target.value)} /></Field></div>
+      <div className="muted">Its forks are asked to wrap up, its queued work is cancelled, its open key results are marked missed, and the unspent tokens go back to {g.fundedWith ? "the funder's input" : "the Bank"}.</div>
+      <div className="actions">
+        <Act small tone="bad" disabled={!reason.trim()} run={stopGrant}>Stop grant</Act>
+        <button className="btn sm" onClick={() => setStopping(false)}>Cancel</button>
+      </div>
+    </div>
+  ) : <div className="actions"><button className="link grant-stop-open" onClick={() => setStopping(true)} title="Stop this grant mid-work, with a reason">Stop grant…</button></div>) : null;
   // Talk to and the decision buttons sit together under the grant, big (Mitchell's flag dc_4uiv48047s)
   const talk = <TalkAboutGrant grant={g} />;
   const footer = <div className="actions decide-footer">{talk}</div>;
@@ -560,7 +598,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
         <BuildingTag buildingId={g.buildingId} />
         {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
         <span>{timeAgo(g.updatedAt)}</span>
-        <Pill tone={checkpoint ? "warn" : g.status === "rejected" ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{g.status}</Pill>
+        <Pill tone={checkpoint ? "warn" : g.status === "rejected" || stop ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{stop && g.status === "closed" ? "stopped" : g.status}</Pill>
         <GrantLink id={g.id} />
       </div>
       <div className="doc-row-title">{g.objective}</div>
@@ -568,7 +606,9 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       {/* on a deck slide the slide text carries the ask */}
       {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
-        {closedDone
+        {stop
+          ? <span title={breakdownTitle(g.spentCounts)}>{stopMoneyLine(g, stop)}</span>
+          : closedDone
           ? <span title={breakdownTitle(g.spentCounts)}>spent {fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ}; returned {fmtTokens(unspent)} unspent to the Bank</span>
           : checkpoint
           ? <span title={breakdownTitle(g.spentCounts)}>{fmtTokens(g.spentTokens)} of {fmtTokens(g.grantTokens ?? 0)} {ADJ} spent ({pct}%)</span>
@@ -578,8 +618,11 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
       </div>
       {g.evidence ? <CheckpointEvidenceBlock e={g.evidence} onOpenDoc={onOpenDoc} earlier={!checkpoint} /> : null}
       {folded ? null : planList}
-      {last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): <DocText text={last.note} /></div> : null}
+      {stop
+        ? <div className="intray-proposal grant-stopped-by"><b>{nameOf(stop.byId)} stopped it</b> {timeAgo(stop.at)}: <DocText text={stop.reason} /></div>
+        : last?.note ? <div className="intray-proposal">{nameOf(last.byId)} ({last.action}): <DocText text={last.note} /></div> : null}
       {decision}
+      {stopForm}
       {folded ? <details className="grant-plan"><summary>The plan as funded: key results and stop condition</summary>{planList}</details> : null}
     </div>
   );
