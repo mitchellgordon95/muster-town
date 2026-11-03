@@ -36,3 +36,8 @@ export function badRequest(message: string): AppError {
 export function isAppError(e: unknown): e is AppError {
   return e instanceof AppError;
 }
+
+/** 409 for acting on a gone agent (isGone: retired or banned): "Noor is retired." */
+export function goneError(agent: { name: string; status: string }): AppError {
+  return new AppError("conflict", `${agent.name} is ${agent.status}.`);
+}

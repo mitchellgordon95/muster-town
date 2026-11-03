@@ -2,11 +2,17 @@
  * User stats (the Town Hall's stats stand, 1:1 mt_ec2b7x80rg decision 2): how strangers become members, from GET /api/join-funnel.
  * Counts only, never who. The 30-day total on top, then by day, then per collective (the root server lists every hosted
  * collective; a hosted one gets only its own numbers). A new step is one entry in COLUMNS.
+ * For an admin or a goal captain, a Members table follows (gr_cuobjlny6r): each let-in member with the goals they may
+ * direct work under (what opens 1:1s with those goals' managers), a one-click grant of the decider's default goal and a
+ * revoke per goal. The server is the gate: GET /api/members is 403 for anyone else.
  */
 import type { ReactNode } from "react";
-import { api, API_BASE, type JoinFunnelCounts, type JoinFunnelView } from "../api";
+import { api, API_BASE, type JoinFunnelCounts, type JoinFunnelView, type MemberView } from "../api";
+import { goalShortName } from "../purpose";
+import { useTown } from "../state";
+import { letInGoal } from "./letIn";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Empty, ErrorLine, Loading, Section, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Loading, Section, timeAgo, useLoad } from "./ui";
 
 /** The steps in funnel order: short column label and what the number is. */
 export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string }[] = [
@@ -95,12 +101,65 @@ export function StatsView({ f }: { f: JoinFunnelView }) {
   );
 }
 
+/**
+ * The let-in members and the goals each may direct work under. `goal` is the one the Grant button gives (the viewer's
+ * default, as the Let in card's second button); null = the viewer can't grant. Each held goal has its own Revoke.
+ */
+export function MembersTable({ members, goal, onGrant, onRevoke }: { members: MemberView[]; goal: { id: string; text: string; short: string } | null; onGrant: (userId: string, goalId: string) => Promise<unknown>; onRevoke: (userId: string, goalId: string) => Promise<unknown> }) {
+  if (!members.length) return <Empty>Nobody has been let in yet.</Empty>;
+  return (
+    <div className="stats-scroll"><table className="table stats-table members-table">
+      <thead><tr><th>Member</th><th title="When an admin let them in">Let in</th><th title="The goals they may direct work under: a 1:1 or meeting with a manager of a building under one of them">Direct work under</th><th /></tr></thead>
+      <tbody>
+        {members.map((m) => {
+          const who = m.githubLogin ? `@${m.githubLogin}` : m.name;
+          const holds = goal ? m.direct.some((d) => d.goalId === goal.id) : true;
+          return (
+            <tr key={m.userId}>
+              <td title={m.name}>{m.avatarUrl ? <img className="member-avatar" src={m.avatarUrl} alt="" /> : null}{who}</td>
+              <td title={m.letInAt ?? "not through a join request"}>{m.letInAt ? timeAgo(m.letInAt) : <span className="faint">–</span>}</td>
+              <td>
+                {m.direct.length ? m.direct.map((d) => (
+                  <span key={d.goalId} className="member-goal" title={d.text}>
+                    {goalShortName(d.text)}
+                    <Act small run={() => onRevoke(m.userId, d.goalId)} title={`${who} may no longer direct work under "${goalShortName(d.text)}"`}>Revoke</Act>
+                  </span>
+                )) : <span className="faint">none</span>}
+              </td>
+              <td className="num">{goal && !holds ? <Act small tone="primary" run={() => onGrant(m.userId, goal.id)} title={`${who} may then open a 1:1 with a manager under "${goal.text}"`}>Grant {goal.short}</Act> : null}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table></div>
+  );
+}
+
+function MembersSection() {
+  const m = useLoad(() => api().members(), []);
+  const goal = letInGoal();
+  return (
+    <Section title="Members" right={m.data ? <span className="muted">{m.data.length}</span> : null}>
+      <ErrorLine error={m.error} />
+      {m.loading && !m.data ? <Loading /> : m.data ? (
+        <MembersTable members={m.data} goal={goal}
+          onGrant={async (userId, goalId) => { await api().grantDirect(userId, goalId); m.reload(); }}
+          onRevoke={async (userId, goalId) => { await api().revokeDirect(userId, goalId); m.reload(); }} />
+      ) : null}
+      <div className="muted">Direct work under a goal is what opens a 1:1 with a manager of a building under it; Let in + direct work gives it at the door.</div>
+    </Section>
+  );
+}
+
 export function StatsPanel() {
   const f = useLoad(() => api().joinFunnel(), []);
+  // the server's gate for GET /api/members: an admin or any goal's captain
+  const seesMembers = useTown((s) => !!s.me?.isAdmin || !!s.me?.direct?.some((d) => d.how === "captain"));
   return (
     <PanelShell icon={<Glyph kind="stats" />} title="User stats" subtitle="How strangers become members: saw the guest card, signed in, asked to join, were let in">
       <ErrorLine error={f.error} />
       {f.loading && !f.data ? <Loading /> : f.data ? <StatsView f={f.data} /> : null}
+      {seesMembers ? <MembersSection /> : null}
     </PanelShell>
   );
 }

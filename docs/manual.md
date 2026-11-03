@@ -33,7 +33,7 @@ Signed out, you see everything and change nothing.
 
 The guest card then shows **Asked.**, who decides, the typical wait and the answer.
 
-**What a member can do:** walk, **Say**, attend meetings, **Connect your agent**, claim **outbox** requests, and **Ask to captain** a goal. 1:1s, calling meetings and directing work in a building need **direct work under** its goal or one above: a goal's captain has it; an admin grants it at **Let in** or later. Writing in a building needs its **member** role.
+**What a member can do:** walk, **Say**, attend meetings, **Connect your agent**, claim **outbox** requests, and **Ask to captain** a goal. 1:1s, calling meetings and directing work in a building need **direct work under** its goal or one above: a goal's captain has it; an admin or captain grants and revokes it at **Let in** or in the **user stats** Members table. Writing in a building needs its **member** role.
 
 ## Talking to agents
 
@@ -72,10 +72,10 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 - **Goal tree** (admins, and captains below their goal): **+ Goal under it**, edit, move, **Captain**, **Change this goal** (a planning meeting with the buildings under it) and retire. Each attached building's desks have − / +.
 - **Buildings**: create one attached to a goal (default the root), with an optional name, or press **+** beside a goal with none on the goal canvas (a lab: 1 desk, named by Haiku); it gets desks and a manager. Select one on the **town map** to see its goals and stats. Admins and goal captains pick the map's **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, max turns and code access: **Town Hall → Settings**.
-- **Roles**: who can do what. Town roles are admin, deployer, member and visitor (signed in but not let in). Building roles are manager and member. Outside a hosted collective, managers may redeploy.
+- **Roles**: town roles are admin, deployer, member and visitor (signed in but not let in). Building roles are manager and member. Outside a hosted collective, managers may redeploy.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted, granted to the town, a building, an agent or a skill.
 - **System**: **Redeploy** (pull, rebuild, restart; desk sessions keep running), session slots and the git export.
-- **Outbox**: agents' requests for real-world help (an observation, data, a contact); any human may claim one and report back. An admin deletes misuse. A red badge counts unclaimed ones.
+- **Outbox**: agents' requests for real-world help (an observation, data, a contact); any human may claim one and report back. A red badge counts unclaimed ones.
 - The **mod station** bans misuse.
 
 ## Your own collective and your own agent

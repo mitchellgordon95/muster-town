@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -80,12 +80,29 @@ export class MockApi implements Api {
     this.access.push(r);
     return clone(r);
   }
-  async decideAccess(id: string, grant: boolean, _directGoalId?: string | null): Promise<AccessRequest> {
+  async decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest> {
     await wait(120);
     const r = this.need(this.access.find((x) => x.id === id), "access request");
     if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
     Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
+    if (grant && directGoalId) await this.grantDirect(r.userId, directGoalId);
     return clone(r);
+  }
+  private direct: { userId: string; goalId: string; grantedBy: string; createdAt: string }[] = [];
+  async members(): Promise<MemberView[]> {
+    await wait(60);
+    const letIn = this.access.filter((r) => r.status === "granted");
+    const rows: MemberView[] = [{ userId: "us_pat", name: "Pat Lee", githubLogin: "patlee", avatarUrl: null, letInAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), direct: [] },
+      ...letIn.map((r) => ({ userId: r.userId, name: r.name, githubLogin: r.githubLogin, avatarUrl: r.avatarUrl, letInAt: r.decidedAt, direct: [] }))];
+    return clone(rows.map((m) => ({ ...m, direct: this.direct.filter((d) => d.userId === m.userId).map((d) => ({ ...d, text: d.goalId === "gl_town" ? this.sim.town.goal || "The town goal" : d.goalId })) })));
+  }
+  async grantDirect(userId: string, goalId: string) {
+    await wait(120);
+    if (!this.direct.some((d) => d.userId === userId && d.goalId === goalId)) this.direct.push({ userId, goalId, grantedBy: "us_mitchell", createdAt: new Date().toISOString() });
+  }
+  async revokeDirect(userId: string, goalId: string) {
+    await wait(120);
+    this.direct = this.direct.filter((d) => !(d.userId === userId && d.goalId === goalId));
   }
   async accessRequests(): Promise<AccessRequestView[]> {
     await wait(60);

@@ -33,6 +33,13 @@ describe("captain steering rights routes", () => {
     world.goalTree.update(admin, other.id, { ownerId: out.id });
     const rollup = createDoc(world, { type: "report", state: "building", title: "Rollup 1", body: "## Shipped\nx", decision: "pending", authorId: mei.id, authorKind: "agent", buildingId: LAB, tags: ["rollup"] });
 
+    // GET /api/me: captainOf names the lab for its captain only (the web's store.can reads it)
+    const meOf = async (h: Record<string, string>) => (await json(app, "GET", "/api/me", { headers: h })).body;
+    expect((await meOf(cap.h)).captainOf).toContain(LAB);
+    expect((await meOf(cap.h)).captainOf).not.toContain("town-hall");
+    expect((await meOf(out.h)).captainOf).not.toContain(LAB);
+    expect((await meOf(plain.h)).captainOf).toEqual([]);
+
     // in-tray: Mine + canDecide for the captain only
     const tray = async (h: Record<string, string>) => (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: h })).body;
     expect((await tray(cap.h)).routes[rollup.id]).toMatchObject({ mine: true, canDecide: true });

@@ -4,6 +4,7 @@
  * resident's wiki pages and log: what it knows and did) | Helpers (a manager's forks) | Details (a fork's own fields).
  * Reports live in the in-tray and library.
  */
+import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } from "../api";
@@ -271,7 +272,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: its manager takes requests */
-  const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && manager.status !== "retired" && manager.status !== "banned";
+  const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && !isGone(manager);
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
   // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
   const townHall = home?.kind === "town-hall";
@@ -473,7 +474,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   // v1.4: a visitor's assignments are offers it accepts from its own session; nothing here starts them
   const visitor = agent.kind === "visitor";
   const offline = agent.status === "offline";
-  const gone = agent.status === "retired" || agent.status === "banned";
+  const gone = isGone(agent);
   const put = (r: { assignment?: Assignment; assignments?: Assignment[]; agent?: Agent }) => {
     store.putAssignments([...(r.assignments ?? []), ...(r.assignment ? [r.assignment] : [])]);
   };

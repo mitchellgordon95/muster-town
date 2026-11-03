@@ -7,6 +7,7 @@
  * exploration assignment on the building queue. The reservation is a claim on free tokens; its sessions' spend shrinks
  * it, and it closes (unspent returns) once its assignment is no longer pending or active.
  */
+import { isGone } from "@muster-town/schema";
 import type { Assignment, BankReservation, Building } from "@muster-town/schema";
 import { buildingQueue, createAssignment, managerAgentOf } from "./domain.ts";
 import { sessionView } from "./bank.ts";
@@ -40,7 +41,7 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   const rule = exploreRuleAt(world.goals, goalId);
   if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
   const manager = managerAgentOf(world, b);
-  if (!manager || manager.status === "banned" || manager.status === "retired") return "no manager to fork";
+  if (!manager || isGone(manager)) return "no manager to fork";
   if (world.budget.remaining(b.id) <= 0) return "the building's budget is spent";
   if (freeDesks(world, b) <= 0) return "no free desk";
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";

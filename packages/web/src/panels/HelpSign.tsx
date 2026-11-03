@@ -30,7 +30,7 @@ export function HelpSignCard({ buildingId }: { buildingId: string }) {
   const signedIn = viewer === "member" || viewer === "reviewer";
   const card = helpCard(b, places, agents, viewer, {
     talk: signedIn && canTalkToManager(b.id),
-    flag: signedIn && store.can("building.assign", b.id),
+    flag: signedIn && store.canFlag(b.id),
     touch: TOUCH,
   });
   const go = (placeId: string) => {

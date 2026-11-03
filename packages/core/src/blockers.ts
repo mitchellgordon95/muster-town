@@ -4,7 +4,7 @@
  * wait or changes `heldReason` (`checkWaits` and `Budget.holdReason` own those). A wait on a time (an agent's own work
  * parked with `resumeWhen {after}`) is not a block (`waitsOnTime`). Timed jobs are building schedules (schedules.ts).
  */
-import { QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats } from "@muster-town/schema";
+import { NOT_GONE, QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats } from "@muster-town/schema";
 import { isTownHallItem } from "./domain.ts";
 import { laneBlock } from "./lanes.ts";
 import { truncate } from "./util.ts";
@@ -99,7 +99,7 @@ export function buildingStats(world: World, buildingId: string, at: Date = new D
   }
   assignments.scheduled = world.schedules.count("buildingId = ? AND status = 'active'", [buildingId]);
   let agents = 0, forks = 0, working = 0;
-  for (const g of world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('retired', 'banned')", [buildingId])) {
+  for (const g of world.agents.where(`homeBuildingId = ? AND kind = 'resident' AND ${NOT_GONE}`, [buildingId])) {
     if (g.forkOf) forks++; else agents++;
     if (g.status === "working") working++;
   }

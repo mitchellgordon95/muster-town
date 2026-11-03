@@ -331,6 +331,14 @@ export interface JoinFunnelView {
   founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
 
+/** GET /api/members (gr_cuobjlny6r): a let-in member and the goals they may direct work under (none = no 1:1s). */
+export interface MemberView {
+  userId: string; name: string; githubLogin: string | null; avatarUrl: string | null;
+  /** when they were let in; null for a member made another way */
+  letInAt: string | null;
+  direct: { goalId: string; text: string; grantedBy: string; createdAt: string }[];
+}
+
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** A building's exploration today (core grants.ts ExplorationBudget): spent today, free tokens under its goal, the cap over it (null = uncapped). */
@@ -443,6 +451,12 @@ export interface Api {
   joinFunnel(): Promise<JoinFunnelView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
   countGuestCardView(): Promise<void>;
+  /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
+  members(): Promise<MemberView[]>;
+  /** POST /api/members/:userId/direct: let a member direct work under the goal (an admin, or a captain of it or one above) */
+  grantDirect(userId: string, goalId: string): Promise<void>;
+  /** DELETE /api/members/:userId/direct: take that back */
+  revokeDirect(userId: string, goalId: string): Promise<void>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** town.ban */
@@ -710,6 +724,9 @@ class HttpApi implements Api {
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view"); }
+  async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
+  async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
+  async revokeDirect(userId: string, goalId: string) { await this.call("DELETE", `/api/members/${userId}/direct`, { goalId }); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }

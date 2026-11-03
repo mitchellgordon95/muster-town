@@ -477,6 +477,36 @@ export const AgentStatus = z.enum([
 ]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+/** Gone: retired (dismissed, or a fork whose session ended) or banned. Terminal: no transition leaves a gone status. */
+export const isGone = (a: { status: AgentStatus } | AgentStatus | null | undefined): boolean => {
+  const s = typeof a === "string" ? a : a?.status;
+  return s === "retired" || s === "banned";
+};
+
+const LIVE_STATUSES: readonly AgentStatus[] = ["idle", "walking", "working", "in-meeting", "out-of-budget", "offline"];
+/**
+ * Agent status transitions (from → allowed to): World.setStatus refuses any other change (docs/invariants/agent-lifecycle.md).
+ * retired is terminal; banned only goes to retired (dismissing a banned agent); stopped leaves only by resume (→ idle),
+ * a visitor going offline, or going away. Unchanged status is always a no-op, never a transition.
+ */
+export const STATUS_TRANSITIONS: Readonly<Record<AgentStatus, readonly AgentStatus[]>> = {
+  idle: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  walking: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  working: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  "in-meeting": [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  "out-of-budget": [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  offline: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  stopped: ["idle", "offline", "banned", "retired"],
+  banned: ["retired"],
+  retired: [],
+};
+
+/** The SQL twin of `!isGone(agent)` for `agents.where(...)`. */
+export const NOT_GONE = "status NOT IN ('retired','banned')";
+
+/** May an agent go from `from` to `to`? (same status: yes, a no-op) */
+export const canTransition = (from: AgentStatus, to: AgentStatus): boolean => from === to || STATUS_TRANSITIONS[from].includes(to);
+
 export const Agent = z.object({
   id: Id,
   name: z.string(),
@@ -2423,6 +2453,11 @@ export const AuthMe = z.object({
   direct: z.array(z.object({ goalId: Id, text: z.string(), how: z.enum(["granted", "captain"]) })).default([]),
   /** the goal the Let in card offers for "Let in + direct work under <goal>": their captained goal, else the town goal for an admin; null = they can't grant */
   directDefaultGoalId: Id.nullable().default(null),
+  /**
+   * the buildings they steer as a captain (gr_zsm1piyqyx, core `Goals.captainsBuilding`): attached to a goal they captain
+   * or one below it. The web's `store.can` honours it for review and facilitate there, and flags; the server is the gate.
+   */
+  captainOf: z.array(Id).optional(),
   /** the buildings (not the Town Hall) where core `canDirect` holds for them: the web shows "Talk to ★ <manager>" there and nowhere else */
   directBuildingIds: z.array(Id).default([]),
 });

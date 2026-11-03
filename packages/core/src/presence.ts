@@ -9,6 +9,7 @@
  * Assignments to visitors are offers (`offered: true`): never scheduled; `accept_assignment` takes one. Offers left
  * for 24 h are cancelled by `expireOffers` with a note in the building's in-tray.
  */
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, Assignment, MailboxDigest, Mailbox, Tile } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { nowIso } from "./util.ts";
@@ -91,7 +92,7 @@ export class Presence {
     const w = this.world;
     const bench = w.layout.place("visitor-bench");
     if (!bench) return w.layout.place("plaza")?.pos ?? { x: 1, y: 1 };
-    const taken = new Set(w.agents.where("status NOT IN ('retired','banned') AND id != ?", [agentId]).map((o) => `${o.pos.x},${o.pos.y}`));
+    const taken = new Set(w.agents.where(`${NOT_GONE} AND id != ?`, [agentId]).map((o) => `${o.pos.x},${o.pos.y}`));
     for (const p of [bench.pos, { x: bench.pos.x + 1, y: bench.pos.y }]) {
       if (w.layout.isWalkable(p.x, p.y) && !taken.has(`${p.x},${p.y}`)) return { ...p };
     }

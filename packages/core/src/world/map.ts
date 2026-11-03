@@ -1,4 +1,4 @@
-import { TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { NOT_GONE, TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
@@ -170,7 +170,7 @@ export class WorldMap {
   repairDesks(): { agentId: string; place: Place }[] {
     const seated = new Set((this.db.prepare("SELECT agentId FROM desks").all() as { agentId: string }[]).map((r) => r.agentId));
     const out: { agentId: string; place: Place }[] = [];
-    for (const a of this.repos.agents.where("kind = 'resident' AND status NOT IN ('retired','banned') AND homeBuildingId IS NOT NULL AND forkOf IS NULL", [], "ORDER BY createdAt, id")) {
+    for (const a of this.repos.agents.where(`kind = 'resident' AND ${NOT_GONE} AND homeBuildingId IS NOT NULL AND forkOf IS NULL`, [], "ORDER BY createdAt, id")) {
       if (seated.has(a.id)) continue;
       const b = this.repos.buildings.get(a.homeBuildingId!);
       if (!b) continue;

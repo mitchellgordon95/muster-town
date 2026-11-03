@@ -1,4 +1,4 @@
-import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
 import { countMemberAct } from "./access.ts";
 import { canDirect } from "./direct.ts";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
@@ -22,13 +22,13 @@ type CreateMeeting = (typeof CreateMeetingInput)["_input"];
  */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired') AND forkOf IS NULL", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where(`homeBuildingId = ? AND kind = 'resident' AND ${NOT_GONE} AND forkOf IS NULL`, [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
     for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, "manager"))) ids.add(id);
   }
-  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
+  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && !isGone(s); });
 }
 
 /**
@@ -38,7 +38,7 @@ export function defaultAttendees(world: World, buildingId: string | null): strin
  * name, which made the facilitator whoever sorted first.
  */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
-  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && s !== "banned" && s !== "retired"; };
+  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && !isGone(s); };
   if (buildingId && buildingId !== TOWN_HALL_ID) {
     const manager = world.buildings.get(buildingId)?.managerAgentId;
     if (active(manager)) return manager;
@@ -90,7 +90,7 @@ export function createMeeting(world: World, input: CreateMeeting, actor?: Agent)
     const a = world.agents.get(id);
     if (!a) throw notFound("agent", id);
     if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
-    if (a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
+    if (isGone(a)) throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
   }
   const brings = inp.brings ?? { mode: "status" as const, text: "" };
   if (brings.mode === "custom" && !brings.text.trim()) throw badRequest("Say what attendees should bring (custom), or pick status update or nothing.");
@@ -130,7 +130,7 @@ function inviteAsk(m: Meeting): string {
 }
 
 /** An agent a human can hold a 1:1 with: a resident (or manager) still working in the town. */
-const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**
  * Who answers a 1:1 about `authorId`'s work: the author itself if it is a working resident; a fork's parent (the
