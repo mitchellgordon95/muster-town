@@ -5,11 +5,12 @@
  * Opened from the HUD's signed-in row, the How-this-works overlay, or `/#/connect`.
  */
 import { useState } from "react";
-import type { AuthMe } from "@muster-town/schema";
+import type { AuthMe, GoalTreeNode } from "@muster-town/schema";
 import { api, API_BASE, ApiError } from "../api";
 import { useAuth, SignInNote } from "../auth/auth";
 import { store, useTown } from "../state";
 import { PanelShell } from "./PanelShell";
+import { useGoalTree } from "./GoalPicker";
 
 /** Where a stranger reads how a connected agent works: the skill as the town serves it (server `GET /skill.md`). */
 const SKILL_PATH = "/skill.md";
@@ -32,9 +33,24 @@ export function connectStep(guest: boolean, me: AuthMe | null): ConnectStep {
 }
 
 interface Registered { name: string; token: string; line: string }
-/** Register the visitor and build what the panel shows once. */
-export async function registerAgent(name: string, buildingId: string, origin: string): Promise<Registered> {
-  const { agent, token } = await api().registerVisitor({ name: name.trim(), ...(buildingId ? { buildingId } : {}) });
+/**
+ * The goals a visitor can work on: each active goal whose own building, or one above it, has desks (a lab, not the
+ * Town Hall). The visitor gets a desk beyond that building's headcount, so it adds to the goal's concurrency.
+ */
+export function joinableGoals(root: GoalTreeNode | null): { id: string; text: string; depth: number }[] {
+  const out: { id: string; text: string; depth: number }[] = [];
+  const walk = (n: GoalTreeNode, depth: number, desks: boolean) => {
+    const here = desks || n.buildings.some((b) => b.id !== "town-hall" && b.headcount > 0);
+    if (here) out.push({ id: n.id, text: n.text, depth });
+    for (const c of n.children) if (c.status === "active") walk(c, depth + 1, here);
+  };
+  if (root) walk(root, 0, false);
+  return out;
+}
+
+/** Register the visitor (on a goal, or at the plaza) and build what the panel shows once. */
+export async function registerAgent(name: string, goalId: string, origin: string): Promise<Registered> {
+  const { agent, token } = await api().registerVisitor({ name: name.trim(), ...(goalId ? { goalId } : {}) });
   return { name: agent.name, token, line: mcpAddLine(origin + API_BASE, token) };
 }
 
@@ -55,9 +71,9 @@ export function TokenOnce({ done, onCopy }: { done: Registered; onCopy?: () => v
 function ConnectAgentBody() {
   const auth = useAuth();
   const me = useTown((s) => s.me);
-  const buildings = useTown((s) => s.buildings);
+  const goals = joinableGoals(useGoalTree());
   const [name, setName] = useState(() => defaultAgentName(me));
-  const [buildingId, setBuildingId] = useState("");
+  const [goalId, setGoalId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Registered | null>(null);
@@ -74,7 +90,7 @@ function ConnectAgentBody() {
   }
   const submit = async () => {
     setBusy(true); setError(null);
-    try { setDone(await registerAgent(name || defaultAgentName(me), buildingId, location.origin)); }
+    try { setDone(await registerAgent(name || defaultAgentName(me), goalId, location.origin)); }
     catch (e) { setError(e instanceof ApiError || e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
@@ -82,12 +98,12 @@ function ConnectAgentBody() {
     <div className="connect-form">
       <p className="muted">Your own Claude Code joins the town as a visitor: it walks, reads, talks and takes assignments like the agents here, over MCP. Nothing to clone.</p>
       <label className="field"><span>Name</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} /></label>
-      <label className="field"><span>Building</span>
-        <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+      <label className="field"><span>Goal</span>
+        <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
           <option value="">None yet (the plaza)</option>
-          {buildings.filter((b) => b.kind !== "town-hall").map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          {goals.map((g) => <option key={g.id} value={g.id}>{`${"  ".repeat(g.depth)}${g.depth ? "› " : ""}${g.text.length > 70 ? `${g.text.slice(0, 69)}…` : g.text}`}</option>)}
         </select>
-        <small>Where it gets a desk. A building's manager can give it work.</small>
+        <small>What it works on. It gets an extra desk in that goal's building while it is online, on your own subscription; the manager can offer it work.</small>
       </label>
       {error ? <div className="error-line">{error}</div> : null}
       <div className="connect-actions">
