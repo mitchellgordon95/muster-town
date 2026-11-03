@@ -196,7 +196,7 @@ export class Ops {
    */
   archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ArchiveResult {
     const doc = this.world.docs.require(docId, "doc");
-    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
+    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId) && !this.world.goalTree.captainsBuilding(actor, doc.buildingId)) throw forbidden("building.review");
     return archiveReport(this.world, actor, docId, opts);
   }
 
@@ -529,7 +529,7 @@ export class Ops {
   /** POST /meetings/:id/start → discussing. */
   startMeeting(actor: Actor, meetingId: string): Meeting {
     const m = this.world.meetings.require(meetingId, "meeting");
-    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
   meetingSay(actor: Agent, meetingId: string, text: string, attach?: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text, attach); }
@@ -563,7 +563,7 @@ export class Ops {
       const m = this.world.meetings.require(meetingId, "meeting");
       // a 1:1's own human ends it, member or not (gr_58n37j410s)
       const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
-      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

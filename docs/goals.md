@@ -93,6 +93,13 @@ There is no "town admins" fallback: the root's captain is a user like any other,
 
 **Permissions** (1:1 mt_kh0zaqui0w). An owner holds `goals.edit` scoped to their subtree: they can edit, accept proposals, mark met/missed, attach, and set owners below them. An owner also **decides and funds grants** whose KR sits in their subtree: `building.fund` scoped to the subtree, so funding is no longer admins-only. Funding by a plain member from their own input (kr_6f9c200vsx, gr_tvt32g9xly) is unchanged. Admins keep both powers everywhere.
 
+**Steering the buildings under their goal** (gr_zsm1piyqyx). A captain steers each building attached to their goal or a goal below it like that building's reviewer does (core `Goals.captainsBuilding`, used beside the role checks, never instead of them):
+- **Rollups and reports**: they decide (review, archive) the building's rollups routed into their subtree; the Town Hall in-tray shows them on Mine with `canDecide` true.
+- **1:1s and meetings**: they direct work there (core `canDirect`): they open 1:1s with the building's manager (or any of its agents), the 1:1 is a human source for directed work, and they call, start and end meetings there.
+- **Flags**: they plant flags in those buildings.
+
+Outside their subtree a captain is a plain member: no decisions, flags or 1:1s there (403) unless an admin or that goal's captain grants them "direct work under" it. The Town Hall is never a captain's building: its captain is the root captain, and admins keep every power there.
+
 **UI** (as designed; the Subtree tab was built in step 3 and dropped in 1:1 mt_n25udpflus decision 5, so today the tree itself is the captain's view). The node page's **Subtree** tab was the captain's rollup of rollups:
 
 - every attached building's last rollup line and stoplight;
