@@ -23,6 +23,8 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     const decided = "## Shipped\nNone.\n\n## Decided\n- dc_x → approve (checkpoint for gr_abc1)\n\n## Key results\n- gr_abc1 on track\n\n## Needs from Mitchell\n- Continue gr_abc1: it buys the deck.";
     expect(askLineFor("Rollup 10", decided, "gr_abc1")).toBe("Continue gr_abc1: it buys the deck.");
     expect(askLineFor("Rollup 10", decided.replace(/## Key results[\s\S]*$/, "## Needs from Mitchell\nNothing."), "gr_abc1")).toBeNull();
+    // a Key results table row reads as plain text, not markdown pipes
+    expect(askLineFor("Rollup 11", rollup("None.", "| Grant | KR | Status |\n|---|---|---|\n| After let-in gr_abc1, 665 / 500 | kr_e1 | at-risk |"), "gr_abc1")).toBe("After let-in gr_abc1, 665 / 500 · kr_e1 · at-risk");
     expect([askVerb("proposed"), askVerb("checkpoint"), askVerb("closed"), askVerb("asked")]).toEqual(["fund", "continue", "mark", "approve"]);
   });
 

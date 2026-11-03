@@ -181,7 +181,9 @@ export function withoutWaitingLine(body: string): string {
   return body.replace(/\r\n/g, "\n").replace(WAITING_LINE, "");
 }
 
-const plainLine = (l: string) => l.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+// a Key results table row ("| gr_x, 10 / 20 | kr_y | at-risk | note |") reads as "gr_x, 10 / 20 · kr_y · at-risk · note"
+const tableRow = (l: string) => /^\s*\|.*\|\s*$/.test(l) ? l.trim().replace(/^\|\s*|\s*\|$/g, "").split(/\s*\|\s*/).filter(Boolean).join(" · ") : l;
+const plainLine = (l: string) => tableRow(l).replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
 
 /** The rollup's own words about `id`: its Needs line naming it, else its first other line naming it outside "## Decided" (as plain text), else its title when that names it; null if neither does. */
 export function askLineFor(title: string, body: string, id: string): string | null {
