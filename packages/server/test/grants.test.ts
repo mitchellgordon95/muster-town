@@ -159,5 +159,12 @@ describe("grants routes", () => {
     expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "again" } })).status).toBe(409);
     const ev = world.events.list({ types: ["grant.closed"], desc: true, limit: 5 }).find((e) => e.payload.grantId === id)!;
     expect(ev.payload).toMatchObject({ outcome: "stopped", reason: "the plan is wrong", grantTokens: 1_000_000, spentTokens: 0, unspentTokens: 1_000_000, returnedTo: "pool" });
+    // the Town Hall in-tray lists it for the record (routed, nothing to decide); the withdrawn proposal is not a stop
+    const intray = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
+    expect(intray.stopped.map((g: { id: string }) => g.id)).toEqual([id]);
+    expect(intray.grants.map((g: { id: string }) => g.id)).not.toContain(id);
+    expect(intray.routes[id]).toMatchObject({ canDecide: false });
+    const deck = (await json(app, "GET", "/api/review-deck", { headers: auth })).body;
+    expect(deck.slides.find((x: { kind: string }) => x.kind === "stopped")).toMatchObject({ grantId: id });
   });
 });
