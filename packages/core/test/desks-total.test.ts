@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createBuilding, createUser, desksTotalAt } from "../src/index.ts";
+import { createBuilding, createResident, createUser, desksTotalAt } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -67,5 +67,24 @@ describe("desks per subtree: goals.desksTotal (gr_yu6qw3j9x5)", () => {
     tree.update(admin, a.id, { desksTotal: null });
     world.ops.updateBuilding(admin, LAB, { headcount: 6 });
     expect(world.buildings.require(LAB).headcount).toBe(6);
+  });
+
+  it("a named resident joining a full lab (claimDesk with grow) is held by the same total: 409 with the same message, nothing grows", () => {
+    const { world, admin, tree, a } = setup();
+    // the seeded lab is full (setup lowered it to 3 desks under its residents); the total is what is there now
+    expect(world.layout.deskCount(LAB)).toBeGreaterThanOrEqual(3);
+    tree.update(admin, a.id, { desksTotal: 3 });
+    const desks = world.layout.deskCount(LAB);
+    const residents = world.agents.count("homeBuildingId = ? AND kind = 'resident'", [LAB]);
+    expect(() => createResident(world, { buildingId: LAB, name: "Extra" })).toThrow(/Desk total reached: "A" .* allows 3 desks under it and has 0 elsewhere, so Carbon Cycle Lab can have at most 3, not \d+/);
+    // the transaction rolled back: no new resident, no new desk, headcount unchanged
+    expect(world.buildings.require(LAB).headcount).toBe(3);
+    expect(world.layout.deskCount(LAB)).toBe(desks);
+    expect(world.agents.count("homeBuildingId = ? AND kind = 'resident'", [LAB])).toBe(residents);
+    // with no total in force the lab grows as before
+    tree.update(admin, a.id, { desksTotal: null });
+    createResident(world, { buildingId: LAB, name: "Extra" });
+    expect(world.buildings.require(LAB).headcount).toBeGreaterThan(3);
+    expect(world.layout.deskCount(LAB)).toBe(desks + 1);
   });
 });

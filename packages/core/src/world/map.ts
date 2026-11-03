@@ -23,6 +23,8 @@ export class WorldMap {
   plazas: Plaza[] = [];
   /** called after a rebuild that moved places or lots, so bodies follow (set by the World) */
   follow: ((before: Before, moved: Moved[]) => void) | null = null;
+  /** called before a full lab grows by a desk (`claimDesk` with `grow`); throws to refuse it (set by the World: the subtree desk totals) */
+  beforeGrow: ((buildingId: string, headcount: number) => void) | null = null;
   /** increments on every rebuild (lets the server know to resend the grid) */
   version = 0;
   private byId = new Map<string, Place>();
@@ -142,7 +144,7 @@ export class WorldMap {
   /**
    * Give the agent the lowest free desk in the building (or desk `prefer` when it is free), never a taken one; rebuilds
    * the layout. The headcount caps the fork-slot desks only (`deskCount`): visitor desks don't count against it. With
-   * `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing. With `visitor`, the desk
+   * `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT and the desk totals on its goal path, `beforeGrow`) instead of refusing. With `visitor`, the desk
    * is one beyond the headcount (the lowest free desk number at or above it) and the headcount is not changed: a
    * visitor adds a desk to the building while seated and never takes a fork slot (docs/invariants/agent-lifecycle.md, "Visitor desks").
    */
@@ -171,6 +173,8 @@ export class WorldMap {
       if (!opts.grow || b.kind === "town-hall" || n >= MAX_HEADCOUNT) {
         throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${cap}).`);
       }
+      // the subtree desk totals hold here too (gr_yu6qw3j9x5): a named resident joining a full lab is a raise
+      this.beforeGrow?.(b.id, used + 1);
       this.repos.buildings.upsert({ ...b, headcount: used + 1 });
     }
     this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);

@@ -181,6 +181,7 @@ export class World {
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
     this.layout.follow = (before, moved) => followRelayout(this, before, moved);
+    this.layout.beforeGrow = (buildingId, headcount) => this.goalTree.requireDesksFit(buildingId, this.goalTree.attachmentOf(buildingId), headcount);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
