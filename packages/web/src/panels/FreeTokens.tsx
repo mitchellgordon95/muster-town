@@ -58,6 +58,18 @@ export function capText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTr
   return `${fmtTokens(cap.tokensPerDay)} / day, set on ${from}, ${fmtTokens(node.funding.exploreSpentTodayTokens)} used today`;
 }
 
+/**
+ * "Desks: N of M (set on goal X)" when a desk total is in force (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): N is the sum of the
+ * headcounts under the goal that sets it, M the smallest total on the path to the root (core free-tokens.ts
+ * `desksTotalAt`). Null when none is set anywhere above.
+ */
+export function desksText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTreeNode | null): string | null {
+  const d = node.funding.desksTotal;
+  if (!d) return null;
+  const from = d.goalId === node.id ? "this goal" : `goal ${goalShortName(root ? findGoal(root, d.goalId)?.text ?? d.goalId : d.goalId)}`;
+  return `Desks: ${d.desks} of ${d.total} (set on ${from})`;
+}
+
 /** The Bank Overview's town-wide free tokens (GET /api/bank `free`, the root goal's): each term of the sum, then the total. */
 export function BankFreeTokens({ free }: { free: FreeTokens }) {
   const unavailable = free.unavailableTokens ?? 0;

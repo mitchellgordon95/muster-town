@@ -1304,6 +1304,12 @@ export const Goal = z.object({
   explore: z.boolean().nullable().default(null),
   /** the tokens one explorer reserves (inherited; the root's null = EXPLORE_CHUNK_TOKENS, 100,000) */
   exploreChunkTokens: z.number().int().positive().nullable().default(null),
+  /**
+   * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks (the sum of the headcounts of the buildings
+   * attached at or under this goal) its subtree may have; null = none set here. Totals combine as the minimum on the
+   * path to the root (core free-tokens.ts `desksTotalAt`); raising a headcount past the one in force is a 409.
+   */
+  desksTotal: z.number().int().nonnegative().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1347,6 +1353,8 @@ export interface GoalTreeNode {
   /** the explore rule set on this goal (null = inherited); `funding.explore` is the effective one */
   explore: boolean | null;
   exploreChunkTokens: number | null;
+  /** the desk total set on this goal (null = none here); `funding.desksTotal` is the one in force */
+  desksTotal?: number | null;
   funding: GoalFunding;
   children: GoalTreeNode[];
 }
@@ -1359,6 +1367,8 @@ export interface GoalFunding {
   explore: ExploreRule;
   /** exploration spent today by the buildings at or under the capping goal (0 with no cap) */
   exploreSpentTodayTokens: number;
+  /** the desk total in force (the smallest on the path to the root) with the goal that sets it and the desks (sum of headcounts) under that goal now; null = none */
+  desksTotal?: { total: number; goalId: string; desks: number } | null;
   free: FreeTokens;
 }
 /**
@@ -1498,6 +1508,8 @@ export const UpdateGoalInput = z.object({
   exploreCapTokensPerDay: z.number().int().nonnegative().nullable().optional(),
   explore: z.boolean().nullable().optional(),
   exploreChunkTokens: z.number().int().min(10_000).max(2_000_000).nullable().optional(),
+  /** desks per subtree (null = none here): a captain can tighten the total in force above but never exceed it */
+  desksTotal: z.number().int().nonnegative().max(1000).nullable().optional(),
 });
 export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
 /** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */

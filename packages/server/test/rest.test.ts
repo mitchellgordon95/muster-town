@@ -449,6 +449,21 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(since.body.events[0].id).toBe(ev.body.events[0].id + 1);
   });
 
+  it("desks per subtree (gr_yu6qw3j9x5): a goal's desksTotal shows on GET /api/goals; raising desks past it is a 409 naming it, admins too", async () => {
+    const { app, auth } = await setup();
+    const own = (await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "Carbon's goal" } })).body.goal.id;
+    await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: own, headcount: 3 } });
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.desksTotal).toBeNull();
+    expect((await json(app, "PATCH", `/api/goals/${own}`, { body: { desksTotal: 4 } })).status).toBe(401);
+    expect((await json(app, "PATCH", `/api/goals/${own}`, { headers: auth, body: { desksTotal: 4 } })).body.goal.desksTotal).toBe(4);
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.desksTotal).toEqual({ total: 4, goalId: own, desks: 3 });
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 4 } })).status).toBe(200);
+    const over = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 5 } });
+    expect(over.status).toBe(409);
+    expect(JSON.stringify(over.body)).toMatch(/Desk total reached: \\"Carbon's goal\\".*allows 4 desks/);
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 2 } })).status).toBe(200);
+  });
+
   it("moveHuman validates walkability (WS human.move path)", async () => {
     const { world, seed } = await setup();
     const avatar = world.ops.ensureAvatar(seed.admin.id);
