@@ -1,5 +1,5 @@
 import { AppError } from "@muster-town/core";
-import { CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
+import { CloseGrantInput, StopGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -55,6 +55,11 @@ export async function grantRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/grants/:id/close", async (req) => ({
     grant: desk.close(actorOf(world, req), req.params.id, parse(CloseGrantInput, req.body)),
+  }));
+
+  // a human stops a funded grant mid-work (core Grants.stop): its forks wind down, queued work is cancelled, it closes as stopped
+  app.post<{ Params: Params }>("/api/grants/:id/stop", async (req) => ({
+    grant: desk.stop(actorOf(world, req), req.params.id, parse(StopGrantInput, req.body)),
   }));
 
   app.get<{ Params: Params }>("/api/buildings/:id/key-results", async (req) => {
