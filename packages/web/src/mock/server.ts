@@ -18,6 +18,8 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
 const MOCK_CAP: Record<string, number> = { gl_town: 3_000_000 };
+/** desk totals per subtree (core free-tokens.ts `desksTotalAt`): Join sets one so the tree shows "Desks: N of M" */
+const MOCK_DESKS: Record<string, number> = { gl_join: 12 };
 const F_SPENT_TODAY = () => Object.values(explorationSpentToday).reduce((s, n) => s + n, 0);
 
 export class MockApi implements Api {
@@ -163,6 +165,15 @@ export class MockApi implements Api {
     const caps = [goalId, "gl_town"].flatMap((g) => MOCK_CAP[g] ? [{ tokensPerDay: MOCK_CAP[g], goalId: g }] : []);
     return caps.reduce<{ tokensPerDay: number; goalId: string } | null>((m, c) => !m || c.tokensPerDay < m.tokensPerDay ? c : m, null);
   }
+  /** the desk total in force at a goal (the root or the goal's top-level pillar, the mock tree is two levels deep) with the desks under the goal that sets it */
+  private desksAt(goalId: string): { total: number; goalId: string; desks: number } | null {
+    const pillar = goalId === "gl_town" ? null : goalId.split("_").slice(0, 2).join("_");
+    const sets = ["gl_town", pillar, goalId].flatMap((g) => g && MOCK_DESKS[g] != null ? [{ total: MOCK_DESKS[g], goalId: g }] : []);
+    const min = sets.reduce<{ total: number; goalId: string } | null>((m, c) => !m || c.total < m.total ? c : m, null);
+    if (!min) return null;
+    const under = (gid: string | null | undefined) => min.goalId === "gl_town" || (gid ?? "gl_town") === min.goalId || (gid ?? "").startsWith(`${min.goalId}_`);
+    return { ...min, desks: this.sim.buildings.filter((b) => under(b.goalId)).reduce((s, b) => s + b.headcount, 0) };
+  }
   /** Free tokens under a goal, like core free-tokens.ts: the general balance + earmarks at or above it, less every live grant's remaining and open ask (no reservations in the toy) */
   private free(goalId: string): FreeTokens {
     const live = this.bankInputs.filter((i) => !i.cancelledAt);
@@ -183,8 +194,8 @@ export class MockApi implements Api {
     const owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
-      exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null,
-      funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
+      exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null, desksTotal: MOCK_DESKS[id] ?? null,
+      funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), desksTotal: this.desksAt(id), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
     // a second level so the canvas shows grandchildren; the root has a captain of its own (Mitchell)

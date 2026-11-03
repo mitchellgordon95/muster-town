@@ -47,6 +47,7 @@ export function createBuilding(
   const goalId = inp.goalId ?? ROOT_GOAL_ID;
   const goal = world.goals.get(goalId);
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
+  if (opts.kind !== "town-hall") world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
   return world.transaction(() => {
     const building = world.buildings.upsert({
       ...inp, ...text, ...defaults, name: inp.name || world.goalTree.defaultName(goalId), goalId, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
@@ -107,6 +108,8 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   // a headcount below the desks in use is accepted: it caps the next fork (freeDesks), running forks keep their desks
   // and the lab shrinks as they free (WorldMap `drawn`)
   if (p.headcount !== undefined && p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
+  // desks per subtree (gr_yu6qw3j9x5): a raise must fit every desk total on the path (a lower one always may)
+  if (p.headcount !== undefined && p.headcount > cur.headcount) world.goalTree.requireDesksFit(cur.id, world.goalTree.attachmentOf(cur), p.headcount);
   if (p.managerAgentId) {
     const a = world.agents.get(p.managerAgentId);
     if (!a || a.kind !== "resident" || a.homeBuildingId !== id || a.forkOf) throw badRequest("The manager must be a (named) resident of this building.");
