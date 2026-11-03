@@ -146,8 +146,11 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
     return { ...d, author: world.nameOf(d.authorId), sources, files,
       ...(files.length ? { filesNote: "Read one with `read` {id, file}. On a desk you can save them under ~/skills/<name>/ and run the scripts." } : {}) };
   }
-  const revisions = d.topicOf ? revisionsOf(world, d.id).map((r) => ({ ...r, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
-  return { ...d, author: world.nameOf(d.authorId), sources, ...(revisions ? { revisions } : {}) };
+  // A topic page's revisions are listed without their bodies: a page rewritten often carries hundreds of thousands
+  // of characters of old text, which made `read` too big for a session. GET /api/docs/:id still returns the bodies.
+  const revisions = d.topicOf ? revisionsOf(world, d.id).map(({ body, ...r }) => ({ ...r, chars: body.length, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
+  return { ...d, author: world.nameOf(d.authorId), sources,
+    ...(revisions ? { revisions, ...(revisions.length ? { revisionsNote: "Old bodies are not shown here; GET /api/docs/<id> returns them." } : {}) } : {}) };
 }
 
 /** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
