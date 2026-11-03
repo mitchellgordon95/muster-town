@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -10,11 +10,11 @@ function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
-    cpu: null as { cpu: number; steal: number } | null };
+    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, ...o.probes,
   };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
@@ -392,6 +392,38 @@ describe("monitor thresholds", () => {
     await m2.sample();
     expect(alerts().filter((a) => a.phase === "gap")).toHaveLength(1);
   });
+  it("redeploy-failed: red at once when the last redeploy run failed or was aborted, clears 5 samples after one reaches done", async () => {
+    const { r, m, step, alerts, world } = await setup();
+    r.state.redeploy = { state: "done", at: new Date(r.now()).toISOString(), step: null, requestedBy: "CI" };
+    await step(2);
+    expect(m.view().alerts).toEqual([]);
+    r.state.redeploy = { state: "failed", at: new Date(r.now()).toISOString(), step: "git pull --rebase origin prod", requestedBy: "CI" };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "redeploy-failed", level: "red", value: 1 }]);
+    const raise = alerts().filter((a) => a.phase === "raise");
+    expect(raise).toMatchObject([{ key: "redeploy-failed", level: "red" }]);
+    const doc = world.docs.get(raise[0]!.docId!)!;
+    expect(doc.title).toContain("[RED] redeploy failed");
+    expect(doc.title).toContain('step "git pull --rebase origin prod", requested by CI');
+    // a new run in progress (its events aren't terminal) keeps the failed one as the latest end: still red, no second raise
+    await step(3);
+    expect(m.view().alerts).toMatchObject([{ key: "redeploy-failed", level: "red", value: 4 }]);
+    r.state.redeploy = { state: "restarting", at: new Date(r.now()).toISOString(), step: null, requestedBy: "Nell 2" };
+    await step(1);
+    r.state.redeploy = { state: "done", at: new Date(r.now()).toISOString(), step: null, requestedBy: "Nell 2" };
+    await step(CLEAR_AFTER - 2);
+    expect(m.view().alerts).toHaveLength(1);
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    expect(alerts().filter((a) => a.key === "redeploy-failed").map((a) => a.phase)).toEqual(["raise", "clear"]);
+    expect(world.docs.get(raise[0]!.docId!)!.title).toContain("[CLEARED] RED redeploy-failed");
+    // a run a server restart cut (aborted) is red too
+    r.state.redeploy = { state: "aborted", at: new Date(r.now()).toISOString(), step: null, requestedBy: "Pix 1" };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "redeploy-failed", level: "red" }]);
+    expect(world.docs.get(alerts().at(-1)!.docId!)!.title).toContain("interrupted by a server restart, requested by Pix 1");
+  });
+
 });
 
 describe("monitor routes", () => {
@@ -465,6 +497,22 @@ describe("monitor counters", () => {
     add("se_f", "interrupted", 2); add("se_g", "interrupted", 3); add("se_h", "interrupted", 4);
     const p = processProbes(s.world, "/nonexistent", () => null, new Counters(() => now));
     expect(p.sessions(now)).toEqual({ failed15: 1, ended30: 6, failed30: 2 });
+    p.close();
+  });
+
+  it("processProbes reads the latest redeploy event that ended its run", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const p = processProbes(s.world, "/nonexistent", () => null, new Counters());
+    expect(p.redeploy()).toBeNull();
+    const add = (text: string, payload: Record<string, unknown>) => s.world.events.append({ type: "system", text, payload: { redeploy: true, ...payload } });
+    add("Redeploy requested by CI", { run: { state: "running", requestedBy: "CI" }, phase: "requested" });
+    expect(p.redeploy()).toBeNull();
+    const failed = add("Redeploy: git pull --rebase origin prod … failed (exit 128)", { run: { state: "failed", requestedBy: "CI" }, terminal: true, step: "git pull --rebase origin prod", ok: false, code: 128 });
+    add("Redeploy requested by Nell 2", { run: { state: "running", requestedBy: "Nell 2" }, phase: "requested" });
+    expect(p.redeploy()).toEqual({ state: "failed", at: failed.ts, step: "git pull --rebase origin prod", requestedBy: "CI" });
+    add("Redeploy finished", { run: { state: "done", requestedBy: "Nell 2" }, terminal: true, phase: "done" });
+    expect(p.redeploy()).toMatchObject({ state: "done", step: null, requestedBy: "Nell 2" });
     p.close();
   });
 
