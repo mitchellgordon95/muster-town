@@ -273,6 +273,8 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
     const building = world.buildings.get(flag.buildingId ?? "");
     const manager = managerAgentOf(world, building);
     if (!opts.assigneeId) {
+      const visitor = visitorManagerRefusal(world, building);
+      if (visitor) throw visitor;
       if (!manager) throw new AppError("bad_request", `${building?.name ?? "The building"} has no manager agent to fork: approve the flag, or name a visitor of the building (assigneeId).`);
       assignee = manager;
       queue = "building";
@@ -306,7 +308,25 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
   if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
   const a = world.agents.get(building.managerAgentId);
-  return a && a.kind !== "human" && a.status !== "stopped" && !isGone(a) ? a : undefined;
+  // a visitor manager (it adopted the goal, `adoptGoal`) manages only while online: offline, the building is unmanaged
+  return a && a.kind !== "human" && a.status !== "stopped" && !isGone(a) && !(a.kind === "visitor" && a.status === "offline") ? a : undefined;
+}
+
+/**
+ * The manager the town can fork and run sessions for: `managerAgentOf` when it is a resident. A visitor manager runs
+ * its own sessions (Claude Code over MCP), so the town never forks it nor starts a session as it, and the building's
+ * queue is held (1:1 mt_26vin80bpm; docs/invariants/agent-lifecycle.md invariant 10).
+ */
+export function forkableManagerOf(world: World, building: Building | undefined): Agent | undefined {
+  const m = managerAgentOf(world, building);
+  return m?.kind === "resident" ? m : undefined;
+}
+
+/** The refusal for building-queue work in a visitor-managed building; null when its manager is not a visitor. */
+export function visitorManagerRefusal(world: World, building: Building | undefined): AppError | null {
+  const m = building?.managerAgentId ? world.agents.get(building.managerAgentId) : undefined;
+  if (!building || m?.kind !== "visitor" || isGone(m)) return null;
+  return new AppError("conflict", `${building.name}'s manager ${m.name} is a visitor: the town can't fork a visitor, so nothing goes on its building queue. Offer the work to ${m.name} by id (agentId ${m.id}) instead.`);
 }
 
 /** Who works this building's in-tray right now. */

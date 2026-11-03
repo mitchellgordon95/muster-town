@@ -2,7 +2,7 @@ import {
   BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -429,6 +429,8 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
+    const visitor = visitorManagerRefusal(world, building);
+    if (visitor) throw visitor;
     if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
   } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");
