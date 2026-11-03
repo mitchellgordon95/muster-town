@@ -2351,12 +2351,20 @@ export type RedeployLive = z.infer<typeof RedeployLive>;
 export const SessionSlots = z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() });
 export type SessionSlots = z.infer<typeof SessionSlots>;
 /**
+ * A hosted collective's founder road after the key (gr_ngg1z160a8 step 3): when its latest exploration started (null: none
+ * yet), how many grant proposals are open (proposed or countered), and whether any grant was ever funded.
+ */
+export const FounderProgress = z.object({ exploringSince: Iso.nullable(), proposals: z.number().int().nonnegative(), funded: z.boolean() });
+export type FounderProgress = z.infer<typeof FounderProgress>;
+/**
  * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
  * `slots` = work-session slots (absent without a runtime).
  */
 export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
-  funding: z.enum(["api-key", "none"]).optional() });
+  funding: z.enum(["api-key", "none"]).optional(),
+  /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
+  founder: FounderProgress.optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------

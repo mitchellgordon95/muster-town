@@ -112,6 +112,27 @@ describe("Start a collective", () => {
     expect(town.health.funding).toBe("none");
   });
 
+  it("the founder's road after the key (gr_ngg1z160a8 step 3): exploring since, open proposals, ever funded; not on the Workshop", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, garden)).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const founder = async () => (await json(app, "GET", "/garden-club/api/town")).body.health.founder;
+    expect(await founder()).toEqual({ exploringSince: null, proposals: 0, funded: false });
+    const lab = w.buildings.first("kind = 'lab'")!;
+    const manager = w.agents.first("homeBuildingId = ? AND kind != 'human'", [lab.id])!;
+    const ev = w.events.append({ type: "exploration.started", agentId: manager.id, buildingId: lab.id, text: "started exploring", payload: { reservationId: "rv_x" } });
+    expect(await founder()).toEqual({ exploringSince: ev.ts, proposals: 0, funded: false });
+    const g = w.grantDesk.propose(manager, w.grantDesk.create(manager, lab.id, { objective: "Map gardens", approach: "", stopCondition: "done", askTokens: 100_000, keyResults: [{ text: "A map", howToCheck: "Open it" }] }).id);
+    expect(await founder()).toMatchObject({ proposals: 1, funded: false });
+    w.grants.patch(g.id, { status: "funded", fundedAt: new Date().toISOString() });
+    expect(await founder()).toMatchObject({ proposals: 0, funded: true });
+    // /api/health carries the same; the Workshop has none
+    expect((await json(app, "GET", "/garden-club/api/health")).body.founder).toMatchObject({ funded: true });
+    expect((await json(app, "GET", "/api/health")).body.founder).toBeUndefined();
+    expect((await json(app, "GET", "/api/town")).body.health.founder).toBeUndefined();
+  });
+
   it("one active collective per person; a town admin has no cap", async () => {
     const { app } = await setup();
     const octo = (await signIn(app, "code_octo")).cookie;
