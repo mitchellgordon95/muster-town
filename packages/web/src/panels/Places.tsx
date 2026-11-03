@@ -79,7 +79,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const subtitle = hall ? "Town Hall · rollups, proposals and checkpoints for the humans" : `${b.name} · manager's desk · worked by ${manager ? `★ ${manager.name}` : "you"}`;
   const flags = reports.filter((d) => d.type === "flag").length;
   const access = list.data?.access ?? [];
-  const focused = focus && !open ? focusRow(focus, { grants: [...grants, ...stopped], retainers, captains, access, goalProposals }, routes, { onDecided: () => { setFocus(null); list.reload(); }, onOpenDoc: openDoc }) : null;
+  const focused = focus && !open ? focusRow(focus, { grants: [...grants, ...stopped], retainers, captains, access, goalProposals }, routes, { onDecided: () => { setFocus(null); list.reload(); }, onMarked: list.reload, onOpenDoc: openDoc }) : null;
   const toggle = <IntrayModeToggle mode={mode} set={setMode} />;
   const count = reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
   return (
@@ -268,10 +268,10 @@ function TownHallIntray({ mode, onFocus, reports, grants, goalProposals, routes,
 type Focus = { kind: "grant" | "retainer" | "captain" | "access" | "goal"; id: string };
 
 /** The full row of a focused line, with its decision buttons; null once it left the in-tray (decided). */
-function focusRow(f: Focus, items: { grants: GrantView[]; retainers: ScheduleView[]; captains: CaptainRequestView[]; access: AccessRequestView[]; goalProposals: GoalProposalView[] }, routes: Record<string, IntrayRoute>, h: { onDecided: () => void; onOpenDoc: (id: string) => void }): ReactNode {
+function focusRow(f: Focus, items: { grants: GrantView[]; retainers: ScheduleView[]; captains: CaptainRequestView[]; access: AccessRequestView[]; goalProposals: GoalProposalView[] }, routes: Record<string, IntrayRoute>, h: { onDecided: () => void; onMarked: () => void; onOpenDoc: (id: string) => void }): ReactNode {
   const route = routes[f.id];
   switch (f.kind) {
-    case "grant": { const g = items.grants.find((x) => x.id === f.id); return g ? <GrantRow grant={g} canDecide={route?.canDecide} route={route} onDecided={h.onDecided} onOpenDoc={h.onOpenDoc} /> : null; }
+    case "grant": { const g = items.grants.find((x) => x.id === f.id); return g ? <GrantRow grant={g} canDecide={route?.canDecide} route={route} onDecided={h.onDecided} onMarked={h.onMarked} onOpenDoc={h.onOpenDoc} /> : null; }
     case "retainer": { const x = items.retainers.find((y) => y.id === f.id); return x ? <RetainerRow x={x} route={route} onDecided={h.onDecided} onOpenDoc={h.onOpenDoc} /> : null; }
     case "captain": { const r = items.captains.find((y) => y.id === f.id); return r ? <CaptainRow req={r} route={route} onDecided={h.onDecided} /> : null; }
     case "access": { const r = items.access.find((y) => y.id === f.id); return r ? <AccessRow req={r} onDecided={h.onDecided} /> : null; }
@@ -503,7 +503,11 @@ function EstimateLine({ g }: { g: GrantView }) {
   return <span className="grant-estimate" title="What it is likely to cost, read from the grants already closed (advisory: the ask stands)">likely cost: {e.sentence}</span>;
 }
 
-export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId, canDecide, route }: { grant: GrantView; onDecided: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute }) {
+/**
+ * `onMarked` runs after one key result is marked met or missed (default `onDecided`): the in-tray and the deck pass a
+ * reload that keeps this grant open, so a human with several key results to mark stays on it (Mitchell's flag dc_nm5lwzye7a).
+ */
+export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
@@ -537,7 +541,7 @@ export function GrantRow({ grant: g, onDecided, onOpenDoc, deckSlide, meetingId,
   const mark = (id: string, status: "met" | "missed") => async () => {
     await api().updateKeyResult(id, { status, note });
     store.toast(`Key result marked ${status}`, "ok");
-    onDecided();
+    (onMarked ?? onDecided)();
   };
   const close = async () => {
     await api().closeGrant(g.id, { outcome: "done", note });

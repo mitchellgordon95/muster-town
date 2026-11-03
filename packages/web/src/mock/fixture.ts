@@ -202,7 +202,7 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
     objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
-    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed")),
+    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "claimed")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
       { at: ago(15), byId: "ag_moss", byKind: "agent", action: "close", tokens: 550_000, note: "All 10 desks finished; 0 lost reports (spent 450,000 of 1,000,000; returned 550,000 unspent tokens to the Bank)" },
@@ -225,7 +225,7 @@ const KR_OBJECTIVE: Record<string, string> = { kr_bl_workshop_3: "ob_ws_trust", 
  * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
  */
 export const keyResults: Kr[] = [
-  ...grants.flatMap((g) => (g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
+  ...grants.flatMap((g) => (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
   kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
 ].map((k) => ({ ...k, objectiveId: KR_OBJECTIVE[k.id] ?? null }));
 
