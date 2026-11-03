@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, RoomLayout, RequestAction, SessionDetail, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -18,6 +18,8 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
 const MOCK_CAP: Record<string, number> = { gl_town: 3_000_000 };
+/** desk totals per subtree (core free-tokens.ts `desksTotalAt`): Join sets one so the tree shows "Desks: N of M" */
+const MOCK_DESKS: Record<string, number> = { gl_join: 12 };
 const F_SPENT_TODAY = () => Object.values(explorationSpentToday).reduce((s, n) => s + n, 0);
 
 export class MockApi implements Api {
@@ -80,12 +82,29 @@ export class MockApi implements Api {
     this.access.push(r);
     return clone(r);
   }
-  async decideAccess(id: string, grant: boolean): Promise<AccessRequest> {
+  async decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest> {
     await wait(120);
     const r = this.need(this.access.find((x) => x.id === id), "access request");
     if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
     Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
+    if (grant && directGoalId) await this.grantDirect(r.userId, directGoalId);
     return clone(r);
+  }
+  private direct: { userId: string; goalId: string; grantedBy: string; createdAt: string }[] = [];
+  async members(): Promise<MemberView[]> {
+    await wait(60);
+    const letIn = this.access.filter((r) => r.status === "granted");
+    const rows: MemberView[] = [{ userId: "us_pat", name: "Pat Lee", githubLogin: "patlee", avatarUrl: null, letInAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), direct: [] },
+      ...letIn.map((r) => ({ userId: r.userId, name: r.name, githubLogin: r.githubLogin, avatarUrl: r.avatarUrl, letInAt: r.decidedAt, direct: [] }))];
+    return clone(rows.map((m) => ({ ...m, direct: this.direct.filter((d) => d.userId === m.userId).map((d) => ({ ...d, text: d.goalId === "gl_town" ? this.sim.town.goal || "The town goal" : d.goalId })) })));
+  }
+  async grantDirect(userId: string, goalId: string) {
+    await wait(120);
+    if (!this.direct.some((d) => d.userId === userId && d.goalId === goalId)) this.direct.push({ userId, goalId, grantedBy: "us_mitchell", createdAt: new Date().toISOString() });
+  }
+  async revokeDirect(userId: string, goalId: string) {
+    await wait(120);
+    this.direct = this.direct.filter((d) => !(d.userId === userId && d.goalId === goalId));
   }
   async accessRequests(): Promise<AccessRequestView[]> {
     await wait(60);
@@ -95,17 +114,17 @@ export class MockApi implements Api {
     await wait(60);
     // `?as=visitor` signs in as a plain visitor so read-only views can be checked; `?as=member` as a let-in member (Ask to captain)
     const as = new URLSearchParams(location.search).get("as");
-    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: null });
+    if (as === "member") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: null, directBuildingIds: [] });
     // `?as=newmember`: let in while away (gr_58n37j410s step 2): the HUD shows the one-time "You're in" card
     if (as === "newmember") return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: [], avatarAgentId: "ag_me", isAdmin: false, canInteract: true,
-      accessRequest: { status: "granted", message: "", decidedAt: "2026-11-01T01:00:00.000Z", deciders: [this.sim.users[0].name], typicalWaitMs: 900_000, decidedByName: this.sim.users[0].name }, direct: [], directDefaultGoalId: null });
+      accessRequest: { status: "granted", message: "", decidedAt: "2026-11-01T01:00:00.000Z", deciders: [this.sim.users[0].name], typicalWaitMs: 900_000, decidedByName: this.sim.users[0].name }, direct: [], directDefaultGoalId: null, directBuildingIds: [] });
     if (as === "visitor") {
       const mine = [...this.access].reverse().find((r) => r.userId === "us_guest");
       return clone({ user: { ...this.sim.users[0], id: "us_guest", name: "Guest", githubLogin: "guest" }, roles: this.sim.roles.filter((r) => r.id === "rl_visitor"), avatarAgentId: "ag_me", isAdmin: false,
-        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null, decidedByName: mine.decidedAt ? this.sim.users[0].name : null } : null, direct: [], directDefaultGoalId: null });
+        canInteract: mine?.status === "granted", accessRequest: mine ? { status: mine.status, message: mine.message, decidedAt: mine.decidedAt, deciders: [this.sim.users[0].name], typicalWaitMs: null, decidedByName: mine.decidedAt ? this.sim.users[0].name : null } : null, direct: [], directDefaultGoalId: null, directBuildingIds: [] });
     }
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
-    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: "gl_town" });
+    return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: "gl_town", directBuildingIds: this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => b.id) });
   }
   async town(): Promise<Snapshot> { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
@@ -142,7 +161,18 @@ export class MockApi implements Api {
   async createBuilding(i: In<typeof CreateBuildingInput>) { await wait(); return clone(this.sim.createBuilding(i.name || "New building", "", i.headcount ?? desksForLot(NEW_LAB_LOT), i.goalId)); }
   /** the nearest goal at or above (one level: the mock tree is flat) that sets an exploration cap; null = uncapped */
   private capAt(goalId: string): { tokensPerDay: number; goalId: string } | null {
-    return [goalId, "gl_town"].map((g) => MOCK_CAP[g] ? { tokensPerDay: MOCK_CAP[g], goalId: g } : null).find(Boolean) ?? null;
+    // the smallest cap on the path wins, like core free-tokens.ts exploreCapAt
+    const caps = [goalId, "gl_town"].flatMap((g) => MOCK_CAP[g] ? [{ tokensPerDay: MOCK_CAP[g], goalId: g }] : []);
+    return caps.reduce<{ tokensPerDay: number; goalId: string } | null>((m, c) => !m || c.tokensPerDay < m.tokensPerDay ? c : m, null);
+  }
+  /** the desk total in force at a goal (the root or the goal's top-level pillar, the mock tree is two levels deep) with the desks under the goal that sets it */
+  private desksAt(goalId: string): { total: number; goalId: string; desks: number } | null {
+    const pillar = goalId === "gl_town" ? null : goalId.split("_").slice(0, 2).join("_");
+    const sets = ["gl_town", pillar, goalId].flatMap((g) => g && MOCK_DESKS[g] != null ? [{ total: MOCK_DESKS[g], goalId: g }] : []);
+    const min = sets.reduce<{ total: number; goalId: string } | null>((m, c) => !m || c.total < m.total ? c : m, null);
+    if (!min) return null;
+    const under = (gid: string | null | undefined) => min.goalId === "gl_town" || (gid ?? "gl_town") === min.goalId || (gid ?? "").startsWith(`${min.goalId}_`);
+    return { ...min, desks: this.sim.buildings.filter((b) => under(b.goalId)).reduce((s, b) => s + b.headcount, 0) };
   }
   /** Free tokens under a goal, like core free-tokens.ts: the general balance + earmarks at or above it, less every live grant's remaining and open ask (no reservations in the toy) */
   private free(goalId: string): FreeTokens {
@@ -164,8 +194,8 @@ export class MockApi implements Api {
     const owner = { goalId: "gl_town", userId: "us_mitchell", name: "Mitchell" };
     const node = (id: string, parentId: string | null, text: string, children: GoalTreeNode[] = []): GoalTreeNode => ({
       id, parentId, text, status: "active", ownerId: null, owner, keyResults: [], children,
-      exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null,
-      funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), free: this.free(id) },
+      exploreCapTokensPerDay: MOCK_CAP[id] ?? null, explore: null, exploreChunkTokens: null, desksTotal: MOCK_DESKS[id] ?? null,
+      funding: { exploreCap: this.capAt(id), explore: { on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null }, exploreSpentTodayTokens: F_SPENT_TODAY(), desksTotal: this.desksAt(id), free: this.free(id) },
       buildings: this.sim.buildings.filter((b) => (b.goalId ?? "gl_town") === id).map((b) => ({ id: b.id, name: b.name, headcount: b.headcount, inUse: Math.min(b.headcount, [...this.sim.agents.values()].filter((a) => a.homeBuildingId === b.id && a.status === "working").length) })),
     });
     // a second level so the canvas shows grandchildren; the root has a captain of its own (Mitchell)
@@ -289,7 +319,7 @@ export class MockApi implements Api {
   async layout(): Promise<RoomLayout> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async previewLayout(): Promise<LayoutPreview> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
   async saveLayout(): Promise<Building> { throw new ApiError("Edit layout needs the real server.", "unsupported", 501); }
-  async registerVisitor(i: In<typeof RegisterVisitorInput>) { await wait(); return { agent: clone(this.sim.createVisitor(i.name, i.buildingId)), token: `mt_mock_${Math.random().toString(36).slice(2, 14)}` }; }
+  async registerVisitor(i: In<typeof RegisterVisitorInput>) { await wait(); return { agent: clone(this.sim.createVisitor(i.name, i.buildingId ?? (i.goalId ? this.sim.buildings.find((b) => b.goalId === i.goalId)?.id : undefined))), token: `mt_mock_${Math.random().toString(36).slice(2, 14)}` }; }
   async setAgentPermissions(): Promise<never> { throw new ApiError("Agent permissions need the real server.", "unsupported", 501); }
   async setAgentModel(id: string, model: string | null) {
     await wait();
@@ -337,6 +367,22 @@ export class MockApi implements Api {
       heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt,
       sessions: live ? [{ id: `se_${a.agentId}`, status: "running", startedAt: new Date(Date.now() - 15 * 60_000).toISOString(), endedAt: null, adjustedOutputTokens: 0, turns: 12, reportId: null }] : [],
     };
+  }
+  /** The toy grant's spend as three sessions (one errored with no tokens), so the grant page's Sessions section has rows that sum to spentTokens. */
+  async grantSessions(grantId: string): Promise<GrantSessions> {
+    await wait(60);
+    const g = this.sim.grants.get(grantId);
+    const spent = g?.spentTokens ?? 0;
+    if (!g || !spent) return { grantId, sessions: [], tokens: 0, usd: 0 };
+    const agentId = g.proposedBy;
+    const parts = [Math.round(spent * 0.6), 0, spent - Math.round(spent * 0.6)];
+    const sessions = parts.map((tokens, i): GrantSession => ({
+      id: `se_${grantId}_${i}`, agentId, assignmentId: null, meetingId: null, purpose: "work", backend: "docker", status: i === 1 ? "error" : "done", model: "claude-opus-5-5", sdkSessionId: null,
+      input: 0, output: tokens, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, tokens, costUsd: 0, turns: 10, reportId: i === 1 ? null : `dc_${grantId}_${i}`,
+      error: i === 1 ? "desk lost" : null, startedAt: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(), endedAt: new Date(Date.now() - (i + 1) * 3_000_000).toISOString(),
+      adjustedOutputTokens: tokens, usd: tokens * 20 / 1e6, agentName: this.sim.agents.get(agentId)?.name ?? agentId, assignmentTitle: `${g.objective}, step ${3 - i}`,
+    } as GrantSession));
+    return { grantId, sessions, tokens: spent, usd: spent * 20 / 1e6 };
   }
   async sessionById(id: string): Promise<SessionDetail> {
     const d = await this.agent(this.need(id.startsWith("se_") ? id.slice(3) : undefined, "session"));

@@ -96,6 +96,26 @@ async function grantSampleChecks(s: Json): Promise<Check[]> {
   }));
 }
 
+/**
+ * Every grant's sessions (GET /api/sessions?grantId=, gr_4tf9hd64d5) sum to its GET /api/grants/:id spentTokens. A grant
+ * whose session is running can move between the two reads, so a mismatch is read again (twice) before it counts.
+ */
+async function grantSessionChecks(s: Json): Promise<Check[]> {
+  const ids = [...new Set(grantRows(s).map((r) => r.id as string))];
+  const pair = async (id: string) => {
+    const [g, ss] = await Promise.all([get(`/api/grants/${id}`), get(`/api/sessions?grantId=${encodeURIComponent(id)}`)]);
+    return { id, spent: Number(g.grant?.spentTokens), sum: sum((ss.sessions ?? []).map((x: Json) => Number(x.adjustedOutputTokens))), n: (ss.sessions ?? []).length };
+  };
+  const out: Awaited<ReturnType<typeof pair>>[] = [];
+  for (let i = 0; i < ids.length; i += 8) out.push(...await Promise.all(ids.slice(i, i + 8).map(pair)));
+  for (let k = 0; k < 2; k++) for (const [i, r] of out.entries()) if (r.sum !== r.spent) out[i] = await pair(r.id);
+  const bad = out.filter((r) => r.sum !== r.spent);
+  const sessions = sum(out.map((r) => r.n)), tokens = sum(out.map((r) => r.sum));
+  return [flag("grant sessions sum to spent", ids.length > 0 && bad.length === 0,
+    bad.length ? bad.map((r) => `${r.id}: Σ sessions ${fmt(r.sum)} ≠ spentTokens ${fmt(r.spent)}`).join("; ")
+      : `${ids.length} grants, ${fmt(sessions)} sessions, ${fmt(tokens)} adj. tokens: each grant's Σ /api/sessions?grantId= = /api/grants/:id spentTokens`)];
+}
+
 const KINDS = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"] as const;
 function mixChecks(m: Json | undefined, bm: Json | undefined): Check[] {
   if (!m) return [flag("mix present", false, "GET /api/finance has no mix")];
@@ -130,6 +150,7 @@ async function main(): Promise<number> {
   }
   const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
   if (s.grants) result.push(...await grantSampleChecks(s));
+  if (s.grants) result.push(...await grantSessionChecks(s));
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);

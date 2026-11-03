@@ -1,3 +1,4 @@
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
 import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -15,7 +16,7 @@ import type { VerbIn } from "./types.ts";
 export const HEARING_RANGE = 3;
 
 export function nearbyAgents(world: World, me: Agent, range = HEARING_RANGE): (Agent & { distance: number })[] {
-  return world.agents.where("status NOT IN ('banned','retired') AND id != ?", [me.id])
+  return world.agents.where(`${NOT_GONE} AND id != ?`, [me.id])
     .map((a) => ({ ...a, distance: chebyshev(a.pos, me.pos) }))
     .filter((a) => a.distance <= range)
     .sort((a, b) => a.distance - b.distance);
@@ -226,7 +227,7 @@ export async function ban(world: World, me: Agent, input: VerbIn<"ban">) {
   if (target.kind === "human") throw badRequest("Humans can't be banned with this verb.");
   if (target.status === "retired") throw badRequest(`${target.name} was dismissed.`);
   world.movement.cancel(target.id, "Banned.");
-  world.agents.patch(target.id, { status: "banned" });
+  world.setStatus(target.id, "banned", `${target.name} was banned`);
   world.events.append({ type: "agent.banned", agentId: target.id, buildingId: bid, text: `${target.name} was banned by ${me.name}: ${input.reason}`, payload: { by: world.holderOf(me).id, reason: input.reason, pendingManagerReview: true } });
   return { banned: target.id };
 }

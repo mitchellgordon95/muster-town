@@ -1,4 +1,5 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
+import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { AccessRequestView, AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
@@ -8,11 +9,13 @@ import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
 import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
+import { decideJoin, letInGoal } from "./panels/letIn";
 import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
+import { founderStep } from "./founder";
 import "./panels/hiw.css";
 
 /** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
@@ -83,6 +86,22 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
+    // the founder after the key (gr_ngg1z160a8 step 3): their agents are exploring, then their first proposal waits; gone once funded
+    const step = founderStep(health, !!me?.isAdmin, events);
+    if (step?.kind === "exploring") {
+      const who = step.agentId;
+      out.push({
+        key: "founder-exploring", icon: "planning", tone: "ok", cta: who ? "Watch →" : "",
+        text: <><b>Your agents are exploring</b> {town?.goal} (started {timeAgo(step.since)})</>,
+        go: () => { if (who) { mapRenderer()?.teleportTo(who); store.open({ kind: "agent", id: who }); } },
+      });
+    } else if (step?.kind === "proposal") {
+      out.push({
+        key: "founder-proposal", icon: "intray", tone: "warn", cta: "Fund or reject →",
+        text: <><b>Your first proposal is waiting</b>{step.count > 1 ? ` (${step.count} open)` : ""}</>,
+        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
+      });
+    }
     // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
     if (dockerDown(events, health)) {
       const paused = buildings.filter((b) => b.codeAccess).map((b) => b.name);
@@ -121,18 +140,19 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       });
     }
     // someone asked to join (gr_fibsfwr4tz step 2): one line each for an admin, so a request never waits unseen behind the badge
+    const goal = access.rows.length ? letInGoal() : null;
     for (const r of access.rows) {
       const who = r.githubLogin ? `@${r.githubLogin}` : r.name;
-      const decide = async (grant: boolean) => {
-        await api().decideAccess(r.id, grant);
-        store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
-        access.reload();
-      };
+      const decide = (grant: boolean, g?: typeof goal) => async () => { await decideJoin(r, grant, g); access.reload(); };
       out.push({
         key: `access:${r.id}`, icon: "intray", tone: "warn", cta: "",
         text: <><b>{who}</b> asked to join ({timeAgo(r.createdAt)})</>, hint: r.message ? `"${r.message}"` : undefined,
         go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
-        actions: [{ label: "Let in", primary: true, run: () => decide(true) }, { label: "Decline", run: () => decide(false) }],
+        actions: [
+          { label: "Let in", primary: true, run: decide(true) },
+          ...(goal ? [{ label: `Let in + direct work under ${goal.short}`, run: decide(true, goal) }] : []),
+          { label: "Decline", run: decide(false) },
+        ],
       });
     }
     // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).
@@ -140,7 +160,8 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
       const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
+      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && !isGone(manager)) continue;
+      if (b.kind === "town-hall" && step?.kind === "proposal" && b.intray <= step.count) continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"
@@ -166,7 +187,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents, health, redeployLive, access]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>

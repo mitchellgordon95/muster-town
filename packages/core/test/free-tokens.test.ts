@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, exploreCapAt, freeTokens, newId, nowIso } from "../src/index.ts";
+import { buildingRoleId, exploreCapAt, exploreCapsOnPath, freeTokens, newId, nowIso } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -52,6 +52,19 @@ describe("free tokens (docs/how-work-gets-done.md §7)", () => {
     // never below 0
     propose(50_000);
     expect(freeTokens(world, b.id).freeTokens).toBe(0);
+  });
+
+  it("caps combine as the smallest on the path to the root: a captain tightens, never loosens (gr_yu6qw3j9x5)", () => {
+    const { world, admin, a, a1 } = setup();
+    expect(exploreCapAt(world.goals, a1.id)).toBeNull();
+    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 500_000 });
+    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 5_000_000 });
+    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
+    expect(exploreCapAt(world.goals, a.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
+    expect(exploreCapsOnPath(world.goals, a1.id)).toEqual([{ tokensPerDay: 5_000_000, goalId: a.id }, { tokensPerDay: 500_000, goalId: "gl_town" }]);
+    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 100_000 });
+    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 100_000, goalId: a.id });
+    expect(world.goalTree.tree().children.find((c) => c.id === a.id)!.funding.exploreCap).toEqual({ tokensPerDay: 100_000, goalId: a.id });
   });
 
   it("the exploration cap is inherited from the nearest goal that sets one; none = uncapped; the tree shows it with the free tokens", () => {

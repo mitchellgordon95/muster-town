@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { LookResult, TILE } from "@muster-town/schema";
-import { createAssignment, createBuilding, intrayCount, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
+import { createAssignment, createBuilding, freeDesks, intrayCount, managerAgentOf, nextPending, OFFER_TTL_MS, TOWN_HALL_FIXTURES, tileAt } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
 const later = (ms: number) => new Date(Date.now() + ms);
 
 describe("v1.4 visitors: where they live", () => {
-  it("a visitor registered into a building claims a free desk there, like a resident", () => {
+  it("a visitor registered into a building gets a desk of its own there, leaving the free (fork) desks free", () => {
     const { world, seed } = seededWorld();
     const lab = createBuilding(world, { name: "Roomy", headcount: 4 }, null, { starterResidents: true }).id;
     const free = world.layout.places.filter((p) => p.id.startsWith(`desk:free:${lab}:`)).length;
@@ -16,7 +16,7 @@ describe("v1.4 visitors: where they live", () => {
     const desk = world.layout.deskOf(agent.id)!;
     expect(desk.name).toBe("Mitch's Claude's desk");
     expect(agent.pos).toEqual(desk.pos);
-    expect(world.layout.places.filter((p) => p.id.startsWith(`desk:free:${lab}:`)).length).toBe(free - 1);
+    expect(world.layout.places.filter((p) => p.id.startsWith(`desk:free:${lab}:`)).length).toBe(free);
   });
 
   it("without a building the visitor sits at the Town Hall visitor bench (two seats, then the bench tile)", () => {
@@ -36,14 +36,56 @@ describe("v1.4 visitors: where they live", () => {
     for (const s of seats) expect(world.layout.isWalkable(s.x, s.y)).toBe(true);
   });
 
-  it("a full building puts the visitor on the bench, still homed there", () => {
+  it("a full building still seats a visitor: a desk beyond the headcount, never a fork slot (freeDesks unchanged)", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Tiny", headcount: 1 }, null, { starterResidents: true });
     expect(world.agents.where("homeBuildingId = ? AND kind = 'resident'", [b.id])).toHaveLength(1); // its starter resident fills it
+    expect(freeDesks(world, b)).toBe(0);
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
-    expect(world.layout.deskOf(agent.id)).toBeUndefined();
+    expect(world.layout.deskOf(agent.id)).toBeTruthy();
     expect(agent.homeBuildingId).toBe(b.id);
-    expect(world.layout.placeAt(agent.pos)?.id).toBe("visitor-bench");
+    const after = world.buildings.require(b.id);
+    expect(after.headcount).toBe(1); // the headcount (fork slots) is not grown
+    expect(freeDesks(world, after)).toBe(0);
+    expect(world.layout.deskCount(b.id)).toBe(1);
+    expect(world.layout.visitorDeskCount(b.id)).toBe(1);
+    // leaving (dismissed) frees the desk
+    world.ops.dismissAgent(null, agent.id);
+    expect(world.layout.visitorDeskCount(b.id)).toBe(0);
+  });
+
+  it("a visitor at a desk never blocks a fork: freeDesks counts fork slots only, and a fork still gets a desk", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Pair", headcount: 2 }, null, { starterResidents: true });
+    const before = freeDesks(world, b);
+    expect(before).toBe(1);
+    world.ops.registerVisitor(seed.admin.id, { name: "V1", buildingId: b.id });
+    world.ops.registerVisitor(seed.admin.id, { name: "V2", buildingId: b.id });
+    expect(freeDesks(world, world.buildings.require(b.id))).toBe(before);
+    const fork = world.agents.upsert({ ...world.agents.require(managerAgentOf(world, b)!.id), id: "ag_forkx", forkOf: managerAgentOf(world, b)!.id, forkN: 1 }, { silent: true });
+    expect(world.layout.claimDesk(b.id, fork.id).id).toBe(`desk:${fork.id}`);
+    expect(freeDesks(world, world.buildings.require(b.id))).toBe(0);
+    expect(() => world.layout.claimDesk(b.id, "ag_forky")).toThrow(/no free desk/);
+  });
+
+  it("registering on a goal seats the visitor in the building on that goal or the nearest goal above it", () => {
+    const { world, seed } = seededWorld();
+    const top = world.goalTree.create(null, { parentId: "gl_town", text: "Grow the lab" });
+    const sub = world.goalTree.create(null, { parentId: top.id, text: "A goal under it" });
+    const b = createBuilding(world, { name: "Grower", headcount: 1, goalId: top.id }, null, { starterResidents: true });
+    for (const goalId of [top.id, sub.id]) {
+      const { agent } = world.ops.registerVisitor(seed.admin.id, { name: `V ${goalId}`, goalId });
+      expect(agent.homeBuildingId).toBe(b.id);
+      expect(world.layout.deskOf(agent.id)).toBeTruthy();
+    }
+    expect(world.buildings.require(b.id).headcount).toBe(1);
+    const lonely = world.goalTree.create(null, { parentId: "gl_town", text: "Nobody works on this" });
+    const orphan = world.goalTree.create(null, { parentId: lonely.id, text: "Nor this" });
+    // the seed's labs sit on the root (every goal's ancestor): move them off it, so no lab is on the orphan's chain
+    const parking = world.goalTree.create(null, { parentId: "gl_town", text: "Parking" });
+    for (const g of world.buildings.all()) if (g.kind === "lab" && g.goalId === "gl_town") world.goalTree.attach(null, g.id, parking.id);
+    expect(() => world.ops.registerVisitor(seed.admin.id, { name: "X", goalId: orphan.id })).toThrow(/no desks to join yet/);
+    expect(() => world.ops.registerVisitor(seed.admin.id, { name: "Y", goalId: "gl_nope" })).toThrow(/not found|gl_nope/);
   });
 });
 
@@ -69,7 +111,7 @@ describe("v1.4 visitors: presence", () => {
     expect(world.presence.sweep(new Date(t1.getTime() + 200_000))).toEqual([]);
   });
 
-  it("going offline sends the body home; the next call is the 'back' transition with an agent.status event", async () => {
+  it("going offline releases the visitor's desk and sends the body to the bench; the next call claims a desk again", async () => {
     const { world, seed } = seededWorld();
     const lab = createBuilding(world, { name: "Roomy", headcount: 4 }, null, { starterResidents: true }).id;
     const v = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: lab }).agent;
@@ -79,10 +121,16 @@ describe("v1.4 visitors: presence", () => {
     world.presence.sweep(later(91_000));
     const off = world.agents.require(v.id);
     expect(off.status).toBe("offline");
-    expect(off.pos).toEqual(desk);
+    expect(world.layout.deskOf(v.id)).toBeUndefined();
+    expect(world.layout.visitorDeskCount(lab)).toBe(0);
+    expect(world.layout.placeAt(off.pos)?.id).toBe("visitor-bench");
+    expect(off.homeBuildingId).toBe(lab);
     const r = world.presence.touch(v.id)!;
     expect(r.back).toBe(true);
-    expect(world.agents.require(v.id).status).toBe("idle");
+    const back = world.agents.require(v.id);
+    expect(back.status).toBe("idle");
+    expect(back.pos).toEqual(world.layout.deskOf(v.id)!.pos);
+    expect(back.buildingId).toBe(lab);
     const ev = world.events.recent({ agentId: v.id, limit: 5 }).find((e) => e.type === "agent.status" && e.text === "V is back");
     expect(ev).toBeTruthy();
     // stopped/banned visitors are left alone

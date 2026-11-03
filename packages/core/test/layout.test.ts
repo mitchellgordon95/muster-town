@@ -210,7 +210,7 @@ describe("pathfinding and movement", () => {
 });
 
 describe("a desk per resident", () => {
-  it("a full lab grows by a desk for a new resident (re-lotting when it no longer fits); visitors still wait on the bench", () => {
+  it("a full lab grows by a desk for a new resident (re-lotting when it no longer fits); a visitor gets a desk beyond the headcount", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
     const ids = ["A", "B", "C", "D"].map((name) => createResident(world, { buildingId: b.id, name, title: "t", direction: "d" }).id);
@@ -221,7 +221,11 @@ describe("a desk per resident", () => {
     const all = world.buildings.all();
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
-    expect(world.layout.deskOf(agent.id)).toBeUndefined();
+    const desk = world.layout.deskOf(agent.id)!;
+    expect(new Set([...tiles, `${desk.pos.x},${desk.pos.y}`]).size).toBe(5);
+    expect(world.buildings.require(b.id).headcount).toBe(4);
+    const after = world.buildings.all();
+    for (let i = 0; i < after.length; i++) for (let j = i + 1; j < after.length; j++) expect(overlap(after[i].lot!, after[j].lot!)).toBe(false);
   });
 
   it("on reopen, a resident left without a desk gets its own and steps off the desk it shared", () => {

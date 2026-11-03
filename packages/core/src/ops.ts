@@ -1,9 +1,9 @@
-import { AgentPermissionsPatch, WorkInput, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
-import { AppError, badRequest, forbidden } from "./errors.ts";
+import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
@@ -196,7 +196,7 @@ export class Ops {
    */
   archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ArchiveResult {
     const doc = this.world.docs.require(docId, "doc");
-    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
+    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId) && !this.world.goalTree.captainsBuilding(actor, doc.buildingId)) throw forbidden("building.review");
     return archiveReport(this.world, actor, docId, opts);
   }
 
@@ -248,7 +248,7 @@ export class Ops {
     const waitFor = inp.waitFor ? validateWait(this.world, inp.waitFor) : null;
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent)) throw goneError(agent);
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" }, waitFor,
@@ -260,6 +260,8 @@ export class Ops {
   stopAgent(actor: Actor, agentId: string): Agent {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
+    // gone is terminal: stopping a retired agent would let resume revive it (docs/invariants/agent-lifecycle.md)
+    if (isGone(agent)) throw goneError(agent);
     this.world.movement.cancel(agentId, "Stopped.");
     return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
@@ -305,7 +307,7 @@ export class Ops {
   startNext(actor: Actor, assignmentId: string): StartNextResult {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "pending") throw new AppError("conflict", `Assignment "${a.title}" is ${a.status}, not queued.`);
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent)) throw goneError(agent);
     // starting it by hand overrides what it waits on
     const assignment = moveToFront(this.world, a.waitFor ? this.world.assignments.upsert({ ...a, waitFor: null, updatedAt: nowIso() }).id : a.id);
     // manager forks: building-queue work runs as the next fork (when a desk is free), never as the manager holding it
@@ -325,7 +327,7 @@ export class Ops {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
-    if (agent.status === "banned" || (agent.status === "retired" && !agent.forkOf)) throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent) && !(agent.status === "retired" && agent.forkOf)) throw goneError(agent);
     // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
     // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
     const system = { kind: "system" as const, id: "system" };
@@ -529,7 +531,7 @@ export class Ops {
   /** POST /meetings/:id/start → discussing. */
   startMeeting(actor: Actor, meetingId: string): Meeting {
     const m = this.world.meetings.require(meetingId, "meeting");
-    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
   meetingSay(actor: Agent, meetingId: string, text: string, attach?: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text, attach); }
@@ -563,7 +565,7 @@ export class Ops {
       const m = this.world.meetings.require(meetingId, "meeting");
       // a 1:1's own human ends it, member or not (gr_58n37j410s)
       const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
-      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

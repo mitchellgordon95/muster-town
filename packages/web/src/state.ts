@@ -9,6 +9,7 @@ import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, E
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
+import { founderStale } from "./founder";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -145,6 +146,8 @@ class Store {
   onAssignmentChanged?: () => void;
   /** refetch `me`: an admin decided this person's request to join (set at boot) */
   onAccessDecided?: () => void;
+  /** a hosted collective: refetch `health.funding` / `health.founder` (a key added, an exploration, a proposal or funding; set at boot) */
+  onFounderChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
@@ -197,6 +200,7 @@ class Store {
     if (e.type.startsWith("grant.") || e.type === "building.blocked") this.onAssignmentChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
     if (isMyAccessDecision(e, s.me?.user.id)) this.onAccessDecided?.();
+    if (s.health?.funding && founderStale(e)) this.onFounderChanged?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;
@@ -266,14 +270,34 @@ class Store {
     setTimeout(() => this.set({ toasts: this.state.toasts.filter((x) => x.id !== t.id) }), 6000);
   }
 
-  /** Discord-style check against the roles in AuthMe. */
+  /**
+   * Discord-style check against the roles in AuthMe, plus captain steering rights (gr_zsm1piyqyx): in a building under a
+   * goal I captain (`me.captainOf`), review (decide its rollups and reports) and facilitate (1:1s as staff, meetings).
+   */
   can(perm: Permission, buildingId?: string | null): boolean {
     const me = this.state.me;
     if (!me) return false;
     if (me.isAdmin) return true;
+    if (CAPTAIN_PERMS.has(perm) && this.captains(buildingId)) return true;
     return me.roles.some((r) => r.permissions.includes(perm) && (r.scope === "town" || (!!buildingId && r.buildingId === buildingId)));
   }
+
+  /** I captain the goal this building is attached to, or one above it (server `Goals.captainsBuilding`). */
+  captains(buildingId?: string | null): boolean {
+    return !!buildingId && !!this.state.me?.captainOf?.includes(buildingId);
+  }
+
+  /** May plant a flag in this building: `building.assign` there, or its captain (core plantFlag). */
+  canFlag(buildingId?: string | null): boolean {
+    return this.can("building.assign", buildingId) || this.captains(buildingId);
+  }
 }
+
+/**
+ * What a captain gets in a building under their goal (server: intray canDecide, review, start/end meeting, canDirect).
+ * Not building.assign: a captain plants flags (`canFlag`) but doesn't cancel queued work or stop agents there.
+ */
+const CAPTAIN_PERMS: ReadonlySet<Permission> = new Set<Permission>(["building.review", "meeting.facilitate"]);
 
 export const store = new Store();
 

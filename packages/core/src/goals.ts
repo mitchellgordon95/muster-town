@@ -1,9 +1,9 @@
 import {
   CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
-  Event, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
+  Event, type Agent, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
-import { freeTokensAll, goalFunding } from "./free-tokens.ts";
+import { desksTotalAt, freeTokensAll, goalFunding } from "./free-tokens.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { holderOf, townRoleId, type Holder } from "./permissions.ts";
@@ -157,6 +157,21 @@ export class Goals {
     return this.ancestors(goalId).some((g) => g.ownerId === h.id);
   }
 
+  /**
+   * Captain steering rights (gr_zsm1piyqyx): a human who captains the goal a building is attached to, or a goal above
+   * it, steers that building like its reviewer does: decides its rollups and reports, runs 1:1s there as staff, plants
+   * flags there. Agents never count, nor does the system (no actor), and never the Town Hall (its captain is the root
+   * captain; admins already pass every gate). Use beside the role checks, never instead of them.
+   */
+  captainsBuilding(actor: Agent | Holder | null | undefined, buildingId: string | null | undefined): boolean {
+    if (!actor || !buildingId) return false;
+    const b = this.world.buildings.get(buildingId);
+    if (!b || b.kind === "town-hall") return false;
+    const h = holderOf(actor);
+    if (h.kind !== "user") return false;
+    return this.ancestors(this.attachmentOf(b)).some((g) => g.ownerId === h.id);
+  }
+
   /** `goals.edit` at the goal: town-wide (admins), or as an owner of it or an ancestor. */
   canEdit(actor: Actor, goalId: string): boolean {
     if (!actor) return true;
@@ -233,7 +248,7 @@ export class Goals {
     const by = actor ? holderOf(actor).id : null;
     const g = this.world.goals.upsert({
       id: newId("gl"), parentId: parent.id, position: inp.position ?? (last ? last.position + 1 : 0), text: inp.text, ownerId: null, status: "active",
-      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now,
+      retiredAt: null, retiredBy: null, retiredNote: "", createdBy: by, editedBy: null, sourceDocIds: inp.sourceDocIds, exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, desksTotal: null, createdAt: now, updatedAt: now,
     });
     this.event("goal.created", actor, `Goal added under "${clip(parent.text, 60)}": ${g.text}`, { goalId: g.id, parentId: parent.id, text: g.text });
     return g;
@@ -295,7 +310,22 @@ export class Goals {
       const what = key === "explore" ? `Exploration ${v === null ? "inherited" : v ? "on" : "off"}` : `Exploration chunk ${v === null ? "inherited" : `${(v as number).toLocaleString("en-US")} tokens`}`;
       this.event("goal.edited", actor, `${what} on "${clip(next.text, 80)}"`, { goalId: g.id, [key]: v, [`from${key[0].toUpperCase()}${key.slice(1)}`]: g[key] });
     }
-    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds, exploreCapTokensPerDay, explore or exploreChunkTokens.");
+    // desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the same funders as the cap; a captain tightens the total in
+    // force above but never exceeds it (an admin may, though the smaller one above still binds). Setting it below the
+    // desks there now is allowed: it only blocks further raises (requireDesksFit).
+    if (inp.desksTotal !== undefined && inp.desksTotal !== g.desksTotal) {
+      this.requireEdit(actor, g.id);
+      const admin = !actor || this.world.permissions.can(actor, "building.fund");
+      if (!admin && !this.owns(actor, g.id)) throw forbidden("building.fund", "Only a human funder (an admin or the goal's captain) can set a desk total.");
+      const above = g.parentId ? desksTotalAt(this.world.goals, g.parentId) : null;
+      if (!admin && inp.desksTotal !== null && above && inp.desksTotal > above.total) {
+        throw badRequest(`"${clip(this.get(above.goalId)?.text ?? above.goalId, 80)}" sets a desk total of ${above.total}; a goal under it can't have more (ask its captain to raise it).`);
+      }
+      next = this.world.goals.upsert({ ...next, desksTotal: inp.desksTotal, editedBy: by, updatedAt: nowIso() });
+      const v = inp.desksTotal;
+      this.event("goal.edited", actor, `Desk total on "${clip(next.text, 80)}": ${v === null ? "none" : `${v} desks`}`, { goalId: g.id, desksTotal: v, fromDesksTotal: g.desksTotal });
+    }
+    if (next === g) throw badRequest("Nothing to change: give text, position, parentId, ownerId, sourceDocIds, exploreCapTokensPerDay, explore, exploreChunkTokens or desksTotal.");
     return next;
   }
 
@@ -356,6 +386,25 @@ export class Goals {
     });
   }
 
+  /**
+   * The desk totals (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): would the building (null = a new one) with `headcount` desks,
+   * attached at `goalId`, put any goal on that path over its `desksTotal`? Every total on the path is checked (a larger
+   * one higher up covers more buildings). 409 naming the goal and its total. A rule of the tree, not a permission:
+   * admins and the system are held too. Call it only when desks grow (a raise, a new building, a move in).
+   */
+  requireDesksFit(buildingId: string | null, goalId: string, headcount: number): void {
+    const buildings = this.world.buildings.all();
+    for (const g of this.ancestors(goalId)) {
+      if (g.desksTotal == null) continue;
+      const under = this.subtreeIds(g.id);
+      const others = buildings.filter((b) => b.id !== buildingId && under.has(this.attachmentOf(b))).reduce((s, b) => s + b.headcount, 0);
+      if (others + headcount > g.desksTotal) {
+        const name = buildingId ? this.world.buildings.get(buildingId)?.name ?? buildingId : "a new building";
+        throw new AppError("conflict", `Desk total reached: "${clip(g.text, 80)}" (${g.id}) allows ${g.desksTotal} desks under it and has ${others} elsewhere, so ${name} can have at most ${Math.max(0, g.desksTotal - others)}, not ${headcount}. Lower another building's desks there or ask that goal's captain to raise its total.`);
+      }
+    }
+  }
+
   /** Attach a building to a goal (its one attachment; never unset): `goals.edit` on both the old and the new goal. */
   attach(actor: Actor, buildingId: string, goalId: string): Building {
     const b = this.world.buildings.require(buildingId, "building");
@@ -368,6 +417,8 @@ export class Goals {
       this.requireEdit(actor, this.attachmentOf(b));
       this.requireEdit(actor, to.id);
     }
+    // moving in brings its desks: the totals on the new path must hold them
+    this.requireDesksFit(b.id, to.id, b.headcount);
     return this.setAttachment(actor, b, to.id);
   }
 
@@ -541,7 +592,7 @@ export class Goals {
   ensure(): void {
     if (!this.get(ROOT_GOAL_ID)) {
       const now = nowIso();
-      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || ROOT_PLACEHOLDER, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, createdAt: now, updatedAt: now });
+      this.world.goals.upsert({ id: ROOT_GOAL_ID, parentId: null, position: 0, text: this.world.town.get().goal || ROOT_PLACEHOLDER, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "", createdBy: null, editedBy: null, sourceDocIds: [], exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, desksTotal: null, createdAt: now, updatedAt: now });
     }
     for (const b of this.world.buildings.where("goalId IS NULL OR goalId NOT IN (SELECT id FROM goals)")) this.world.buildings.upsert({ ...b, goalId: ROOT_GOAL_ID });
     this.ensureRootCaptain();

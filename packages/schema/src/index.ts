@@ -477,6 +477,36 @@ export const AgentStatus = z.enum([
 ]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+/** Gone: retired (dismissed, or a fork whose session ended) or banned. Terminal: no transition leaves a gone status. */
+export const isGone = (a: { status: AgentStatus } | AgentStatus | null | undefined): boolean => {
+  const s = typeof a === "string" ? a : a?.status;
+  return s === "retired" || s === "banned";
+};
+
+const LIVE_STATUSES: readonly AgentStatus[] = ["idle", "walking", "working", "in-meeting", "out-of-budget", "offline"];
+/**
+ * Agent status transitions (from → allowed to): World.setStatus refuses any other change (docs/invariants/agent-lifecycle.md).
+ * retired is terminal; banned only goes to retired (dismissing a banned agent); stopped leaves only by resume (→ idle),
+ * a visitor going offline, or going away. Unchanged status is always a no-op, never a transition.
+ */
+export const STATUS_TRANSITIONS: Readonly<Record<AgentStatus, readonly AgentStatus[]>> = {
+  idle: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  walking: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  working: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  "in-meeting": [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  "out-of-budget": [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  offline: [...LIVE_STATUSES, "stopped", "banned", "retired"],
+  stopped: ["idle", "offline", "banned", "retired"],
+  banned: ["retired"],
+  retired: [],
+};
+
+/** The SQL twin of `!isGone(agent)` for `agents.where(...)`. */
+export const NOT_GONE = "status NOT IN ('retired','banned')";
+
+/** May an agent go from `from` to `to`? (same status: yes, a no-op) */
+export const canTransition = (from: AgentStatus, to: AgentStatus): boolean => from === to || STATUS_TRANSITIONS[from].includes(to);
+
 export const Agent = z.object({
   id: Id,
   name: z.string(),
@@ -1106,6 +1136,7 @@ export const GrantStatus = z.enum([
   "countered",   // a human sent it back with changes; the manager's move
   "funded",      // sessions may draw on it
   "checkpoint",  // spend reached 100%: new sessions held until a human decides
+  "stopping",    // a human stopped it (Grants.stop): its forks are wrapping up, nothing new starts; closes as stopped when they end
   "closed",      // done: see outcome
   "rejected",
 ]);
@@ -1113,7 +1144,7 @@ export type GrantStatus = z.infer<typeof GrantStatus>;
 /** done: the manager closed it early because the work is done (close_grant); "met" stays the human's word on the key result */
 export const GrantOutcome = z.enum(["met", "stopped", "spent", "cut", "done"]);
 export type GrantOutcome = z.infer<typeof GrantOutcome>;
-export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit", "withdraw"]);
+export const GrantAction = z.enum(["propose", "counter", "fund", "reject", "checkpoint", "continue", "adjust", "cut", "close", "edit", "withdraw", "stop"]);
 export const GrantHistoryEntry = z.object({
   at: Iso,
   byId: Id,
@@ -1304,6 +1335,12 @@ export const Goal = z.object({
   explore: z.boolean().nullable().default(null),
   /** the tokens one explorer reserves (inherited; the root's null = EXPLORE_CHUNK_TOKENS, 100,000) */
   exploreChunkTokens: z.number().int().positive().nullable().default(null),
+  /**
+   * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks (the sum of the headcounts of the buildings
+   * attached at or under this goal) its subtree may have; null = none set here. Totals combine as the minimum on the
+   * path to the root (core free-tokens.ts `desksTotalAt`); raising a headcount past the one in force is a 409.
+   */
+  desksTotal: z.number().int().nonnegative().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1347,6 +1384,8 @@ export interface GoalTreeNode {
   /** the explore rule set on this goal (null = inherited); `funding.explore` is the effective one */
   explore: boolean | null;
   exploreChunkTokens: number | null;
+  /** the desk total set on this goal (null = none here); `funding.desksTotal` is the one in force */
+  desksTotal?: number | null;
   funding: GoalFunding;
   children: GoalTreeNode[];
 }
@@ -1359,6 +1398,8 @@ export interface GoalFunding {
   explore: ExploreRule;
   /** exploration spent today by the buildings at or under the capping goal (0 with no cap) */
   exploreSpentTodayTokens: number;
+  /** the desk total in force (the smallest on the path to the root) with the goal that sets it and the desks (sum of headcounts) under that goal now; null = none */
+  desksTotal?: { total: number; goalId: string; desks: number } | null;
   free: FreeTokens;
 }
 /**
@@ -1498,6 +1539,8 @@ export const UpdateGoalInput = z.object({
   exploreCapTokensPerDay: z.number().int().nonnegative().nullable().optional(),
   explore: z.boolean().nullable().optional(),
   exploreChunkTokens: z.number().int().min(10_000).max(2_000_000).nullable().optional(),
+  /** desks per subtree (null = none here): a captain can tighten the total in force above but never exceed it */
+  desksTotal: z.number().int().nonnegative().max(1000).nullable().optional(),
 });
 export type UpdateGoalInput = z.input<typeof UpdateGoalInput>;
 /** POST /api/goals/:id/retire: open key results and attached buildings under it move to `moveTo` (a sibling); without one it is refused while any remain. */
@@ -2182,6 +2225,9 @@ export const DecideGrantInput = z.object({
 export type DecideGrantInput = z.input<typeof DecideGrantInput>;
 /** POST /api/grants/:id/close: the manager may close as `stopped`; `building.fund` any outcome. */
 export const CloseGrantInput = z.object({ outcome: GrantOutcome, note: z.string().max(2000).default("") });
+/** POST /api/grants/:id/stop: a human stops a funded (or checkpoint) grant mid-work; the reason is kept on it and its key results. */
+export const StopGrantInput = z.object({ reason: z.string().trim().min(1, "Say why you stop it (reason).").max(2000) });
+export type StopGrantInput = z.input<typeof StopGrantInput>;
 export type CloseGrantInput = z.input<typeof CloseGrantInput>;
 /**
  * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `building.fund` for `met` / `missed`.
@@ -2206,7 +2252,11 @@ export const GrantsQuery = z.object({ status: GrantStatus.optional() });
 export const LayoutInput = z.object({ furniture: z.record(z.string(), Tile), dryRun: z.boolean().default(false) });
 /** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
-export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
+/**
+ * POST /api/agents/visitors. `goalId`: the goal the visitor works on; it gets a desk beyond the headcount in that goal's
+ * building (or the nearest one above it). `buildingId` is the older form of the same (that building's desks).
+ */
+export const RegisterVisitorInput = z.object({ name: z.string(), goalId: Id.optional(), buildingId: Id.optional(), title: z.string().optional(),
   /** default true: the visitor acts with its owner's permissions (capped by them) */
   inheritsOwner: z.boolean().optional() });
 export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optional(), deniedPermissions: z.array(Permission).optional() });
@@ -2321,12 +2371,20 @@ export type RedeployLive = z.infer<typeof RedeployLive>;
 export const SessionSlots = z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() });
 export type SessionSlots = z.infer<typeof SessionSlots>;
 /**
+ * A hosted collective's founder road after the key (gr_ngg1z160a8 step 3): when its latest exploration started (null: none
+ * yet), how many grant proposals are open (proposed or countered), and whether any grant was ever funded.
+ */
+export const FounderProgress = z.object({ exploringSince: Iso.nullable(), proposals: z.number().int().nonnegative(), funded: z.boolean() });
+export type FounderProgress = z.infer<typeof FounderProgress>;
+/**
  * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
  * `slots` = work-session slots (absent without a runtime).
  */
 export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
-  funding: z.enum(["api-key", "none"]).optional() });
+  funding: z.enum(["api-key", "none"]).optional(),
+  /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
+  founder: FounderProgress.optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------
@@ -2401,6 +2459,13 @@ export const AuthMe = z.object({
   direct: z.array(z.object({ goalId: Id, text: z.string(), how: z.enum(["granted", "captain"]) })).default([]),
   /** the goal the Let in card offers for "Let in + direct work under <goal>": their captained goal, else the town goal for an admin; null = they can't grant */
   directDefaultGoalId: Id.nullable().default(null),
+  /**
+   * the buildings they steer as a captain (gr_zsm1piyqyx, core `Goals.captainsBuilding`): attached to a goal they captain
+   * or one below it. The web's `store.can` honours it for review and facilitate there, and flags; the server is the gate.
+   */
+  captainOf: z.array(Id).optional(),
+  /** the buildings (not the Town Hall) where core `canDirect` holds for them: the web shows "Talk to ★ <manager>" there and nowhere else */
+  directBuildingIds: z.array(Id).default([]),
 });
 export type AuthMe = z.infer<typeof AuthMe>;
 /** `GET /api/auth/config`: what sign-in the server offers (`githubClientId` null = GitHub login not configured). */

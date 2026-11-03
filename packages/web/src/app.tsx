@@ -98,6 +98,18 @@ async function boot(): Promise<Phase> {
     }, () => undefined);
   };
   store.onRedeployEvent = loadRedeployLive;
+  // a hosted collective: a key added, an exploration started, a proposal filed or funded moves the founder's HUD notice
+  // (health figures are recomputed every 5 s on the server, so wait a little longer than that before refetching)
+  let founderTimer: ReturnType<typeof setTimeout> | null = null;
+  store.onFounderChanged = () => {
+    founderTimer ??= setTimeout(() => {
+      founderTimer = null;
+      a.health().then(({ funding, founder }) => {
+        const h = store.state.health;
+        if (h && funding) store.set({ health: { ...h, funding, ...(founder ? { founder } : {}) } });
+      }, () => undefined);
+    }, 6000);
+  };
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
@@ -235,7 +247,7 @@ export function App() {
   const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
   useTown((s) => s.me);
   // human-only: a guest has no roles, and agents don't use the web client
-  const canAssign = (id: string) => store.can("building.assign", id);
+  const canAssign = (id: string) => store.canFlag(id);
   const canFlag = flagTargets(buildings, canAssign).length > 0;
   const [pw, setPw] = usePanelWidth();
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.

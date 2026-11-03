@@ -55,6 +55,7 @@ alternative; that box was deleted.
   certs via `fly certs add` (Let's Encrypt, auto-renewed).
 - **Logs:** `fly logs -a muster-town`. Shell: `fly ssh console -a muster-town`.
 - **GitHub sign-in:** the OAuth app's callback URL must include `https://muster.town/auth/github/callback`.
+- **Scaling:** docs/scaling.md (ceilings, live values, trigger numbers and the next fix for each resource).
 - **Cost (estimate):** town Machine about $13/mo (24/7) + volume $1.50 + desk Machines per use; compare the old single-box plan in dc_gxtv36rbu6.
 
 ### Recover (dead volume or host; grant gr_z2v838adk9)

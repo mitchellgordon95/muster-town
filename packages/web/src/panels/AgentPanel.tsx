@@ -4,6 +4,7 @@
  * resident's wiki pages and log: what it knows and did) | Helpers (a manager's forks) | Details (a fork's own fields).
  * Reports live in the in-tray and library.
  */
+import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
 import { api, type AgentPermissionsView, type ForkSummary, type ThreadMessage } from "../api";
@@ -15,7 +16,7 @@ import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, Statu
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, canTalkToManager, isMemberTalk, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
 import { isPlumbing, latestThought, nowLine } from "./nowLine";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -271,7 +272,7 @@ function TalkTab({ agent }: { agent: Agent }) {
   const home = useTown((s) => s.buildings.find((b) => b.id === agent.homeBuildingId));
   const manager = useTown((s) => (home?.managerAgentId ? s.agents[home.managerAgentId] : undefined));
   /** a resident other than its building's manager agent: its manager takes requests */
-  const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && manager.status !== "retired" && manager.status !== "banned";
+  const viaManager = agent.kind === "resident" && !!manager && manager.id !== agent.id && !isGone(manager);
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
   // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
   const townHall = home?.kind === "town-hall";
@@ -347,17 +348,17 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout via-manager">
           <span>{agent.forkOf ? `${agent.name} is a helper ${manager.name} started for one task; it doesn't take messages.` : `${agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.`}</span>
           {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
-            : <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>}
+            : canTalk ? <button type="button" className="btn sm primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
       ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          {!townHall && isMemberTalk(home?.id)
-            ? <span>{agent.name} is {home!.name}'s manager. Talk in a 1:1: they answer as you go and show you what {home!.name} does and your first steps.</span>
-            : <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>}
+          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
           <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
+      ) : isManager && !townHall && me.canInteract ? (
+        <div className="muted">A 1:1 with {agent.name} is for people who direct work under {home!.name}'s goal. An admin or the goal's captain can give you that.</div>
       ) : working && canControl ? (
         <div className="actions"><Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act></div>
       ) : null}
@@ -473,7 +474,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
   // v1.4: a visitor's assignments are offers it accepts from its own session; nothing here starts them
   const visitor = agent.kind === "visitor";
   const offline = agent.status === "offline";
-  const gone = agent.status === "retired" || agent.status === "banned";
+  const gone = isGone(agent);
   const put = (r: { assignment?: Assignment; assignments?: Assignment[]; agent?: Agent }) => {
     store.putAssignments([...(r.assignments ?? []), ...(r.assignment ? [r.assignment] : [])]);
   };

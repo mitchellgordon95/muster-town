@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck, BankStreams, FunderWeek, ReviewSlide,
+  ReviewDeck, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
@@ -17,6 +17,10 @@ export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
 export type Grid = Snapshot["grid"];
 
 /** GET /api/sessions/:id: the session and, for an admin, its building's manager or its agent, its kept transcript file. */
+/** GET /api/sessions?grantId=: one session of a grant, with its list-price dollars (core sessionListUsd), agent name and assignment title. */
+export type GrantSession = SessionView & { usd: number; agentName: string; assignmentTitle: string | null };
+/** GET /api/sessions?grantId=: every session the grant paid for, newest first; `tokens` = Σ adjustedOutputTokens (= the grant's spentTokens). */
+export interface GrantSessions { grantId: string; sessions: GrantSession[]; tokens: number; usd: number }
 export interface SessionDetail { session: SessionView; transcript: { url: string; bytes: number; lines: number; expiresAt: string } | null }
 
 export interface AgentDetail {
@@ -327,6 +331,14 @@ export interface JoinFunnelView {
   founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
 
+/** GET /api/members (gr_cuobjlny6r): a let-in member and the goals they may direct work under (none = no 1:1s). */
+export interface MemberView {
+  userId: string; name: string; githubLogin: string | null; avatarUrl: string | null;
+  /** when they were let in; null for a member made another way */
+  letInAt: string | null;
+  direct: { goalId: string; text: string; grantedBy: string; createdAt: string }[];
+}
+
 /** GET /api/buildings/:id/key-results */
 export interface KeyResultsView { keyResults: GoalKeyResult[]; blocked: string | null }
 /** A building's exploration today (core grants.ts ExplorationBudget): spent today, free tokens under its goal, the cap over it (null = uncapped). */
@@ -363,7 +375,8 @@ export interface Api {
   me(): Promise<AuthMe>;
   /** a signed-in visitor asks to join (dc_f0cumcfubk); an admin decides from the Town Hall in-tray */
   requestAccess(message: string): Promise<AccessRequest>;
-  decideAccess(id: string, grant: boolean): Promise<AccessRequest>;
+  /** Let in (grant) or decline; `directGoalId` also lets them direct work under that goal (gr_cuobjlny6r) */
+  decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest>;
   /** pending requests, oldest first: admins only (the HUD notice) */
   accessRequests(): Promise<AccessRequestView[]>;
   town(): Promise<Snapshot>;
@@ -436,6 +449,12 @@ export interface Api {
   joinFunnel(): Promise<JoinFunnelView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
   countGuestCardView(): Promise<void>;
+  /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
+  members(): Promise<MemberView[]>;
+  /** POST /api/members/:userId/direct: let a member direct work under the goal (an admin, or a captain of it or one above) */
+  grantDirect(userId: string, goalId: string): Promise<void>;
+  /** DELETE /api/members/:userId/direct: take that back */
+  revokeDirect(userId: string, goalId: string): Promise<void>;
   /** a signed-in person registers their own agent (Claude Code over MCP); the token is returned once */
   registerVisitor(input: In<typeof RegisterVisitorInput>): Promise<{ agent: Agent; token: string }>;
   /** town.ban */
@@ -454,6 +473,8 @@ export interface Api {
   assignmentCard(id: string): Promise<AssignmentCard>;
   /** One session by id (a se_ id link's panel); `transcript` (its kept file) only for those who may read it. */
   sessionById(id: string): Promise<SessionDetail>;
+  /** Every session a grant paid for (public), newest first (gr_4tf9hd64d5). */
+  grantSessions(grantId: string): Promise<GrantSessions>;
   work(id: string, input: In<typeof WorkInput>): Promise<Assignment | null>;
   /** Message the agent's session: queued for the next turn boundary, or `now` to stop the current turn first. */
   interrupt(id: string, text: string, now?: boolean): Promise<void>;
@@ -568,7 +589,7 @@ export interface Api {
   decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
-  health(): Promise<{ ok?: boolean; commit?: string | null }>;
+  health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
   /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
@@ -644,7 +665,7 @@ class HttpApi implements Api {
   }
   me() { return this.get<AuthMe>("/api/me"); }
   async requestAccess(message: string) { return unwrap<AccessRequest>(await this.post("/api/access-requests", { message }), "accessRequest"); }
-  async decideAccess(id: string, grant: boolean) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, { grant }), "accessRequest"); }
+  async decideAccess(id: string, grant: boolean, directGoalId?: string | null) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, directGoalId && grant ? { grant, directGoalId } : { grant }), "accessRequest"); }
   async accessRequests() { return unwrap<AccessRequestView[]>(await this.get("/api/access-requests"), "access"); }
   async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
@@ -700,6 +721,9 @@ class HttpApi implements Api {
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view"); }
+  async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
+  async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
+  async revokeDirect(userId: string, goalId: string) { await this.call("DELETE", `/api/members/${userId}/direct`, { goalId }); }
   registerVisitor(i: In<typeof RegisterVisitorInput>) { return this.post<{ agent: Agent; token: string }>("/api/agents/visitors", i); }
   async dismiss(id: string, purge = false) { await this.call("DELETE", `/api/agents/${id}${purge ? "?purge=1" : ""}`); }
   async ban(id: string, reason: string) { return unwrap<Agent>(await this.post(`/api/agents/${id}/ban`, { reason }), "agent"); }
@@ -710,6 +734,7 @@ class HttpApi implements Api {
   session(id: string) { return this.get<{ session: SessionView | null; transcript: Event[]; transcriptFile?: { url: string; bytes: number; lines: number; expiresAt: string } | null }>(`/api/agents/${id}/session`); }
   async assignmentCard(id: string) { return unwrap<AssignmentCard>(await this.get(`/api/assignments/${id}`), "assignment"); }
   sessionById(id: string) { return this.get<SessionDetail>(`/api/sessions/${id}`); }
+  grantSessions(grantId: string) { return this.get<GrantSessions>(`/api/sessions?grantId=${encodeURIComponent(grantId)}`); }
   async work(id: string, i: In<typeof WorkInput>) { return unwrap<Assignment | null>(await this.post(`/api/agents/${id}/work`, i), "assignment"); }
   async interrupt(id: string, text: string, now = false) { await this.post(`/api/agents/${id}/interrupt`, { text, now }); }
   async thread(id: string) { return (await this.get<{ messages: ThreadMessage[] }>(`/api/agents/${id}/thread`)).messages; }
@@ -796,7 +821,7 @@ class HttpApi implements Api {
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
-  async health() { return this.get<{ ok?: boolean; commit?: string | null }>("/api/health"); }
+  async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
