@@ -91,7 +91,7 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
   if (!input?.grantId) throw badRequest("A grant assignment names its grant (grantId); the grant's key results are implied.");
   const g = world.grants.get(input.grantId);
   if (!g || g.buildingId !== buildingId) throw badRequest(`Grant ${input.grantId} is not one of this building's grants.`);
-  if (g.status === "closed" || g.status === "rejected" || g.status === "draft") throw badRequest(`Grant ${g.id} is ${g.status}: work can't be charged to it.`);
+  if (g.status === "closed" || g.status === "rejected" || g.status === "draft" || g.status === "stopping") throw badRequest(`Grant ${g.id} is ${g.status}: work can't be charged to it.`);
   return { lane, grantId: g.id, keyResultId: g.keyResultId, gap, sourceId: null };
 }
 

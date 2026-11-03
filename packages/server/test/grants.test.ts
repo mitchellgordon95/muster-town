@@ -125,4 +125,39 @@ describe("grants routes", () => {
     expect(slide.text).toContain(`2. ✗ not shipped: ${KRS[1]!.text}`);
     expect(slide.text).toContain("A top-up of 200,000 tokens buys: KR 2: the board");
   });
+  it("stopping a funded grant is a human's: the manager's stop and close-stopped get 403, its withdraw of a proposal 200; a funder's stop closes it and misses its key results (gr_8i952perny)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
+    const body = { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
+    const propose = async () => {
+      const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body })).body.grant.id as string;
+      await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
+      return id;
+    };
+    const id = await propose();
+    const other = await propose();
+    // the manager still withdraws its own proposal (close as stopped = withdraw_grant)
+    expect((await json(app, "POST", `/api/grants/${other}/close`, { headers: mgr, body: { outcome: "stopped", note: "superseded" } })).status).toBe(200);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "too early" } })).status).toBe(409); // proposed: withdraw or reject it
+    await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { body: { reason: "x" } })).status).toBe(401);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: mgr, body: { reason: "x" } })).status).toBe(403);
+    expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "stopped", note: "x" } })).status).toBe(403);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: " " } })).status).toBe(400);
+    expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("funded");
+    const stopped = await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "the plan is wrong" } });
+    expect(stopped.status).toBe(200);
+    // no session ran on it: it closes at once
+    const got = (await json(app, "GET", `/api/grants/${id}`)).body.grant;
+    expect(got).toMatchObject({ status: "closed", outcome: "stopped" });
+    expect(got.keyResults).toHaveLength(2);
+    for (const k of got.keyResults) expect(k).toMatchObject({ status: "missed", statusNote: "Grant stopped: the plan is wrong", archivedAt: expect.any(String) });
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "again" } })).status).toBe(409);
+    const ev = world.events.list({ types: ["grant.closed"], desc: true, limit: 5 }).find((e) => e.payload.grantId === id)!;
+    expect(ev.payload).toMatchObject({ outcome: "stopped", reason: "the plan is wrong", grantTokens: 1_000_000, spentTokens: 0, unspentTokens: 1_000_000, returnedTo: "pool" });
+  });
 });

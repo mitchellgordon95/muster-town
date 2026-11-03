@@ -1,10 +1,11 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
+  StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
   type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
-import { createAssignment, managerAgentOf, sendMessage } from "./domain.ts";
+import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
+import { interruptFork } from "./forks.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
@@ -539,7 +540,10 @@ export class Grants {
     }
   }
 
-  /** POST /api/grants/:id/close: the manager may close (or withdraw) as `stopped`, or as `done` (closeDone); `building.fund` any outcome. */
+  /**
+   * POST /api/grants/:id/close: the manager may withdraw a proposal (outcome `stopped`) or close a live grant as `done`
+   * (closeDone); `building.fund` any outcome. Closing a live grant as `stopped` is a human's `stop` (the manager gets 403).
+   */
   close(actor: Actor, id: string, input: CloseGrantInput): GrantView {
     const inp = CloseGrantInput.parse(input);
     if (inp.outcome === "done") return this.closeDone(actor, id, { note: inp.note });
@@ -549,8 +553,14 @@ export class Grants {
       this.world.permissions.require(actor, "building.manage", g.buildingId);
     }
     if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
+    if (g.status === "stopping") throw new AppError("conflict", "This grant is already stopping: it closes as stopped once its forks have filed their reports.");
     if (!LIVE.includes(g.status) && inp.outcome !== "stopped") throw badRequest(`A ${g.status} proposal can only be withdrawn (outcome "stopped").`);
     if (!LIVE.includes(g.status)) return this.withdraw(actor, id, inp.note || "Withdrawn.");
+    // stopping a funded grant is a human's (1:1 mt_a6wb51enia): the manager closes it as done, or asks a human to stop it
+    if (inp.outcome === "stopped") {
+      if (actor && actor.kind !== "human") throw forbidden("building.fund", `Only a human stops a ${g.status} grant: close it as done (close_grant) when its work is done, or ask a human to stop it.`);
+      return this.stop(actor, id, { reason: inp.note.trim() || `Stopped by ${actor ? this.world.nameOf(actor.id) : "the town"}.` });
+    }
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
     this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`, this.estimateVsActual(next));
     return this.view(next);
@@ -577,6 +587,84 @@ export class Grants {
       if (g.status !== "draft") this.notifyFunders(next, actor, `${actor ? this.world.nameOf(actor.id) : "The manager"} withdrew the proposal "${next.objective}" (${next.id}, ${fmt(next.askTokens)} tokens asked): ${why}`);
       return this.view(next);
     });
+  }
+
+  /**
+   * POST /api/grants/:id/stop (gr_8i952perny; 1:1 mt_a6wb51enia): a human who can fund the grant (`building.fund`, or the
+   * captain of its goal) stops a funded or checkpoint grant mid-work. In one go: it goes to `stopping` (not live: nothing
+   * new starts on it and it stops claiming free tokens), every fork running work on it is asked to wrap up (`interruptFork`,
+   * the reason as the note; the 5-min hard stop applies), its queued grant work is cancelled ("Grant stopped: <reason>"),
+   * its open key results archive as missed with the reason, and the manager is told. When no session runs on it any more
+   * (at once when none did) `finishStopping` closes it as `stopped`, recording spent, granted and returned like closeDone.
+   */
+  stop(actor: Actor, id: string, input: StopGrantInput): GrantView {
+    const { reason } = StopGrantInput.parse(input);
+    const g = this.world.grants.require(id, "grant");
+    if (actor && (actor.kind !== "human" || !this.canFund(actor, g))) throw forbidden("building.fund", "Only a human who can fund this building (or the captain of its goal) stops a grant.");
+    if (g.status === "stopping") throw new AppError("conflict", "This grant is already stopping: it closes as stopped once its forks have filed their reports.");
+    if (TERMINAL.includes(g.status)) throw new AppError("conflict", `This grant is already ${g.status}.`);
+    this.requireStatus(g, LIVE, "stopped (withdraw or reject a proposal instead)");
+    const who = actor ? this.world.nameOf(actor.id) : "The town";
+    this.world.transaction(() => {
+      const next = this.save(g, actor, { status: "stopping" }, "stop", null, reason);
+      const now = nowIso();
+      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) {
+        // a human is acting, so missed is allowed; no postmortem: the stop note is the why
+        const kr = this.world.keyResults.upsert({ ...k, status: "missed", statusNote: `Grant stopped: ${reason}`.slice(0, 2000), statusBy: actor ? holderOf(actor).id : "system", archivedAt: k.archivedAt ?? now, updatedAt: now });
+        this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: k.buildingId, text: `Key result missed: ${kr.text}`, payload: { grantId: g.id, keyResultId: k.id, status: "missed", from: k.status, by: actor ? holderOf(actor).id : "system", byKind: actor ? holderOf(actor).kind : "system", edited: false, stopped: true } });
+      }
+      const cancelled = this.cancelQueued(g.id, reason);
+      const asker = actor ?? (managerAgentOf(this.world, this.world.buildings.require(g.buildingId, "building")) ?? null);
+      const forks = asker ? this.runningSessions(g.id).flatMap((s) => {
+        const fork = this.world.agents.get(s.agentId);
+        return fork?.forkOf ? [interruptFork(this.world, asker, fork, s, `${who} stopped grant ${g.id}: ${reason}`).forkId] : [];
+      }) : [];
+      this.event("grant.updated", next, actor, `Stopping: ${next.objective}: ${reason}`, { stopping: true, reason, forks, cancelled });
+      this.notifyManager(next, actor, `${who} stopped your grant ${g.id} "${next.objective}": ${reason}\n\n${forks.length ? `${forks.length} fork${forks.length === 1 ? " was" : "s were"} asked to wrap up and file their reports; it` : "It"} closes as stopped once no session runs on it. ${cancelled.length ? `Its ${cancelled.length} queued assignment${cancelled.length === 1 ? " was" : "s were"} cancelled. ` : ""}Its open key results are archived as missed. Don't assign more work on it.`);
+    });
+    this.finishStopping(g.id);
+    return this.get(g.id);
+  }
+
+  /**
+   * The runtime tick (and `stop` itself): every `stopping` grant (or just `grantId`) with no running session left closes as
+   * `stopped`. Spend stays as booked; the unspent rest is returned: pool-funded, it is free tokens again (claims count only
+   * live grants); member-funded, nothing moves and it stays on the member's input. Queued work that appeared meanwhile
+   * (a fork's continuation) is cancelled too. `grant.closed` names the stopper (the history's "stop" entry) and the reason.
+   */
+  finishStopping(grantId?: string): Grant[] {
+    const closed: Grant[] = [];
+    const rows = grantId ? [this.world.grants.get(grantId)].filter((g): g is Grant => g?.status === "stopping") : this.world.grants.where("status = 'stopping'");
+    for (const g of rows) {
+      if (this.runningSessions(g.id).length) continue;
+      const stopEntry = [...g.history].reverse().find((h) => h.action === "stop");
+      const reason = stopEntry?.note ?? "";
+      const by = stopEntry && stopEntry.byId !== "system" ? this.world.agents.first("kind = 'human' AND ownerUserId = ?", [stopEntry.byId]) ?? this.world.agents.get(stopEntry.byId) ?? null : null;
+      const grantTokens = g.grantTokens ?? 0;
+      const spentTokens = this.spent(g.id);
+      const unspentTokens = Math.max(0, grantTokens - spentTokens);
+      const input = g.fundedWith ? this.world.bank.input(g.fundedWith) : undefined;
+      const returnedTo = g.fundedWith ? "input" : "pool";
+      const returned = g.fundedWith ? `the unspent ${fmt(unspentTokens)} tokens stay on ${input?.label ?? g.fundedWith}` : `returned ${fmt(unspentTokens)} unspent tokens to the Bank as free tokens`;
+      this.world.transaction(() => {
+        this.cancelQueued(g.id, reason);
+        const next = this.save(g, null, { status: "closed", outcome: "stopped", closedAt: nowIso() }, "close", unspentTokens, `Stopped: ${reason} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
+        this.event("grant.closed", next, by ?? null, `Stopped: ${next.objective}: ${reason}; ${returned}`, { outcome: "stopped", reason, spentTokens, grantTokens, unspentTokens, returnedTo, fundedWith: g.fundedWith, ...this.estimateVsActual(next) });
+        closed.push(next);
+      });
+    }
+    return closed;
+  }
+
+  /** Running sessions charged to a grant (its forks' and anyone's working on it). */
+  private runningSessions(grantId: string): Session[] {
+    return this.world.sessions.where("grantId = ? AND status = 'running'", [grantId]);
+  }
+
+  /** Cancel a stopped grant's queued work (pending, any lane naming it), the reason kept as the row's `heldReason`. Returns the ids. */
+  private cancelQueued(grantId: string, reason: string): string[] {
+    return this.world.assignments.where("grantId = ? AND status = 'pending'", [grantId])
+      .map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `Grant stopped: ${reason}`.slice(0, 500) }).id);
   }
 
   /**
