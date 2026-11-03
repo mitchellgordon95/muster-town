@@ -2240,7 +2240,11 @@ export const GrantsQuery = z.object({ status: GrantStatus.optional() });
 export const LayoutInput = z.object({ furniture: z.record(z.string(), Tile), dryRun: z.boolean().default(false) });
 /** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
 export const CreateResidentInput = z.object({ buildingId: Id, name: z.string().trim().optional(), title: z.string().default(""), direction: z.string().default(""), sprite: z.number().int().optional(), model: z.string().optional() });
-export const RegisterVisitorInput = z.object({ name: z.string(), buildingId: Id.optional(), title: z.string().optional(),
+/**
+ * POST /api/agents/visitors. `goalId`: the goal the visitor works on; it gets a desk beyond the headcount in that goal's
+ * building (or the nearest one above it). `buildingId` is the older form of the same (that building's desks).
+ */
+export const RegisterVisitorInput = z.object({ name: z.string(), goalId: Id.optional(), buildingId: Id.optional(), title: z.string().optional(),
   /** default true: the visitor acts with its owner's permissions (capped by them) */
   inheritsOwner: z.boolean().optional() });
 export const AgentPermissionsPatch = z.object({ inheritsOwner: z.boolean().optional(), deniedPermissions: z.array(Permission).optional() });

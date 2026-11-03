@@ -2,7 +2,7 @@ import { isGone, NOT_GONE,
   Agent, CreateBuildingInput, patchOf, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
-import { AppError, badRequest } from "./errors.ts";
+import { AppError, badRequest, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
@@ -217,14 +217,30 @@ function freeTileNear(world: World, p: Tile): Tile {
 }
 
 /**
- * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `buildingId` it
- * claims a free desk there like a resident (`homeBuildingId` set; no free desk → it waits at the Town Hall visitor
- * bench, still homed in the building); without one it sits at the visitor bench.
+ * The lab a visitor working on `goalId` sits in: the building attached to that goal, else to the nearest goal above it
+ * (a goal under a building's goal is that building's work). A goal whose chain has no lab with desks is refused for now
+ * (a visitor adopting such a goal is gr_a5ct690l7a step 4).
+ */
+function visitorBuildingFor(world: World, goalId: string): Building {
+  const goal = world.goalTree.get(goalId);
+  if (!goal || goal.status === "retired") throw notFound("goal", goalId);
+  for (const g of world.goalTree.ancestors(goalId)) {
+    const b = world.buildings.first("goalId = ? AND kind = 'lab'", [g.id], "ORDER BY createdAt, id");
+    if (b) return b;
+  }
+  throw new AppError("conflict", `No building works on "${goal.text}" or a goal above it, so it has no desks to join yet. Pick a goal that has a building.`);
+}
+
+/**
+ * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `goalId` (or the
+ * older `buildingId`) it is homed in that goal's building and gets a desk BEYOND the headcount there: it never takes a
+ * fork slot (`freeDesks` leaves visitor desks out) and holds the desk while online (presence.ts releases it when the
+ * visitor goes offline and claims one again when it is back). Without either it sits at the Town Hall visitor bench.
  */
 export function registerVisitor(world: World, userId: string, input: In<typeof RegisterVisitorInput>): { agent: Agent; token: string } {
   const inp = RegisterVisitorInput.parse(input);
   world.users.require(userId, "user");
-  const b = inp.buildingId ? world.buildings.require(inp.buildingId, "building") : null;
+  const b = inp.goalId ? visitorBuildingFor(world, inp.goalId) : inp.buildingId ? world.buildings.require(inp.buildingId, "building") : null;
   return world.transaction(() => {
     const id = newId("ag");
     // insert first (desk names come from the agents table), then claim the desk and move the body there
@@ -233,10 +249,7 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
       ownerUserId: userId, title: inp.title ?? "Visitor", sprite: 6, pos: spawnPoint(world, b?.id), createdAt: nowIso(),
       inheritsOwner: inp.inheritsOwner ?? true,
     }), { silent: true });
-    let desk: ReturnType<typeof world.layout.claimDesk> | null = null;
-    if (b) {
-      try { desk = world.layout.claimDesk(b.id, id); } catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
-    }
+    const desk = b ? claimVisitorDesk(world, id, b.id) : null;
     const pos = desk ? desk.pos : world.presence.benchSeat(id);
     const agent = world.agents.patch(id, { pos, buildingId: world.layout.buildingAt(pos)?.id ?? null });
     world.permissions.ensureTownRoles();
@@ -244,9 +257,15 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
     // v1.5: the agent is capped by its owner, so the owner holds the visitor baseline too (GitHub sign-in already grants it)
     world.permissions.grant({ kind: "user", id: userId }, townRoleId("visitor"));
     const where = desk ? `took a desk in ${b!.name}` : "is at the visitor bench";
-    world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk } });
+    world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk, goalId: inp.goalId ?? null } });
     return { agent, token: world.tokens.create("agent", agent.id) };
   });
+}
+
+/** A visitor's desk beyond the headcount in `buildingId`, or null when the building has none to give (not a lab, or at MAX_HEADCOUNT desks). */
+export function claimVisitorDesk(world: World, agentId: string, buildingId: string) {
+  try { return world.layout.claimDesk(buildingId, agentId, { visitor: true }); }
+  catch (e) { if (e instanceof AppError && e.code === "conflict") return null; throw e; }
 }
 
 /** The user's human avatar (kind `human`), created at the plaza on first call. */

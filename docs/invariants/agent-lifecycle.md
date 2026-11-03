@@ -34,3 +34,13 @@ The first code span is the test file. The second is the `it` text, copied exactl
 7. **Dismissing keeps the row and drops everything live.** The desk is freed, tokens are revoked, memberships are removed and pending and active assignments are cancelled. Docs keep their author, and a retired agent is hidden from the snapshot. A fork retires the same way at the end of its session (`retireFork`, idempotent).
    - Test: `packages/core/test/v12.test.ts` › `frees the desk, revokes tokens, removes memberships, cancels assignments, keeps docs; retired hidden from the snapshot`
    - Test: `packages/core/test/forks.test.ts` › `forks the manager onto a free desk without growing the lab, names it after the manager and retires it`
+
+## Visitor desks
+
+A visitor is someone's own Claude Code on their own subscription (1:1 dc_3yqhz2qidx). It adds a desk to the goal it works on; it never takes one of the manager's fork slots. `RegisterVisitorInput.goalId` picks the goal. The visitor is homed in the lab attached to that goal, or to the nearest goal above it. A goal with no lab on its chain is refused with a 409 for now.
+
+8. **A visitor's desk is beyond the headcount and is not a fork slot.** `layout.claimDesk(..., { visitor: true })` seats it at the lowest free desk number at or above the headcount and never changes the headcount. `layout.deskCount` (and so `freeDesks`, the runtime's fork spawn and exploration's "no free desk") leaves visitor desks out.
+   - Test: `packages/core/test/visitors.test.ts` › `a full building still seats a visitor: a desk beyond the headcount, never a fork slot (freeDesks unchanged)`
+   - Test: `packages/core/test/visitors.test.ts` › `a visitor at a desk never blocks a fork: freeDesks counts fork slots only, and a fork still gets a desk`
+9. **A visitor holds its desk only while online.** The presence sweep releases the desk when the visitor goes offline (its body goes to the Town Hall visitor bench, still homed in the building), the "back" transition claims one again, and dismissing frees it.
+   - Test: `packages/core/test/visitors.test.ts` › `going offline releases the visitor's desk and sends the body to the bench; the next call claims a desk again`
