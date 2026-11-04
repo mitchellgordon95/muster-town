@@ -39,6 +39,9 @@ jobs:
         run: |
           line=$(grep -E '^check( --fast)?: .*total ' check.log | tail -1 || true)
           echo "\`${line:-check: no timing line (stopped before the first step finished)}\`" >> "$GITHUB_STEP_SUMMARY"
+      # web CSS stays on one type scale and one palette (packages/web/src/type.css): no font size off var(--fs-*), no colour
+      # literal outside the palette's :root block (grant gr_kvmwutmybu); prints file:line for each stray
+      - run: npm run check:css
       - run: npm run build --workspace packages/web
 
   promote:
