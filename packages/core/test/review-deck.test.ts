@@ -32,6 +32,21 @@ function setup() {
 const ours = (d: ReturnType<typeof reviewDeck>) => d.slides.filter((s) => s.kind !== "blocked");
 
 describe("review deck (GET /api/review-deck)", () => {
+  it("a rollup's Needs lines ride on its first slide, and make its one slide when no item asks a call (1:1 mt_i50xwu4z2t)", () => {
+    const { world, rollup } = setup();
+    const needs = (body: string) => body.replace("Nothing needed.", "- Say whether methane gets its own goal.\n\n_Already waiting in your in-tray: 1 proposal (gr_y)._");
+    const r1 = rollup(["None", "Merge it?"], ago(3));
+    world.docs.patch(r1.id, { body: needs(r1.body) });
+    const r2 = rollup(["None"], ago(2));
+    world.docs.patch(r2.id, { body: needs(r2.body) });
+    const slides = reviewDeck(world).slides.filter((s) => s.kind === "rollup" || s.kind === "record");
+    expect(slides.map((s) => s.key)).toEqual([`rollup:${r1.id}:2`, `rollup:${r2.id}:needs`]);
+    expect(slides[0]!.text).toContain("**Your call:** Merge it?");
+    expect(slides[0]!.text).toContain("also needs from you:**\n\n- Say whether methane gets its own goal.");
+    expect(slides[0]!.text).not.toContain("Already waiting");
+    expect(slides[1]!.text).toContain("its 1 Shipped item asks no call");
+    expect(slides[1]!.text).toContain("needs from you:**\n\n- Say whether methane gets its own goal.");
+  });
   it("slide 1 is the state of the town; proposals oldest first; rollup items with a real call one slide each; None-only rollups collapse into For the record", () => {
     const { world, proposal, rollup } = setup();
     const g1 = proposal();
