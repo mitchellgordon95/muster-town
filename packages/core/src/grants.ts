@@ -85,15 +85,22 @@ export class Grants {
 
   /**
    * What a checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): a checkpoint grant's own evidence; on a proposal, the
-   * evidence of the same building's latest grant on the same goal that a checkpoint stopped (cut, or closed after its
-   * hold): the work the proposal asks money for again. Null otherwise.
+   * evidence of the earlier grant it names in `continues` (1:1 mt_z1b38bwg98: never guessed from the goal, which put an
+   * unrelated grant's checkpoint on a card). Null otherwise.
    */
   private evidenceFor(g: Grant): CheckpointEvidence | null {
     if (g.status === "checkpoint") return this.evidence(g);
     if (g.status !== "proposed" && g.status !== "countered") return null;
-    const prior = this.world.grants.where("buildingId = ? AND status = 'closed' AND id != ? AND (goalId = ? OR (goalId IS NULL AND ? IS NULL))", [g.buildingId, g.id, g.goalId, g.goalId], "ORDER BY closedAt DESC, rowid DESC")
-      .find((p) => p.history.some((h) => h.action === "checkpoint") && p.outcome !== "done" && p.outcome !== "met");
-    return prior ? this.evidence(prior) : null;
+    const prior = g.continues ? this.world.grants.get(g.continues) : undefined;
+    return prior && prior.buildingId === g.buildingId ? this.evidence(prior) : null;
+  }
+
+  /** A proposal's `continues`: an earlier grant of the same building, not itself. */
+  private requireContinues(buildingId: string, id: string | null | undefined, self?: string): string | null {
+    if (!id) return null;
+    const p = this.world.grants.get(id);
+    if (!p || p.buildingId !== buildingId || p.id === self) throw badRequest(`continues: ${id} is not an earlier grant of your building.`);
+    return p.id;
   }
 
   /** One grant's checkpoint evidence: per key result its verdict and the manager's note, spend, the top-up line, the report's Shipped titles. */
@@ -372,7 +379,7 @@ export class Grants {
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
       id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [],
-      stopCondition: inp.stopCondition, askTokens: inp.askTokens,
+      stopCondition: inp.stopCondition, askTokens: inp.askTokens, continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, createdAt: now, updatedAt: now,
     }), inp.keyResults));
@@ -387,6 +394,7 @@ export class Grants {
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "edited");
     const goal = goalId ? this.requireGoal(g.buildingId, goalId) : g.goalId;
+    if (fields.continues !== undefined) fields.continues = this.requireContinues(g.buildingId, fields.continues, g.id) ?? undefined;
     const next = this.world.transaction(() => {
       const history = g.status === "countered" ? [...g.history, this.entry(actor, "edit", fields.askTokens ?? null, note ?? "")] : g.history;
       const saved = this.world.grants.upsert({ ...g, ...fields, goalId: goal, history, updatedAt: nowIso() });
@@ -494,6 +502,7 @@ export class Grants {
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
         next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note, via);
         this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
+        this.cancelCheckpointAssignment(next, actor, "continued");
         break;
       case "adjust": {
         this.requireStatus(g, ["checkpoint"], "adjusted");
@@ -502,6 +511,7 @@ export class Grants {
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note, via);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
+        this.cancelCheckpointAssignment(next, actor, "adjusted");
         break;
       }
       case "cut":
@@ -509,6 +519,7 @@ export class Grants {
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note, via);
         this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });
         this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
+        this.cancelCheckpointAssignment(next, actor, "cut");
         break;
     }
     return this.view(next);
@@ -750,6 +761,18 @@ export class Grants {
       released.push(next);
     }
     return released;
+  }
+
+  /**
+   * A human decided the checkpoint (continue, adjust or cut) before the manager's "Write the checkpoint for …" assignment ran:
+   * the still-pending one is cancelled so it doesn't run later, charged to the grant, to write a checkpoint nobody waits for
+   * (gr_kdlogzzo5s, 2026-11-04: adjusted 15 min after the hold, the assignment ran 35 min after that). One already running finishes.
+   */
+  private cancelCheckpointAssignment(g: Grant, actor: Actor, decision: "continued" | "adjusted" | "cut"): void {
+    const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
+    for (const a of this.world.assignments.where("grantId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint for %'", [g.id])) {
+      setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `${who} ${decision} the grant from the in-tray before this checkpoint was written: nothing to file.`.slice(0, 500) });
+    }
   }
 
   /** The manager's "Write the checkpoint for …" assignment (none when the building has no manager agent: humans decide from the in-tray). */

@@ -10,7 +10,7 @@ import { sessionTokens, AppError, booked, NoCredential, resultLine, type Booked,
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { CODE_TOOLS, codeGuard, type CodeCheckout, type CodeSource } from "./code.ts";
 import { describeTool } from "./describe.ts";
-import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type ImageBlock, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
@@ -71,6 +71,8 @@ interface SessionSpec {
   model: string;
   system: string;
   prompt: string;
+  /** pictures sent with the prompt (a human's pasted screenshot in a 1:1: meetingImages.ts) */
+  images?: ImageBlock[];
   maxTurns: number;
   web: boolean;
   assignmentId?: string | null;
@@ -311,7 +313,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const meter = new UsageMeter();
   const bookMs = ctx.usageBookMs ?? USAGE_BOOK_MS;
   let bookedAt = Date.now();
-  live.input.push(spec.prompt);
+  live.input.push(spec.prompt, spec.images);
   if (spec.purpose === "work") {
     // interrupts queued while the agent had no in-process session arrive right after the prompt
     const queued = world.ops.pendingInterrupts(agent.id, session.id);

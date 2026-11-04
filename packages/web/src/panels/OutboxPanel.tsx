@@ -7,6 +7,7 @@ import { DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { Act, Empty, ErrorLine, Loading, Pill, Section, nameOf, timeAgo, useLoad } from "./ui";
 import { Markdown } from "./Markdown";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 
 const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
@@ -83,6 +84,7 @@ export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () =>
         <div className="finish">
           <textarea {...media.props} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What you did, what you observed, links, numbers with units, photos (paste or drop)…" />
           <div className="actions">
+            <AttachButton small media={media} />
             <Act small tone="ok" disabled={!body.trim() || media.uploading > 0} run={async () => { await act("done", "Thanks! Your report is in the library.", body.trim())(); setFinishing(false); }}>Submit report</Act>
             <button className="btn sm" onClick={() => setFinishing(false)}>Cancel</button>
           </div>

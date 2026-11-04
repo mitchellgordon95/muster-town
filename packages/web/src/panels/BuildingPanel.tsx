@@ -327,12 +327,22 @@ export function publishLine(p: TownPublish | undefined, ago: (iso: string) => st
 
 /** The token field's placeholder: the token is write-only, so the field only says whether one is stored. */
 export function tokenPlaceholder(p: TownPublish | undefined): string {
-  return p?.tokenSet ? "set (leave blank to keep it)" : "not set";
+  return p?.tokenSet ? "set (leave blank to keep it)" : "blank: use the collective's GH_TOKEN";
 }
+
+/** Which token the next push uses (`publish.tokenSource`, read live by the server); null before a repo is saved. */
+export function tokenSourceLine(p: TownPublish | undefined): { text: string; bad: boolean } | null {
+  if (!p) return null;
+  if (p.tokenSource === "own" || (!p.tokenSource && p.tokenSet)) return { text: "Pushes with: this block's own token.", bad: false };
+  if (p.tokenSource === "collective") return { text: "Pushes with: the collective's GH_TOKEN (Secrets tab). It must be able to write to this repo.", bad: false };
+  return { text: "No token: paste one here, or set GH_TOKEN in the Secrets tab. Until then the push fails.", bad: true };
+}
+
+const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
 
 /**
  * Publish to GitHub (gr_30f8obzab8, admins of this World): the repo the hourly export pushes its mirror to and a token
- * kept encrypted on the host (PUT / DELETE /api/town/publish). A hosted World's panel calls its own /<slug>/api.
+ * kept encrypted on the host (or, left blank, the collective's GH_TOKEN) (PUT / DELETE /api/town/publish). A hosted World's panel calls its own /<slug>/api.
  */
 export function PublishToGitHub() {
   const town = useTown((s) => s.town);
@@ -341,6 +351,7 @@ export function PublishToGitHub() {
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const line = publishLine(p);
+  const source = tokenSourceLine(p);
   const fail = (e: unknown) => {
     // 409 NO_DATA_KEY and 400 bad URL: keep the server's words in the block, not only a toast
     if (e instanceof ApiError) { setError(e.message); return; }
@@ -349,17 +360,23 @@ export function PublishToGitHub() {
   return (
     <Section title="Publish to GitHub">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
-        <p className="direction">Every hour the town exports its published docs, meetings, outbox and event log (no drafts, no secrets) and pushes them to this repo, so anyone can browse its work on GitHub. Use an empty repo.</p>
+        <p className="direction">Every hour the town exports its published docs, meetings, outbox and event log (no drafts, no secrets) and pushes them to a GitHub repo, so anyone can browse its work there.</p>
+        <ol className="muted">
+          <li><b>Repo:</b> create an empty repo you own on GitHub (no README) and paste its URL.</li>
+          <li><b>Token:</b> a <a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">fine-grained token</a> with Contents read/write on that repo, kept encrypted and never shown again. Or leave it blank: the push then uses the collective's <code>GH_TOKEN</code> from the Secrets tab, if that token can write to the repo.</li>
+          <li>Save. The next hourly export pushes; the last push, or its error, shows below.</li>
+        </ol>
         <Field label="Repo" hint="https://github.com/<owner>/<repo>">
           <input value={repoUrl} placeholder="https://github.com/owner/repo" onChange={(e) => setRepoUrl(e.target.value)} />
         </Field>
-        <Field label="Token" hint="A fine-grained GitHub token with Contents read/write on that repo. It is kept encrypted on the host and never shown again; leave it blank to keep the stored one.">
+        <Field label="Token" hint="Optional when the collective's GH_TOKEN covers the repo">
           <input type="password" autoComplete="new-password" value={token} placeholder={tokenPlaceholder(p)} onChange={(e) => setToken(e.target.value)} />
         </Field>
+        {source ? <div className={source.bad ? "error-line" : "muted"}>{source.text}</div> : null}
         {line ? <div className={line.bad ? "error-line" : "muted"}>{line.text}</div> : null}
         <ErrorLine error={error} />
         <div className="actions">
-          <Act tone="primary" disabled={!repoUrl.trim() || (!token.trim() && !p?.tokenSet)} title={!token.trim() && !p?.tokenSet ? "Paste a token first" : undefined} run={async () => {
+          <Act tone="primary" disabled={!repoUrl.trim()} run={async () => {
             setError(null);
             try {
               const r = await api().publishSettings({ repoUrl: repoUrl.trim(), ...(token.trim() ? { token: token.trim() } : {}) });

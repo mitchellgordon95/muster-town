@@ -3,6 +3,7 @@ import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/sch
 import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
+import { mainRedLine } from "../main-fix.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { interruptNow, isWorking, relayWake } from "../wakes.ts";
@@ -39,6 +40,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     ((p.kind === "board" || p.kind === "schedule" || p.kind === "cabinet" || p.kind === "intray" || p.kind === "help") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
+  const red = mainRedLine(world);
   return {
     me: { id: me.id, name: me.name, status: me.status, buildingId: me.buildingId, place: place?.id ?? null, pos: me.pos },
     building: here ? { id: here.id, name: here.name, goal: world.goalTree.purposeOf(here) } : null,
@@ -50,6 +52,8 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
       currentAssignment: current?.title ?? null,
       nextMeeting: meeting ? { id: meeting.id, title: meeting.title, at: meeting.scheduledAt, phase: meeting.phase } : null,
       ...digestFor(world, me),
+      // gr_7op2v8fjcl step 2: while main is red, who holds its one fix assignment
+      ...(red ? { mainRed: red } : {}),
     },
     places: visible.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
     town: `${world.buildings.count()} buildings in town: \`town\` lists them with their managers and who is in each now.`,

@@ -17,6 +17,7 @@ import { grantUrl } from "../route";
 import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { clipText } from "./showMore";
@@ -178,6 +179,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
         <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and a fork runs it.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
+        <AttachButton small media={media} />
         <button className="btn sm" onClick={onClose}>Cancel</button>
         <Act small tone="primary" disabled={!text.trim() || media.uploading > 0} run={plant}>Plant</Act>
       </div>
@@ -190,19 +192,19 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
-  const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} /> : null;
+export function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
+  const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} onDecided={onDecided} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
+  const askedOn = askedOnOf(grants, retainers);
+  const list = mode === "list";
+  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
       <div className="doc-list">{stopped.map((g) => list ? grantLine(g, true) : <GrantRow key={g.id} grant={g} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
     </Section>
   ) : null;
-  const askedOn = askedOnOf(grants, retainers);
-  const list = mode === "list";
-  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
   const blockedList = blocked.length ? (
     <Section title={<>Blocked: no key results <Pill tone="bad">{blocked.length}</Pill></>}>
@@ -275,14 +277,25 @@ function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals,
  * The Secretary's digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray: what needs a yes or no (read
  * live), what shipped since the last card, and the rollups it covers, collapsed (the ones it archived left the list).
  */
-export function DigestCardView({ card: c, onOpen }: { card: DigestCard; onOpen: (id: string) => void }) {
+export function DigestCardView({ card: c, onOpen, onDecided }: { card: DigestCard; onOpen: (id: string) => void; onDecided?: () => void }) {
+  // "Already overtaken": one Approve-all archives the rollups whose asks the town has since decided (1:1 mt_i50xwu4z2t)
+  const approveAll = async (ids: string[]) => {
+    const done = await Promise.all(ids.map((id) => api().archive(id)));
+    store.putDocs(done.map((r) => r.doc));
+    store.toast(`Approved ${ids.length} overtaken rollup${ids.length === 1 ? "" : "s"}.`, "ok");
+    onDecided?.();
+  };
   return (
     <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
       <div className="doc-row intray-row digest-card">
         <div className="intray-who"><button className="link" onClick={() => onOpen(c.doc.id)}>{c.doc.title}</button><span>{timeAgo(c.doc.createdAt)}</span><TalkToSecretary /></div>
         <b>Decisions needed</b>
-        {c.decisions.length ? <ul className="digest-decisions">{c.decisions.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul> : <div className="muted">Nothing waits on a yes or no.</div>}
-        {c.askedOfYou ? <div className="muted"><DocText text={c.askedOfYou} /></div> : null}
+        {c.decisions.length ? c.decisions.map((g) => (
+          <div className="digest-group" key={g.heading}>
+            <div className="digest-group-head"><b>{g.heading}</b>{g.note ? <span className="muted"> {g.note}</span> : null}{g.docIds?.length ? <Act tone="ok" small run={() => approveAll(g.docIds!)} title="Archive these rollups: what they asked has since been decided">Approve all {g.docIds.length}</Act> : null}</div>
+            <ul className="digest-decisions">{g.lines.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul>
+          </div>
+        )) : <div className="muted">Nothing waits on a yes or no.</div>}
         <b>Shipped since last digest</b>
         {c.shipped ? <Markdown text={c.shipped} /> : <div className="muted">Nothing shipped.</div>}
         {c.covered.length ? (
@@ -725,12 +738,12 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
 /**
  * What a checkpoint shipped (Mitchell 1:1 mt_7b4zc7yja3): one line per key result "✓ shipped / ✗ not shipped / ~ partly:
  * <the manager's note>", spent vs granted, what a top-up buys, and the checkpoint report's Shipped titles. On a proposal
- * (`earlier`) it is the same building's earlier grant on the goal that stopped at its checkpoint.
+ * (`earlier`) it is the earlier grant the proposal names in `continues` (1:1 mt_z1b38bwg98); none named, no block.
  */
 function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvidence; onOpenDoc: (id: string) => void; earlier?: boolean }) {
   return (
     <div className="checkpoint-evidence">
-      {earlier ? <div className="muted">Asks again for work an earlier grant stopped at its checkpoint: <GrantLink id={e.grantId} /> {e.objective}</div> : null}
+      {earlier ? <div className="muted">Continues the earlier grant <GrantLink id={e.grantId} /> {e.objective}</div> : null}
       <ol className="evidence-krs">
         {e.keyResults.map((k) => <li key={k.id} className={`evidence-${k.verdict}`} title={k.text}>{evidenceKrLine(k)}</li>)}
       </ol>
@@ -862,6 +875,7 @@ export function TownNoteForm({ buildingId, onPosted }: { buildingId: string; onP
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" aria-label="Title" />
         <textarea {...media.props} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What everyone in every building needs to know. Markdown; paste or drop a screenshot." aria-label="Body" />
         <div className="actions">
+          <AttachButton media={media} />
           <Act tone="primary" disabled={!title.trim() || !body.trim()} run={async () => {
             const d = await api().writeDoc({ type: "fyi", state: "building", buildingId, title: title.trim(), body: body.trim() });
             store.putDocs([d]);
@@ -980,6 +994,7 @@ export function BoardNoteRow({ doc: d, onOpen, onUnpublished, onEdited }: { doc:
         <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Title" aria-label="Title" autoFocus />
         <textarea {...media.props} rows={6} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Markdown; paste or drop a screenshot." aria-label="Body" />
         <div className="actions">
+          <AttachButton media={media} />
           <Act tone="primary" disabled={!draft.title.trim() || !draft.body.trim()} run={async () => {
             const r = await api().editBoardNote(d.id, { title: draft.title.trim(), body: draft.body.trim() });
             store.putDocs([r]);

@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -19,7 +19,7 @@ import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
-import { digestCard } from "./secretary.ts";
+import { digestCard, groupsText } from "./secretary.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -151,8 +151,8 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
-  // a proposal that asks again for work an earlier grant stopped at its checkpoint: that checkpoint's evidence first
-  const earlier = g.evidence ? `**Asks again for work ${g.evidence.grantId} stopped at its checkpoint** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
+  // a proposal that names the earlier grant it continues (`continues`, 1:1 mt_z1b38bwg98): that grant's evidence first
+  const earlier = g.evidence ? `**Continues the earlier grant ${g.evidence.grantId}** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
   return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
@@ -286,9 +286,17 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     const base = { itemId: d.id, buildingId: d.buildingId, since: d.createdAt, history, docIds: [d.id] };
     if (parsed && parsed.items.length && !parsed.missingSections.length) {
       const calls = parsed.items.map((it, i) => [it, i] as [RollupItem, number]).filter(([it]) => !isNoCall(it.yourCall));
-      if (!calls.length) { record.push(d); continue; }
+      // the Needs lines (a question in words, a decision reserved: rollupAsks leaves out "Nothing needed" and the generated waiting line) ride on the rollup's first slide, or make its one slide when no item asks a call
+      const needs = rollupAsks(parsed).filter((a) => a.n === null).map((a) => a.call);
+      const needsBlock = needs.length ? `**${who} also needs from you:**\n\n${needs.map((l) => `- ${oneLine(l)}`).join("\n")}` : "";
+      if (!calls.length && !needs.length) { record.push(d); continue; }
+      if (!calls.length) {
+        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: "needs", title: `${who} rollup: ${d.title}`, body: `_${d.title} (${d.id}) · its ${parsed.items.length} Shipped item${parsed.items.length === 1 ? " asks" : "s ask"} no call_\n\n${needsBlock.replace(" also needs", " needs")}` });
+        continue;
+      }
       for (const [it, i] of calls) {
-        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}` });
+        const first = i === calls[0]![1];
+        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}${first && needsBlock ? `\n\n${needsBlock}` : ""}` });
       }
     } else {
       // an old-format rollup, a checkpoint or visitor report, an escalation: its markdown with the plain buttons
@@ -334,7 +342,7 @@ function digestSlide(world: World, now: Date): ReviewSlide | null {
   const text = [
     `_Filed by the Secretary ${waitedFor(c.doc.createdAt, now)} ago (${c.doc.id})_`,
     `## ${title}`,
-    `### Decisions needed\n\n${c.decisions.map((l) => `- ${l}`).join("\n") || "Nothing waits on a yes or no."}${c.askedOfYou ? `\n\n${c.askedOfYou}` : ""}`,
+    `### Decisions needed\n\n${groupsText(c.decisions)}`,
     `### Shipped since last digest\n\n${c.shipped || "Nothing shipped."}`,
     `### Covered rollups\n\n${c.covered.map((r) => `- ${r.buildingName}: ${r.title} (${r.id})${r.pending ? " · still asks a call" : ""}`).join("\n") || "_none_"}`,
   ].join("\n\n");

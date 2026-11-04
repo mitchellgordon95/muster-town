@@ -2,8 +2,9 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type Town, type Workspace } from "@muster-town/schema";
+import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
+import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
@@ -329,11 +330,11 @@ ${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; repor
  */
 const MANAGER_INTRAY_RULES = `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
 
-Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. The format, one screen: an optional one-line intro (the live commit), then
-- \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`), each with \`**What it is:**\` (plain words, ids after), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line, or "None"). The in-tray shows them as cards.
-- \`## Decided\`: one line per covered report (id → decision).
-- \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray").
-- \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
+Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. How he reads one: the in-tray opens it on a "Your call" block (every Shipped item's real call and the Needs lines, nothing else), then the Shipped cards, with Decided, Key results and provenance folded under one click each; the review deck shows one slide per item with a real call. So the calls and the cards are the read; write them to stand alone. The format, one screen: an optional one-line intro (the live commit), then
+- \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`, plain words: what a human now sees or can do), each with \`**What it is:**\` (two or three sentences, under ${ROLLUP_MAX_WHAT_WORDS} words, plain words first and ids after; the detail is in the covered reports), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line that names the choice and stands alone, or "None"; the top block quotes it without the card).
+- \`## Decided\`: one line per covered report (id → decision); folded, so no prose here.
+- \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray"); folded.
+- \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid. Each line stands alone in the top block and on the deck slide.
 A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
 
 /**
@@ -717,9 +718,12 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const workspace = deskWorkspace(town, building, agent, assignment);
   const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
-  const prompt = assignment
+  const brief = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
       agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
     : `${clockLine()}\n\n${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+  // while main is red, every brief names its one fixer (gr_7op2v8fjcl step 2): live state, so the first message, not the system prompt
+  const red = mainRedLine(world);
+  const prompt = red ? `${brief}\n\n${red}` : brief;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

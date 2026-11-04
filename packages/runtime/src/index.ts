@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, type SubTimer, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -19,6 +19,7 @@ import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
+import { cacheMissDue } from "./cache-miss.ts";
 export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
@@ -162,18 +163,24 @@ export interface TickTiming {
   phase: string | null;
   phaseMs: number;
   phases: Record<string, number>;
+  /** steps inside a phase, named `phase.step` (gr_db6ofyd0yf step 3: what in explore and work grows live); not added to `ms` */
+  sub?: Record<string, number>;
 }
 
-/** Rounds a tick's phase timings (ms, one decimal) and picks the slowest phase. */
-export function tickTiming(at: Date, raw: Record<string, number>): TickTiming {
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/** Rounds a tick's phase timings (ms, one decimal) and picks the slowest phase; `sub` (steps inside phases) is kept apart. */
+export function tickTiming(at: Date, raw: Record<string, number>, sub: Record<string, number> = {}): TickTiming {
   const phases: Record<string, number> = {};
   let ms = 0, phase: string | null = null, phaseMs = 0;
   for (const [k, v] of Object.entries(raw)) {
     ms += v;
-    phases[k] = Math.round(v * 10) / 10;
+    phases[k] = round1(v);
     if (v > phaseMs) { phase = k; phaseMs = v; }
   }
-  return { at: at.toISOString(), ms: Math.round(ms), phase, phaseMs: Math.round(phaseMs), phases };
+  const t: TickTiming = { at: at.toISOString(), ms: Math.round(ms), phase, phaseMs: Math.round(phaseMs), phases };
+  if (Object.keys(sub).length) t.sub = Object.fromEntries(Object.entries(sub).map(([k, v]) => [k, round1(v)]));
+  return t;
 }
 
 /** The one log line for a slow tick: total, the phase that took it, then the next two. */
@@ -486,8 +493,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     for (const b of world.buildings.all()) {
       // like a resident of a code building: no fork on the host backend (the resident loop warns)
       if (backend?.kind === "host" && codeWorkspace(world.town.get(), b)) continue;
-      let free = freeDesks(world, b);
-      for (const a of forkableQueue(world, b)) {
+      let free = subTimed("work.forks.freeDesks", () => freeDesks(world, b));
+      for (const a of subTimed("work.forks.queue", () => forkableQueue(world, b))) {
         if (free <= 0) break;
         const s = slots();
         if (s.running + startedNow >= s.max) { held.push(a.agentId); break; }
@@ -497,13 +504,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         startedNow++;
         forkRuns.add(fork.id);
         let failed: { error: unknown } | null = null;
-        void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
+        subTimed("work.start", () => void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
           forkRuns.delete(fork.id);
           // rejected before a session row existed: the desk itself failed (a session that ended in error has a fallback report)
           const atStartup = failed && !world.sessions.count("agentId = ? AND purpose = 'work'", [fork.id]);
           retireAfter(fork.id, atStartup ? `desk failed at startup: ${failed!.error instanceof Error ? failed!.error.message : String(failed!.error)}` : undefined);
           if (atStartup) onForkStartupFailure(a, b, failed!.error);
-        });
+        }));
       }
     }
   }
@@ -574,21 +581,28 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /** the running tick's sub-step timings (null outside tickOnce: scheduleWork also runs from callbacks) */
+  let tickSub: Record<string, number> | null = null;
+  const subTimed: SubTimer = (name, fn) => {
+    const s = performance.now();
+    try { return fn(); } finally { if (tickSub) tickSub[name] = (tickSub[name] ?? 0) + performance.now() - s; }
+  };
+
   function scheduleWork(): void {
-    watchAdopted();
+    subTimed("work.adopted", () => watchAdopted());
     // after the sweep: an adopted fork whose session ended is retired there, and spawnForks below may hand its desk to the
     // next fork in the same pass, so the stale check must see the slot in that gap (10-31: Workshop slots 2 and 4 missed it)
-    sweepForks();
-    recreateStaleDesks();
+    subTimed("work.sweep", () => sweepForks());
+    subTimed("work.staleDesks", () => recreateStaleDesks());
     if (draining) return;
     const held: string[] = [];
     // sessions this pass started (startWork registers them as `starting` only after its first await)
     let startedNow = 0;
     // forks run only through spawnForks (below): the fork row exists from the spawn, before its session does
-    for (const a of world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt")) {
+    for (const a of subTimed("work.residents", () => world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt"))) {
       if (ctx.live.has(a.id) || starting.has(a.id) || reaping.has(a.id)) continue;
       // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
-      const next = nextStartable(world, a.id);
+      const next = subTimed("work.residents", () => nextStartable(world, a.id));
       if (!next) continue;
       // the host's cap: a running session costs real memory, so queued work waits for a free slot instead of starting
       const s = slots();
@@ -605,9 +619,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         continue;
       }
       startedNow++;
-      void startWork(a.id, next.id).catch(log(`work session for ${a.name}`));
+      subTimed("work.start", () => void startWork(a.id, next.id).catch(log(`work session for ${a.name}`)));
     }
-    spawnForks(held, startedNow);
+    subTimed("work.forks", () => spawnForks(held, startedNow));
     // one notice when the slots fill, one when they free up (not every pass)
     if (held.length && !slotsFull) {
       slotsFull = true;
@@ -641,8 +655,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let lastTick: TickTiming | null = null;
   let lastSlowTick: TickTiming | null = null;
 
-  function recordTick(d: Date, phases: Record<string, number>): void {
-    const timing = tickTiming(d, phases);
+  function recordTick(d: Date, phases: Record<string, number>, sub: Record<string, number>): void {
+    const timing = tickTiming(d, phases, sub);
     lastTick = timing;
     if (timing.ms > SLOW_TICK_MS) { lastSlowTick = timing; console.warn(slowTickLine(timing)); }
   }
@@ -655,6 +669,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   async function tickOnce(): Promise<void> {
     if (stopped) return;
     const phases: Record<string, number> = {};
+    const sub: Record<string, number> = {};
+    tickSub = sub;
     const d = now();
     const t = d.getTime();
     try {
@@ -682,6 +698,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
       timed("reconcile", () => void track(reconcileDue(ctx, d)).catch(log("bank reconcile")), "bank reconcile");
+      // gr_lwgus14rd2 step 2: after a session ends, the day's 1 h cache-write share and first turns per purpose (`alert: cache-miss`)
+      timed("cacheMiss", () => void cacheMissDue(world, d), "cache-miss check");
       if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; timed("presence", () => void presenceTick()); }
       timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");
       timed("meetings", () => scheduleMeetings(t));
@@ -693,7 +711,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
       timed("schedules", () => fireSchedules(world, d));
       // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
-      timed("explore", () => exploreTick(world, d));
+      timed("explore", () => exploreTick(world, d, subTimed));
       timed("reorgs", () => world.reorgs.tick(d));
       timed("walkHome", () => walkIdleHome(world, t), "walk home");
       timed("blocked", () => { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); }, "blocked buildings");
@@ -709,7 +727,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
       timed("quiet1on1", () => closeQuietOneOnOnes(ctx), "quiet 1:1s");
       timed("work", () => scheduleWork());
-    } finally { recordTick(d, phases); }
+    } finally { tickSub = null; recordTick(d, phases, sub); }
   }
 
   const interval = opts.intervalMs ?? 5000;
