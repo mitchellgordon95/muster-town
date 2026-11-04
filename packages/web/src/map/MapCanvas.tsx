@@ -53,8 +53,8 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
       if (MOVE_KEYS.has(k)) { r.keyDown(k); e.preventDefault(); }
       else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { r.interact(t); e.preventDefault(); } }
       else if (k === "tab" && r.cycleTarget(e.shiftKey ? -1 : 1)) e.preventDefault();
-      else if (k === "-" || k === "_") r.zoom = Math.max(2, r.zoom - 1);
-      else if (k === "=" || k === "+") r.zoom = Math.min(5, r.zoom + 1);
+      else if (k === "-" || k === "_") { r.zoom = Math.max(2, r.zoom - 1); r.userZoom = true; }
+      else if (k === "=" || k === "+") { r.zoom = Math.min(5, r.zoom + 1); r.userZoom = true; }
     };
     const up = (e: KeyboardEvent) => r.keyUp(e.key.toLowerCase());
     const blur = () => r.clearKeys();
