@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { integrityCheck, migrate, openDb, sealCopy, World } from "@muster-town/core";
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,7 +10,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app.ts";
 import { runtimeOff, startRuntimeUnlessOff } from "../src/throwaway.ts";
-import { BackupJob, FRESH_TOWN, backupKeyFrom, decryptBackup, encryptBackup, keysToDelete, msUntilNextRun, objectKey, parseObjectKey, S3 } from "../src/backup/index.ts";
+import { BackupJob, backupSources, FRESH_TOWN, backupKeyFrom, decryptBackup, encryptBackup, keysToDelete, msUntilNextRun, objectKey, parseObjectKey, S3 } from "../src/backup/index.ts";
 import { restoreOnFirstBoot } from "../src/backup/restore.ts";
 import { signV4 } from "../src/backup/sigv4.ts";
 import { json, REPO_ROOT, seededApp } from "./helpers.ts";
@@ -229,7 +229,7 @@ describe("the job", () => {
     const env = { BUCKET_NAME: "bkt", AWS_ENDPOINT_URL_S3: endpoint, AWS_ACCESS_KEY_ID: "AK", AWS_SECRET_ACCESS_KEY: "SK", MUSTER_TOWN_BACKUP_KEY: KEY };
     const job = new BackupJob({ db, dir, env, now: () => now, log: { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) } });
     expect(job.configured).toBe(true);
-    expect(job.snapshot()).toEqual({ lastAt: null, verifiedAt: null, bytes: null, dest: `127.0.0.1:${(server.address() as AddressInfo).port}/bkt/town/`, error: null, mode: "hourly" });
+    expect(job.snapshot()).toEqual({ lastAt: null, verifiedAt: null, bytes: null, dest: `127.0.0.1:${(server.address() as AddressInfo).port}/bkt/town/`, error: null, mode: "hourly", copies: null, transcripts: null });
     // a town with a copy history (a fresh one refuses while the bucket holds copies: the next describe)
     db.prepare("UPDATE backup_state SET lastAt = ? WHERE id = 1").run("2026-09-30T00:00:00.000Z");
 
@@ -255,7 +255,7 @@ describe("the job", () => {
     const got = Buffer.from(await (await new S3({ endpoint, bucket: "bkt", creds: { accessKeyId: "AK", secretAccessKey: "SK", region: "auto" } }).get(r1.key)).arrayBuffer());
     expect(got.equals(blob)).toBe(true);
     const snap = job.snapshot()!;
-    expect(snap).toEqual({ lastAt: "2026-10-27T04:00:00.000Z", verifiedAt: "2026-10-27T04:00:00.000Z", bytes: r1.bytes, dest: snap.dest, error: null, mode: "hourly" });
+    expect(snap).toEqual({ lastAt: "2026-10-27T04:00:00.000Z", verifiedAt: "2026-10-27T04:00:00.000Z", bytes: r1.bytes, dest: snap.dest, error: null, mode: "hourly", copies: [], transcripts: { files: 0, uploaded: 0, uploadedBytes: 0, deleted: 0 } });
     expect(JSON.stringify(snap)).not.toMatch(/SK|AK|7777/);
 
     // the next day: a new object, the older local copy goes
@@ -433,6 +433,118 @@ describe("empty-boot guard and first-boot restore (gr_z2v838adk9)", () => {
     expect(await restoreOnFirstBoot({ dbPath, env: s3.env, log, retryMs: 0 })).toBeNull();
     expect(logs.filter((l) => l.includes("failed (attempt"))).toHaveLength(3);
     expect(() => readdirSync(dirname(dbPath))).toThrow(); // nothing written
+  });
+});
+
+describe("hosted collectives and transcripts (mt_1vs893enaw)", () => {
+  const now = () => new Date("2026-11-04T19:00:00Z");
+  const quiet = () => ({ log: { log: () => {}, warn: () => {} } });
+  const cipher = backupKeyFrom(KEY)!;
+
+  /** a Workshop data dir and a hosted dir as on Fly: hub.db, <slug>/data/town.db, transcripts beside each */
+  function layout(name: string) {
+    const root = join(tmp, name);
+    const data = join(root, "workshop", "data");
+    const hosted = join(root, "hosted");
+    mkdirSync(join(data, "transcripts"), { recursive: true });
+    const db = openDb(join(data, "town.db"));
+    db.prepare("UPDATE backup_state SET lastAt = ? WHERE id = 1").run("2026-11-04T18:00:00.000Z");
+    mkdirSync(hosted, { recursive: true });
+    const hub = new Database(join(hosted, "hub.db"));
+    hub.exec("CREATE TABLE collectives (slug TEXT)"); hub.prepare("INSERT INTO collectives VALUES ('holly')").run(); hub.close();
+    mkdirSync(join(hosted, "holly", "data", "transcripts"), { recursive: true });
+    const holly = new Database(join(hosted, "holly", "data", "town.db"));
+    holly.exec("CREATE TABLE t (v TEXT)"); for (let i = 0; i < 50; i++) holly.prepare("INSERT INTO t VALUES (?)").run(`row ${i}`); holly.close();
+    mkdirSync(join(hosted, "retired-no-db"), { recursive: true });
+    writeFileSync(join(data, "transcripts", "se_abc1.jsonl.br"), randomBytes(3000));
+    writeFileSync(join(data, "transcripts", "se_abc2.jsonl.br"), randomBytes(500));
+    writeFileSync(join(data, "transcripts", "not-a-transcript.txt"), "x");
+    writeFileSync(join(hosted, "holly", "data", "transcripts", "se_h1.jsonl.br"), randomBytes(800));
+    return { root, data, hosted, db };
+  }
+
+  it("backupSources lists hub.db, each collective's town.db and every town's transcripts dir", () => {
+    const { data, hosted, db } = layout("sources");
+    expect(backupSources(data, hosted)).toEqual({
+      dbs: [{ prefix: "hosted/hub/", path: join(hosted, "hub.db") }, { prefix: "hosted/holly/", path: join(hosted, "holly", "data", "town.db") }],
+      transcripts: [{ prefix: "transcripts/workshop/", dir: join(data, "transcripts") }, { prefix: "transcripts/holly/", dir: join(hosted, "holly", "data", "transcripts") }],
+    });
+    expect(backupSources(data, join(tmp, "no-such-dir")).dbs).toEqual([]);
+    db.close();
+  });
+
+  it("copies each hosted database under its prefix, uploads each transcript once, prunes per prefix and past retention, and health shows it", async () => {
+    const { data, hosted, db } = layout("hosted");
+    const objects = new Map<string, Buffer>();
+    // 49 old hourly hub copies: retention keeps 48 + the newest of each day under hosted/hub/ only
+    for (let h = 0; h < 49; h++) objects.set(`hosted/hub/2026-11-0${1 + Math.floor(h / 24)}T${String(h % 24).padStart(2, "0")}.db.gz.enc`, Buffer.from("old"));
+    // a transcript already up (never re-uploaded) and one dated past retention (90 + 1 days)
+    objects.set("transcripts/workshop/2026-11-03/se_abc2.jsonl.br.enc", Buffer.from("already"));
+    objects.set("transcripts/workshop/2026-07-01/se_gone.jsonl.br.enc", Buffer.from("old"));
+    objects.set("transcripts/workshop/2026-08-05/se_kept.jsonl.br.enc", Buffer.from("within"));
+    const s3 = await fakeS3(objects);
+    const job = new BackupJob({ db, dir: join(tmp, "hosted-backups"), env: s3.env, now, log: quiet().log, sources: () => backupSources(data, hosted), transcriptDays: () => 90 });
+    const r = (await job.run())!;
+    expect(r.key).toBe("town/2026-11-04T19.db.gz.enc");
+    expect(r.problems).toEqual([]);
+    expect(r.copies!.map((c) => c.key)).toEqual(["hosted/hub/2026-11-04T19.db.gz.enc", "hosted/holly/2026-11-04T19.db.gz.enc"]);
+    // the hosted copy is the same format: decrypt + gunzip gives an intact database with its rows
+    const out = join(tmp, "holly-restored.db");
+    writeFileSync(out, gunzipSync(decryptBackup(cipher, objects.get("hosted/holly/2026-11-04T19.db.gz.enc")!)));
+    expect(integrityCheck(out)).toBe("ok");
+    const h = new Database(out, { readonly: true });
+    expect((h.prepare("SELECT COUNT(*) AS n FROM t").get() as { n: number }).n).toBe(50);
+    h.close();
+    // hub retention per prefix: 50 hourly, so the 2 oldest go (neither is its day's newest); town/ untouched by it
+    expect(r.copies![0]!.deleted).toEqual(["hosted/hub/2026-11-01T00.db.gz.enc", "hosted/hub/2026-11-01T01.db.gz.enc"]);
+    // transcripts: two new ones uploaded (encrypted only: decrypts to the file's bytes), the existing one left as it was
+    const day = new Date().toISOString().slice(0, 10);
+    expect(r.transcripts).toEqual({ files: 3, uploaded: 2, uploadedBytes: 3800, deleted: 1 });
+    expect(decryptBackup(cipher, objects.get(`transcripts/workshop/${day}/se_abc1.jsonl.br.enc`)!).equals(readFileSync(join(data, "transcripts", "se_abc1.jsonl.br")))).toBe(true);
+    expect(objects.has(`transcripts/holly/${day}/se_h1.jsonl.br.enc`)).toBe(true);
+    expect(objects.get("transcripts/workshop/2026-11-03/se_abc2.jsonl.br.enc")!.toString()).toBe("already");
+    expect(objects.has("transcripts/workshop/2026-07-01/se_gone.jsonl.br.enc")).toBe(false);
+    expect(objects.has("transcripts/workshop/2026-08-05/se_kept.jsonl.br.enc")).toBe(true);
+    // no hosted copy stays on the local disk; the Workshop's last copy does
+    expect(readdirSync(join(tmp, "hosted-backups"))).toEqual(["town-2026-11-04T19.db"]);
+    expect(job.snapshot()).toMatchObject({
+      error: null, lastAt: now().toISOString(), verifiedAt: now().toISOString(),
+      copies: [{ prefix: "hosted/hub/", key: "hosted/hub/2026-11-04T19.db.gz.enc" }, { prefix: "hosted/holly/", key: "hosted/holly/2026-11-04T19.db.gz.enc" }],
+      transcripts: { files: 3, uploaded: 2 },
+    });
+    s3.close();
+    db.close();
+  });
+
+  it("a hosted copy that fails (its key taken) is the health error; town.db's copy and the rest still go up", async () => {
+    const { data, hosted, db } = layout("hosted-fail");
+    const theirs = Buffer.from("another writer's copy");
+    const objects = new Map<string, Buffer>([["hosted/holly/2026-11-04T19.db.gz.enc", theirs]]);
+    const s3 = await fakeS3(objects);
+    const job = new BackupJob({ db, dir: join(tmp, "hosted-fail-backups"), env: s3.env, now, log: quiet().log, sources: () => backupSources(data, hosted) });
+    const r = (await job.run())!;
+    expect(r.problems).toEqual(["hosted/holly/: hosted/holly/2026-11-04T19.db.gz.enc is already in the bucket; a run never replaces an object"]);
+    expect(objects.get("hosted/holly/2026-11-04T19.db.gz.enc")!.equals(theirs)).toBe(true);
+    expect(objects.has("town/2026-11-04T19.db.gz.enc")).toBe(true);
+    expect(objects.has("hosted/hub/2026-11-04T19.db.gz.enc")).toBe(true);
+    const snap = job.snapshot()!;
+    expect(snap.lastAt).toBe(snap.verifiedAt);
+    expect(snap.error).toMatch(/^hosted\/holly\/: .*already in the bucket/);
+    s3.close();
+    db.close();
+  });
+
+  it("a fresh town refuses the whole run, hosted copies and transcripts included", async () => {
+    const { data, hosted, db } = layout("hosted-fresh");
+    db.prepare("UPDATE backup_state SET lastAt = NULL WHERE id = 1").run();
+    const objects = new Map<string, Buffer>([["town/2026-11-04T18.db.gz.enc", Buffer.from("good")]]);
+    const s3 = await fakeS3(objects);
+    const job = new BackupJob({ db, dir: join(tmp, "hosted-fresh-backups"), env: s3.env, now, log: quiet().log, sources: () => backupSources(data, hosted) });
+    expect(await job.run()).toBeNull();
+    expect(job.snapshot()!.error).toMatch(new RegExp(`^${FRESH_TOWN}`));
+    expect([...objects.keys()]).toEqual(["town/2026-11-04T18.db.gz.enc"]);
+    s3.close();
+    db.close();
   });
 });
 

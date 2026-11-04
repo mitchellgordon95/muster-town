@@ -25,7 +25,7 @@ describe("session slots (desks.maxRunning)", () => {
     const full = world.events.recent({ limit: 50 }).find((e) => (e.payload as { alert?: string }).alert === "slots-full")!;
     expect(full.text).toBe(`All 1 session slots are in use: holding queued work for ${heldAgent.name}`);
     expect(full.payload).toMatchObject({ running: 0, max: 1, held: [heldAgent.id] });
-    expect(world.snapshot().health).toEqual({ docker: true, slots: { running: 0, max: 1 } });
+    expect(world.snapshot().health).toEqual({ docker: true, repoMode: "none", slots: { running: 0, max: 1 } });
     // next pass: the slot is free, the held agent runs; the notice says so once
     await runtime.tickOnce();
     await runtime.whenIdle();

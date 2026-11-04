@@ -1,4 +1,4 @@
-import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -93,6 +93,7 @@ export async function townRoutes(app: FastifyInstance) {
       roles: world.permissions.rolesOf(holder),
       avatarAgentId: world.ops.ensureAvatar(user.id).id,
       isAdmin: world.permissions.isAdmin(holder),
+      canRedeploy: world.permissions.can(holder, "town.redeploy"),
       canInteract: canInteract(world, user.id),
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
       direct: directGoals(user.id),
@@ -362,7 +363,9 @@ export async function townRoutes(app: FastifyInstance) {
       // routes: each item's goal, owner, "Mine" and whether this viewer may decide it (docs/goals.md step 4)
       const intray = world.ops.townHallIntray();
       // the Secretary's latest digest card goes first (gr_kdlogzzo5s step 3); the rollups it archived are no longer in `reports`
-      return { ...intray, digest: digestCard(world), ...intrayRoutes(world, viewerOf(world, req), intray) };
+      // digestRun: the "Daily digest" button, only for a human who may press it (Mitchell, 1:1 mt_i50xwu4z2t)
+      const viewer = viewerOf(world, req);
+      return { ...intray, digest: digestCard(world), digestRun: digestRunView(world, viewer), ...intrayRoutes(world, viewer, intray) };
     }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);
@@ -487,10 +490,20 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   // ---- bank ----
+  // what the Fly estimate needs: a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
+  const flyArgs = () => {
+    const hosted = !!world.host.hosted;
+    return { desks: world.desksConfig(), townOnFly: !!process.env.FLY_APP_NAME && !hosted, hosted };
+  };
   app.get("/api/bank", async () => world.bank.summary());
   // public, read-only: total received, used, expired, left, overdrawn and a 30-day projection (docs/bank.md "Finance")
   // `free`: the town-wide free tokens (docs/how-work-gets-done.md §7; core free-tokens.ts), the one number exploration reads
-  app.get("/api/finance", async () => ({ ...world.bank.finance(), free: world.bank.freeTokens?.() ?? null }));
+  // `cash` + `cashCheck` (gr_qggxximtru step 2): the last 30 days in cash (plans prorated, API-key sessions at list price, the Fly estimate as /api/finance/fly prices it)
+  app.get("/api/finance", async () => {
+    const now = new Date();
+    const { desks, townOnFly, hosted } = flyArgs();
+    return { ...world.bank.finance(now), free: world.bank.freeTokens?.() ?? null, ...world.bank.cash(desks, townOnFly, { capUsdPerDay: desks.billCapUsd, hosted }, now) };
+  });
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
   // ?window=today|7d (default today) picks the window of `byLaneKind`, the lane × token-kind table (gr_lwgus14rd2 step 1); every other field is all-time
   app.get<{ Querystring: { window?: string } }>("/api/finance/spend", async (req) => {
@@ -502,11 +515,9 @@ export async function townRoutes(app: FastifyInstance) {
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
-    const desks = world.desksConfig();
+    const { desks, townOnFly, hosted } = flyArgs();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    // a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
-    const hosted = !!world.host.hosted;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME && !hosted, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
+    return world.bank.fly(desks, townOnFly, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, SpendNode } from "../src/api";
-import { approxUsd, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { LaneKind, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
@@ -532,5 +532,27 @@ describe("Plans paid for", () => {
   it("says so when none is recorded; the Inputs tab carries the section", () => {
     expect(renderToStaticMarkup(<PlansPaidForView fees={[]} admin={false} onChange={noop} />)).toContain("None recorded yet.");
     expect(tabOf("Inputs", {})).toContain("Plans paid for");
+  });
+});
+
+// gr_qggxximtru step 2 (kr_ruh7apqptm): Paid in cash, last 30 days, on Balance
+describe("finance page: paid in cash, last 30 days", () => {
+  const cash = { windowDays: 30, from: "2026-10-05T12:00:00.000Z", to: "2026-11-04T12:00:00.000Z", plans: 200, apiKeys: 12.5, hosting: 37.5, total: 250, listUsd: 2500, perDollar: 10,
+    planRows: [{ id: "bf_a", label: "Max 20x", usdPerMonth: 200, activeDays: 30, usd: 200 }], apiKeySessions: 3, pricedAt: "cash" as const };
+  it("words the total, its three parts, the ratio and the check", () => {
+    expect(cashLines(cash, { ok: true, text: "" })).toEqual({
+      total: "$250.00", parts: "plans $200.00 · API keys $12.50 · hosting $37.50",
+      ratio: "Each $1 paid bought ≈ $10.00 of work at list price ($2,500.00 of work in the same 30 days).",
+      check: { ok: true, text: "The server checked that plans + API keys + hosting = $250.00." },
+    });
+    expect(cashLines({ ...cash, total: 260 }).check).toEqual({ ok: false, text: "Cash does not add up: the parts come to $250.00, but the total is $260.00." });
+    const none = cashLines({ ...cash, plans: 0, apiKeys: 0, hosting: 0, total: 0, perDollar: null });
+    expect(none.ratio).toContain("No plan recorded yet: add one on Inputs");
+  });
+  it("shows the cash row on Balance under the list-price figures, and nothing from an older server", () => {
+    const html = tabOf("Balance", { f: { ...f, cash, cashCheck: { ok: true, diff: 0, text: "" } } });
+    for (const t of ["Paid in cash, last 30 days", "$250.00", "plans $200.00 · API keys $12.50 · hosting $37.50", "Each $1 paid bought ≈ $10.00", "✓ The server checked that plans + API keys + hosting"]) expect(html).toContain(t);
+    expect(html.indexOf("Used so far")).toBeLessThan(html.indexOf("Paid in cash"));
+    expect(tabOf("Balance", {})).not.toContain("Paid in cash");
   });
 });

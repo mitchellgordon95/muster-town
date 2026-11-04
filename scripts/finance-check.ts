@@ -56,6 +56,20 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...mixChecks(f.mix, bank.mix),
     // what each grant bought (gr_dt1l35tydx): the grants block by outcome closes on the grant rows
     ...grantChecks(s),
+    // paid in cash, last 30 days (gr_qggxximtru step 2): the parts add up, the ratio is list value / cash
+    ...cashChecks(f.cash, f.cashCheck),
+  ];
+}
+
+/** GET /api/finance `cash`: plans + API keys + hosting = total within a cent; perDollar = listUsd / total (null at $0); API keys ≤ list value. */
+function cashChecks(c: Json | undefined, ck: Json | undefined): Check[] {
+  if (!c) return [flag("cash", false, "GET /api/finance has no `cash` (server older than gr_qggxximtru step 2)")];
+  const ratio = c.total > 0 ? Math.round((c.listUsd / c.total) * 100) / 100 : null;
+  return [
+    flag("cashCheck", ck?.ok, `ok ${ck?.ok}, diff ${ck?.diff} (${ck?.text})`),
+    near("cash parts", "plans + apiKeys + hosting", Number(c.plans) + Number(c.apiKeys) + Number(c.hosting), "cash.total", Number(c.total), 0.01),
+    flag("cash perDollar", c.perDollar === ratio, `perDollar ${c.perDollar} = round(listUsd $${Number(c.listUsd).toFixed(2)} / total $${Number(c.total).toFixed(2)}, 2) ${ratio}`),
+    flag("cash apiKeys ≤ listUsd", Number(c.apiKeys) <= Number(c.listUsd) + 0.01, `apiKeys $${Number(c.apiKeys).toFixed(2)} ≤ listUsd $${Number(c.listUsd).toFixed(2)} (window ${c.from} → ${c.to})`),
   ];
 }
 

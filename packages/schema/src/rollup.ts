@@ -166,7 +166,10 @@ export function rollupWarnings(p: ParsedRollup): string[] {
  * a Needs section that names an item already waiting for a human elsewhere, and appends the generated in-tray line.
  */
 export const ROLLUP_MAX_NEEDS = 2;
-export const ROLLUP_NEEDS_RULE = `"## Needs from Mitchell" carries at most ${ROLLUP_MAX_NEEDS} items, and only what has no other channel: a decision Mitchell reserved, a question needing an answer in words, a 1:1 invite, or a real-world action with no outbox request. Never an open grant proposal or checkpoint (gr_…), an open outbox request or a report already in the Town Hall in-tray (dc_…): Mitchell sees those there, and the town appends an "Already waiting in your in-tray" line listing them.`;
+export function rollupNeedsRule(captain: string): string {
+  return `"## Needs from ${captain}" carries at most ${ROLLUP_MAX_NEEDS} items, and only what has no other channel: a decision ${captain} reserved, a question needing an answer in words, a 1:1 invite, or a real-world action with no outbox request. Never an open grant proposal or checkpoint (gr_…), an open outbox request or a report already in the Town Hall in-tray (dc_…): ${captain} sees those there, and the town appends an "Already waiting in your in-tray" line listing them.`;
+}
+export const ROLLUP_NEEDS_RULE = rollupNeedsRule("Mitchell");
 
 const NEEDS_ID = /\b(?:gr|dc)_[a-z0-9]+\b/g;
 

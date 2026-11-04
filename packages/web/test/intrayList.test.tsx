@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import type { GrantView } from "@muster-town/schema";
-import { CompactLine, grantPillText, readIntrayMode, reportPill } from "../src/panels/intrayList";
+import * as intrayList from "../src/panels/intrayList";
+import { CompactLine, grantPillText, reportPill } from "../src/panels/intrayList";
 
 const LONG = "Workshop rollup 42 (checkpoint, stop a funded grant): a human can stop a funded grant and the town winds it down, live on 97a9570";
 
@@ -35,12 +36,7 @@ describe("the in-tray as a list (Mitchell's flag dc_2hllscunfx)", () => {
     expect(grantPillText(g, true)).toMatch(/^stopped · /);
   });
 
-  it("List is the default; Cards is remembered", () => {
-    const store: Record<string, string> = {};
-    vi.stubGlobal("localStorage", { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; } });
-    expect(readIntrayMode()).toBe("list");
-    store["muster.intrayMode"] = "cards";
-    expect(readIntrayMode()).toBe("cards");
-    vi.unstubAllGlobals();
+  it("the list is the only view: no List / Cards toggle (1:1 mt_i50xwu4z2t)", () => {
+    for (const k of ["IntrayModeToggle", "readIntrayMode", "saveIntrayMode"]) expect(k in intrayList).toBe(false);
   });
 });

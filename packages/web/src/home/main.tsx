@@ -10,6 +10,7 @@ import { HomeCard, homeCardSeen, markHomeCardSeen } from "./HomeCard";
 import { mountPreview } from "./preview";
 import { StartCard } from "./StartCard";
 import { visitorId } from "../visitor";
+import "../type.css";
 import "./home.css";
 
 const collectives = readCollectives();

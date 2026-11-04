@@ -3,31 +3,28 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, historyActor, historyNote } from "@muster-town/schema";
-import { api, type Board, type GoalProposalView, type Intray, type ReportChain } from "../api";
-import { forkTip } from "../forks";
+import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { api, type Board, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
-import { DocRow, DocView, VERDICT_TONE, needOf } from "./DocView";
+import { DocRow, DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./room";
 import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
-import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
-import { MediaThumb } from "./MediaThumb";
 import { clipText } from "./showMore";
 import { canOneOnOne, canTalkAtTownHall, grantTalkTarget, openOneOnOne, secretaryOf } from "./oneOnOne";
 import { decideJoin, letInGoal } from "./letIn";
-import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { ReviewDeckView } from "./ReviewDeck";
 import { fundedOnly, isFunder, type IntrayView } from "./funderFilter";
 import { GoalProposalItem } from "./GoalTreePanel";
-import { CompactLine, IntrayModeToggle, accessTitle, captainTitle, goalProposalTitle, grantPill, readIntrayMode, reportPill, retainerPill, saveIntrayMode, type IntrayMode } from "./intrayList";
+import { CompactLine, accessTitle, captainTitle, goalProposalTitle, grantPill, reportPill, retainerPill } from "./intrayList";
 
 /** The Town Hall in-tray's "Mine / All" (docs/goals.md step 4): under Mine, only the items routed to the viewer. */
 export function mineOnly<T extends { id: string }>(items: T[], routes: Record<string, IntrayRoute>, view: IntrayView, funder?: FunderWeek | null): T[] {
@@ -47,10 +44,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [asDeck, setAsDeck] = useState(false);
   const [viewPick, setView] = useState<IntrayView | null>(null);
-  // List (one line per item, the default) or Cards (the full rows), remembered (Mitchell's flag dc_2hllscunfx)
-  const [mode, setModeState] = useState<IntrayMode>(readIntrayMode);
-  const setMode = (m: IntrayMode) => { saveIntrayMode(m); setModeState(m); };
-  // a line opened in List mode that isn't a report: its full row, with its decision buttons
+  // one line per item, the only view (Mitchell's flag dc_2hllscunfx; Cards removed in 1:1 mt_i50xwu4z2t: "basically impossible to read")
+  // a line that isn't a report opens its full row, with its decision buttons
   const [focus, setFocus] = useState<Focus | null>(null);
   const signedIn = useTown((s) => !!s.me);
   const canReview = store.can("building.review", buildingId);
@@ -82,7 +77,6 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const flags = reports.filter((d) => d.type === "flag").length;
   const access = list.data?.access ?? [];
   const focused = focus && !open ? focusRow(focus, { grants: [...grants, ...stopped], retainers, captains, access, goalProposals }, routes, { onDecided: () => { setFocus(null); list.reload(); }, onMarked: list.reload, onOpenDoc: openDoc }) : null;
-  const toggle = <IntrayModeToggle mode={mode} set={setMode} />;
   const count = reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
@@ -99,15 +93,13 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
-          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} layout={toggle} /> : <div className="intray-head actions">{toggle}</div>}
+          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} digestRun={list.data?.digestRun ?? null} onDigestStarted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray digest={list.data?.digest ?? null} mode={mode} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} routes={routes} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray digest={list.data?.digest ?? null} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} onDecided={list.reload} />
           ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
-              {reports.map((d) => mode === "list"
-                ? <CompactLine key={d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => setOpenId(d.id)} />
-                : <IntrayRow key={d.id} doc={d} chain={list.data?.chains?.[d.id]} onOpen={() => setOpenId(d.id)} onOpenDoc={openDoc} />)}
+              {reports.map((d) => <CompactLine key={d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => setOpenId(d.id)} />)}
             </div>
           )}
         </>
@@ -125,12 +117,29 @@ export function TalkToSecretary() {
   return <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title={`A 1:1 with ${secretary.name}: say a decision in your own words and it is done as yours`}>Talk to {secretary.name}</Act>;
 }
 
+/**
+ * "Daily digest" (Mitchell, 1:1 mt_i50xwu4z2t: "let's make the 'daily digest' also a button on the intray that just
+ * does the same"): runs the Secretary's digest now (core pressDigest); only for a human who may decide its retainer.
+ * Disabled, with why, while a run is under way or there is nothing new to digest.
+ */
+function DailyDigestButton({ run, onStarted }: { run: DigestRunView | null; onStarted?: () => void }) {
+  if (!run) return null;
+  const go = async () => {
+    await api().runDigest();
+    store.toast("The Secretary is writing the digest: its card lands at the top of this in-tray in a few minutes.", "ok");
+    onStarted?.();
+  };
+  const label = run.runningId ? "Digest running…" : "Daily digest";
+  return <Act small run={go} disabled={!!run.refused} title={run.refused ? `Not now: ${run.refused}` : "Run the Secretary's daily digest now: a new card of what needs your yes or no and what shipped since the last one"}>{label}</Act>;
+}
+
 /** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */
-export function ReviewAsDeckButton({ count, onOpen, view, layout }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean }; layout?: ReactNode }) {
+export function ReviewAsDeckButton({ count, onOpen, view, digestRun, onDigestStarted }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean }; digestRun?: DigestRunView | null; onDigestStarted?: () => void }) {
   return (
     <div className="intray-head actions">
       <button className="btn sm primary" onClick={onOpen} title="One slide per pending decision, blocking-most first, with the decision buttons on each slide (← → to move)">▶ Review as deck</button>
       <TalkToSecretary />
+      <DailyDigestButton run={digestRun ?? null} onStarted={onDigestStarted} />
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">
@@ -140,7 +149,6 @@ export function ReviewAsDeckButton({ count, onOpen, view, layout }: { count: num
           {view.view !== "all" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
         </span>
       ) : null}
-      {layout}
     </div>
   );
 }
@@ -192,17 +200,15 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-export function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
+export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
   const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} onDecided={onDecided} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  const askedOn = askedOnOf(grants, retainers);
-  const list = mode === "list";
   const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
-      <div className="doc-list">{stopped.map((g) => list ? grantLine(g, true) : <GrantRow key={g.id} grant={g} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+      <div className="doc-list">{stopped.map((g) => grantLine(g, true))}</div>
     </Section>
   ) : null;
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
@@ -222,24 +228,23 @@ export function TownHallIntray({ digest, mode, onFocus, reports, grants, goalPro
   ) : null;
   const asking = access.length ? (
     <Section title={<>Asking to join <Pill>{access.length}</Pill></>}>
-      <div className="doc-list">{access.map((r) => list ? <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={accessTitle(r)} at={r.createdAt} pill={<Pill tone="warn">join ask</Pill>} onOpen={() => onFocus({ kind: "access", id: r.id })} /> : <AccessRow key={r.id} req={r} onDecided={onDecided} />)}</div>
+      <div className="doc-list">{access.map((r) => <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={accessTitle(r)} at={r.createdAt} pill={<Pill tone="warn">join ask</Pill>} onOpen={() => onFocus({ kind: "access", id: r.id })} />)}</div>
     </Section>
   ) : null;
   const captainList = captains.length ? (
     <Section title={<>Asking to captain a goal <Pill>{captains.length}</Pill></>}>
-      <div className="doc-list">{captains.map((r) => list ? <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={captainTitle(r)} at={r.createdAt} pill={<Pill tone="warn">captain ask</Pill>} onOpen={() => onFocus({ kind: "captain", id: r.id })} /> : <CaptainRow key={r.id} req={r} route={routes[r.id]} onDecided={onDecided} />)}</div>
+      <div className="doc-list">{captains.map((r) => <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={captainTitle(r)} at={r.createdAt} pill={<Pill tone="warn">captain ask</Pill>} onOpen={() => onFocus({ kind: "captain", id: r.id })} />)}</div>
     </Section>
   ) : null;
   // retainers: standing money for scheduled jobs (1:1 mt_cyd2t5ioob decision 2), kept apart from grant proposals
   const retainerList = retainers.length ? (
     <Section title={<>Retainers for scheduled jobs <Pill>{retainers.length}</Pill></>}>
-      <div className="doc-list">{retainers.map((x) => list ? <CompactLine key={x.id} lead={<BuildingTag buildingId={x.buildingId} />} title={x.title} at={x.updatedAt} pill={retainerPill(x)} onOpen={() => onFocus({ kind: "retainer", id: x.id })} /> : <RetainerRow key={x.id} x={x} route={routes[x.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+      <div className="doc-list">{retainers.map((x) => <CompactLine key={x.id} lead={<BuildingTag buildingId={x.buildingId} />} title={x.title} at={x.updatedAt} pill={retainerPill(x)} onOpen={() => onFocus({ kind: "retainer", id: x.id })} />)}</div>
     </Section>
   ) : null;
   const goalList = goalProposals.length ? (
     <Section title={<>Goal proposals <Pill>{goalProposals.length}</Pill></>}>
-      {list ? <div className="doc-list">{goalProposals.map((p) => <CompactLine key={p.id} lead={p.buildingId ? <BuildingTag buildingId={p.buildingId} /> : null} title={goalProposalTitle(p)} at={p.createdAt} pill={<Pill>{p.outsideScope ? "outside scope" : "goal"}</Pill>} onOpen={() => onFocus({ kind: "goal", id: p.id })} />)}</div>
-        : <div className="goal-proposals">{goalProposals.map((p) => <div key={p.id}><RoutedTo route={routes[p.id]} /><GoalProposalItem p={p} onDone={onDecided} /></div>)}</div>}
+      <div className="doc-list">{goalProposals.map((p) => <CompactLine key={p.id} lead={p.buildingId ? <BuildingTag buildingId={p.buildingId} /> : null} title={goalProposalTitle(p)} at={p.createdAt} pill={<Pill>{p.outsideScope ? "outside scope" : "goal"}</Pill>} onOpen={() => onFocus({ kind: "goal", id: p.id })} />)}</div>
     </Section>
   ) : null;
   if (!reports.length && !grants.length && !goalProposals.length) return <>{digestCard}{asking}{captainList}{retainerList}{blockedList}{stoppedList}{digestCard || asking || captainList || retainerList || stoppedList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
@@ -252,19 +257,17 @@ export function TownHallIntray({ digest, mode, onFocus, reports, grants, goalPro
       {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
-          <div className="doc-list">{reports.map((d) => list
-            ? <CompactLine key={d.id} lead={<><BuildingTag buildingId={d.buildingId} /><ReportLead doc={d} /></>} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => onOpen(d.id)} />
-            : <IntrayRow key={d.id} doc={d} onOpen={() => onOpen(d.id)} onOpenDoc={onOpen} showBuilding askedOn={askedOn.get(d.id)} />)}</div>
+          <div className="doc-list">{reports.map((d) => <CompactLine key={d.id} lead={<><BuildingTag buildingId={d.buildingId} /><ReportLead doc={d} /></>} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => onOpen(d.id)} />)}</div>
         </Section>
       ) : null}
       {proposals.length ? (
         <Section title={<>Proposals <Pill>{proposals.length}</Pill></>}>
-          <div className="doc-list">{proposals.map((g) => list ? grantLine(g) : <GrantRow key={g.id} grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+          <div className="doc-list">{proposals.map((g) => grantLine(g))}</div>
         </Section>
       ) : null}
       {checkpoints.length ? (
         <Section title={<>Checkpoints <Pill>{checkpoints.length}</Pill></>}>
-          <div className="doc-list">{checkpoints.map((g) => list ? grantLine(g) : <GrantRow key={g.id} grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
+          <div className="doc-list">{checkpoints.map((g) => grantLine(g))}</div>
         </Section>
       ) : null}
       {goalList}
@@ -309,7 +312,7 @@ export function DigestCardView({ card: c, onOpen, onDecided }: { card: DigestCar
   );
 }
 
-/** An item opened from a line in List mode (not a report: those open in DocView). */
+/** An item opened from an in-tray line (not a report: those open in DocView). */
 type Focus = { kind: "grant" | "retainer" | "captain" | "access" | "goal"; id: string };
 
 /** The full row of a focused line, with its decision buttons; null once it left the in-tray (decided). */
@@ -750,77 +753,6 @@ function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvide
       {earlier ? <div>Spent {fmtTokens(e.spentTokens)} of {fmtTokens(e.grantTokens)} {ADJ} granted.</div> : null}
       <div className={e.topUpTokens && e.whatTopUpBuys ? "" : "muted"}>{topUpLine(e)}</div>
       {e.shipped.length ? <div>Shipped in the {e.reportId ? <button className="link" onClick={() => onOpenDoc(e.reportId!)}>checkpoint report</button> : "checkpoint report"}: {e.shipped.join(" · ")}</div> : null}
-    </div>
-  );
-}
-
-/** Report id → the in-tray rows (grant or retainer ids) that show its ask (`asks`): the report's card says its ask moved there. */
-export function askedOnOf(grants: GrantView[], retainers: ScheduleView[]): Map<string, string[]> {
-  const m = new Map<string, string[]>();
-  for (const x of [...grants, ...retainers]) for (const a of x.asks ?? []) m.set(a.reportId, [...(m.get(a.reportId) ?? []), x.id]);
-  return m;
-}
-
-function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding, askedOn }: { doc: Doc; chain?: ReportChain; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean; askedOn?: string[] }) {
-  // a retired fork isn't in the snapshot: its row shows its manager's sprite
-  const a = useTown((s) => s.agents[doc.authorId] ?? (chain?.forkOf ? s.agents[chain.forkOf] : undefined));
-  const isManager = useTown((s) => !!doc.buildingId && s.buildings.some((b) => b.id === doc.buildingId && b.kind !== "town-hall" && b.managerAgentId === doc.authorId));
-  const flag = doc.type === "flag";
-  const need = flag ? null : needOf(doc.body);
-  const preview = flag && doc.body.trim() !== doc.title ? doc.body.replace(/\s+/g, " ") : null;
-  const rollup = doc.tags.includes("rollup");
-  const covered = doc.provenance.sourceIds;
-  const cards = rollup ? rollupCardsOf(doc) : null;
-  const [expanded, setExpanded] = useState(false);
-  const docs = useTown((s) => s.docs);
-  useEffect(() => {
-    if (!expanded) return;
-    const missing = covered.filter((id) => !store.state.docs[id]);
-    if (missing.length) void Promise.all(missing.map((id) => api().doc(id).catch(() => null))).then((ds) => store.putDocs(ds.filter((d): d is Doc => !!d)));
-  }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="intray-item">
-      <button className="doc-row intray-row" onClick={onOpen}>
-        <MediaThumb body={doc.body} />
-        <div className="intray-who">
-          {showBuilding ? <BuildingTag buildingId={doc.buildingId} /> : null}
-          {a ? <img src={portraitUrl(a.sprite, 1)} alt="" /> : null}<b title={chain?.forkOf ? forkTip(chain, nameOf, chain.assignmentId, chain.sessionId) : undefined}>{isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId)}</b><span>{timeAgo(doc.createdAt)}</span>
-          {rollup ? <Pill tone="ok">rollup</Pill> : null}
-          {doc.tags.includes("visitor") ? <Pill tone="warn" title="A visitor agent with no home building filed this; a human works it">visitor report</Pill> : null}
-          {flag ? <Pill tone="warn" title="A quick request a human planted here; the manager delegates it">⚑ flag</Pill> : null}
-        </div>
-        <div className="doc-row-title">{doc.title}</div>
-        {need ? <div className="intray-proposal">Needs: {need}</div> : null}
-        {askedOn?.length ? <div className="intray-proposal muted">Its ask on {askedOn.join(", ")} is on {askedOn.length === 1 ? "that row" : "those rows"} below.</div> : null}
-        {preview ? <div className="intray-proposal">{preview}</div> : null}
-        <div className="doc-row-meta">
-          {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]}>verdict: {doc.verdict}</Pill> : null}
-          {doc.tokens ? <span title={ADJ_HINT}>{fmtTokens(doc.tokens)} {ADJ}{doc.costUsd ? ` · ${usd(doc.costUsd)}` : ""}</span> : null}
-        </div>
-      </button>
-      {cards ? <div className="intray-cards"><RollupCards parsed={cards} /></div> : null}
-      {chain ? (
-        // a fork's report: its place on the assignment chain, the fork's session (agent panel) and the previous hop
-        <div className="intray-covered intray-chain">
-          <button className="link" title={`The fork's session${chain.sessionId ? ` ${chain.sessionId}` : ""}: tokens and transcript`} onClick={() => store.open({ kind: "agent", id: doc.authorId })}>
-            <Pill tone="neutral">chain {chain.chainId} · hop {chain.hop}</Pill>
-          </button>
-          {chain.prevReportId ? <button className="link" onClick={() => onOpenDoc?.(chain.prevReportId!)}>← previous hop</button> : <span className="muted">first hop</span>}
-        </div>
-      ) : null}
-      {rollup && covered.length ? (
-        <div className="intray-covered">
-          <button className="link" onClick={() => setExpanded(!expanded)}>{expanded ? "▾" : "▸"} covers {covered.length} report{covered.length === 1 ? "" : "s"}</button>
-          {expanded ? (
-            <ul>
-              {covered.map((id) => {
-                const d = docs[id];
-                return <li key={id}><button className="link" onClick={() => onOpenDoc?.(id)}>{d ? `${nameOf(d.authorId)}: ${d.title}` : id}</button>{d?.decision ? <span className="muted"> · {d.decision}</span> : null}</li>;
-              })}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }

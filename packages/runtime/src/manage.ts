@@ -270,7 +270,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
     ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
-    system: managerSystemPrompt(agent, building, world.town.get(), { purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), skills: skillsBlock(world.skills.forAgent(agentId)), code: !!code }),
+    system: managerSystemPrompt(agent, building, world.town.get(), { purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), skills: skillsBlock(world.skills.forAgent(agentId)), code: !!code, repo: world.repoMode(), captain: world.captainName() }),
     bare: true,
     // main's code, read-only (Read, Grep, Glob): the manager reads before it answers how something works
     ...(code ? { code } : {}),

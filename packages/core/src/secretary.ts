@@ -11,16 +11,20 @@
  * grouped under 3-6 theme headings the run picks.
  * `fileDigest` files the card (doc type `digest` in the Town Hall, the covered rollups in provenance) and archives those
  * rollups that ask nothing (every call None), so they leave the in-tray's main list and stay one click away under the
- * card; a rollup with a real "Your call" stays pending (its call is a "Decisions needed" line until a human decides it). At most one card per UTC day,
- * and only when a new rollup arrived: otherwise the due run is skipped before any session (`digestIdleReason`).
+ * card; a rollup with a real "Your call" stays pending (its call is a "Decisions needed" line until a human decides it). The schedule
+ * files at most one card per UTC day, and only when a new rollup arrived: otherwise the due run is skipped before any
+ * session (`digestIdleReason`). A human's "Daily digest" press (`pressDigest`) runs it now, once-a-day aside.
  */
-import { NOT_GONE, parseRollup, rollupAsks, Agent, type DigestCard, type DigestGroup, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
+import { isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Assignment, type DigestCard, type DigestGroup, type DigestRunView, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
-import { createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
+import { createAssignment, createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { STARTER_MANAGER_MODEL } from "./entities.ts";
-import { AppError, badRequest } from "./errors.ts";
+import { AppError, badRequest, forbidden } from "./errors.ts";
+import { humanOrigin } from "./origin.ts";
+import { holderOf } from "./permissions.ts";
+import { canDecideRetainer } from "./retainers.ts";
 import { waitingRowIds } from "./rollup-asks.ts";
-import { newId, nowIso } from "./util.ts";
+import { newId, nowIso, truncate } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { createSchedule } from "./schedules.ts";
 import type { World } from "./world.ts";
@@ -158,11 +162,73 @@ function rollupsSince(world: World, since: string | null): Doc[] {
     .filter((d) => d.tags.includes("rollup"));
 }
 
-/** Why a digest run now has nothing to do (null = it has): a card was filed today (UTC), or no rollup arrived since the last. */
+/** Why there is nothing to digest (null = there is): no rollup arrived since the last card. A pressed run is refused only for this. */
+function digestNothingNew(world: World): string | null {
+  return rollupsSince(world, lastDigest(world)?.createdAt ?? null).length ? null : "no new rollup since the last digest";
+}
+
+/**
+ * Why the schedule's due run has nothing to do (null = it has): a card was filed today (UTC), or nothing new. The
+ * once-a-day rule is the schedule's only: a human's press ("Daily digest" button, `pressDigest`) files another card.
+ */
 export function digestIdleReason(world: World, at: Date = new Date()): string | null {
   const last = lastDigest(world);
   if (last && utcDay(last.createdAt) === utcDay(at)) return "a digest was already filed today";
-  return rollupsSince(world, last?.createdAt ?? null).length ? null : "no new rollup since the last digest";
+  return digestNothingNew(world);
+}
+
+/** The Secretary's digest schedule, if it is still active. */
+function digestSchedule(world: World): Schedule | undefined {
+  const sec = world.secretary.agent();
+  return sec ? world.schedules.first("takerId = ? AND status = 'active'", [sec.id], "ORDER BY createdAt") : undefined;
+}
+
+/** The digest run under way (queued, running or parked), if any: its schedule's or a pressed one. */
+function liveDigestRun(world: World, s: Pick<Schedule, "id">): Assignment | undefined {
+  return world.assignments.first("lane = 'retainer' AND sourceId = ? AND status IN ('pending', 'active')", [s.id], "ORDER BY createdAt");
+}
+
+/** The "Daily digest" button for a viewer who may press it (null for anyone else, or with no active digest schedule). */
+export function digestRunView(world: World, viewer: Agent | undefined): DigestRunView | null {
+  const s = digestSchedule(world);
+  if (!s || !canDecideRetainer(world, viewer, s)) return null;
+  const live = liveDigestRun(world, s);
+  const refused = live ? "a digest run is under way: its card lands here when it finishes"
+    : s.retainer !== "funded" ? `the digest's retainer is ${s.retainer}, not approved`
+    : digestNothingNew(world);
+  return { scheduleId: s.id, runningId: live?.id ?? null, refused };
+}
+
+/**
+ * The in-tray's "Daily digest" button (Mitchell, 1:1 mt_i50xwu4z2t: "let's make the 'daily digest' also a button on the
+ * intray that just does the same"): one run of the Secretary's digest now, the schedule's own prompt and model, booked
+ * as a run of its retainer (lane retainer, sourceId = the schedule: its approved total pays for it, as for a fired run;
+ * the schedule's next run does not move). Only a human who can decide the retainer presses it; refused while a run is
+ * under way, while the retainer isn't funded, or when no rollup arrived since the last card (its Decisions needed is
+ * live already). The once-a-day rule doesn't apply: the run files a new card, which supersedes today's.
+ */
+export function pressDigest(world: World, actor: Agent, at: Date = new Date()): Assignment {
+  const sec = world.secretary.agent();
+  const s = digestSchedule(world);
+  if (!sec || !s) throw new AppError("conflict", "There is no active daily digest schedule to run.");
+  if (!canDecideRetainer(world, actor, s)) throw forbidden("building.fund", "Only a human who can decide the Town Hall's retainers runs the digest.");
+  if (sec.status === "stopped" || isGone(sec)) throw new AppError("conflict", `${sec.name} is stopped: nobody can run the digest.`);
+  if (s.retainer !== "funded") throw new AppError("conflict", `The digest's retainer is ${s.retainer}, not approved: approve it in the in-tray first.`);
+  const live = liveDigestRun(world, s);
+  if (live) throw new AppError("conflict", `A digest run is already under way (${live.id}): its card lands in the in-tray when it finishes.`);
+  const idle = digestNothingNew(world);
+  if (idle) throw new AppError("conflict", `Nothing to digest: ${idle}. The card's "Decisions needed" is already live.`);
+  const by = holderOf(actor);
+  return world.transaction(() => {
+    const a = createAssignment(world, {
+      agentId: sec.id, title: `${s.title} (run now)`, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
+      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: humanOrigin(by.id, s.id, at.toISOString()), queue: "agent", model: s.model,
+    });
+    // the schedule's next fire skips while this run is under way (fireSchedules checks lastAssignmentId)
+    world.schedules.patch(s.id, { lastAssignmentId: a.id, updatedAt: at.toISOString() });
+    world.events.append({ type: "schedule.fired", agentId: sec.id, buildingId: s.buildingId, text: `${world.nameOf(actor.id)} ran "${truncate(s.title, 80)}" now: ${sec.name} takes it`, payload: { scheduleId: s.id, assignmentId: a.id, queue: "agent", pressedBy: by.id } });
+    return a;
+  });
 }
 
 /** A checkpoint's or proposal's yes/no line. */
@@ -331,7 +397,7 @@ export function digestInputs(world: World, at: Date = new Date()): { idle: strin
     return parsed.map((it) => ({ rollupId: d.id, building, title: it.title, whatItIs: oneLine(it.whatItIs, 300), whatYoudSee: oneLine(it.whatYoudSee, 300), picture: it.pictures[0]?.src ?? null }));
   });
   const { decisions, count } = digestDecisions(world);
-  return { idle: digestIdleReason(world, at), since: last?.createdAt ?? null, rollupIds: rollups.map((d) => d.id), items, decisions, count };
+  return { idle: digestNothingNew(world), since: last?.createdAt ?? null, rollupIds: rollups.map((d) => d.id), items, decisions, count };
 }
 
 /** The `digest` tool's read: the inputs as text for the run. */
