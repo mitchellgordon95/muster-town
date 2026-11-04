@@ -4,7 +4,7 @@
  * rollup arrived, and filing the card (doc type digest, covered rollups in provenance, the ones that ask nothing archived).
  */
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedule, fireSchedules, nowIso } from "../src/index.ts";
+import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedule, digestCard, fireSchedules, grantHistoryLine, nowIso, reviewDeck, townHallIntray } from "../src/index.ts";
 import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, fileDigest } from "../src/secretary.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -127,5 +127,40 @@ describe("the Secretary", () => {
     expect(world.docs.require(asks.id).decision).toBe("pending");
     // the next run has nothing new
     expect(digestInputs(world, new Date(Date.now() + 25 * H)).idle).toMatch(/no new rollup/);
+  });
+});
+
+describe("the digest card in the in-tray and the deck (step 3)", () => {
+  it("digestCard: the latest card, its decisions read live, its Shipped lines, the covered rollups with which still ask a call; slide 2 of the deck", () => {
+    const { world, sec, rollup, proposal } = setup();
+    expect(digestCard(world)).toBeNull();
+    expect(reviewDeck(world).slides.some((s) => s.kind === "digest")).toBe(false);
+    const quiet = rollup(["None"]);
+    const asks = rollup(["Merge PR #12?"]);
+    const doc = fileDigest(world, sec, [{ rollupId: quiet.id, line: "The banner shows today's spend", picture: "/api/media/mf_x0.png" }]);
+    const g = proposal("A banner with today's spend", 300_000);
+    const c = digestCard(world)!;
+    expect(c.doc.id).toBe(doc.id);
+    // filed before the proposal, read live: the proposal is a decision line now
+    expect(c.decisions.some((l) => l.startsWith(`Fund ${g.id} `))).toBe(true);
+    expect(c.shipped).toBe(`- The banner shows today's spend ![](/api/media/mf_x0.png) (${quiet.id})`);
+    expect(c.covered.map((r) => [r.id, r.pending])).toEqual([[quiet.id, false], [asks.id, true]]);
+    // the archived rollup left the in-tray's reports; the one with a real call stays
+    const ids = townHallIntray(world).reports.map((d) => d.id);
+    expect(ids).not.toContain(quiet.id);
+    expect(ids).toContain(asks.id);
+    const slides = reviewDeck(world).slides;
+    expect(slides.map((s) => s.kind).slice(0, 2)).toEqual(["town", "digest"]);
+    expect(slides[1]).toMatchObject({ key: `digest:${doc.id}`, itemId: null, pictures: [{ alt: "", src: "/api/media/mf_x0.png" }] });
+    expect(slides[1]!.text).toMatch(/### Decisions needed\n\n(- .*\n)*- .*Merge PR #12\?/);
+    expect(slides[1]!.text).toContain(`still asks a call`);
+  });
+
+  it("a decision made in a 1:1 reads \"<Human> via Secretary in mt_…\" on the deck's history line, with the human's words", () => {
+    const { world, sec, admin } = setup();
+    const human = world.holderOf(admin);
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const g = { history: [{ at, byId: human.id, byKind: "user", action: "fund", tokens: 600_000, note: `by ${world.nameOf(human.id)} via Secretary in mt_abc: "fund it at 600k"`, viaAgentId: sec.id, viaMeetingId: "mt_abc" }] } as never;
+    expect(grantHistoryLine(world, g, new Date())).toBe(`${world.nameOf(human.id)} via Secretary in mt_abc funded 1 min ago: "fund it at 600k"`);
   });
 });

@@ -3,7 +3,7 @@
  * shareable `/#/grant/<id>`). The same row as the Town Hall in-tray, with its decision controls when a human has to
  * decide, plus what the row leaves out: the approach, the findings it draws on and the negotiation history.
  */
-import type { GrantView } from "@muster-town/schema";
+import { historyActor, historyNote, type GrantView } from "@muster-town/schema";
 import { api, type GrantSessions } from "../api";
 import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
@@ -63,8 +63,8 @@ function History({ grant: g }: { grant: GrantView }) {
           <li key={i}>
             <time title={h.at}>{clock(h.at)}</time>
             <span>
-              <b>{nameOf(h.byId)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action === "withdraw" ? "withdrew the proposal" : h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
-              {h.note ? <div className="muted"><DocText text={h.note} /></div> : null}
+              <b>{historyActor(h, nameOf)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action === "withdraw" ? "withdrew the proposal" : h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
+              {historyNote(h) ? <div className="muted"><DocText text={historyNote(h)} /></div> : null}
             </span>
           </li>
         ))}

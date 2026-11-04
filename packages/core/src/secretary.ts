@@ -12,7 +12,7 @@
  * card; a rollup with a real "Your call" stays pending (its call is a "Decisions needed" line until a human decides it). At most one card per UTC day,
  * and only when a new rollup arrived: otherwise the due run is skipped before any session (`digestIdleReason`).
  */
-import { isNoCall, NOT_GONE, parseRollup, Agent, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
+import { isNoCall, NOT_GONE, parseRollup, Agent, type DigestCard, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
 import { createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
@@ -119,6 +119,29 @@ export class Secretary {
 /** The newest digest card, if any. */
 function lastDigest(world: World): Doc | undefined {
   return world.docs.first("type = 'digest' AND buildingId = ?", [TOWN_HALL_ID], "ORDER BY createdAt DESC, rowid DESC");
+}
+
+/** One `## <title>` section of a digest card's body (without its heading), "" when absent. */
+function section(body: string, title: string): string {
+  const at = body.indexOf(`## ${title}\n`);
+  if (at < 0) return "";
+  const rest = body.slice(at + title.length + 4);
+  const end = rest.search(/^## /m);
+  return (end < 0 ? rest : rest.slice(0, end)).trim();
+}
+
+/**
+ * The latest digest card as the in-tray and the deck show it (step 3): its "Decisions needed" read live (the card's
+ * own copy goes stale as humans decide), its Shipped lines, and the rollups it covers. Null before the first card.
+ */
+export function digestCard(world: World): DigestCard | null {
+  const doc = lastDigest(world);
+  if (!doc) return null;
+  const covered = doc.provenance.sourceIds.flatMap((id) => {
+    const d = world.docs.get(id);
+    return d ? [{ id, title: d.title, buildingId: d.buildingId, buildingName: world.buildings.get(d.buildingId ?? "")?.name ?? "Town", pending: d.decision === "pending" }] : [];
+  });
+  return { doc, ...digestDecisions(world), shipped: section(doc.body, "Shipped since last digest"), covered };
 }
 
 /** Rollups filed since `since` (every one when null), oldest first, decided or not. */

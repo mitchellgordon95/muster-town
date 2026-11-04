@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -342,7 +342,8 @@ export async function townRoutes(app: FastifyInstance) {
     if (b.kind === "town-hall") {
       // routes: each item's goal, owner, "Mine" and whether this viewer may decide it (docs/goals.md step 4)
       const intray = world.ops.townHallIntray();
-      return { ...intray, ...intrayRoutes(world, viewerOf(world, req), intray) };
+      // the Secretary's latest digest card goes first (gr_kdlogzzo5s step 3); the rollups it archived are no longer in `reports`
+      return { ...intray, digest: digestCard(world), ...intrayRoutes(world, viewerOf(world, req), intray) };
     }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);

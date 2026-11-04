@@ -1162,6 +1162,14 @@ export const GrantHistoryEntry = z.object({
   viaMeetingId: Id.optional(),
 });
 export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
+/** Who decided, as the history shows it: "Mitchell via Secretary in mt_…" for a decision made in a 1:1 (act_in_1on1), else the actor. */
+export function historyActor(h: Pick<GrantHistoryEntry, "byId" | "viaAgentId" | "viaMeetingId">, nameOf: (id: string) => string): string {
+  return h.viaAgentId ? `${nameOf(h.byId)} via ${nameOf(h.viaAgentId)}${h.viaMeetingId ? ` in ${h.viaMeetingId}` : ""}` : nameOf(h.byId);
+}
+/** The note without act_in_1on1's leading "by X via Y in mt_…: " (historyActor says it): the human's quoted words and any note. */
+export function historyNote(h: Pick<GrantHistoryEntry, "note" | "viaMeetingId">): string {
+  return h.viaMeetingId ? h.note.replace(new RegExp(`^by .*? in ${h.viaMeetingId}: `), "") : h.note;
+}
 /** One line of a grant's testing plan (grants from before key results merged into grants, migration 069; read-only now). */
 export const TestingPlanItem = z.object({ text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300) });
 export type TestingPlanItem = z.infer<typeof TestingPlanItem>;
@@ -1417,6 +1425,18 @@ export interface GoalFunding {
  * and goal proposals in their subtree).
  */
 export interface IntrayRoute { goalId: string; ownerId: string; ownerName: string; mine: boolean; canDecide: boolean }
+/**
+ * The Secretary's latest digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray and slide 2 of the deck:
+ * "Decisions needed" live at every read (core digestDecisions), the card's own "Shipped since last digest" markdown,
+ * and the rollups it covers (archived ones leave the in-tray's list and stay here; `pending` ones still ask a call).
+ */
+export interface DigestCard {
+  doc: Doc;
+  decisions: string[];
+  askedOfYou: string | null;
+  shipped: string;
+  covered: { id: string; title: string; buildingId: string | null; buildingName: string; pending: boolean }[];
+}
 /** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
 export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
 

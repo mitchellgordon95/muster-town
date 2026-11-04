@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, grantStopOf, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -19,6 +19,7 @@ import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
+import { digestCard } from "./secretary.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -62,7 +63,8 @@ function meetingLine(world: World, sourceIds: string[]): string {
 export function grantHistoryLine(world: World, g: GrantView, now: Date): string {
   const e = [...g.history].reverse().find((h) => h.byKind === "user");
   if (!e) return "";
-  return `${world.nameOf(e.byId)} ${ACTION_PAST[e.action] ?? e.action} ${waitedFor(e.at, now)} ago${e.note.trim() ? `: "${oneLine(e.note)}"` : ""}`;
+  const note = historyNote(e).trim();
+  return `${historyActor(e, (id) => world.nameOf(id))} ${ACTION_PAST[e.action] ?? e.action} ${waitedFor(e.at, now)} ago${note ? `: ${e.viaMeetingId ? oneLine(note) : `"${oneLine(note)}"`}` : ""}`;
 }
 
 /** The same building's previous decided rollup: its decision and note. */
@@ -305,6 +307,8 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const decisions = new Set(drafts.filter((d) => d.kind !== "stopped").map((d) => d.itemId)).size + record.length;
   const oldest = [...drafts.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
   slides.push(townSlide(world, now, decisions, oldest, intray.access.length));
+  const digest = digestSlide(world, now);
+  if (digest) slides.push(digest);
   for (const d of drafts) {
     const w = waitersOf(d);
     const top = [d.since && d.kind !== "stopped" ? `Waiting ${waitedFor(d.since, now)}` : d.since ? `Stopped ${waitedFor(d.since, now)} ago` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
@@ -320,6 +324,22 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
       key: "record", kind: "record", itemId: null, group: 7, buildingId: null, since: record[0]!.createdAt, waiters: 0, history: "", docIds: record.map((d) => d.id) });
   }
   return { title: "Review deck", generatedAt: now.toISOString(), slides };
+}
+
+/** Slide 2: the Secretary's latest digest card (gr_kdlogzzo5s step 3), its decisions read live; nothing to decide on it. */
+function digestSlide(world: World, now: Date): ReviewSlide | null {
+  const c = digestCard(world);
+  if (!c) return null;
+  const title = `Digest: ${c.doc.title.replace(/^Digest /, "")}`;
+  const text = [
+    `_Filed by the Secretary ${waitedFor(c.doc.createdAt, now)} ago (${c.doc.id})_`,
+    `## ${title}`,
+    `### Decisions needed\n\n${c.decisions.map((l) => `- ${l}`).join("\n") || "Nothing waits on a yes or no."}${c.askedOfYou ? `\n\n${c.askedOfYou}` : ""}`,
+    `### Shipped since last digest\n\n${c.shipped || "Nothing shipped."}`,
+    `### Covered rollups\n\n${c.covered.map((r) => `- ${r.buildingName}: ${r.title} (${r.id})${r.pending ? " · still asks a call" : ""}`).join("\n") || "_none_"}`,
+  ].join("\n\n");
+  return { text, notes: "", title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
+    key: `digest:${c.doc.id}`, kind: "digest", itemId: null, group: 0, buildingId: null, since: c.doc.createdAt, waiters: 0, history: "" };
 }
 
 function townSlide(world: World, now: Date, decisions: number, oldest: string | null, asking: number): ReviewSlide {
