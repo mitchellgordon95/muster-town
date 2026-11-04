@@ -8,12 +8,12 @@ import type { TickStat } from "./context.ts";
  * docs/scaling.md "How to check headroom live". Computed in the HealthCache refresh (5 s on the live server), never on the
  * request path. Root app only: hosted collectives share the process and its figures.
  */
-export const WS_CEILING = 1200;
-export const SLOW_TICK_MS = 500;
-export const TICK_WINDOW = 100;
+const WS_CEILING = 1200;
+const SLOW_TICK_MS = 500;
+const TICK_WINDOW = 100;
 const DAY_MS = 24 * 3600_000;
 
-export interface Capacity {
+interface Capacity {
   at: string;
   wsClients: { now: number; ceiling: number };
   /** p95 of the main world's last `samples` distinct runtime ticks (null before the first tick); hosted worlds' ticks are not included */
@@ -32,7 +32,7 @@ export function p95(values: number[]): number | null {
 }
 
 /** The last `size` distinct ticks (deduped on `at`). */
-export class TickRing {
+class TickRing {
   private ms: number[] = [];
   private lastAt: string | null = null;
   constructor(private readonly size = TICK_WINDOW) {}
@@ -49,7 +49,7 @@ function fileBytes(path: string): number {
   try { return statSync(path).size; } catch { return 0; }
 }
 
-export function dbFigures(dbPath: string): Capacity["db"] {
+function dbFigures(dbPath: string): Capacity["db"] {
   const onDisk = dbPath && dbPath !== ":memory:";
   const bytes = onDisk ? fileBytes(dbPath) + fileBytes(`${dbPath}-wal`) : 0;
   let volumeGb: number | null = null;
