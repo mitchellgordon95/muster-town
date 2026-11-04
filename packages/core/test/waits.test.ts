@@ -2,13 +2,13 @@
 import { describe, expect, it } from "vitest";
 import { WAIT_TTL_MS } from "@muster-town/schema";
 import { blockedBy, checkWaits, nextPending, setAssignmentStatus } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { musterWorld } from "./helpers.ts";
 
 const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
 
 describe("assignments that wait (P1)", () => {
   it("the scheduler skips a waiting assignment until checkWaits finds it met; then it unblocks with an event", () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const first = world.ops.createWork(admin, mei.id, { title: "First" });
     const later = world.ops.createWork(admin, mei.id, { title: "After First", waitFor: { assignment: first.id } });
@@ -23,7 +23,7 @@ describe("assignments that wait (P1)", () => {
   });
 
   it("deploy waits read the host: a sha via isLive, \"next\" once the server started after the assignment; none without a runtime", () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const sha = world.ops.createWork(admin, mei.id, { title: "Check the Bank", waitFor: { deploy: "8842a21" } });
     const next = world.ops.createWork(admin, mei.id, { title: "After redeploy", waitFor: { deploy: "next" } });
@@ -35,7 +35,7 @@ describe("assignments that wait (P1)", () => {
   });
 
   it("decision and after waits; validation refuses unknown targets and far-future times", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei"), noor = by("Noor");
     const work = world.ops.createWork(admin, noor.id, { title: "Noor's run" });
     world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: work.id });
@@ -54,7 +54,7 @@ describe("assignments that wait (P1)", () => {
   });
 
   it("pr waits (forks park on CI, mt_3jtclcoxl2): hold while the checks run, release when they pass or fail; none without a runtime; the parked submit_report takes {pr}", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei"), noor = by("Noor");
     const ci = world.ops.createWork(admin, mei.id, { title: "Merge #179", waitFor: { pr: 179 } });
     expect(world.assignments.require(ci.id).waitFor).toEqual({ pr: 179 });
@@ -79,7 +79,7 @@ describe("assignments that wait (P1)", () => {
   });
 
   it("a wait unmet after 24 h is cancelled into the in-tray; Continue there queues it again without the wait", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const a = world.ops.createWork(admin, mei.id, { title: "Never", waitFor: { deploy: "abcdef1" } });
     expect(checkWaits(world, new Date(Date.now() + WAIT_TTL_MS - 60_000)).expired).toEqual([]);
@@ -93,7 +93,7 @@ describe("assignments that wait (P1)", () => {
   });
 
   it("start next overrides the wait", () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const a = world.ops.createWork(admin, mei.id, { title: "Waiting", waitFor: { deploy: "next" } });
     world.ops.startNext(admin, a.id);
@@ -104,7 +104,7 @@ describe("assignments that wait (P1)", () => {
 
 describe("parking your own work (P2)", () => {
   async function parkedRun(resumeWhen: Record<string, string>, next = "Check the Bank is live") {
-    const s = seededWorld();
+    const s = musterWorld();
     const mei = s.by("Mei");
     const work = s.world.ops.createWork(s.admin, mei.id, { title: "Build the Bank" });
     s.world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: work.id });

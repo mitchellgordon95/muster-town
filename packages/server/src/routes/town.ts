@@ -93,6 +93,7 @@ export async function townRoutes(app: FastifyInstance) {
       roles: world.permissions.rolesOf(holder),
       avatarAgentId: world.ops.ensureAvatar(user.id).id,
       isAdmin: world.permissions.isAdmin(holder),
+      canRedeploy: world.permissions.can(holder, "town.redeploy"),
       canInteract: canInteract(world, user.id),
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
       direct: directGoals(user.id),

@@ -59,8 +59,8 @@ describe("GET /api/admin/redeploy and health in the snapshot", () => {
   it("GET /api/town carries health.docker from the runtime's last probe (true when never probed)", async () => {
     const t = await seededApp();
     close = t.close;
-    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: true });
+    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: true, repoMode: "none" });
     t.world.host.docker = false;
-    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: false });
+    expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: false, repoMode: "none" });
   });
 });

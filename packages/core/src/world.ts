@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -52,6 +52,14 @@ export interface PrChecks {
   failed?: string[];
   /** when this was read (ISO) */
   checkedAt: string;
+}
+
+/** "git@github.com:O/agent-town.git", "https://github.com/o/agent-town" → "github.com/o/agent-town": one repo, however it is cloned. */
+export function repoKey(url: string): string {
+  const u = url.trim().toLowerCase().replace(/\/+$/, "").replace(/\.git$/, "");
+  const scp = /^[\w.-]+@([\w.-]+):(.+)$/.exec(u);
+  if (scp) return `${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  return u.replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, "").replace(/:\d+\//, "/");
 }
 
 /**
@@ -107,6 +115,8 @@ export interface HostHooks {
   quiesce?(ms: number): Promise<void>;
   /** A hosted collective (docs/hosted-collectives.md): runs only on its own API key, never the host's credentials. */
   hosted?: boolean;
+  /** The repo the running server was built from (`git remote get-url origin` of its checkout), set by the runtime: `repoMode` compares the collective's repo with it. */
+  repoUrl?: string;
 }
 
 /** A hosted collective's work waits on this until an admin adds an Anthropic API key at its Bank (HUD: "No key yet"). */
@@ -200,7 +210,7 @@ export class World {
     this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
-    this.permissions = new Permissions(repos, () => !!this.host.hosted);
+    this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
     this.bank = new Bank(repos, this.events, this.permissions);
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
@@ -451,6 +461,18 @@ export class World {
   }
 
   /** Same shape as the WS `snapshot` message and `GET /api/town`. */
+  /**
+   * What code this collective works on (schema `RepoMode`; Mitchell, 1:1 mt_1vs893enaw: "collectives that aren't developing
+   * Muster Town must not get the redeploy/PR machinery"). `none`: no `Town.workspace`. `own`: a repo that is not the one this
+   * server runs from. `muster`: this server's own repo, or a repo with no known URL on either side (as before this mode).
+   */
+  repoMode(): RepoMode {
+    const ws = this.town.get().workspace;
+    if (!ws) return "none";
+    if (!ws.repoUrl || !this.host.repoUrl) return "muster";
+    return repoKey(ws.repoUrl) === repoKey(this.host.repoUrl) ? "muster" : "own";
+  }
+
   snapshot(): SnapshotMessage {
     return {
       type: "snapshot",
@@ -461,7 +483,7 @@ export class World {
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
-      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
+      health: { docker: this.host.docker ?? true, repoMode: this.repoMode(), ...(this.host.slots ? { slots: this.host.slots() } : {}),
         ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress(), started: this.hasRun() } : {}) },
       outbox: this.outboxOpen(),
     };
