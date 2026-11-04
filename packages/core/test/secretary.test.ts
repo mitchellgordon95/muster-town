@@ -13,7 +13,7 @@ import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
-const rollupBody = (calls: string[]) => `## Shipped\n${calls.map((c, i) => `**${i + 1}. Item ${i + 1}**\n**What it is:** thing ${i + 1}\n**What you'd see:** the board\n![shot](/api/media/mf_x${i}.png)\n**Your call:** ${c}\n`).join("\n")}\n## Decided\n- none\n## Key results\n(none)\n## Needs from Mitchell\nNothing needed.`;
+const rollupBody = (calls: string[], needs = "Nothing needed.") => `## Shipped\n${calls.map((c, i) => `**${i + 1}. Item ${i + 1}**\n**What it is:** thing ${i + 1}\n**What you'd see:** the board\n![shot](/api/media/mf_x${i}.png)\n**Your call:** ${c}\n`).join("\n")}\n## Decided\n- none\n## Key results\n(none)\n## Needs from Mitchell\n${needs}`;
 
 function setup() {
   const s = seededWorld();
@@ -23,8 +23,8 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
   const th = world.buildings.first("kind = 'town-hall'")!;
-  const rollup = (calls: string[], createdAt = nowIso()) => createDoc(world, {
-    type: "report", title: `Rollup ${createdAt}`, body: rollupBody(calls), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
+  const rollup = (calls: string[], createdAt = nowIso(), needs?: string) => createDoc(world, {
+    type: "report", title: `Rollup ${createdAt}`, body: rollupBody(calls, needs), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
     tags: ["rollup"], decision: "pending", createdAt,
   });
   const proposal = (objective: string, askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
@@ -180,6 +180,22 @@ describe("the Secretary", () => {
     for (const id of [askFund.id, askMet.id, askRetainer.id, askClosed.id]) expect(world.docs.require(id).decision).toBe("approve");
     for (const id of [live.id, goNoGo.id]) expect(world.docs.require(id).decision).toBe("pending");
     expect(townHallIntray(world).reports.map((d) => d.id)).toEqual(expect.arrayContaining([live.id, goNoGo.id]));
+  });
+
+  it("a rollup's Needs lines are asks too (read through rollupAsks): one about a grant since funded is overtaken, one in words is a question", () => {
+    const { world, admin, proposal, rollup } = setup();
+    const g = proposal("Banner shows Usage", 350_000);
+    const earlier = new Date(Date.now() - 2 * H).toISOString();
+    const needsFund = rollup(["None"], earlier, `- Fund ${g.id} once the banner PR lands.\n- Already waiting in your in-tray: ${g.id}.`);
+    const needsWords = rollup(["None"], earlier, "- Should visitors see the Bank before they sign in?");
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 350_000 });
+    const { decisions, overtakenIds } = digestDecisions(world);
+    expect(decisions.map((x) => x.heading)).toEqual(["Questions in words (1)", "Already overtaken (1)"]);
+    expect(decisions[0]!.lines).toEqual([expect.stringMatching(new RegExp(`asks \\(${needsWords.id}\\): Should visitors see the Bank before they sign in\\?$`))]);
+    expect(decisions[1]!.lines[0]).toContain(`${g.id} was funded after this ask`);
+    expect(overtakenIds).toEqual([needsFund.id]);
+    expect(stillAsks(world, world.docs.require(needsFund.id))).toBe(false);
+    expect(stillAsks(world, world.docs.require(needsWords.id))).toBe(true);
   });
 
   it("files the card: doc type digest in the Town Hall, covered rollups in provenance; the ones that ask nothing are archived, a real call stays pending", () => {

@@ -15,7 +15,7 @@
  * files at most one card per UTC day, and only when a new rollup arrived: otherwise the due run is skipped before any
  * session (`digestIdleReason`). A human's "Daily digest" press (`pressDigest`) runs it now, once-a-day aside.
  */
-import { isGone, isNoCall, NOT_GONE, parseRollup, Agent, type Assignment, type DigestCard, type DigestGroup, type DigestRunView, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
+import { isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Assignment, type DigestCard, type DigestGroup, type DigestRunView, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
 import { createAssignment, createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { STARTER_MANAGER_MODEL } from "./entities.ts";
@@ -283,10 +283,36 @@ export function overtakenReason(world: World, it: { title: string; whatItIs: str
   return null;
 }
 
-/** A pending rollup's real calls (not None), each with why it is overtaken (null = it still asks). */
+const DECIDED_AS = { fund: "funded", reject: "rejected", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", stop: "stopped", withdraw: "withdrawn" } as const;
+
+/**
+ * Why a "## Needs from Mitchell" line is already overtaken (null = it still asks): it names a grant decided after the
+ * rollup (funded, rejected, continued, adjusted, cut, closed, stopped or withdrawn) or a retainer since funded, rejected
+ * or ended. A line naming no grant or schedule is a question in words and never overtaken here.
+ */
+function needsOvertaken(world: World, line: string, d: Doc): string | null {
+  for (const id of idsIn(line, "gr")) {
+    const g = world.grants.get(id);
+    const h = g?.history.filter((x) => x.at > d.createdAt && x.action in DECIDED_AS).at(-1);
+    if (h) return `${id} was ${DECIDED_AS[h.action as keyof typeof DECIDED_AS]} after this ask`;
+  }
+  for (const id of idsIn(line, "sc")) {
+    const sc = world.schedules.get(id);
+    if (sc && (sc.retainer === "funded" || sc.retainer === "rejected" || sc.retainer === "ended")) return `retainer ${id} is ${sc.retainer}`;
+  }
+  return null;
+}
+
+/**
+ * A pending rollup's asks as the review deck and in-tray read them (rollupAsks: each Shipped item's real "Your call",
+ * then its Needs lines), each with why it is overtaken (null = it still asks). A Needs line has no title.
+ */
 function rollupCalls(world: World, d: Doc): { title: string; call: string; overtaken: string | null }[] {
-  return parseRollup(d.body).items.filter((it) => !!it.yourCall && !isNoCall(it.yourCall))
-    .map((it) => ({ title: it.title, call: it.yourCall, overtaken: overtakenReason(world, it, d) }));
+  const p = parseRollup(d.body);
+  return rollupAsks(p).map((a) => {
+    const it = a.n ? p.items[a.n - 1] : undefined;
+    return { title: a.title, call: a.call, overtaken: it ? overtakenReason(world, it, d) : needsOvertaken(world, a.call, d) };
+  });
 }
 
 /** Whether a pending rollup still asks the human anything live: a real call not overtaken. */
@@ -299,7 +325,7 @@ const DIGEST_GROUPS = { money: "Money", goNoGo: "Go / no-go", questions: "Questi
  * "Decisions needed" grouped by the kind of yes/no (Mitchell, 1:1 mt_i50xwu4z2t), from the data the review deck reads,
  * zero tokens and current at every read: Money (checkpoints with their top-up, proposals at their ask, retainer asks,
  * and the rollup calls about them); Go / no-go (a rollup's call that says so); Questions in words (every other real
- * "Your call"); Already overtaken (calls whose grant, key result or retainer has since been decided: one Approve-all,
+ * "Your call" or Needs line); Already overtaken (calls whose grant, key result or retainer has since been decided: one Approve-all,
  * `docIds`); Errands (open outbox requests). `count` is the yes/no lines (errands aside), for the card's title.
  */
 export function digestDecisions(world: World): { decisions: DigestGroup[]; count: number; overtakenIds: string[] } {
@@ -324,12 +350,12 @@ export function digestDecisions(world: World): { decisions: DigestGroup[]; count
     if (!calls.length) continue;
     if (calls.every((c) => c.overtaken)) {
       overtakenIds.push(d.id);
-      overtaken.push(`${b} (${d.id}, "${oneLine(calls[0]!.title, 50)}"${calls.length > 1 ? ` and ${calls.length - 1} more` : ""}): ${calls.map((c) => c.overtaken).filter((r, i, a) => a.indexOf(r) === i).join("; ")}.`);
+      overtaken.push(`${b} (${d.id}, "${oneLine(calls[0]!.title || calls[0]!.call, 50)}"${calls.length > 1 ? ` and ${calls.length - 1} more` : ""}): ${calls.map((c) => c.overtaken).filter((r, i, a) => a.indexOf(r) === i).join("; ")}.`);
       continue;
     }
     for (const c of calls) {
       if (c.overtaken) continue;
-      const line = `${b} asks (${d.id}, "${oneLine(c.title, 60)}"): ${oneLine(c.call, 160)}`;
+      const line = c.title ? `${b} asks (${d.id}, "${oneLine(c.title, 60)}"): ${oneLine(c.call, 160)}` : `${b} asks (${d.id}): ${oneLine(c.call, 160)}`;
       if (idsIn(`${c.title} ${c.call}`, "gr").concat(idsIn(c.call, "sc")).some((id) => rows.has(id))) money.push(line);
       else if (GO_NO_GO.test(`${c.title} ${c.call}`)) goNoGo.push(line);
       else questions.push(line);
