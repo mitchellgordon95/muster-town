@@ -3,17 +3,18 @@
  * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Donate (the chest; the
  * tab the sheet opens on): the Donate form, then what funds the town now. Balance (the vault): the balance with one "Free for
  * exploration" line (its sum in the sidebar; per-goal free tokens are in the goal editor), Next 30 days, top contributors.
- * Inputs (ledger desk): Tokens, Bank inputs, Streams, Sources. Spending (spending board): building funding, Spending, Spend by goal (a
- * goal's subtree from session rows; 1:1 mt_n25udpflus decision 5), drift, out-of-tokens deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
+ * Inputs (ledger desk): Tokens, Bank inputs, Streams, Sources. Spending (spending board): a drill-down, buildings → grants →
+ * assignments, the clicked row's detail (a building's own funding among it) in the sidebar with drift, out-of-tokens deaths and the
+ * cap (BankSpending.tsx); Spend by goal (1:1 mt_n25udpflus decision 5) behind its "By goal" toggle. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
 import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
 import { useTown } from "../state";
-import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, BuildingFunding, Donate, DonateAbout, FundingNow } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, SpendingView, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
+import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { FreeTokensSum } from "./FreeTokens";
-import { SpendByGoal } from "./GoalSpend";
+import { BankSpendingTab, SPEND_PICK, SpendSelected, SpendingHealth } from "./BankSpending";
 import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
 
@@ -32,7 +33,10 @@ type PickProps = { picked: string | null; onPick: (id: string | null) => void };
 export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactNode; selected?: ReactNode; picked?: string | null }) {
   const { divider, head, picked: first, ...view } = props;
   const [picked, onPick] = useState<string | null>(first ?? null);
-  const selected = props.selected ?? (picked && view.tab === "Inputs" ? <InputCredits id={picked} sources={view.fin?.sources ?? null} bank={view.bank} /> : null);
+  const spendPicked = picked?.startsWith(SPEND_PICK) ? picked : null;
+  const selected = props.selected
+    ?? (picked && !spendPicked && view.tab === "Inputs" ? <InputCredits id={picked} sources={view.fin?.sources ?? null} bank={view.bank} /> : null)
+    ?? (spendPicked && view.tab === "Spending" && view.fin?.spend ? <SpendSelected sp={view.fin.spend} picked={spendPicked} bank={view.bank} rev={view.rev} /> : null);
   return (
     <>
       <div className="bank-main" aria-label="The tab's tables">{head}<BankTab {...view} picked={picked} onPick={onPick} /></div>
@@ -41,6 +45,7 @@ export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactN
         {selected ? <section className="bank-selected"><h4>Selected row</h4>{selected}</section> : null}
         <h4>About this tab</h4>
         <BankAbout {...view} />
+        {view.tab === "Spending" ? <SpendingHealth bank={view.bank} /> : null}
         <FinanceTerms />
         {props.fin ? <FinanceFooter {...props.fin} /> : null}
       </aside>
@@ -55,7 +60,8 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
   if (tab === "Spending") return (
     <>
       {fin?.spend ? <SpendingAbout sp={fin.spend} /> : null}
-      {bank?.drift && bank.drift.models.length ? <p className="muted">Drift: adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p> : null}
+      <p className="muted">Each building&apos;s own funding (donations straight to it) shows here when you click the building.</p>
+      {bank?.drift && bank.drift.models.length ? <p className="muted">Drift (under Health): adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p> : null}
     </>
   );
   if (tab === "Hosting") return fin?.fly ? <FlyAbout fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
@@ -80,7 +86,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: Vi
       {fin?.sources ? <SourcesView s={fin.sources} selected={picked} onSelect={onPick} /> : null}
     </>
   );
-  if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
+  if (tab === "Spending") return <BankSpendingTab sp={fin?.spend ?? null} picked={picked} onPick={onPick} />;
   if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : null;
   return (
     <>
@@ -130,44 +136,5 @@ function OperatingReserveRow({ bank, onChange }: { bank: Bank; onChange: () => v
         </>}
       </td>
     </tr>
-  );
-}
-
-/** The Spending tab: what each building was given and spent, spend by goal, then the Bank's health (drift, out-of-tokens deaths and the cap). */
-function BankSpending({ bank, fin, rev }: { bank: Bank | null; fin: FinanceData | null; rev: number }) {
-  return (
-    <>
-      {bank ? <BuildingFunding rev={rev} /> : null}
-      {fin?.spend ? <SpendingView sp={fin.spend} /> : null}
-      <SpendByGoal />
-      {bank?.drift && bank.drift.models.length ? (
-        <Section title={`Drift (${bank.drift.day}, 24 h)`}>
-          <table className="table">
-            <tbody>
-              {bank.drift.models.map((r) => (
-                <tr key={r.model ?? ""} title={`$${r.adjustedUsd.toFixed(2)} adjusted vs $${r.costUsd.toFixed(2)} SDK · ${r.sessions} session${r.sessions === 1 ? "" : "s"}${r.backfilled ? ` · ${r.backfilled} back-filled left out` : ""}`}>
-                  <td>{r.model}</td>
-                  <td style={r.ratio !== null && Math.abs(r.ratio - 1) > 0.1 ? { color: "#c0392b" } : undefined}>drift: {r.ratio === null ? "n/a" : r.ratio.toFixed(2)} (24 h)</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
-      ) : null}
-      {bank?.deaths && bank.cap ? (
-        <Section title="Out-of-tokens deaths and the cap">
-          <table className="table">
-            <tbody>
-              <tr title={bank.deaths.events.map((e) => `${e.ts.slice(0, 16).replace("T", " ")} ${e.kind}: ${e.text}`).join("\n")}>
-                <td>Unexpected out-of-tokens deaths, last 7 days (baseline 7, target 0)</td>
-                <td style={bank.deaths.total ? { color: "#c0392b" } : undefined}><b>{bank.deaths.total}</b> (cap {bank.deaths.capDeaths}, exhausted {bank.deaths.exhausted})</td>
-              </tr>
-              <tr className="sub-row"><td>Subscription spend today</td><td>{fmtTokens(bank.cap.spentToday)}</td></tr>
-              {bank.cap.cappedAt ? <tr><td>Subscription</td><td style={{ color: "#c0392b" }}>capped since {bank.cap.cappedAt.slice(0, 16).replace("T", " ")} UTC, resets {bank.cap.resetsAt.slice(0, 16).replace("T", " ")} UTC</td></tr> : null}
-            </tbody>
-          </table>
-        </Section>
-      ) : null}
-    </>
   );
 }

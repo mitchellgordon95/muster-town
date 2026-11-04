@@ -259,10 +259,11 @@ export function Donate({ onChange }: { onChange: () => void }) {
  * One building's allocations: how each is paid for, allocated / spent / left; an admin can retire one. Adding one is
  * the Donate form above with the building picked under "To"; `rev` bumps when it donates, so the rows refetch.
  */
-export function BuildingFunding({ rev }: { rev: number }) {
+export function BuildingFunding({ rev, buildingId: fixed }: { rev: number; buildingId?: string }) {
   const me = useTown((s) => s.me);
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
-  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const [picked, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const buildingId = fixed ?? picked;
   const [showRetired, setShowRetired] = useState(false);
   const rows = useLoad(() => (buildingId ? api().allocations(buildingId) : Promise.resolve([])), [buildingId, rev]);
   const admin = !!me?.isAdmin;
@@ -273,7 +274,7 @@ export function BuildingFunding({ rev }: { rev: number }) {
   const shown = showRetired ? all : live;
   const left = live.reduce((s, a) => s + a.remainingTokens, 0);
   return (
-    <Section title="Building funding" right={
+    <Section title="Building funding" right={fixed ? undefined :
       <select className="funding-building" value={buildingId} onChange={(e) => setBuildingId(e.target.value)} aria-label="Building">
         {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
       </select>

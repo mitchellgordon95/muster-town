@@ -178,14 +178,14 @@ function NotFundedNote({ sp }: { sp: FinanceSpend }) {
 }
 
 /** What a synthetic row is (the Spending sidebar, not under the row); the weight-mismatch one is the API's own line, the not-funded one `notFundedNote`. */
-const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
+export const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
   "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
   "not-funded": <NotFundedNote sp={sp} />,
 });
-const NOTE_TITLE: Partial<Record<SpendNode["kind"], string>> = { "unattributed": "Unattributed", "weight-mismatch": "Priced differently before the switch", "not-funded": "Not funded" };
+export const NOTE_TITLE: Partial<Record<SpendNode["kind"], string>> = { "unattributed": "Unattributed", "weight-mismatch": "Priced differently before the switch", "not-funded": "Not funded" };
 
-function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
+export function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
   return (
     <span className="spend-grant-line muted">
       {g.spent} · {g.outcome}{g.over ? <> · <span className="spend-over">{g.over}</span></> : null}{g.krs ? ` · ${g.krs}` : null}
@@ -193,52 +193,15 @@ function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
   );
 }
 
-function SpendRow({ node, top = false }: { node: SpendNode; top?: boolean }) {
-  const line = (
-    <span className="spend-line">
-      <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
-        ? <a className="spend-grant" href={`#/grant/${node.id}`} title={node.objective ?? node.name}>{node.name}</a>
-        : node.name}{node.sessions ? <span className="muted"> · {n(node.sessions)} session{node.sessions === 1 ? "" : "s"}</span> : null}</span>
-      <span className="spend-tokens">{n(node.tokens)}</span>
-      {top && node.usd !== undefined ? <span className="spend-usd muted" title="At API list price">{dollars(node.usd)}</span> : null}
-      <span className="spend-share muted">{pct(node.share)}</span>
-    </span>
-  );
-  const gl = grantLine(node);
-  const note = gl ? <GrantLine g={gl} /> : null;
-  const about = NOTE_TITLE[node.kind] ? "Explained in the sidebar, under About this tab" : undefined;
-  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`} title={about}>{line}{note}</div>;
-  return (
-    <details className={`spend-row spend-${node.kind}`}>
-      <summary>{line}{note}</summary>
-      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} />)}</div>
-    </details>
-  );
-}
-
-export function SpendingView({ sp }: { sp: FinanceSpend }) {
-  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp);
-  const grants = grantsSentence(sp), grantsCheck = grantsCheckLine(sp);
-  return (
-    <Section title="Spending">
-      {grants ? <p className="spend-grants">{grants}</p> : null}
-      {grants && grantsCheck ? <Check c={grantsCheck} /> : null}
-      <div className="spend-tree">
-        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} top />)}
-      </div>
-      <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
-      {usdCheck ? <Check c={usdCheck} /> : null}
-    </Section>
-  );
-}
-
 /** The Spending section's prose for the Bank sheet's sidebar: how to read the tree, what each synthetic row is, the dollars footnote. */
 export function SpendingAbout({ sp }: { sp: FinanceSpend }) {
   const notes = spendNotes(sp);
   const kinds = new Set(sp.rows.map((r) => r.kind));
+  const grants = grantsSentence(sp);
   return (
     <>
-      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
+      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Click a building for its grants, a grant for its assignments; the breadcrumb above the table goes back. The clicked row&apos;s detail shows here. &ldquo;By goal&rdquo; switches to spend by goal.</p>
+      {grants ? <p className="spend-grants muted">{grants}</p> : null}
       {(["unattributed", "weight-mismatch", "not-funded"] as const).filter((k) => kinds.has(k) && notes[k]).map((k) => (
         <div key={k} className="bank-note"><b>{NOTE_TITLE[k]}</b>{typeof notes[k] === "string" ? <p className="muted">{notes[k]}</p> : notes[k]}</div>
       ))}

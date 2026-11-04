@@ -972,3 +972,17 @@ div.spend-row > .muted { font-size: 11.5px; }
 .bank-main .bank-pick.on, .bank-main .bank-pick.on:hover { background: color-mix(in srgb, var(--accent, #d4a017) 18%, transparent); }
 .bank-main .bank-pick:focus-visible { outline: 2px solid var(--accent, #d4a017); outline-offset: -2px; }
 .input-credits .table { font-size: 12px; }
+/* the Bank's Spending drill-down (gr_567tikzitl step 4, kr_trhi5frg4k): breadcrumb, one table per level, the picked row's detail in the sidebar */
+.bank-crumbs { font-size: 12.5px; margin: 0 0 6px; }
+.bank-crumbs button.link { padding: 0; }
+.spend-table { font-size: 12.5px; }
+.spend-table td, .spend-table th { font-variant-numeric: tabular-nums; }
+.spend-table td:not(:first-child), .spend-table th:not(:first-child) { text-align: right; white-space: nowrap; }
+.spend-table .spend-name { overflow-wrap: anywhere; }
+.spend-table tfoot td { border-top: 1px solid var(--line); }
+.spend-table tr.spend-not-funded .spend-tokens { color: var(--bad); }
+.spend-table tr.spend-weight-mismatch .spend-tokens { color: var(--muted); }
+.spend-selected > b { display: block; margin-bottom: 4px; }
+.spend-selected .spend-over { color: var(--bad); }
+.spend-sessions { font-size: 12px; }
+.bank-health { margin: 10px 0; }
