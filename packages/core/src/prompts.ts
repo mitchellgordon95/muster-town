@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
+import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
@@ -222,7 +222,7 @@ export function explorerBrief(world: World, building: Building, assignment: Assi
   return [
     `This session: exploration. The town's explore tick reserved ${tok(r?.tokens ?? 0)} tokens (${assignment.reservationId}) under goal ${at} because a desk here was idle and tokens were free. Your sessions draw on that chunk; you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it, and what you don't spend returns.`,
     `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), objective, approach, stopCondition and askTokens; your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
-    rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what Mitchell asked.` : "The building has no rollup yet.",
+    rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what ${world.captainName()} asked.` : "The building has no rollup yet.",
     open.length ? `Open proposals under this goal: ${open.map((g) => `${g.id} "${oneLine(g.objective, 100)}" (${g.status}, asks ${tok(g.askTokens)})`).join("; ")}.` : "No proposal is open under this goal.",
     recent.length ? `The building's last day: ${recent.map((e) => `${stamp(e.ts)} ${oneLine(e.text, 120)}`).join(" · ")}` : "",
   ].filter(Boolean).join("\n");
@@ -288,8 +288,9 @@ ${CHAIN_PLAN_RULE}`;
 }
 
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
-function escalationCriteria(mode: RepoMode): string {
-  return `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or exploration, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (${mode === "none" ? "" : "merge rights, "}a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly, unless they already have a channel: an outbox request or a grant proposal reaches him on its own, so leave it out of Needs.`;
+function escalationCriteria(mode: RepoMode, captain = "Mitchell"): string {
+  const him = captain === "Mitchell" ? "him" : captain;
+  return `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or exploration, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (${mode === "none" ? "" : "merge rights, "}a secret, a credential, a decision ${captain} reserved). Those go into your next rollup's "Needs from ${captain}", never to ${captain} directly, unless they already have a channel: an outbox request or a grant proposal reaches ${him} on its own, so leave it out of Needs.`;
 }
 export const ESCALATION_CRITERIA = escalationCriteria("muster");
 
@@ -311,7 +312,7 @@ function liveLine(world: World, lastRollupAt: string | undefined, now: number): 
  * itself: Mitchell reads rollups in the Town Hall in-tray.
  */
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
-  return `${managerIntrayRows(world, building, managerId, now)}\n\n${managerIntrayRules(world.repoMode())}`;
+  return `${managerIntrayRows(world, building, managerId, now)}\n\n${managerIntrayRules(world.repoMode(), world.captainName())}`;
 }
 
 /**
@@ -330,7 +331,7 @@ function managerIntrayRows(world: World, building: Building, managerId: string, 
   const sinceLast = lastRollup ? `${fromNow(lastRollup.createdAt, now)} ("${oneLine(lastRollup.title, 80)}", ${lastRollup.id}, decision ${lastRollup.decision ?? "?"})` : "never";
   const decidedSince = world.docs.count("type = 'report' AND buildingId = ? AND decision != 'pending' AND decidedAt > ?", [building.id, lastRollup?.createdAt ?? ""]);
   const lanes = { exploration: world.grantDesk.exploration(building.id), directed: world.grantDesk.directed(building.id) };
-  return `## Your in-tray (you work it; Mitchell doesn't see these reports)
+  return `## Your in-tray (you work it; ${world.captainName()} doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
 
 ${world.repoMode() === "muster" ? `${liveLine(world, lastRollup?.createdAt, now)}. ` : ""}Last rollup: ${sinceLast}; reports decided since: ${decidedSince}. Spend today by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.`;
@@ -340,15 +341,16 @@ ${world.repoMode() === "muster" ? `${liveLine(world, lastRollup?.createdAt, now)
  * The fixed half of the in-tray: how to decide reports and flags, when and how to roll up. Byte-identical from one
  * session to the next, so it sits in the cached system prompt. The numbers it refers to are in the in-tray rows' status line.
  */
-function managerIntrayRules(mode: RepoMode): string {
-  return `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${escalationCriteria(mode)}
+function managerIntrayRules(mode: RepoMode, captain = "Mitchell"): string {
+  const he = captain === "Mitchell" ? "he" : captain;
+  return `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${escalationCriteria(mode, captain)}
 
-Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. How he reads one: the in-tray opens it on a "Your call" block (every Shipped item's real call and the Needs lines, nothing else), then the Shipped cards, with Decided, Key results and provenance folded under one click each; the review deck shows one slide per item with a real call. So the calls and the cards are the read; write them to stand alone. The format, one screen: an optional one-line intro${mode === "muster" ? " (the live commit)" : ""}, then
+Rollups are how ${captain} hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. How ${he} reads one: the in-tray opens it on a "Your call" block (every Shipped item's real call and the Needs lines, nothing else), then the Shipped cards, with Decided, Key results and provenance folded under one click each; the review deck shows one slide per item with a real call. So the calls and the cards are the read; write them to stand alone. The format, one screen: an optional one-line intro${mode === "muster" ? " (the live commit)" : ""}, then
 - \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`, plain words: what a human now sees or can do), each with \`**What it is:**\` (two or three sentences, under ${ROLLUP_MAX_WHAT_WORDS} words, plain words first and ids after; the detail is in the covered reports), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line that names the choice and stands alone, or "None"; the top block quotes it without the card).
 - \`## Decided\`: one line per covered report (id → decision); folded, so no prose here.
 - \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray"); folded.
-- \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid. Each line stands alone in the top block and on the deck slide.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+- \`## Needs from ${captain}\`: ${rollupNeedsRule(captain)} "Nothing needed" is valid. Each line stands alone in the top block and on the deck slide.
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for ${captain}, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
 }
 
 /**
@@ -358,7 +360,7 @@ A rollup without the four headings, or whose Needs names a grant proposal, outbo
  * (\`managerStateBlock\`). The runtime passes it to the SDK as a plain string, without the Claude Code preset: a
  * manager decides and talks here; it edits no code.
  */
-export function managerSystemPrompt(agent: Agent, building: Building, town: Town, opts: { skills?: string; buildings?: string; purpose?: string; code?: boolean; repo?: RepoMode } = {}): string {
+export function managerSystemPrompt(agent: Agent, building: Building, town: Town, opts: { skills?: string; buildings?: string; purpose?: string; code?: boolean; repo?: RepoMode; captain?: string } = {}): string {
   const repo = opts.repo ?? "muster";
   return `You are ${agent.name}, the manager of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
@@ -374,7 +376,7 @@ ${reportFormat(repo)}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. Your only tools are the town tools (mcp__town__*)${opts.code ? ", plus Read, Grep and Glob over a read-only snapshot of the town's code (the first message names its commit and directory): read the code before you answer how something works, and cite file:line" : ""}.${opts.buildings ? `\n\n${opts.buildings}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}
 
-${managerIntrayRules(repo)}`;
+${managerIntrayRules(repo, opts.captain)}`;
 }
 
 /**
