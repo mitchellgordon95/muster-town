@@ -10,7 +10,7 @@
 .hiw .close:hover { color: var(--ink); }
 .hiw-body { padding: 0 24px 18px; overflow: auto; }
 .hiw-page { --hue: #2d6aa8; --hue-bg: #d9e5f0; display: flex; flex-direction: column; align-items: center; text-align: center; }
-.hiw-page.money { --hue: #a66d00; --hue-bg: #f3dc8e; }
+.hiw-page.money { --hue: #8a5a00; --hue-bg: #f3dc8e; }
 .hiw-page.public { --hue: #2f7d46; --hue-bg: #d8ebc9; }
 .hiw-pre { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-2); }
 .hiw h2 { margin: 2px 0 4px; font-size: 34px; line-height: 1.1; letter-spacing: -.015em; color: var(--hue); }
@@ -47,6 +47,7 @@
   .hiw-foot .btn { flex: 1; justify-content: center; }
 }
 .hiw-byoa { margin: 10px 0 0; font-size: 12px; color: var(--ink-2); }
+.hiw-byoa a { color: var(--ink); }
 /* The operating manual (panels/Manual.tsx): the homepage sheet's frame, scrolling, a table of contents from its h2s. */
 .manual { width: min(760px, 94vw); max-height: 94vh; display: flex; flex-direction: column; background: var(--paper); color: var(--ink);
   border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 6px 0 rgba(59,47,18,.45), 0 24px 60px rgba(0,0,0,.5); outline: none; overflow: hidden; }
