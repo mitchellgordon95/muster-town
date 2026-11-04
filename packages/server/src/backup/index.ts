@@ -27,7 +27,7 @@ import { S3, type S3Target } from "./s3.ts";
 import type { TranscriptsResult, WorkerInput, WorkerMessage, WorkerResult } from "./worker.ts";
 
 export { backupKeyFrom, decryptBackup, encryptBackup } from "./crypto.ts";
-export { keysToDelete, objectKey, parseObjectKey, parseTranscriptKey, transcriptKey } from "./retention.ts";
+export { keysToDelete, objectKey, parseObjectKey } from "./retention.ts";
 export { S3 } from "./s3.ts";
 export { signV4 } from "./sigv4.ts";
 
@@ -39,7 +39,7 @@ export interface BackupDetail { copies: { prefix: string; key: string; bytes: nu
 export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null; mode: "hourly" | "restore-only"; copies?: BackupDetail["copies"] | null; transcripts?: TranscriptsResult | null }
 
 /** One database or transcript dir to back up besides town.db (main.ts: `backupSources`). */
-export interface BackupSources { dbs: { prefix: string; path: string }[]; transcripts: { prefix: string; dir: string }[] }
+interface BackupSources { dbs: { prefix: string; path: string }[]; transcripts: { prefix: string; dir: string }[] }
 
 /**
  * What each run copies besides the Workshop's town.db: its transcripts (`transcripts/workshop/`), and under `hostedDir`
