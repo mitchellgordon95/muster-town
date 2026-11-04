@@ -1,13 +1,13 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
-import { type Agent, BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
-import { api } from "../api";
+import { type Agent, BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type TownPublish, type Workspace } from "@muster-town/schema";
+import { ApiError, api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { ADJ_HINT, Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { ADJ_HINT, Act, Empty, ErrorLine, Field, KV, NumberInput, Pill, Section, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
 import { canTalkAtTownHall, canTalkToManager, openOneOnOne, openPlanner, secretaryOf } from "./oneOnOne";
@@ -267,7 +267,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
-    {b.kind === "town-hall" && admin ? <CollectiveDefaults /> : null}
+    {b.kind === "town-hall" && admin ? <><CollectiveDefaults /><PublishToGitHub /></> : null}
   </>);
 }
 
@@ -307,6 +307,75 @@ function CollectiveDefaults() {
           if (town) store.set({ town: { ...town, defaults: r.defaults } });
           store.toast(`Collective defaults saved for ${r.buildings.length} building${r.buildings.length === 1 ? "" : "s"}`, "ok");
         }}>Save for every building</Act></div>
+      </form>
+    </Section>
+  );
+}
+
+/** The Publish to GitHub block's last-push line (gr_30f8obzab8): what the hourly export last did with the repo. */
+export function publishLine(p: TownPublish | undefined, ago: (iso: string) => string = timeAgo): { text: string; bad: boolean } | null {
+  if (!p) return null;
+  if (p.lastPushError) return { text: `Last push failed: ${p.lastPushError}`, bad: true };
+  if (p.lastPushAt) return { text: `Last push: ${ago(p.lastPushAt)}${p.lastPushCommit ? ` · ${p.lastPushCommit.slice(0, 7)}` : ""}`, bad: false };
+  return { text: "No push yet: the next hourly export pushes.", bad: false };
+}
+
+/** The token field's placeholder: the token is write-only, so the field only says whether one is stored. */
+export function tokenPlaceholder(p: TownPublish | undefined): string {
+  return p?.tokenSet ? "set (leave blank to keep it)" : "not set";
+}
+
+/**
+ * Publish to GitHub (gr_30f8obzab8, admins of this World): the repo the hourly export pushes its mirror to and a token
+ * kept encrypted on the host (PUT / DELETE /api/town/publish). A hosted World's panel calls its own /<slug>/api.
+ */
+export function PublishToGitHub() {
+  const town = useTown((s) => s.town);
+  const p = town?.publish;
+  const [repoUrl, setRepoUrl] = useState(p?.repoUrl ?? "");
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const line = publishLine(p);
+  const fail = (e: unknown) => {
+    // 409 NO_DATA_KEY and 400 bad URL: keep the server's words in the block, not only a toast
+    if (e instanceof ApiError) { setError(e.message); return; }
+    throw e;
+  };
+  return (
+    <Section title="Publish to GitHub">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <p className="direction">Every hour the town exports its published docs, meetings, outbox and event log (no drafts, no secrets) and pushes them to this repo, so anyone can browse its work on GitHub. Use an empty repo.</p>
+        <Field label="Repo" hint="https://github.com/<owner>/<repo>">
+          <input value={repoUrl} placeholder="https://github.com/owner/repo" onChange={(e) => setRepoUrl(e.target.value)} />
+        </Field>
+        <Field label="Token" hint="A fine-grained GitHub token with Contents read/write on that repo. It is kept encrypted on the host and never shown again; leave it blank to keep the stored one.">
+          <input type="password" autoComplete="new-password" value={token} placeholder={tokenPlaceholder(p)} onChange={(e) => setToken(e.target.value)} />
+        </Field>
+        {line ? <div className={line.bad ? "error-line" : "muted"}>{line.text}</div> : null}
+        <ErrorLine error={error} />
+        <div className="actions">
+          <Act tone="primary" disabled={!repoUrl.trim() || (!token.trim() && !p?.tokenSet)} title={!token.trim() && !p?.tokenSet ? "Paste a token first" : undefined} run={async () => {
+            setError(null);
+            try {
+              const r = await api().publishSettings({ repoUrl: repoUrl.trim(), ...(token.trim() ? { token: token.trim() } : {}) });
+              const now = store.state.town;
+              if (now) store.set({ town: { ...now, publish: r.publish } });
+              setToken("");
+              store.toast("Publish to GitHub saved: the next hourly export pushes", "ok");
+            } catch (e) { fail(e); }
+          }}>Save</Act>
+          {p ? <Act tone="bad" run={async () => {
+            if (!window.confirm(`Stop publishing to ${p.repoUrl}? The repo URL and the stored token are removed; the repo itself is left as it is.`)) return;
+            setError(null);
+            try {
+              await api().clearPublish();
+              const now = store.state.town;
+              if (now) { const { publish: _gone, ...rest } = now; store.set({ town: rest }); }
+              setRepoUrl(""); setToken("");
+              store.toast("Publishing stopped", "ok");
+            } catch (e) { fail(e); }
+          }}>Clear</Act> : null}
+        </div>
       </form>
     </Section>
   );

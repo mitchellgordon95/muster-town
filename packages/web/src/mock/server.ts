@@ -507,6 +507,22 @@ export class MockApi implements Api {
     return clone({ defaults, buildings });
   }
 
+  async publishSettings(patch: { repoUrl: string; token?: string }) {
+    await wait();
+    const prev = this.sim.town.publish;
+    const same = prev?.repoUrl === patch.repoUrl && !patch.token;
+    const publish = { repoUrl: patch.repoUrl, tokenSet: !!patch.token || !!prev?.tokenSet, lastPushAt: same ? prev!.lastPushAt : null, lastPushCommit: same ? prev!.lastPushCommit : null, lastPushError: same ? prev!.lastPushError : null };
+    this.sim.town.publish = publish;
+    return clone({ publish });
+  }
+
+  async clearPublish() {
+    await wait();
+    const cleared = !!this.sim.town.publish;
+    delete this.sim.town.publish;
+    return { cleared };
+  }
+
   async setMaxRunning(maxRunning: number) {
     await wait();
     this.sim.maxRunning = maxRunning;
