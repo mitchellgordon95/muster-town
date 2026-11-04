@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Agent, Building, Meeting, Town } from "@muster-town/schema";
 import { facilitatePrompt, managePrompt, managerIntrayBlock, managerStateBlock, managerSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, musterWorld } from "./helpers.ts";
 
 describe("the team-lead prompt is split for the provider's cache (docs/prompt-caching.md)", () => {
   it("the system prompt is byte-identical across wakes, whatever the clock, in-tray or wiki did meanwhile; the state block carries all of that, clock first", async () => {
@@ -90,7 +90,7 @@ describe("no forced next step", () => {
     expect(after).toContain("reports decided since: 1");
   });
   it("the rollup rule is 'something new is live and decided, at least 4 h apart' and names the live commit (1:1 mt_7mhv73quu3)", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     const now = Date.parse("2026-10-31T12:00:00Z");

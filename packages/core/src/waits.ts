@@ -4,7 +4,7 @@
  * cancels the assignment into its building's in-tray. Waits are only set where a decision is already made (assign,
  * meeting decide, a manager's work/continue/redirect) or by an agent parking its own work (`submit_report` resumeWhen).
  */
-import { WAIT_TTL_MS, WaitFor, type Assignment } from "@muster-town/schema";
+import { WAIT_TTL_MS, WaitFor, waitKindsFor, type Assignment } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { AppError } from "./errors.ts";
 import { nowIso, truncate } from "./util.ts";
@@ -16,6 +16,13 @@ export function validateWait(world: World, raw: unknown): WaitFor {
   const p = WaitFor.safeParse(raw);
   if (!p.success) throw new AppError("bad_request", `waitFor: expected {deploy: sha|"next"}, {assignment: id}, {decision: reportId}, {pr: number} or {after: iso} (${p.error.issues[0]?.message ?? "invalid"}).`);
   const w = p.data;
+  const kind = Object.keys(w)[0];
+  const mode = world.repoMode();
+  if (!(waitKindsFor(mode) as string[]).includes(kind)) {
+    throw new AppError("bad_request", mode === "none"
+      ? `waitFor.${kind}: this collective has no code repo, so nothing here redeploys or runs CI. Wait on {assignment}, {decision} or {after} instead.`
+      : `waitFor.deploy: this collective's repo is not the one this server runs, so its redeploys don't follow your commits. Wait on {pr}, {assignment}, {decision} or {after} instead.`);
+  }
   if ("assignment" in w) world.assignments.require(w.assignment, "assignment");
   if ("decision" in w) {
     const d = world.docs.require(w.decision, "doc");

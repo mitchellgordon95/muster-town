@@ -2,7 +2,7 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type Town, type Workspace } from "@muster-town/schema";
+import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
@@ -19,7 +19,8 @@ export { docGist, sectionOf } from "./text.ts";
 /** What an agent does when started without a task. */
 export const CHECK_IN = "No specific task. Check your inbox and the board; if something needs you, do it. If nothing does, submit a short report saying so: don't invent work.";
 
-export const WORLD_RULES = `How the town works:
+function worldRules(mode: RepoMode): string {
+  return `How the town works:
 - You have a body in a pixel town. Call \`look\` first: it tells you where you are, who is nearby, your unread messages, assignments and meetings.
 - Knowledge lives in documents. Your building's \`board\` holds only building-wide FYIs (type "fyi"). Everything else published in the building (session reports, which also go to the manager's in-tray; meeting notes; colleagues' articles and notes) is in its filing cabinet, and \`search\` finds it; the library (\`search\`, \`read\`) holds sources and promoted work. Check them before searching the web so you don't redo work.
 - \`go\` walks your body to a place (walking is free). \`say\` is heard only within 3 tiles. \`tell\` sends a direct message; use it sparingly, only when a colleague needs to know something now.
@@ -31,7 +32,11 @@ export const WORLD_RULES = `How the town works:
 - Skills (docs of type "skill") are reusable how-tos, some with bundled scripts: \`skills\` lists the ones you can use and \`read\` loads one. When you work out a method others could reuse, write it as a skill (\`write\` type "skill", a SKILL.md body).
 - ${WIKI_HOWTO}
 - Finish with \`submit_report\`. It is mandatory, it must be your last action, and your session ends after it. The report goes to your manager's in-tray and you go idle; you work again when someone gives you an assignment.
-- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{pr: <number>}\` for your pull request's CI checks to finish (passed or failed: the town watches them, so never guess an \`{after}\` time for CI), \`{after: iso}\` for a real time) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.`;
+${mode === "muster" ? `- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{deploy: "<your commit sha>"}\` once you've pushed and need it live, \`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, \`{pr: <number>}\` for your pull request's CI checks to finish (passed or failed: the town watches them, so never guess an \`{after}\` time for CI), \`{after: iso}\` for a real time) and \`next\` (one line); your continuation then starts by itself when that holds. \`GET /api/health\` gives the live server's \`commit\`; a change is live when \`git merge-base --is-ancestor <sha> <commit>\` succeeds.` : `- You can't wait inside a session: when your turn ends, the session ends, and background tasks, timers and monitors won't wake you. If you can't finish because you're waiting on something, park the work: \`submit_report\` with \`resumeWhen\` (\`{assignment: id}\` for a colleague's work, \`{decision: reportId}\` for a review, ${mode === "own" ? "`{pr: <number>}` for your pull request's CI checks to finish (passed or failed: the town watches them, so never guess an `{after}` time for CI), " : ""}\`{after: iso}\` for a real time) and \`next\` (one line); your continuation then starts by itself when that holds.`}`;
+}
+
+/** The world rules for this server's own collective (muster.town's Workshop); `worldRules` gives the other modes. */
+export const WORLD_RULES = worldRules("muster");
 
 export const RESEARCH_RULES = `Research rules:
 - Sources first: primary sources (agency data, IPCC, Global Carbon Budget, peer-reviewed papers) over secondary. Cite every source you rely on in provenance.
@@ -39,7 +44,10 @@ export const RESEARCH_RULES = `Research rules:
 - Every number carries units and an uncertainty or range. Don't invent numbers; if you couldn't verify something, say so.
 - One question per session. Pick one concrete question and go deep; don't try to cover everything.`;
 
-export const REPORT_FORMAT = `Report body (markdown), exactly three sections in this order: ## What I did (short), ## Findings (the substance, with numbers, units, sources or PR links), ## What I need from you (one line if nothing: "Nothing needed." Otherwise the single concrete thing a human must do, e.g. "Merge PR #12." or "Decide whether X."). Keep it readable in a minute. Never invent follow-up work to fill space: when the assignment is done, say so and stop. Verdict: continue (the work genuinely needs another session) | pivot | stop (done, or not worth pursuing).`;
+function reportFormat(mode: RepoMode): string {
+  return `Report body (markdown), exactly three sections in this order: ## What I did (short), ## Findings (the substance, with numbers, units, ${mode === "none" ? "sources or links" : "sources or PR links"}), ## What I need from you (one line if nothing: "Nothing needed." Otherwise the single concrete thing a human must do, e.g. ${mode === "none" ? `"Decide whether X."` : `"Merge PR #12." or "Decide whether X."`}). Keep it readable in a minute. Never invent follow-up work to fill space: when the assignment is done, say so and stop. Verdict: continue (the work genuinely needs another session) | pivot | stop (done, or not worth pursuing).`;
+}
+export const REPORT_FORMAT = reportFormat("muster");
 
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
@@ -86,7 +94,8 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
  * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
  * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string; repo?: RepoMode } = {}): string {
+  const repo = opts.repo ?? "muster";
   // no clock here: it changes every session and would break the provider's cache on the whole prefix; the work
   // prompt (the first message) opens with it (docs/prompt-caching.md)
   return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
@@ -94,11 +103,11 @@ Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
 
-${WORLD_RULES}
+${worldRules(repo)}
 
 ${RESEARCH_RULES}
 
-${REPORT_FORMAT}
+${reportFormat(repo)}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
@@ -111,7 +120,7 @@ ${opts.memory ?? ""}`;
  * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
  * goal-directed buildings the Key results block for `assignment`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; buildings: string; purpose: string } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; buildings: string; purpose: string; repo: RepoMode } {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
@@ -120,7 +129,7 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   // then the building's topic index
   const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
   const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : `${memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
-  return { memory, purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  return { memory, repo: world.repoMode(), purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
 }
 
 /**
@@ -278,7 +287,10 @@ ${CHAIN_PLAN_RULE}`;
 }
 
 /** Why a manager escalates instead of deciding: the four criteria of docs/waterfall.md §3.1. */
-export const ESCALATION_CRITERIA = `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or exploration, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (merge rights, a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly, unless they already have a channel: an outbox request or a grant proposal reaches him on its own, so leave it out of Needs.`;
+function escalationCriteria(mode: RepoMode): string {
+  return `Decide yourself unless the decision (a) changes the building goal or a key result, (b) spends money outside a funded grant or exploration, (c) needs a human in the real world (\`request_human\`), or (d) the report's author asks for something only a human can give (${mode === "none" ? "" : "merge rights, "}a secret, a credential, a decision Mitchell reserved). Those go into your next rollup's "Needs from Mitchell", never to Mitchell directly, unless they already have a channel: an outbox request or a grant proposal reaches him on its own, so leave it out of Needs.`;
+}
+export const ESCALATION_CRITERIA = escalationCriteria("muster");
 
 /** The least time between two rollups, so a run of small PRs lands as one item (docs/waterfall.md §3.2; 1:1 mt_7mhv73quu3). */
 export const ROLLUP_MIN_GAP_HOURS = 4;
@@ -298,7 +310,7 @@ function liveLine(world: World, lastRollupAt: string | undefined, now: number): 
  * itself: Mitchell reads rollups in the Town Hall in-tray.
  */
 export function managerIntrayBlock(world: World, building: Building, managerId: string, now = Date.now()): string {
-  return `${managerIntrayRows(world, building, managerId, now)}\n\n${MANAGER_INTRAY_RULES}`;
+  return `${managerIntrayRows(world, building, managerId, now)}\n\n${managerIntrayRules(world.repoMode())}`;
 }
 
 /**
@@ -320,21 +332,23 @@ function managerIntrayRows(world: World, building: Building, managerId: string, 
   return `## Your in-tray (you work it; Mitchell doesn't see these reports)
 ${rows.length ? rows.join("\n") : "(empty)"}
 
-${liveLine(world, lastRollup?.createdAt, now)}. Last rollup: ${sinceLast}; reports decided since: ${decidedSince}. Spend today by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.`;
+${world.repoMode() === "muster" ? `${liveLine(world, lastRollup?.createdAt, now)}. ` : ""}Last rollup: ${sinceLast}; reports decided since: ${decidedSince}. Spend today by lane: exploration ${tok(lanes.exploration.spentTodayTokens)} tokens (free under your goal: ${tok(lanes.exploration.freeTokens)}), directed ${tok(lanes.directed.spentTodayTokens)} tokens.`;
 }
 
 /**
  * The fixed half of the in-tray: how to decide reports and flags, when and how to roll up. Byte-identical from one
  * session to the next, so it sits in the cached system prompt. The numbers it refers to are in the in-tray rows' status line.
  */
-const MANAGER_INTRAY_RULES = `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${ESCALATION_CRITERIA}
+function managerIntrayRules(mode: RepoMode): string {
+  return `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for yourself or a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${escalationCriteria(mode)}
 
-Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. The format, one screen: an optional one-line intro (the live commit), then
+Rollups are how Mitchell hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. The format, one screen: an optional one-line intro${mode === "muster" ? " (the live commit)" : ""}, then
 - \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`), each with \`**What it is:**\` (plain words, ids after), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line, or "None"). The in-tray shows them as cards.
 - \`## Decided\`: one line per covered report (id → decision).
 - \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray").
 - \`## Needs from Mitchell\`: ${ROLLUP_NEEDS_RULE} "Nothing needed" is valid.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for Mitchell, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+}
 
 /**
  * The system prompt of a manager's team-lead session (purpose \`manage\`): only what is the same from one wake to the
@@ -343,22 +357,23 @@ A rollup without the four headings, or whose Needs names a grant proposal, outbo
  * (\`managerStateBlock\`). The runtime passes it to the SDK as a plain string, without the Claude Code preset: a
  * manager decides and talks here; it edits no code.
  */
-export function managerSystemPrompt(agent: Agent, building: Building, town: Town, opts: { skills?: string; buildings?: string; purpose?: string; code?: boolean } = {}): string {
+export function managerSystemPrompt(agent: Agent, building: Building, town: Town, opts: { skills?: string; buildings?: string; purpose?: string; code?: boolean; repo?: RepoMode } = {}): string {
+  const repo = opts.repo ?? "muster";
   return `You are ${agent.name}, the manager of the ${building.name} of ${town.name}. ${OWNERSHIP}
 Town goal: ${town.goal || "(none set)"}
 Building goal: ${opts.purpose ?? (building.goal || "(none set)")}
 Your agent id: ${agent.id}. Your building id: ${building.id}.
 This prompt holds only what is the same every session. What is live now (the server's clock, your in-tray, your team and queue, your grants, the board, the index of your wiki and log) opens the first message: read it there, and \`read\` a wiki page or a report before you rely on it.
 
-${WORLD_RULES}
+${worldRules(repo)}
 
 ${RESEARCH_RULES}
 
-${REPORT_FORMAT}
+${reportFormat(repo)}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. Your only tools are the town tools (mcp__town__*)${opts.code ? ", plus Read, Grep and Glob over a read-only snapshot of the town's code (the first message names its commit and directory): read the code before you answer how something works, and cite file:line" : ""}.${opts.buildings ? `\n\n${opts.buildings}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}
 
-${MANAGER_INTRAY_RULES}`;
+${managerIntrayRules(repo)}`;
 }
 
 /**
@@ -653,7 +668,7 @@ ${error ? "Nothing needed unless the task still matters: the session failed befo
 }
 
 /** Extra system prompt for buildings with a workspace: the agent edits code in its own checkout inside its desk. */
-export function workshopPrompt(ws: { dir: string; branch: string; base: string }, repoName: string): string {
+export function workshopPrompt(ws: { dir: string; branch: string; base: string }, repoName: string, repo: RepoMode = "muster"): string {
   return `
 
 ## Code access
@@ -661,8 +676,8 @@ You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on br
 - Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
 - Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report. To wait for its CI, park with \`submit_report\` \`resumeWhen: {pr: <number>}\`: you resume when its checks pass or fail.
-- Never force-push, never rewrite history, never run destructive commands.
-- If you call \`redeploy\`, your session keeps running through the restart (a town call in the few seconds the server is down is retried for you). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.
+- Never force-push, never rewrite history, never run destructive commands.${repo === "muster" ? `
+- If you call \`redeploy\`, your session keeps running through the restart (a town call in the few seconds the server is down is retried for you). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.` : ""}
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
 }
 
@@ -715,7 +730,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl), world.repoMode()) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const prompt = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,

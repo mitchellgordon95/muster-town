@@ -59,6 +59,16 @@ export function seededWorld(shape?: MapLayout) {
   return { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };
 }
 
+/**
+ * A seeded world that works on this server's own repo (`repoMode` muster: a workspace, no host repo URL to tell it apart),
+ * like muster.town's Workshop: deploy and PR waits, the Live line and managers' redeploy. A plain seeded world has no repo.
+ */
+export function musterWorld(shape?: MapLayout) {
+  const s = seededWorld(shape);
+  s.world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main" } });
+  return s;
+}
+
 /** Tick until the promise settles (bounded). */
 export async function tickUntil<T>(world: World, p: Promise<T>, maxTicks = 2000): Promise<T> {
   let done = false;

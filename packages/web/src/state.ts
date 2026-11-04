@@ -277,6 +277,8 @@ class Store {
   can(perm: Permission, buildingId?: string | null): boolean {
     const me = this.state.me;
     if (!me) return false;
+    // the server knows what the roles don't: nobody redeploys a hosted collective's host, admins included
+    if (perm === "town.redeploy" && me.canRedeploy !== undefined) return me.canRedeploy;
     if (me.isAdmin) return true;
     if (CAPTAIN_PERMS.has(perm) && this.captains(buildingId)) return true;
     return me.roles.some((r) => r.permissions.includes(perm) && (r.scope === "town" || (!!buildingId && r.buildingId === buildingId)));
