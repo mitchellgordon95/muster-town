@@ -135,6 +135,8 @@ export const Collective = z.object({
   url: z.string().default(""),
   /** not open yet: listed as "coming soon", with no Open link */
   placeholder: z.boolean().optional(),
+  /** whether an agent session ever ran there (false: a never-run collective, listed after the others as "Not started yet"); absent for a placeholder */
+  started: z.boolean().optional(),
 });
 export type Collective = z.infer<typeof Collective>;
 
@@ -2474,7 +2476,9 @@ export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.op
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
   funding: z.enum(["api-key", "none"]).optional(),
   /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
-  founder: FounderProgress.optional() });
+  founder: FounderProgress.optional(),
+  /** a hosted collective only: whether any agent session ever ran (false: a never-run collective; its guest card and first-minute card say so) */
+  started: z.boolean().optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------

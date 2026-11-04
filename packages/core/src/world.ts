@@ -458,9 +458,17 @@ export class World {
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
-        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress() } : {}) },
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress(), started: this.hasRun() } : {}) },
       outbox: this.outboxOpen(),
     };
+  }
+
+  /**
+   * Whether an agent ever worked here: any work, manage or review session (not naming or summaries; the founder road's
+   * `firstSessionAt`). False is a collective that has never run (a hosted one waiting for its founder's key).
+   */
+  hasRun(): boolean {
+    return this.sessions.count("purpose IN ('work', 'manage', 'review')") > 0;
   }
 
   /** A hosted collective's founder road (TownHealth `founder`): latest exploration start, open proposals, ever funded. */

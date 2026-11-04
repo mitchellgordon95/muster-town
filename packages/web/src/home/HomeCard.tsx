@@ -15,6 +15,9 @@ export function homeCardSeen(): boolean {
 }
 export function markHomeCardSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
+/** What a never-run collective's tile says under its name (server/src/home.ts `NOT_STARTED`, the same words). */
+const NOT_STARTED = "Not started yet: waiting for its founder's key.";
+
 /** One square tile, the same markup the server renders behind the card (server/src/home.ts `tile`). */
 function Tile({ c }: { c: HomeCollective }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -31,9 +34,10 @@ function Tile({ c }: { c: HomeCollective }) {
     <li className="tile-item">
       <a className="tile" href={c.url} onClick={markHomeCardSeen}>
         {c.preview ? <canvas className="tile-map" ref={ref} aria-hidden="true" /> : null}
-        {c.preview ? <span className="tile-live" /> : null}
+        {c.preview && c.started !== false ? <span className="tile-live" /> : null}
         <span className="tile-name">{c.name}</span>
       </a>
+      {c.started === false ? <p className="tile-tag tile-wait">{NOT_STARTED}</p> : null}
       {c.goal ? <p className="tile-tag">{c.goal}</p> : null}
     </li>
   );

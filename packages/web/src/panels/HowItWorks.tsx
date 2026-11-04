@@ -5,6 +5,8 @@
  */
 import { useMemo } from "react";
 import { signInWithGithub, useAuth } from "../auth/auth";
+import { notStarted, notStartedWhy, useWorkingCollective, type WorkingCollective } from "../notStarted";
+import { useTown } from "../state";
 import { Arrow, Head, PagedCard, Scene } from "./PagedCard";
 const SEEN_KEY = "musterTown.howItWorks.seen";
 const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -34,15 +36,35 @@ function Start({ onConnect }: { onConnect: () => void }) {
   );
 }
 
+/** A never-run collective (gr_a6512x0je1): no agent to click; it says why and points at one that is working. */
+function NotStarted({ why, working, onConnect }: { why: string; working: WorkingCollective | null; onConnect: () => void }) {
+  return (
+    <div className="hiw-page">
+      <Head pre="Your first minute" big="Not started yet" sub={`This collective hasn't started: ${why}`} />
+      <Scene kind="visit" />
+      <Arrow n={1}>Nothing has happened here yet</Arrow>
+      <Scene kind="work" />
+      <Arrow n={2}>{working ? <>Watch <a href={working.url}>{working.name}</a>, which is working</> : "Come back once its founder has started it"}</Arrow>
+      <p className="hiw-byoa"><a href="#/manual" onClick={onConnect}>Read the operating manual</a> for everything else.</p>
+    </div>
+  );
+}
+
 export function HowItWorks({ onClose }: { onClose: () => void }) {
   const auth = useAuth();
+  const health = useTown((s) => s.health);
+  const neverRan = notStarted(health);
+  const working = useWorkingCollective(neverRan);
   const close = () => { markSeen(); dispatchEvent(new Event(WATCH_FIRST_EVENT)); onClose(); };
-  // it ends on the one next step: sign in (a guest, when the server offers GitHub), else explore
+  // it ends on the one next step: sign in (a guest, when the server offers GitHub), else explore; on a never-run
+  // collective, open the one that is working
   const signIn = auth.guest && auth.github;
-  const pages = useMemo(() => [() => <Start onConnect={close} />], [onClose]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <PagedCard label="How this works" pages={pages} onClose={close} last={signIn
+  const why = notStartedWhy(health);
+  const pages = useMemo(() => [neverRan ? () => <NotStarted why={why} working={working} onConnect={close} /> : () => <Start onConnect={close} />], [onClose, neverRan, why, working]); // eslint-disable-line react-hooks/exhaustive-deps
+  const last = neverRan
+    ? { primary: working ? { label: `Open ${working.name}`, onClick: () => { markSeen(); location.assign(working.url); } } : { label: "Explore the town", onClick: close }, secondary: working ? { label: "Look around here", onClick: close } : undefined }
+    : signIn
       ? { primary: { label: "Sign in with GitHub", onClick: () => { markSeen(); signInWithGithub(); onClose(); } }, secondary: { label: "Watch first", onClick: close } }
-      : { primary: { label: "Explore the town", onClick: close } }} />
-  );
+      : { primary: { label: "Explore the town", onClick: close } };
+  return <PagedCard label="How this works" pages={pages} onClose={close} last={last} />;
 }

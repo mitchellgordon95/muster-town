@@ -161,7 +161,7 @@ describe("finance page: spending", () => {
     expect(centreOf(spendAt("spend:workshop", { ...sp, byLaneKind: lk }))).toContain("cache writes 75.0% of cost");
     // open: lanes, kinds, the share in red over 20%, the not-counted line and the check
     const open = renderToStaticMarkup(<LaneKind today={lk} initialOpen />);
-    for (const s of [">Cache write 1 h</th>", "Grant", "Manager wakes", "25.0%", "75.0%", "color:#c0392b", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "color:#c0392b", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
     const one = renderToStaticMarkup(<LaneKind today={lk} buildingId="workshop" name="Town Workshop" initialOpen />);
     expect(one).toContain("Manager wakes");
     expect(one).not.toContain(">Grant<");
