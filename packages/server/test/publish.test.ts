@@ -22,7 +22,7 @@ describe("publish routes", () => {
 
     const put = await json(app, "PUT", "/api/town/publish", { headers: auth, body: { repoUrl: "https://github.com/acme/town-docs.git", token: TOKEN } });
     expect(put.status).toBe(200);
-    expect(put.body.publish).toEqual({ repoUrl: "https://github.com/acme/town-docs.git", tokenSet: true, lastPushAt: null, lastPushCommit: null, lastPushError: null });
+    expect(put.body.publish).toEqual({ repoUrl: "https://github.com/acme/town-docs.git", tokenSet: true, lastPushAt: null, lastPushCommit: null, lastPushError: null, tokenSource: "own" });
     bodies.push(put.body);
     const town = await json(app, "GET", "/api/town", { headers: auth });
     expect(town.body.town.publish).toMatchObject({ repoUrl: "https://github.com/acme/town-docs.git", tokenSet: true });

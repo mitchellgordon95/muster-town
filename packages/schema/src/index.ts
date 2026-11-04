@@ -81,7 +81,7 @@ export const OPERATING_RESERVE_TOKENS = 500_000;
 /**
  * Publish to GitHub (gr_30f8obzab8): the collective's own GitHub repo the hourly export pushes its mirror to, per World.
  * The token is never here: it is the runtime-owned secret MUSTER_TOWN_PUBLISH_TOKEN (docs/secrets.md); `tokenSet` says
- * whether one is stored. `lastPushAt`/`lastPushCommit`: the last push that landed; `lastPushError`: the last push's failure
+ * whether one is stored; without one the push uses the collective's GH_TOKEN secret (`tokenSource`). `lastPushAt`/`lastPushCommit`: the last push that landed; `lastPushError`: the last push's failure
  * (null once a push lands). PUT /api/town/publish sets it, DELETE clears it (an admin).
  */
 export const TownPublish = z.object({
@@ -90,8 +90,11 @@ export const TownPublish = z.object({
   lastPushAt: z.string().nullable().default(null),
   lastPushCommit: z.string().nullable().default(null),
   lastPushError: z.string().nullable().default(null),
+  /** which token the next push uses, read live (never stored): "own" (MUSTER_TOWN_PUBLISH_TOKEN), "collective" (the GH_TOKEN secret, the fallback) or "none" */
+  tokenSource: z.enum(["own", "collective", "none"]).optional(),
 });
 export type TownPublish = z.infer<typeof TownPublish>;
+export type PublishTokenSource = NonNullable<TownPublish["tokenSource"]>;
 /** A GitHub repo over https: `https://github.com/<owner>/<repo>` with an optional `.git`. */
 export const PublishRepoUrl = z.string().trim().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must be https://github.com/<owner>/<repo>");
 /** PUT /api/town/publish: the repo, and a token (a fine-grained token with Contents read/write); leave `token` out to keep the stored one. */
