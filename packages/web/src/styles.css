@@ -657,17 +657,13 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .grant-plan > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; margin-top: 4px; }
 .kr-more > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; width: max-content; }
 .kr-more[open] > summary { margin-bottom: 2px; }
+.kr-more .kr-full { margin: 2px 0 4px; }
 /* the grant page (gr_zak30564zh): Plan and Sessions fold to one line, History shows its latest entry */
 .grant-fold { margin-top: 14px; }
 .grant-fold > summary { cursor: pointer; font-size: 12.5px; color: #c4c7dc; }
 .grant-fold > summary b { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #9aa0bd; margin-right: 6px; }
 .grant-fold[open] > summary { margin-bottom: 8px; }
 .grant-fold > summary.grant-sessions-total { margin-top: 0; }
-.grant-history-note > summary { cursor: pointer; list-style: none; }
-.grant-history-note > summary::-webkit-details-marker { display: none; }
-.grant-history-note > summary .more { color: var(--accent); }
-.grant-history-note[open] > summary { display: none; }
-.grant-history-earlier > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; margin-bottom: 4px; }
 .grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .grant-inputs { display: grid; grid-template-columns: 170px 1fr; gap: 6px; }
 /* waterfall step 6: the board's key-results view (goal-directed buildings) */

@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -15,12 +15,12 @@ import { openDb, type DB } from "./db.ts";
 import { AppError } from "./errors.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
-import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
+import { exportDoneEvent, exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult, type PublishTarget } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
-import { Secrets } from "./secrets.ts";
+import { PUBLISH_TOKEN_SECRET, Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
 import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
@@ -471,7 +471,54 @@ export class World {
    * db has no file to share, so it runs here). Appends nothing: the runtime appends the one `export.done`.
    */
   async exportOffThread(dir = townEnv("EXPORT") ?? "./export"): Promise<ExportResult> {
-    return this.db.memory ? writeExport(worldSource(this), dir) : exportInWorker(this.db.name, dir);
+    const publish = this.publishTarget();
+    return this.db.memory ? writeExport(worldSource(this), dir, publish) : exportInWorker(this.db.name, dir, publish);
+  }
+
+  /**
+   * Publish to GitHub (gr_30f8obzab8): where this World's export pushes, read from this World's own town meta and secret
+   * (a hosted collective's runtime reads its own, so its export dir only ever pushes to its own repo). null when unset.
+   */
+  publishTarget(): PublishTarget | null {
+    const p = this.town.get().publish;
+    return p?.repoUrl ? { repoUrl: p.repoUrl, token: this.secrets.value(PUBLISH_TOKEN_SECRET), lastPushCommit: p.lastPushCommit } : null;
+  }
+
+  /** One finished export: append its `export.done` and write the push outcome into `Town.publish` (when a repo is set and a push was due). */
+  recordExport(r: ExportResult): void {
+    this.events.append(exportDoneEvent(r));
+    const p = this.town.get().publish;
+    if (!p || (!r.pushedAt && !r.pushError)) return;
+    this.town.set({ publish: r.pushedAt ? { ...p, lastPushAt: r.pushedAt, lastPushCommit: r.pushCommit, lastPushError: null } : { ...p, lastPushError: r.pushError } });
+  }
+
+  /**
+   * PUT /api/town/publish (an admin): the repo the hourly export pushes to and, when given, its token (stored as the
+   * runtime-owned secret; 409 without a data key). No token keeps the stored one. A new repo URL resets the last-push
+   * fields so the next export pushes. The event never carries the token.
+   */
+  setPublish(input: { repoUrl: string; token?: string }, by: string | null = null): TownPublish {
+    const repoUrl = input.repoUrl.trim();
+    if (input.token !== undefined) this.secrets.setOwn(PUBLISH_TOKEN_SECRET, input.token, by);
+    const cur = this.town.get().publish;
+    const same = cur?.repoUrl === repoUrl && input.token === undefined;
+    const publish: TownPublish = {
+      repoUrl, tokenSet: this.secrets.hasOwn(PUBLISH_TOKEN_SECRET),
+      lastPushAt: same ? cur.lastPushAt : null, lastPushCommit: same ? cur.lastPushCommit : null, lastPushError: same ? cur.lastPushError : null,
+    };
+    this.town.set({ publish });
+    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet } });
+    return publish;
+  }
+
+  /** DELETE /api/town/publish (an admin): forget the repo, its token and the last-push fields. */
+  clearPublish(by: string | null = null): { cleared: boolean } {
+    const had = !!this.town.get().publish;
+    const token = this.secrets.clearOwn(PUBLISH_TOKEN_SECRET);
+    if (!had && !token) return { cleared: false };
+    this.town.set({ publish: undefined });
+    this.events.append({ type: "town.publish-cleared", agentId: by, text: "Publish to GitHub cleared", payload: { tokenRemoved: token } });
+    return { cleared: true };
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {
     return importV0(this, dir, opts);

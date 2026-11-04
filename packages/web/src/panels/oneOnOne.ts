@@ -28,6 +28,18 @@ export async function openPlanner(goalId?: string): Promise<void> {
   store.open({ kind: "meeting", id: m.id });
 }
 
+/**
+ * The Town Hall's Secretary (gr_kdlogzzo5s): a live resident titled "Secretary" whose home is the Town Hall, or null.
+ * Its 1:1 is openOneOnOne(townHallId, { agentId }); core createOneOnOne allows it for the Planner's people.
+ */
+export function secretaryOf(agents: Record<string, Agent>, townHallId: string | null | undefined): Agent | null {
+  if (!townHallId) return null;
+  return Object.values(agents).find((a) => a.kind === "resident" && a.homeBuildingId === townHallId && a.title === "Secretary" && !a.forkOf && a.status !== "stopped" && !isGone(a)) ?? null;
+}
+
+/** Who may open a 1:1 at the Town Hall (the Planner's and the Secretary's): an admin or captain, or the Town Hall's staff. */
+export const canTalkAtTownHall = (townHallId: string | null | undefined) => store.can("goals.edit") || canOneOnOne(townHallId);
+
 const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**

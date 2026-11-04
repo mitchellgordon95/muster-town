@@ -194,7 +194,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       if (m.phase !== "collecting" && m.phase !== "discussing") continue;
       if (m.kind === "one-on-one") {
         // only the human in it sees their open 1:1
-        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>★ {agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
+        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>{buildings.find((b) => b.id === m.buildingId)?.kind === "town-hall" ? "" : "★ "}{agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
         continue;
       }
       const where = m.buildingId ? buildings.find((b) => b.id === m.buildingId)?.name ?? "" : "Town Hall";
