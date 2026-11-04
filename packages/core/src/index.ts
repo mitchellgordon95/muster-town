@@ -16,7 +16,7 @@ export { Skills, parseSkillMd, skillsBlock, type SessionSkill, type SkillMd } fr
 export { forkStatus, ToolResults, resultLine, inputLine, type ForkStatus, type ForkStatusCall } from "./forkstatus.ts";
 export { Transcripts, TRANSCRIPT_DEFAULT_DAYS, TRANSCRIPT_MAX_BYTES, TRANSCRIPT_MAX_UPLOAD, brotli, type TranscriptInfo } from "./transcripts.ts";
 export { Media, MEDIA_MAX_BYTES, MEDIA_DAILY_BYTES, MEDIA_TYPES, mediaUrl, type MediaInfo } from "./media.ts";
-export { Secrets, REPO_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret } from "./secrets.ts";
+export { Secrets, REPO_TOKEN_SECRET, PUBLISH_TOKEN_SECRET, dataKeyFrom, encryptSecret, decryptSecret } from "./secrets.ts";
 export { Goals, type GoalNode, type GoalProposalView } from "./goals.ts";
 export { Streams } from "./streams.ts";
 export { funderWeek, funderWeights } from "./funders.ts";
@@ -64,7 +64,7 @@ export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
-export { exportWorld, exportDoneEvent, importExport, docExportPath, type ExportResult } from "./export.ts";
+export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 export { seedDefaults, seedManual, findManual, MANUAL_TAG, originUrl, HOUSE_BUDGET_TOKENS, HOUSE_LABEL, type SeedOptions, type SeedResult } from "./seed.ts";
 export * as prompts from "./prompts.ts";
