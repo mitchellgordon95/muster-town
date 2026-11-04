@@ -527,8 +527,11 @@ function EstimateLine({ g }: { g: GrantView }) {
 /**
  * `onMarked` runs after one key result is flipped to missed or back to met (default `onDecided`): it reloads and keeps
  * this grant open. A grant closed as done marks its key results met itself (town hall mt_v09cn7a8yr decision 2).
+ * It leads with the summary (status, spent / granted, one line per key result); each key result's how-to-check and note
+ * sit one click away (gr_zak30564zh). `onPage`: the grant's own page, whose header carries the objective and whose Plan
+ * and History sections carry the stop condition and the latest note, so the row leaves those out.
  */
-export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute }) {
+export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route, onPage }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute; onPage?: boolean }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
   const author = useTown((s) => s.agents[g.proposedBy]);
@@ -599,7 +602,10 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
             <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {k.text} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
-            <div className="muted kr-check">How to check: {k.howToCheck}</div>
+            <details className="kr-more"><summary>How to check{k.statusNote ? " · note" : ""}</summary>
+              <div className="muted kr-check">How to check: {k.howToCheck}</div>
+              {k.statusNote ? <div className="muted kr-check">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div> : null}
+            </details>
             {closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
               <div className="actions">
                 {k.status === "met"
@@ -611,7 +617,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         )) : <li className="muted">No key results yet</li>}
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
-      <div className="intray-proposal">Stop when: {g.stopCondition}</div>
+      {onPage ? null : <div className="intray-proposal">Stop when: {g.stopCondition}</div>}
   </>);
   const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met") ? (<>
         <div className="muted">Closed as done: its key results are met. If one did not ship, say why and mark it missed.</div>
@@ -671,7 +677,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         <Pill tone={checkpoint ? "warn" : g.status === "rejected" || stop ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{stop && g.status === "closed" ? "stopped" : g.status}</Pill>
         <GrantLink id={g.id} />
       </div>
-      <div className="doc-row-title">{g.objective}</div>
+      {onPage ? null : <div className="doc-row-title">{g.objective}</div>}
       <RoutedTo route={route} />
       {/* on a deck slide the slide text carries the ask */}
       {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}
@@ -690,7 +696,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       {folded ? null : planList}
       {stop
         ? <div className="intray-proposal grant-stopped-by"><b>{nameOf(stop.byId)} stopped it</b> {timeAgo(stop.at)}: <DocText text={stop.reason} /></div>
-        : last?.note ? <div className="intray-proposal">{historyActor(last, nameOf)} ({last.action}): <DocText text={historyNote(last)} /></div> : null}
+        : last?.note && !onPage ? <div className="intray-proposal">{historyActor(last, nameOf)} ({last.action}): <DocText text={historyNote(last)} /></div> : null}
       {decision}
       {stopForm}
       {folded ? <details className="grant-plan"><summary>The plan as funded: key results and stop condition</summary>{planList}</details> : null}
