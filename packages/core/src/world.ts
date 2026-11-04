@@ -54,6 +54,21 @@ export interface PrChecks {
   checkedAt: string;
 }
 
+/**
+ * Main's CI (gr_7op2v8fjcl): `green` once every check on main's head finished and passed, `red` once one failed
+ * (`failedStep` names the failed check runs), `pending` while they run. `since` is the first read that saw this state
+ * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent fixing a red main (null until step 2 sets it).
+ */
+export interface MainCi {
+  state: "green" | "red" | "pending";
+  sha: string;
+  failedStep: string | null;
+  since: string;
+  fixer: string | null;
+  /** when this was read (ISO) */
+  checkedAt: string;
+}
+
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
@@ -73,6 +88,8 @@ export interface HostHooks {
    * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
    */
   prChecks?(pr: number): PrChecks | undefined;
+  /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
+  mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
   redeployStatus?(): RedeployLive;
   /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
