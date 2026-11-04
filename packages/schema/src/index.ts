@@ -1553,6 +1553,8 @@ export interface GoalSpend {
   byKeyResult: { id: string; text: string; goalId: string; status: string; tokens: number; sessions: number }[];
   /** the subtree's key results marked met or missed inside the window */
   results: { id: string; text: string; status: "met" | "missed"; at: string }[];
+  /** visitors at desks in the subtree's buildings now. What they spend is NOT tracked (a visitor runs on its own client; Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or self-report), so it is in none of the figures above */
+  visitors: number;
 }
 /** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
 export interface QueueCard {

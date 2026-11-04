@@ -138,6 +138,21 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     expect(sub.series).toHaveLength(5);
   });
 
+  it("visitors at desks under the goal are counted, their spend is not: online visitors homed in the subtree's buildings only", () => {
+    const base = inputs([s("mgr", {})]);
+    const r = goalSpend("gl_a", { ...base, agents: [
+      ...base.agents,
+      { id: "ag_v1", buildingId: "b1", homeBuildingId: "b1", kind: "visitor", status: "idle" },
+      { id: "ag_v2", buildingId: "town-hall", homeBuildingId: "b1", kind: "visitor", status: "offline" }, // offline: no desk
+      { id: "ag_v3", buildingId: "b3", homeBuildingId: "b3", kind: "visitor", status: "working" }, // b3 → gl_b: elsewhere
+      { id: "ag_v4", buildingId: "b1", homeBuildingId: "b1", kind: "visitor", status: "retired" }, // gone
+      { id: "ag_r", buildingId: "b1", homeBuildingId: "b1", kind: "resident", status: "idle" },
+    ] }, 7, now);
+    expect(r.visitors).toBe(1);
+    expect(r.sessions).toBe(1); // the visitor's own sessions never reach the table: nothing is booked or guessed for it
+    expect(goalSpend("gl_a", base, 7, now).visitors).toBe(0);
+  });
+
   it("the funder filter (step 8): weights keep only what one funder paid, scaled", () => {
     const one = adjustedOfUsage("claude-opus-4-5", { output: 1000 });
     const r = goalSpend("gl_a", { ...inputs([s("a", {}), s("b", {}), s("c", {})]), weights: new Map([["a", 1], ["b", 0.25]]) }, 7, now);
