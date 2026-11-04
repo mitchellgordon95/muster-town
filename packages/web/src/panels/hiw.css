@@ -67,13 +67,41 @@
 .manual-body h3 { margin: 10px 0 4px; font-size: 20px; line-height: 1.2; color: #2d6aa8; }
 .manual-body h3 a { color: inherit; text-decoration: none; }
 .manual-note { margin: 18px 0 0; font-size: 12px; color: var(--ink-2); }
-/* A building's "?" help sign (panels/HelpSign.tsx): the manual's sheet at the card's width, short lists, names as ink links. */
-.manual.help-card { width: min(540px, 94vw); }
+/* A building's "?" help sign (panels/HelpSign.tsx): a tour. The manual's paper as a slim sheet on the right (a strip at
+   the bottom under 760px) so the lit building stays in view; "What's here" is the numbered legend of the map's hotspots. */
+.manual.help-sheet { position: absolute; z-index: 40; top: 12px; right: 12px; bottom: 12px; width: 340px; max-height: none; }
+.help-sheet .manual-head { padding: 14px 12px 10px 20px; }
+.help-sheet .manual-head h2 { font-size: 28px; }
+.help-sheet .manual-body { padding: 4px 20px 16px; }
+.help-sheet .manual-body section { margin-top: 12px; }
 .help-goal { margin: 10px 0 2px; font-size: 14px; color: var(--ink-2); }
 .help-who { margin: 6px 0 0; font-size: 14px; line-height: 1.5; }
 .help-list { margin: 4px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.5; }
 .help-name { background: none; border: none; padding: 0; font: inherit; font-weight: 600; color: var(--ink); text-decoration: underline; cursor: pointer; }
-.help-card .signin { margin-top: 10px; }
+.help-sheet .signin { margin-top: 10px; }
+.help-legend { list-style: none; margin: 4px -8px 0; padding: 0; }
+.help-row { display: flex; gap: 8px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px;
+  padding: 4px 8px; font: inherit; font-size: 14px; line-height: 1.45; color: var(--ink); cursor: pointer; }
+.help-row b { font-weight: 600; text-decoration: underline; }
+.help-legend li.on .help-row, .help-row:focus-visible { background: #fffaf0; border-color: var(--ink-3); outline: none; }
+.help-n { flex: none; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--ink); background: var(--paper); color: var(--ink);
+  font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; box-sizing: border-box; }
+.help-legend li.on .help-n { background: var(--ink); color: var(--paper); }
+/* the hotspot's tooltip: a small printed label over the map, placed by HelpSign.tsx */
+.help-tip { position: absolute; z-index: 41; left: 0; top: 0; max-width: 240px; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
+  background: var(--paper); color: var(--ink); border: 2px solid var(--ink); border-radius: 6px; box-shadow: 0 3px 0 rgba(59,47,18,.45); font-size: 13px; line-height: 1.4; pointer-events: none; }
+.help-tip b { font-weight: 700; }
+.help-tip span { color: var(--ink-2); }
+.help-tip.touch { pointer-events: auto; }
+.help-tip .btn { margin-top: 6px; align-self: flex-start; }
+@media (max-width: 760px) {
+  .manual.help-sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 46vh; border-radius: 12px 12px 0 0; border-bottom: none; }
+  .help-sheet .manual-head { padding: 10px 10px 8px 16px; }
+  .help-sheet .manual-head h2 { font-size: 22px; }
+  .help-sheet .manual-body { padding: 2px 16px 14px; }
+  /* the sheet carries the guest card's sign-in, so the HUD strip steps aside and the building gets the room */
+  body:has(.help-sheet) .hud { display: none; }
+}
 @media (max-height: 820px) { .manual-head h2 { font-size: 28px; } }
 @media (max-width: 420px) {
   .manual-head { padding: 12px 10px 10px 16px; }
