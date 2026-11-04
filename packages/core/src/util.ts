@@ -1,3 +1,4 @@
+import * as benchFs from "node:fs"; // BENCH TEMP
 import { customAlphabet, nanoid } from "nanoid";
 import type { Tile } from "@muster-town/schema";
 
@@ -18,16 +19,24 @@ export function chebyshev(a: Tile, b: Tile): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
 
+// BENCH TEMP: cumulative fan-out cost of the named emitter, appended to $BENCH_EMIT every 5 s
+const benchAcc = { n: 0, wallMs: 0, cpuMs: 0, listeners: 0 };
+if (process.env.BENCH_EMIT) setInterval(() => { benchFs.appendFileSync(process.env.BENCH_EMIT!, JSON.stringify({ t: Date.now(), ...benchAcc }) + "\n"); }, 5000).unref();
 export class Emitter<T> {
   private listeners = new Set<(v: T) => void>();
   subscribe(fn: (v: T) => void): () => void {
     this.listeners.add(fn);
     return () => { this.listeners.delete(fn); };
   }
+  benchName?: string; // BENCH TEMP
   emit(v: T): void {
+    const bench = !!(this.benchName && process.env.BENCH_EMIT);
+    const t0 = bench ? process.hrtime.bigint() : 0n;
+    const c0 = bench ? process.cpuUsage() : null;
     for (const fn of this.listeners) {
       try { fn(v); } catch (e) { console.error("[core] listener error", e); }
     }
+    if (bench) { const cu = process.cpuUsage(c0!); benchAcc.n++; benchAcc.wallMs += Number(process.hrtime.bigint() - t0) / 1e6; benchAcc.cpuMs += (cu.user + cu.system) / 1000; benchAcc.listeners = this.listeners.size; }
   }
 }
 

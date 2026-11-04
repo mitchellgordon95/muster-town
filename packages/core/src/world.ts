@@ -93,6 +93,8 @@ export class World {
   readonly db: DB;
   /** Every live change as a WS ServerMessage: event, agent, agents.pos, doc, meeting, building, assignment. */
   readonly changes = new Emitter<ServerMessage>();
+  // BENCH TEMP
+  private benchTag = (() => { (this.changes as { benchName?: string }).benchName = "changes"; })();
   readonly events: EventLog;
   readonly permissions: Permissions;
   readonly budget: Budget;
