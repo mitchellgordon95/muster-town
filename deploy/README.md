@@ -83,8 +83,9 @@ seeds an empty town, but an empty town never uploads over the good copies: every
 "fresh town; restore first: ..." on health and the monitor's `backup` metric red, and nothing is uploaded or pruned. Then: read
 `fly logs -a muster-town | grep '\[restore\]'`, fix the cause, delete `/data/workshop/data/town.db*` over `fly ssh console` and restart
 the Machine (the first-boot restore runs again), or put a `RESTORE.tgz` from `scripts/backup/restore.sh --local latest` in `/data`.
-After any restore people sign in again with GitHub (session-secret and admin-token are not in the copy; hosted collectives under
-`/data/hosted` are not in it either).
+After any restore people sign in again with GitHub (session-secret and admin-token are not in the copy). The first-boot restore brings
+back the Workshop's `town.db` only: hosted collectives (`hosted/...`) and transcripts (`transcripts/...`) are in the bucket since
+2026-11-04 but restored by hand ("Backups" above).
 
 **A drill on a throwaway app** (never on muster-town): `deploy/recover.sh --yes recover-drill` with the five backup values and a
 `FLY_API_TOKEN` for the org (`fly tokens create org -o personal -n recover-drill -x 24h`, revoked after) creates the app, stages those
@@ -128,6 +129,20 @@ the same day. Still open:
   The whole run (copy, checks, streamed gzip, encrypt, upload, verify, prune) runs in a `worker_threads` worker (`worker.ts`) with its own
   database connection, so it never blocks the event loop that serves HTTP (post-mortem docs/postmortem-2026-10-31-cpu-throttle-503.md).
   (Objects named `town/<YYYY-MM-DD>.db.gz.enc` are the nightly copies from before 2026-11-01; restore reads both.)
+- **Hosted collectives and transcripts** (Mitchell, 1:1 mt_1vs893enaw, 2026-11-04): after `town.db`, the same run (same worker) copies
+  - `/data/hosted/hub.db` as `hosted/hub/<YYYY-MM-DD>T<HH>.db.gz.enc` and each `/data/hosted/<slug>/data/town.db` as
+    `hosted/<slug>/<YYYY-MM-DD>T<HH>.db.gz.enc`: the same copy, checks, format, verify-by-download, never-replace guard and retention (per
+    prefix); no local copy is kept for them. The list is read from disk every run (`backupSources`), so a new collective is in the next one.
+  - every town's transcripts (`<data>/transcripts/<sessionId>.jsonl.br`, brotli already): each file not yet in the bucket is encrypted only
+    (same cipher, no gzip) and PUT once as `transcripts/<town>/<YYYY-MM-DD>/<sessionId>.jsonl.br.enc` (`<town>` = `workshop` or the slug,
+    the date the file's UTC mtime), verified by download (sha256), never re-uploaded; objects dated more than the town's transcript retention
+    (`desks.transcriptDays`, 90) + 1 days ago are deleted. Size on 2026-11-04: 2,072 Workshop files, 233 MB, ~25 MB/day (so ~2.3 GB at 90 days);
+    the hosted towns had none yet. The first run uploads all of them.
+  A failure in any of these is kept as `backup.error` (prefixed with its prefix, e.g. `hosted/<slug>/: ...`) while `town.db`'s own copy still
+  counts (`lastAt` = `verifiedAt`), so the monitor's `backup` metric goes yellow on a missed hosted copy or transcript. The empty-boot guard
+  covers them too: a fresh `town.db` refuses the whole run. Restore a hosted collective with `restore-helper.mjs get hosted/<slug>/<key>` +
+  `decrypt` (then put it at `/data/hosted/<slug>/data/town.db` with the server stopped); a transcript with `get` + `decrypt-raw`
+  into `<data>/transcripts/<sessionId>.jsonl.br` (its `transcripts` row is in the town's database copy). `restore-helper.mjs list <prefix>` lists them.
 - **Verification:** after each PUT the job downloads the object back, decrypts and gunzips it with the restore path's code (`crypto.ts`, `s3.ts`),
   checks it is byte for byte (sha256) the copy that passed `integrity_check`; the 04:00 UTC run also writes the download out and runs
   `integrity_check` on it. Only then does the run count: `lastAt` and `verifiedAt` move
@@ -143,7 +158,8 @@ the same day. Still open:
 - **Retention** (`keysToDelete`, after each verified run): the newest **48 hourly objects**, plus the newest object of each of the newest
   **30 dates** (so the 23:00 copy of each past day; a nightly object stays until a newer object of its date exists); everything else under
   `town/` with the backup naming is deleted. On the volume, the **last local copy** `/data/workshop/backups/town-<date>T<HH>.db` (older ones deleted). Fly's daily volume snapshots (5 kept) stay as the on-host copy.
-- **Health:** `GET https://muster.town/api/health` shows `backup: {lastAt, verifiedAt, bytes, dest, error}` (read-only; never the key or
+- **Health:** `GET https://muster.town/api/health` shows `backup: {lastAt, verifiedAt, bytes, dest, error, mode, copies, transcripts}`
+  (`copies`: the last run's hosted copies `[{prefix, key, bytes}]`; `transcripts`: `{files, uploaded, uploadedBytes, deleted}`; read-only; never the key or
   credentials), or `backup: null` while any of the five env vars is missing: the job is then off, with one boot warning naming them. Healthy:
   `lastAt` = `verifiedAt`, under ~70 min old, `error` null. The monitor's `backup` metric goes yellow on `error` or a copy older than 2 h, red
   older than 6 h.
