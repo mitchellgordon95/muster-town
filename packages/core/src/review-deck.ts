@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -286,9 +286,17 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     const base = { itemId: d.id, buildingId: d.buildingId, since: d.createdAt, history, docIds: [d.id] };
     if (parsed && parsed.items.length && !parsed.missingSections.length) {
       const calls = parsed.items.map((it, i) => [it, i] as [RollupItem, number]).filter(([it]) => !isNoCall(it.yourCall));
-      if (!calls.length) { record.push(d); continue; }
+      // the Needs lines (a question in words, a decision reserved: rollupAsks leaves out "Nothing needed" and the generated waiting line) ride on the rollup's first slide, or make its one slide when no item asks a call
+      const needs = rollupAsks(parsed).filter((a) => a.n === null).map((a) => a.call);
+      const needsBlock = needs.length ? `**${who} also needs from you:**\n\n${needs.map((l) => `- ${oneLine(l)}`).join("\n")}` : "";
+      if (!calls.length && !needs.length) { record.push(d); continue; }
+      if (!calls.length) {
+        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: "needs", title: `${who} rollup: ${d.title}`, body: `_${d.title} (${d.id}) · its ${parsed.items.length} Shipped item${parsed.items.length === 1 ? " asks" : "s ask"} no call_\n\n${needsBlock.replace(" also needs", " needs")}` });
+        continue;
+      }
       for (const [it, i] of calls) {
-        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}` });
+        const first = i === calls[0]![1];
+        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}${first && needsBlock ? `\n\n${needsBlock}` : ""}` });
       }
     } else {
       // an old-format rollup, a checkpoint or visitor report, an escalation: its markdown with the plain buttons
