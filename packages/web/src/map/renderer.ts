@@ -22,6 +22,7 @@ import { purposeOf } from "../purpose";
 import { TILE, bankTabOf } from "@muster-town/schema";
 import { defaultZoom, coarsePointer } from "./zoom";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
+import { drawTour, spotBox, type Tour } from "./tour";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -133,6 +134,10 @@ export class MapRenderer {
   hoverBlock: string | null = null;
   /** The badge whose reasons card a tap opened (touch has no hover); a second tap on it opens the queue. */
   tapTip: string | null = null;
+  /** a building's tour (its help sign is open): the camera frames the lot, the rest is shadowed, things are hotspots */
+  tour: Tour | null = null;
+  /** this frame's tour hotspots, canvas CSS px */
+  private tourHits: { id: string; n: number; x: number; y: number; w: number; h: number }[] = [];
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -299,6 +304,27 @@ export class MapRenderer {
       best = { place: p, target: t }; bestD = d;
     }
     return best;
+  }
+
+  /** The tour hotspot under a screen point (CSS px), padded to a finger-sized target. */
+  tourSpotAt(cx: number, cy: number): string | null {
+    if (!this.tour) return null;
+    for (let i = this.tourHits.length - 1; i >= 0; i--) {
+      const h = this.tourHits[i], px = Math.max(4, (28 - h.w) / 2), py = Math.max(4, (28 - h.h) / 2);
+      if (cx >= h.x - px && cx <= h.x + h.w + px && cy >= h.y - py && cy <= h.y + h.h + py) return h.id;
+    }
+    return null;
+  }
+  /** A tour hotspot's screen rect (canvas CSS px), for the help card's tooltip. */
+  tourRect(placeId: string): { x: number; y: number; w: number; h: number } | null {
+    return this.tourHits.find((h) => h.id === placeId) ?? null;
+  }
+  /** Whether a screen point (CSS px) is inside the toured building's lot. */
+  inTourLot(cx: number, cy: number): boolean {
+    const b = this.tour ? store.state.buildings.find((x) => x.id === this.tour!.buildingId) : null;
+    if (!b?.lot) return false;
+    const t = this.tileAt(cx, cy);
+    return t.x >= b.lot.x && t.x < b.lot.x + b.lot.w && t.y >= b.lot.y && t.y < b.lot.y + b.lot.h;
   }
 
   /** Building whose banner is under a screen point (CSS px). */
@@ -525,7 +551,7 @@ export class MapRenderer {
   }
 
   private draw(now: number) {
-    const g = this.g, w = this.world!;
+    const g = this.g, w = this.world!, s0 = store.state;
     const dpr = window.devicePixelRatio || 1;
     const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
     const viewW = cw - this.panelInset;
@@ -536,16 +562,32 @@ export class MapRenderer {
     this.leftInset = hud && hud.width < viewW * 0.6 ? Math.min(hud.right + 12, viewW * 0.45) : 0;
     // ease the zoom: out to the whole town (fitted in that strip) while the Bank's town map is open, back to `zoom` after
     const overview = this.overview();
-    const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
+    // a tour frames the building's lot in the room the help sheet leaves: left of a side sheet, above a bottom strip,
+    // below a phone's HUD strip
+    const tourLot = !overview && this.tour ? s0.buildings.find((b) => b.id === this.tour!.buildingId)?.lot ?? null : null;
+    let fr = { l: this.leftInset, r: viewW, t: 0, b: ch };
+    if (tourLot) {
+      const sh = document.querySelector(".help-sheet")?.getBoundingClientRect();
+      if (sh && sh.left > cw * 0.45) fr.r = Math.min(fr.r, sh.left - 8);
+      else if (sh && sh.height) fr.b = Math.min(fr.b, sh.top);
+      if (hud && !this.leftInset && hud.bottom < ch * 0.5) fr.t = hud.bottom;
+      if (fr.r - fr.l < 120 || fr.b - fr.t < 120) fr = { l: 0, r: viewW, t: 0, b: ch };
+    }
+    const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom)
+      : tourLot ? fitZoom(tourLot.w * T, tourLot.h * T, fr.r - fr.l, fr.b - fr.t, this.zoom) : this.zoom;
     this.z = !this.z ? goalZ : Math.abs(goalZ - this.z) < 0.01 ? goalZ : this.z + (goalZ - this.z) * 0.12;
     const z = this.z;
     const ed = layoutEdit.draft;
     // editing a layout: centre the room instead of the avatar; the town map: centre the whole town
     const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : overview ? ww / 2 : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : overview ? wh / 2 : this.me.y;
     let cx = fx - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = fy - ch / 2 / z;
+    if (tourLot && !ed) {
+      cx = (tourLot.x + tourLot.w / 2) * T - ((fr.l + fr.r) / 2) / z;
+      cy = (tourLot.y + tourLot.h / 2) * T - ((fr.t + fr.b) / 2) / z;
+    }
     // let the camera pan past the left edge by the HUD's width so nothing hides under it
     const lead = this.leftInset / z;
-    if (!overview) {
+    if (!overview && !(tourLot && !ed)) {
       cx = ww * z + this.leftInset <= viewW ? -(viewW / z - ww) / 2 : Math.max(-lead, Math.min(ww - viewW / z, cx));
       cy = wh * z <= ch ? -(ch / z - wh) / 2 : Math.max(0, Math.min(wh - ch / z, cy));
     }
@@ -779,5 +821,16 @@ export class MapRenderer {
     const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;
     const hb = hf?.forkOf ? this.hitboxes.find((h) => h.id === hf.id) : undefined;
     if (hf && hb) drawTip(g, hb.x, hb.y + hb.h + 4, hf.name, [forkTip(hf, (id) => s.agents[id]?.name ?? store.names.get(id) ?? id, hf.currentAssignmentId)], cw, ch);
+    // a building's tour, over everything: the shadow, the lit lot and its numbered hotspots
+    this.tourHits = [];
+    if (tourLot && this.tour) {
+      const a = toScreen(tourLot.x * T, tourLot.y * T);
+      for (const sp of this.tour.spots) {
+        const p = s.places.find((x) => x.id === sp.placeId); if (!p) continue;
+        const bx = spotBox((x, y) => w.at(x, y), p.pos), q = toScreen(bx.x * T, bx.y * T);
+        this.tourHits.push({ id: sp.placeId, n: sp.n, x: q.x - 2, y: q.y - 2, w: bx.w * T * z + 4, h: bx.h * T * z + 4 });
+      }
+      drawTour(g, cw, ch, { x: a.x, y: a.y, w: tourLot.w * T * z, h: tourLot.h * T * z }, this.tourHits, this.tour.hot, now);
+    }
   }
 }
