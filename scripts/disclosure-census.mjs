@@ -15,7 +15,7 @@
  * Options: --sizes=laptop,phone (default both), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
- * summaries), ctl total (in the whole panel), words (words on the first screen), words total (in the whole panel), screens (panel body scroll height /
+ * summaries), ctl total (in the whole panel as it opens: what a closed <details> hides is not counted), words (words on the first screen), words total (in the whole panel as it opens), screens (panel body scroll height /
  * its visible height) and the verdict: pass, FAIL (with which limits it breaks) or excluded. The Bank (Bank Transparency's
  * own grant) and document bodies (a report or the manual: their length is the author's, not the chrome's) are excluded, not failed; their
  * numbers still print. A panel that didn't open prints "no panel".
@@ -88,16 +88,25 @@ const measure = (page, part) => page.evaluate((part) => {
   panel.setAttribute("data-census", "");
   const pr = panel.getBoundingClientRect();
   const top = Math.max(0, pr.top), bottom = Math.min(innerHeight, pr.bottom);
+  // inside a closed <details> (all but its summary) Chromium still gives boxes, under content-visibility: hidden
+  const folded = (el) => {
+    for (let d = el.closest("details:not([open])"); d; d = d.parentElement?.closest("details:not([open])")) {
+      const s = el.closest("summary");
+      if (!(s && s.parentElement === d)) return true;
+    }
+    return false;
+  };
   const shown = (el) => {
+    if (folded(el)) return false;
     const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && r.bottom > top && r.top < bottom;
   };
-  const ctrls = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => el.getClientRects().length);
+  const ctrls = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => el.getClientRects().length && !folded(el));
   let words = 0, total = 0;
   const tw = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
   while (tw.nextNode()) {
     const n = tw.currentNode; const k = (n.textContent.match(/\S+/g) ?? []).length;
-    if (!k || !n.parentElement || !n.parentElement.getClientRects().length) continue;
+    if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement)) continue;
     total += k; if (shown(n.parentElement)) words += k;
   }
   // screens: the tallest scroller in the panel (itself or a scrolling box inside it, at least 120 px tall)
