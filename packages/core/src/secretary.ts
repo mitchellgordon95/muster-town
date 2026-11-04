@@ -15,6 +15,7 @@
 import { isNoCall, NOT_GONE, parseRollup, Agent, type DigestCard, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
 import { createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
+import { STARTER_MANAGER_MODEL } from "./entities.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { newId, nowIso } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -73,7 +74,7 @@ export class Secretary {
       const id = newId("ag");
       this.world.agents.upsert(Agent.parse({
         id, name: SECRETARY_TITLE, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-        title: SECRETARY_TITLE, sprite: 6, direction: DIRECTION, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
+        title: SECRETARY_TITLE, sprite: 6, direction: DIRECTION, model: STARTER_MANAGER_MODEL, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
       }), { silent: true });
       let agent = this.world.agents.require(id, "agent");
       try { agent = this.world.agents.patch(id, { pos: this.world.layout.claimDesk(th.id, id).pos }); }
