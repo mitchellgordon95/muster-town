@@ -32,13 +32,6 @@ function DocMeta({ doc }: { doc: Doc }) {
   );
 }
 
-/** First line of the report's "What I need from you" section, or null. */
-export function needOf(body: string): string | null {
-  const m = /^##+\s*What I need from you[^\n]*\n+([\s\S]*?)(?=\n##+\s|$)/im.exec(body);
-  const line = m?.[1]?.split("\n").map((l) => l.replace(/^[-*]\s+/, "").trim()).find(Boolean);
-  return line ?? null;
-}
-
 /** Pill label: a decided report with a note (a reply, before replies were removed) reads "replied". */
 function decisionLabel(doc: Pick<Doc, "decision" | "decisionNote">): string {
   if (!doc.decision) return "";
