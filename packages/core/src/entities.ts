@@ -65,7 +65,11 @@ export function createBuilding(
 /** A seeded manager's name, sprite and model (collective.json `manager`); left out = town-named, on the starter model. */
 type ManagerSpec = { name?: string; sprite?: number; model?: string };
 
-/** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
+/**
+ * The model every new resident runs its own sessions on: building managers (flag dc_knetp3kqnu), the Town Hall Planner
+ * and Secretary, any resident made later (1:1 mt_i50xwu4z2t). Its forks do not inherit it: a fork takes its
+ * assignment's model or the building's (forks.ts), Opus by default.
+ */
 export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
 
 /**
@@ -189,7 +193,7 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
     // insert first (desk names come from the agents table), then claim the desk and move the body there
     world.agents.upsert(Agent.parse({
       id, name: inp.name || suggestResidentName(world), kind: "resident", buildingId: b.id, homeBuildingId: b.id, ownerUserId: b.createdBy ?? null,
-      title: inp.title, direction: inp.direction, sprite: inp.sprite ?? (existing % 8) + 1, model: inp.model ?? null,
+      title: inp.title, direction: inp.direction, sprite: inp.sprite ?? (existing % 8) + 1, model: inp.model ?? STARTER_MANAGER_MODEL,
       pos: world.layout.door(b.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
     }), { silent: true });
     // a full lab grows by a desk (and the tree re-lots it if it no longer fits; bodies follow, see followRelayout)

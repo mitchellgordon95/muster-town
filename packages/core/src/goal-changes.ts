@@ -1,5 +1,6 @@
 import { NOT_GONE, Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
 import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
+import { STARTER_MANAGER_MODEL } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { GoalNode } from "./goals.ts";
 import { createMeeting, createOneOnOne, defaultFacilitator, meetingNotice } from "./meetings.ts";
@@ -65,7 +66,7 @@ export class Reorgs {
       const id = newId("ag");
       this.world.agents.upsert(Agent.parse({
         id, name: PLANNER_TITLE, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-        title: PLANNER_TITLE, sprite: 5, direction: PLANNER_DIRECTION, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
+        title: PLANNER_TITLE, sprite: 5, direction: PLANNER_DIRECTION, model: STARTER_MANAGER_MODEL, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
       }), { silent: true });
       let agent = this.world.agents.require(id, "agent");
       try { agent = this.world.agents.patch(id, { pos: this.world.layout.claimDesk(th.id, id).pos }); }
