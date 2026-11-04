@@ -224,13 +224,14 @@ const LANE_HINT: Partial<Record<LaneKindRow["lane"], string>> = {
   manager: "A manager's team-lead sessions (purpose manage)",
   other: "Reviews, meetings, summaries, naming, estimates, and work with no lane recorded",
 };
-const KIND_COLS: [TokenKind, string][] = [["input", "Input"], ["output", "Output"], ["cacheRead", "Cache read"], ["cacheWrite5m", "Cache write 5 min"], ["cacheWrite1h", "Cache write 1 h"]];
+const KIND_COLS: [TokenKind, string, string][] = [["input", "Input", "Input"], ["output", "Output", "Output"], ["cacheRead", "Cache read", "Cache read"], ["cacheWrite5m", "Write 5 min", "Cache write 5 min"], ["cacheWrite1h", "Write 1 h", "Cache write 1 h"]];
 
 /**
  * Spend by lane × token kind (gr_lwgus14rd2 step 1, kr_pzr1fkgas8): GET /api/finance/spend's `byLaneKind`, the town's
  * at the top level and one building's (its `buildings` entry) in that building's level. One summary line (total, $, the
  * cache-write share of cost) with a today / 7 d toggle; the table folds under "Show the table" so each level stays about
- * one screen. Today comes with the tab's spend; 7 d is fetched when picked.
+ * one screen. Today comes with the tab's spend; 7 d is fetched when picked. Totals ($, share) come first and the table
+ * scrolls sideways inside its own box: the Spending column is ~710 px at 1400 px, narrower than the ten columns.
  */
 export function LaneKind({ today, buildingId, name, initialOpen = false }: { today?: SpendByLaneKind; buildingId?: string; name?: string; initialOpen?: boolean }) {
   const [open, setOpen] = useState(initialOpen);
@@ -247,14 +248,17 @@ export function LaneKind({ today, buildingId, name, initialOpen = false }: { tod
         <span className="bank-section-right">{winBtn("today", "Today")}{winBtn("7d", "7 d")}<button type="button" className="btn sm bank-toggle" aria-expanded={open} onClick={() => setOpen((x) => !x)}>{open ? "Hide the table" : "Show the table"}</button></span>
       </div>
       {open && t ? (
+        <div className="lane-kind-scroll">
         <table className="table spend-table lane-kind-table">
           <thead><tr>
-            <th>Lane</th><th>Sessions</th>{KIND_COLS.map(([k, label]) => <th key={k} title={`${label}, ${ADJ} (≈ $ on hover)`}>{label}</th>)}
+            <th>Lane</th><th>Sessions</th>
             <th>{ADJ}</th><th title="At API list price">$</th><th title="Cache write 5 min + 1 h, share of the row's cost">Cache-write share</th>
+            {KIND_COLS.map(([k, label, long]) => <th key={k} title={`${long}, ${ADJ} (≈ $ on hover)`}>{label}</th>)}
           </tr></thead>
           <tbody>{t.rows.length ? t.rows.map((r) => <LaneKindLine key={r.lane} r={r} />) : <tr><td colSpan={10} className="muted">No sessions in this window.</td></tr>}</tbody>
           {t.rows.length > 1 ? <tfoot><LaneKindLine r={t.total} /></tfoot> : null}
         </table>
+        </div>
       ) : null}
       {open && t?.notCounted.sessions ? <p className="muted">Not counted: {n(t.notCounted.sessions)} back-filled session{t.notCounted.sessions === 1 ? "" : "s"} with no real split by kind, {n(t.notCounted.tokens)} {ADJ} ({dollars(t.notCounted.usd)}).</p> : null}
       {open && lk && !buildingId ? <div className={lk.check.ok ? "finance-check ok" : "error-line"} role="status">{lk.check.ok ? "✓ " : "✗ "}{lk.check.identity}: {n(lk.total.tokens + lk.notCounted.tokens)} vs {n(lk.sessionsTokens)}</div> : null}
@@ -267,10 +271,10 @@ function LaneKindLine({ r }: { r: LaneKindRow }) {
     <tr className={`lane-kind-${r.lane}`} title={LANE_HINT[r.lane]}>
       <td>{r.lane === "total" ? <b>{LANE_LABEL[r.lane]}</b> : LANE_LABEL[r.lane]}</td>
       <td>{n(r.sessions)}</td>
-      {KIND_COLS.map(([k]) => <td key={k} title={dollars(r.kinds[k].usd)}>{fmtTokens(r.kinds[k].tokens)}</td>)}
       <td className="spend-tokens">{fmtTokens(r.tokens)}</td>
       <td className="spend-usd muted">{dollars(r.usd)}</td>
       <td style={r.cacheWriteShare > 0.2 ? { color: "#c0392b" } : undefined}>{pct(r.cacheWriteShare)}</td>
+      {KIND_COLS.map(([k]) => <td key={k} title={dollars(r.kinds[k].usd)}>{fmtTokens(r.kinds[k].tokens)}</td>)}
     </tr>
   );
 }
