@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -20,7 +20,7 @@ import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
-import { PUBLISH_TOKEN_SECRET, Secrets } from "./secrets.ts";
+import { PUBLISH_TOKEN_SECRET, REPO_TOKEN_SECRET, Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
 import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
@@ -454,7 +454,7 @@ export class World {
   snapshot(): SnapshotMessage {
     return {
       type: "snapshot",
-      town: this.town.get(),
+      town: this.townView(),
       buildings: this.buildingsWithIntray(),
       agents: this.agents.where(NOT_GONE),
       places: this.layout.places,
@@ -510,7 +510,22 @@ export class World {
    */
   publishTarget(): PublishTarget | null {
     const p = this.town.get().publish;
-    return p?.repoUrl ? { repoUrl: p.repoUrl, token: this.secrets.value(PUBLISH_TOKEN_SECRET), lastPushCommit: p.lastPushCommit } : null;
+    if (!p?.repoUrl) return null;
+    // its own token first; else the collective's GH_TOKEN (1:1 mt_z1b38bwg98: one all-repos token can serve both)
+    const token = this.secrets.value(PUBLISH_TOKEN_SECRET) ?? this.secrets.value(REPO_TOKEN_SECRET);
+    return { repoUrl: p.repoUrl, token, lastPushCommit: p.lastPushCommit };
+  }
+
+  /** Which token the next push uses: Publish's own, the collective's GH_TOKEN secret (the fallback), or none. Read live, never stored. */
+  publishTokenSource(): PublishTokenSource {
+    if (this.secrets.hasOwn(PUBLISH_TOKEN_SECRET)) return "own";
+    return this.secrets.hasOwn(REPO_TOKEN_SECRET) ? "collective" : "none";
+  }
+
+  /** The town as GET /api/town and the snapshot show it: `publish.tokenSource` filled in live. */
+  townView(): Town {
+    const t = this.town.get();
+    return t.publish ? { ...t, publish: { ...t.publish, tokenSource: this.publishTokenSource() } } : t;
   }
 
   /** One finished export: append its `export.done` and write the push outcome into `Town.publish` (when a repo is set and a push was due). */
@@ -536,7 +551,8 @@ export class World {
       lastPushAt: same ? cur.lastPushAt : null, lastPushCommit: same ? cur.lastPushCommit : null, lastPushError: same ? cur.lastPushError : null,
     };
     this.town.set({ publish });
-    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet } });
+    publish.tokenSource = this.publishTokenSource();
+    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet, tokenSource: publish.tokenSource } });
     return publish;
   }
 

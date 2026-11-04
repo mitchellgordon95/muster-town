@@ -512,8 +512,9 @@ export class MockApi implements Api {
     const prev = this.sim.town.publish;
     const same = prev?.repoUrl === patch.repoUrl && !patch.token;
     const publish = { repoUrl: patch.repoUrl, tokenSet: !!patch.token || !!prev?.tokenSet, lastPushAt: same ? prev!.lastPushAt : null, lastPushCommit: same ? prev!.lastPushCommit : null, lastPushError: same ? prev!.lastPushError : null };
-    this.sim.town.publish = publish;
-    return clone({ publish });
+    const tokenSource = publish.tokenSet ? "own" as const : "collective" as const; // the mock collective has a GH_TOKEN
+    this.sim.town.publish = { ...publish, tokenSource };
+    return clone({ publish: this.sim.town.publish });
   }
 
   async clearPublish() {
