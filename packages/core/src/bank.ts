@@ -3,6 +3,7 @@ import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
+import { tickMemo } from "./tick-memo.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
@@ -763,12 +764,15 @@ export class Bank {
    */
   available(buildingId: string, now = new Date()): { expiring: number; durable: number } {
     if (!this.repos.buildings.get(buildingId)) return { expiring: 0, durable: 0 };
-    let expiring = 0, durableIn = 0;
-    for (const c of this.live(now)) {
-      if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
-      else durableIn += c.tokens;
-    }
-    return { expiring, durable: durableIn - this.debited(`creditId IS NULL OR ${DURABLE_CREDIT}`, []) };
+    // the same for every building: one sum per scheduler pass (tick-memo.ts)
+    return { ...tickMemo(this, "available", now, () => {
+      let expiring = 0, durableIn = 0;
+      for (const c of this.live(now)) {
+        if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        else durableIn += c.tokens;
+      }
+      return { expiring, durable: durableIn - this.debited(`creditId IS NULL OR ${DURABLE_CREDIT}`, []) };
+    }) };
   }
 
   private requireAdmin(userId: string, what: string): void {

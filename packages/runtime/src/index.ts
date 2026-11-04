@@ -3,7 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, type SubTimer, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, type SubTimer, withTickMemo, checkWaits, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -711,7 +711,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
       timed("schedules", () => fireSchedules(world, d));
       // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
-      timed("explore", () => exploreTick(world, d, subTimed));
+      timed("explore", () => withTickMemo(world.db, () => exploreTick(world, d, subTimed)));
       timed("reorgs", () => world.reorgs.tick(d));
       timed("walkHome", () => walkIdleHome(world, t), "walk home");
       timed("blocked", () => { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); }, "blocked buildings");
@@ -723,10 +723,10 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (stopped) return;
       // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
       // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
-      timed("managers", () => wakeManagers(), "manager sessions");
+      timed("managers", () => withTickMemo(world.db, () => wakeManagers()), "manager sessions");
       // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
       timed("quiet1on1", () => closeQuietOneOnOnes(ctx), "quiet 1:1s");
-      timed("work", () => scheduleWork());
+      timed("work", () => withTickMemo(world.db, () => scheduleWork()));
     } finally { tickSub = null; recordTick(d, phases, sub); }
   }
 
