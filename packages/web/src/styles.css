@@ -917,6 +917,41 @@ div.spend-row > .muted { font-size: 11.5px; }
 .ge-kr-card .goal-kr-acts { margin-left: auto; }
 .ge-check { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 @media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body, .ge-body.sized { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-divider { display: none; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }
+/* The Bank as a centered sheet (gr_567tikzitl step 1, BankSheet.tsx): the goal editor's shell (.ge-*) copied to bank-*;
+   tabs in a column on the left, the tab's tables in .bank-main, its prose, Terms and selected row in .bank-side */
+.bank-wrap { position: fixed; top: 0; bottom: 0; left: 0; right: var(--panel-w, 0px); z-index: 30; display: flex; align-items: stretch; justify-content: center; padding: 20px; background: rgba(10,11,16,.55); }
+.bank-sheet { width: min(1280px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px rgba(0,0,0,.55); overflow: hidden; }
+.bank-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.bank-head .who { flex: 1; min-width: 0; }
+.bank-body { flex: 1; min-height: 0; display: flex; }
+.bank-tabs { flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; border-right: 1px solid var(--line); background: var(--panel-2); overflow: auto; }
+.bank-tab { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); padding: 7px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+.bank-tab:hover { color: var(--text, #e8e8ee); background: rgba(255,255,255,.04); }
+.bank-tab.on { color: var(--text, #e8e8ee); background: var(--panel); border-color: var(--line-2); font-weight: 600; }
+.bank-cols { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(360px, 1fr) 0 minmax(300px, 36%); }
+.bank-cols.sized { grid-template-columns: minmax(0, 1fr) 0 max(320px, min(var(--bank-side), calc(100% - 360px))); }
+.bank-main { overflow: auto; padding: 10px 16px 28px; overscroll-behavior: contain; min-width: 0; }
+.bank-side { overflow: auto; padding: 12px 16px 28px; overscroll-behavior: contain; border-left: 1px solid var(--line); background: var(--panel-2); font-size: 13px; min-width: 0; }
+.bank-side h4 { margin: 4px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.bank-side p { margin: 0 0 10px; line-height: 1.5; }
+.bank-side .bank-note { margin: 0 0 10px; }
+.bank-side .bank-note > b { display: block; margin-bottom: 2px; }
+.bank-side .finance-terms { margin: 12px 0; }
+.bank-selected { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.bank-divider { position: relative; z-index: 5; width: 0; cursor: col-resize; touch-action: none; }
+.bank-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; }
+.bank-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
+.bank-divider:hover::after, .bank-divider:focus-visible::after, .bank-divider.dragging::after { background: var(--accent, #7aa2ff); }
+.bank-divider:focus { outline: none; }
+@media (max-width: 760px) {
+  .bank-wrap { padding: 0; right: 0; } .bank-sheet { border-radius: 0; }
+  .bank-body { flex-direction: column; }
+  .bank-tabs { width: auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--line); padding: 6px; overflow-x: auto; }
+  .bank-tab { white-space: nowrap; flex: none; }
+  .bank-cols, .bank-cols.sized { display: block; overflow: auto; }
+  .bank-main, .bank-side { overflow: visible; } .bank-side { border-left: none; border-top: 1px solid var(--line); }
+  .bank-divider { display: none; }
+}
 
 /* the in-tray as a list (Mitchell's flag dc_2hllscunfx): one line per item */
 .intray-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 5px; padding-bottom: 5px; margin-bottom: 3px; }

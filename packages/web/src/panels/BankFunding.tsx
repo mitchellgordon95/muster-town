@@ -319,8 +319,6 @@ export function BuildingFunding({ rev }: { rev: number }) {
 /** What funds the town. The owner of an input, or an admin, can cancel it (past credits stay in the Bank). */
 export function BankInputs({ bank, onChange }: Props) {
   const me = useTown((s) => s.me);
-  // a hosted collective (its health says its funding): the key from Start is one 1,000,000-token input (server hub.ts STARTER_KEY_TOKENS)
-  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
   const inputs = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
   return (
     <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
@@ -350,9 +348,14 @@ export function BankInputs({ bank, onChange }: Props) {
           </tbody>
         </table>
       )}
-      {hosted ? <div className="foot-note">{HOSTED_CAP_LINE}</div> : null}
     </Section>
   );
+}
+
+/** The Bank inputs' prose for the sidebar: on a hosted collective (its health says its funding) the key from Start is one 1,000,000-token input (server hub.ts STARTER_KEY_TOKENS). */
+export function BankInputsAbout() {
+  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
+  return hosted ? <p className="muted">{HOSTED_CAP_LINE}</p> : null;
 }
 
 /** Shown on a hosted Bank: new work stops when the inputs are spent; 1:1s, Ask about and summaries still run on the key. */

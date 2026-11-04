@@ -95,6 +95,15 @@ export function BankFreeTokens({ free }: { free: FreeTokens }) {
   );
 }
 
+/** The Free tokens tab's prose for the Bank sheet's sidebar. */
+export const FreeTokensTreeAbout = () => (
+  <p className="muted">
+    What exploration (work no grant covers and no human asked for) may still claim under each goal, in {ADJ}: the general
+    balance plus the earmarks at or above the goal, less funded grants&apos; remaining tokens, open proposals&apos; asks and open
+    reservations. At zero nothing new is explored there. A goal&apos;s exploration cap is set in the goal tree (Funding).
+  </p>
+);
+
 /** The Bank's Free tokens tab (the fountain): every active goal, indented, with its free tokens and exploration cap. */
 export function FreeTokensTree() {
   const tree = useLoad(() => api().goalTree(), []);
@@ -102,11 +111,6 @@ export function FreeTokensTree() {
   const rows = root ? treeRows(root, false) : [];
   return (
     <Section title="Free tokens by goal">
-      <p className="muted">
-        What exploration (work no grant covers and no human asked for) may still claim under each goal, in {ADJ}: the general
-        balance plus the earmarks at or above the goal, less funded grants&apos; remaining tokens, open proposals&apos; asks and open
-        reservations. At zero nothing new is explored there. A goal&apos;s exploration cap is set in the goal tree (Funding).
-      </p>
       {tree.loading && !root ? <Loading /> : !rows.length ? <Empty>No goals yet.</Empty> : (
         <table className="table free-table">
           <thead><tr><th>Goal</th><th title="Free tokens under the goal">Free</th><th>Exploration cap</th></tr></thead>

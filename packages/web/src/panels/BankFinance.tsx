@@ -176,12 +176,13 @@ function NotFundedNote({ sp }: { sp: FinanceSpend }) {
   );
 }
 
-/** The note under a synthetic row; the weight-mismatch one is the API's own line, the not-funded one `notFundedNote`. */
+/** What a synthetic row is (the Spending sidebar, not under the row); the weight-mismatch one is the API's own line, the not-funded one `notFundedNote`. */
 const spendNotes = (sp: FinanceSpend): Partial<Record<SpendNode["kind"], ReactNode>> => ({
   "unattributed": "Paid for from the Bank or donations but not traceable to any one work session: work from before sessions counted their own tokens.",
   "weight-mismatch": sp.weightMismatchNote,
   "not-funded": <NotFundedNote sp={sp} />,
 });
+const NOTE_TITLE: Partial<Record<SpendNode["kind"], string>> = { "unattributed": "Unattributed", "weight-mismatch": "Priced differently before the switch", "not-funded": "Not funded" };
 
 function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
   return (
@@ -191,7 +192,7 @@ function GrantLine({ g }: { g: NonNullable<ReturnType<typeof grantLine>> }) {
   );
 }
 
-function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partial<Record<SpendNode["kind"], ReactNode>>; top?: boolean }) {
+function SpendRow({ node, top = false }: { node: SpendNode; top?: boolean }) {
   const line = (
     <span className="spend-line">
       <span className="spend-name" title={node.id ?? node.name}>{node.kind === "grant" && node.id
@@ -203,12 +204,13 @@ function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partia
     </span>
   );
   const gl = grantLine(node);
-  const note = gl ? <GrantLine g={gl} /> : notes[node.kind];
-  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`}>{line}{note ? (typeof note === "string" ? <div className="muted">{note}</div> : note) : null}</div>;
+  const note = gl ? <GrantLine g={gl} /> : null;
+  const about = NOTE_TITLE[node.kind] ? "Explained in the sidebar, under About this tab" : undefined;
+  if (!node.children?.length) return <div className={`spend-row spend-${node.kind}`} title={about}>{line}{note}</div>;
   return (
     <details className={`spend-row spend-${node.kind}`}>
-      <summary>{line}{gl ? note : null}</summary>
-      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} notes={notes} />)}</div>
+      <summary>{line}{note}</summary>
+      <div className="spend-children">{node.children.map((c, i) => <SpendRow key={c.id ?? `${c.kind}-${i}`} node={c} />)}</div>
     </details>
   );
 }
@@ -216,19 +218,31 @@ function SpendRow({ node, notes, top = false }: { node: SpendNode; notes: Partia
 export function SpendingView({ sp }: { sp: FinanceSpend }) {
   const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp);
   const grants = grantsSentence(sp), grantsCheck = grantsCheckLine(sp);
-  const notes = spendNotes(sp);
   return (
     <Section title="Spending">
       {grants ? <p className="spend-grants">{grants}</p> : null}
       {grants && grantsCheck ? <Check c={grantsCheck} /> : null}
-      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
       <div className="spend-tree">
-        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} notes={notes} top />)}
+        {sp.rows.map((r, i) => <SpendRow key={r.id ?? `${r.kind}-${i}`} node={r} top />)}
       </div>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
       {usdCheck ? <Check c={usdCheck} /> : null}
-      {sp.usd ? <p className="muted finance-usd-note">{USD_NOTE} Each session is priced at the output price of the model its tokens are booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at Fable's $50 per million); rows with no session at $20 per million.</p> : null}
     </Section>
+  );
+}
+
+/** The Spending section's prose for the Bank sheet's sidebar: how to read the tree, what each synthetic row is, the dollars footnote. */
+export function SpendingAbout({ sp }: { sp: FinanceSpend }) {
+  const notes = spendNotes(sp);
+  const kinds = new Set(sp.rows.map((r) => r.kind));
+  return (
+    <>
+      <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Open a row for its parts.</p>
+      {(["unattributed", "weight-mismatch", "not-funded"] as const).filter((k) => kinds.has(k) && notes[k]).map((k) => (
+        <div key={k} className="bank-note"><b>{NOTE_TITLE[k]}</b>{typeof notes[k] === "string" ? <p className="muted">{notes[k]}</p> : notes[k]}</div>
+      ))}
+      {sp.usd ? <p className="muted finance-usd-note">{USD_NOTE} Each session is priced at the output price of the model its tokens are booked in (Opus 5.5, $20 per million, for every new session; older Fable sessions at Fable's $50 per million); rows with no session at $20 per million.</p> : null}
+    </>
   );
 }
 
@@ -284,7 +298,6 @@ export function SourcesView({ s }: { s: FinanceSources }) {
   const check = sourcesCheckLine(s);
   return (
     <Section title="Sources">
-      <p className="muted">What the town received and from whom: each Bank input (subscriptions and API keys; open one for its dated credits) and each donation straight to a building ({ADJ}).</p>
       <div className="spend-tree">
         {s.inputs.map((i) => <SourceInputLine key={i.id ?? "deleted"} i={i} />)}
         <div className="spend-row spend-building"><span className="spend-line"><span className="spend-name"><b>Credited through the Bank</b></span><span className="spend-tokens"><b>{n(s.creditedTokens)}</b></span></span></div>
@@ -307,6 +320,9 @@ export function SourcesView({ s }: { s: FinanceSources }) {
     </Section>
   );
 }
+
+/** The Sources section's prose for the sidebar. */
+export const SourcesAbout = () => <p className="muted">What the town received and from whom: each Bank input (subscriptions and API keys; open one for its dated credits) and each donation straight to a building ({ADJ}).</p>;
 
 const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
 
@@ -349,11 +365,6 @@ export function FlyView({ fly }: { fly: FinanceFly }) {
   const windowLabel = flyWindowLabel(fly);
   return (
     <Section title="Hosting (Fly.io)">
-      <p className="muted">
-        What the town's servers cost, in US dollars: an estimate from the town's own records at Fly's list prices ({fly.rates.region}, read {fly.rates.pricedAt}),
-        not Fly's bill. Each desk session runs on its own Machine for as long as it lasts{own ? "; the town Machine runs all day" : ""}.
-      </p>
-      {own ? null : <p className="fly-hosted">{HOSTED_FLY_NOTE}</p>}
       <table className="table finance-summary">
         <thead><tr><th /><th>Desks</th>{own ? <th>Town Machine</th> : null}<th>Total</th></tr></thead>
         <tbody>
@@ -385,10 +396,24 @@ export function FlyView({ fly }: { fly: FinanceFly }) {
           <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Desks, last {all.days} days</b></span><span className="spend-tokens"><b>{usd(all.deskUsd)}</b></span></span></div>
         </div>
       ) : null}
-      <p className="muted">Not counted: {fly.notCounted.join("; ")}.</p>
-      <details className="spend-row"><summary className="muted">How this is estimated</summary><ul className="muted">{fly.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul></details>
       <Check c={flyCheckLine(fly)} />
     </Section>
+  );
+}
+
+/** The Hosting tab's prose for the sidebar: what the dollars are, what is not counted, how it is estimated. */
+export function FlyAbout({ fly }: { fly: FinanceFly }) {
+  const own = fly.townPaidBy !== "host";
+  return (
+    <>
+      <p className="muted">
+        What the town&apos;s servers cost, in US dollars: an estimate from the town&apos;s own records at Fly&apos;s list prices ({fly.rates.region}, read {fly.rates.pricedAt}),
+        not Fly&apos;s bill. Each desk session runs on its own Machine for as long as it lasts{own ? "; the town Machine runs all day" : ""}.
+      </p>
+      {own ? null : <p className="fly-hosted">{HOSTED_FLY_NOTE}</p>}
+      <p className="muted">Not counted: {fly.notCounted.join("; ")}.</p>
+      <details className="bank-note"><summary className="muted">How this is estimated</summary><ul className="muted">{fly.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul></details>
+    </>
   );
 }
 
@@ -434,14 +459,24 @@ export function TokensView({ f }: { f: Finance }) {
           <tr><td>Left</td><td><b>{n(f.left)}</b><Usd x={f.usd?.left} /></td></tr>
           {f.overdrawn ? <tr className="finance-overdrawn" title="Spent past what was received; the lines under it say where"><td>Overdrawn (used past what was received)</td><td>{n(f.overdrawn)}</td></tr> : null}
           {overdrawnParts(f).map((p) => (
-            <tr key={p.key} className="sub-row"><td>{p.label}{p.note ? <div className="muted">{p.note}</div> : null}</td><td>{n(p.tokens)}</td></tr>
+            <tr key={p.key} className="sub-row" title={p.note}><td>{p.label}</td><td>{n(p.tokens)}</td></tr>
           ))}
         </tbody>
       </table>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
-      {f.mix ? (() => { const m = mixLine(f.mix); return <p className="muted token-mix" title={m.formula}>{m.line}<br /><small>{m.formula}</small></p>; })() : null}
-      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
+  );
+}
+
+/** The Tokens section's prose for the sidebar: what 1 adj. token is made of, the notes on overdrawn's parts, the dollars footnote. */
+export function TokensAbout({ f }: { f: Finance }) {
+  const notes = overdrawnParts(f).filter((p) => p.note);
+  return (
+    <>
+      {f.mix ? (() => { const m = mixLine(f.mix); return <p className="muted token-mix" title={m.formula}>{m.line}<br /><small>{m.formula}</small></p>; })() : null}
+      {notes.map((p) => <div key={p.key} className="bank-note"><b>Overdrawn: {p.label}</b><p className="muted">{p.note}</p></div>)}
+      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
+    </>
   );
 }
 
@@ -461,11 +496,17 @@ export function ProjectionView({ f }: { f: Finance }) {
           <tr><td>Tokens left last</td><td>{runwayText(p)}</td></tr>
         </tbody>
       </table>
-      <p className="muted">Coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
-      {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
     </Section>
   );
 }
+
+/** The Next N days section's prose for the sidebar. */
+export const ProjectionAbout = ({ f }: { f: Finance }) => (
+  <>
+    <p className="muted">Next {f.projection.days} days: coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
+    {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
+  </>
+);
 
 /** What the Bank page's finance sections show: `f` from GET /api/finance, the rest null when its endpoint couldn't be loaded. */
 export interface FinanceData { f: Finance; spend: FinanceSpend | null; sources: FinanceSources | null; fly: FinanceFly | null }
