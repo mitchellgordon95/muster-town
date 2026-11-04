@@ -516,7 +516,7 @@ export function cashLines(c: FinanceCash, check?: { ok: boolean; text: string })
 }
 
 /** Paid in cash, last 30 days (on Balance, under the list-price figures): what running the collective cost in dollars. */
-export function CashView({ f }: { f: Finance }) {
+function CashView({ f }: { f: Finance }) {
   if (!f.cash) return null;
   const l = cashLines(f.cash, f.cashCheck);
   return (
