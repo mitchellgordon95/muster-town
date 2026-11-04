@@ -3,6 +3,7 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { AppError, checkWaits, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
@@ -839,7 +840,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const commit = gitHead(ctx.repoRoot);
   if (commit) world.host.commit = commit;
   // the repo this server runs from: `World.repoMode` tells muster.town's own Workshop from a collective with no or another repo
-  const ownRepo = originUrl(ctx.repoRoot);
+  // (a workspace whose path is this very checkout is this server's repo, whatever its stored URL says: the repo was renamed)
+  const ws = world.town.get().workspace;
+  const ownRepo = ws?.repoUrl && isAbsolute(ws.path) && resolvePath(ws.path) === resolvePath(ctx.repoRoot) ? ws.repoUrl : originUrl(ctx.repoRoot);
   if (ownRepo) world.host.repoUrl = ownRepo;
   // `{deploy}` waits: "next" holds once this server started after the assignment was made; a sha once the live commit contains it
   const bootIso = now().toISOString();
