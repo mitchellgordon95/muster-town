@@ -165,8 +165,11 @@ for (const size of SIZES) {
       let clicks = 0;
       await page.goto(url, { waitUntil: "load" }); await settle(2500);
       if (await page.getByRole("button", { name: "Skip" }).isVisible().catch(() => false)) { await tap(page.getByRole("button", { name: "Skip" })); clicks++; await settle(800); }
-      await tap(page.getByText("Workshop Collective").first()); clicks++; await settle(4500);
       const watch = page.getByRole("button", { name: "Watch first" });
+      // a client that opens straight on the town (a dev client) has no town list: go on to the intro
+      if (!(await watch.isVisible().catch(() => false))) { await tap(page.getByText("Workshop Collective").first()); clicks++; await settle(4500); }
+      // the intro can arrive a few seconds late (a dev client compiling on first load): give it up to 8 s
+      await watch.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
       if (await watch.isVisible().catch(() => false)) { await tap(watch); clicks++; }
       await settle(2500);
       return `${clicks} clicks to the map`;
