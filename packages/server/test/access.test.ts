@@ -127,7 +127,7 @@ describe("who may interact", () => {
   it("join funnel: a public GET with the shape; the guest card's view ping works for a guest and a visitor", async () => {
     const { app, auth, visitor } = await setup();
     const before = (await json(app, "GET", "/api/join-funnel")).body;
-    expect(before).toMatchObject({ days: 30, totals: { guestCardViews: expect.any(Number), signIns: expect.any(Number), asked: expect.any(Number), letIn: expect.any(Number), declined: expect.any(Number) } });
+    expect(before).toMatchObject({ days: 30, totals: { guestCardViews: expect.any(Number), signIns: expect.any(Number), asked: expect.any(Number), letIn: expect.any(Number), declined: expect.any(Number), acted: expect.any(Number) } });
     expect(before.collectives).toHaveLength(1);
     expect((await json(app, "POST", "/api/join-funnel/view")).status).toBe(200);
     expect((await json(app, "POST", "/api/join-funnel/view", { headers: visitor })).status).toBe(200);
@@ -140,5 +140,80 @@ describe("who may interact", () => {
     expect(after.decisions).toBe(before.decisions + 1);
     expect(after.medianDecisionMs).toEqual(expect.any(Number));
     expect(after.collectives[0].totals).toEqual(after.totals);
+  });
+});
+
+describe("direct work under <goal> (gr_cuobjlny6r, Mitchell mt_hlizi9wxxc decision 1)", () => {
+  it("direct work permission gates 1:1s, meetings and directed sources", async () => {
+    const { app, world, auth, visitor, by, seed } = await setup();
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    const mei = by("Mei");
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const goal = world.goalTree.create(null, { parentId: "gl_town", text: "Carbon goal" }).id;
+    world.goalTree.attach(null, "carbon-cycle", goal);
+    const other = world.ops.createBuilding(admin, { name: "Other lab" });
+    world.goalTree.attach(null, other.id, world.goalTree.create(null, { parentId: "gl_town", text: "Other goal" }).id);
+    world.agents.patch(by("Noor").id, { homeBuildingId: other.id, buildingId: other.id });
+    world.ops.updateBuilding(admin, other.id, { managerAgentId: by("Noor").id });
+
+    // Let in + direct work in one call: two events; /api/me lists the goal
+    const asked = await json(app, "POST", "/api/access-requests", { headers: visitor, body: {} });
+    const funnel0 = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    expect((await json(app, "POST", `/api/access-requests/${asked.body.accessRequest.id}/decide`, { headers: auth, body: { grant: true, directGoalId: goal } })).status).toBe(200);
+    const texts = world.events.recent({ limit: 10 }).map((e) => e.text);
+    expect(texts.some((t) => /Octo was let in as a member/.test(t))).toBe(true);
+    expect(texts.some((t) => /may direct work under "Carbon goal"/.test(t))).toBe(true);
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.direct).toEqual([{ goalId: goal, text: "Carbon goal", how: "granted" }]);
+    // the web's Talk gate: the buildings where canDirect holds (never the Town Hall)
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.directBuildingIds).toContain("carbon-cycle");
+    expect((await json(app, "GET", "/api/me", { headers: visitor })).body.directBuildingIds).not.toContain("town-hall");
+    expect((await json(app, "GET", "/api/me", { headers: auth })).body.directDefaultGoalId).toEqual(expect.any(String));
+
+    // a plain Let in grants nothing: no 1:1, no meeting (403)
+    const pat = world.ops.createUser("Pat");
+    world.permissions.grant({ kind: "user", id: pat.user.id }, townRoleId("visitor"));
+    const patH = { authorization: `Bearer ${pat.token}` };
+    const patAsk = await json(app, "POST", "/api/access-requests", { headers: patH, body: {} });
+    await json(app, "POST", `/api/access-requests/${patAsk.body.accessRequest.id}/decide`, { headers: auth, body: { grant: true } });
+    expect((await json(app, "GET", "/api/me", { headers: patH })).body).toMatchObject({ canInteract: true, direct: [], directBuildingIds: [] });
+    const refused = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: patH, body: {} });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toMatch(/direct work under/);
+    expect((await json(app, "POST", "/api/meetings", { headers: patH, body: { kind: "standup", buildingId: "carbon-cycle" } })).status).toBe(403);
+
+    // the holder: inside the subtree a 1:1 (and a meeting); outside it refused
+    const mine = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: visitor, body: {} });
+    expect(mine.status).toBe(200);
+    expect(mine.body.meeting).toMatchObject({ kind: "one-on-one", facilitatorId: mei.id });
+    expect((await json(app, "POST", "/api/meetings", { headers: visitor, body: { kind: "standup", buildingId: "carbon-cycle" } })).status).toBe(201);
+    expect((await json(app, "POST", `/api/buildings/${other.id}/one-on-one`, { headers: visitor, body: {} })).status).toBe(403);
+    // their first 1:1 line still counts as acted, once
+    expect((await json(app, "POST", `/api/meetings/${mine.body.meeting.id}/say`, { headers: visitor, body: { text: "Hi, what can I do here?" } })).status).toBe(200);
+    await json(app, "POST", `/api/meetings/${mine.body.meeting.id}/say`, { headers: visitor, body: { text: "And next?" } });
+    expect((await json(app, "GET", "/api/join-funnel")).body.totals.acted).toBe(funnel0.acted + 1);
+
+    // directed sources: the holder's 1:1 is one in carbon-cycle, not in the other lab; a non-holder's tell or old 1:1 is refused
+    const task = { agentId: mei.id, title: "t", description: "d", lane: "directed" as const };
+    expect((await world.verbs.assign(mei, { ...task, sourceId: mine.body.meeting.id })).assignmentId).toMatch(/^as_/);
+    await expect(world.verbs.assign(by("Noor"), { ...task, agentId: by("Noor").id, sourceId: mine.body.meeting.id })).rejects.toThrow(/may direct work/);
+    const patAvatar = world.ops.ensureAvatar(pat.user.id);
+    await world.verbs.tell(patAvatar, { to: mei.id, text: "please build X" });
+    const patTell = world.messages.first("fromId = ? AND kind = 'tell'", [patAvatar.id], "ORDER BY createdAt DESC, rowid DESC")!;
+    await expect(world.verbs.assign(mei, { ...task, sourceId: patTell.id })).rejects.toThrow(/Pat may not direct work in/);
+    const legacy = world.meetings.upsert({ ...mine.body.meeting, id: "mt_legacy0001", withUserId: pat.user.id, transcript: [{ speakerId: pat.user.id, speakerKind: "user", text: "build X", at: new Date().toISOString() }] });
+    await expect(world.verbs.assign(mei, { ...task, sourceId: legacy.id })).rejects.toThrow(/No human in meeting/);
+
+    // grant later (admin), not by a plain member; GET /api/members lists them; revoke closes it again
+    expect((await json(app, "POST", `/api/members/${pat.user.id}/direct`, { headers: visitor, body: { goalId: goal } })).status).toBe(403);
+    expect((await json(app, "GET", "/api/members", { headers: patH })).status).toBe(403);
+    expect((await json(app, "POST", `/api/members/${pat.user.id}/direct`, { headers: auth, body: { goalId: goal } })).status).toBe(200);
+    expect((await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: patH, body: {} })).status).toBe(200);
+    expect((await world.verbs.assign(mei, { ...task, sourceId: patTell.id })).assignmentId).toMatch(/^as_/);
+    const members = (await json(app, "GET", "/api/members", { headers: auth })).body.members as { userId: string; letInAt: string | null; direct: { goalId: string }[] }[];
+    expect(members.find((m) => m.userId === pat.user.id)).toMatchObject({ letInAt: expect.any(String), direct: [{ goalId: goal, text: "Carbon goal" }] });
+    expect((await json(app, "DELETE", `/api/members/${pat.user.id}/direct`, { headers: auth, body: { goalId: goal } })).body).toEqual({ removed: true });
+    expect(world.events.recent({ limit: 3 }).some((e) => /Pat may no longer direct work under "Carbon goal"/.test(e.text))).toBe(true);
+    expect((await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: patH, body: {} })).status).toBe(403);
+    expect((await json(app, "GET", "/api/me", { headers: patH })).body.direct).toEqual([]);
   });
 });

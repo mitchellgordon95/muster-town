@@ -4,6 +4,7 @@
  * from the `agent.mentioned` event). Without a human origin it never starts work: it's a request to look. With one (at
  * most 3 hops, 24 h) an idle resident gets a queued directed assignment (`mentionWake`, wakes step 5).
  */
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, Message } from "@muster-town/schema";
 import { sendMessage } from "./domain.ts";
 import { actOrigin } from "./origin.ts";
@@ -31,7 +32,7 @@ export function extractMentions(text: string, world: World, exclude: Iterable<st
   const skip = new Set(exclude);
   const found: { agent: Agent; at: number }[] = [];
   const seen = new Set<string>();
-  for (const a of world.agents.where("status NOT IN ('retired','banned')", [])) {
+  for (const a of world.agents.where(NOT_GONE, [])) {
     if (skip.has(a.id) || skip.has(holderOf(a).id) || seen.has(a.id)) continue;
     const at = mentionIndex(text, a.name);
     if (at < 0) continue;

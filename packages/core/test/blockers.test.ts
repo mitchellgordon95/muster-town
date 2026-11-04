@@ -9,6 +9,7 @@ const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nN
 describe("blockedBy", () => {
   it("waits: a colleague's assignment (line to them), a deploy (the building's door, with the live sha), a decision (the in-tray); a time (parked work) is not a block", async () => {
     const { world, by, admin } = seededWorld();
+    creditBank(world); // directed work needs free tokens since 2026-11-02; these tests are about waits
     const mei = by("Mei"), noor = by("Noor");
     world.host.commit = "abcdef1234567";
     const first = world.ops.createWork(admin, noor.id, { title: "Noor's step 2" });
@@ -40,6 +41,7 @@ describe("blockedBy", () => {
 
   it("a wait on a time (work parked with resumeWhen {after}) is not a block, before or after the time", () => {
     const { world, by, admin } = seededWorld();
+    creditBank(world);
     const mei = by("Mei");
     const late = world.ops.createWork(admin, mei.id, { title: "Late", waitFor: { after: new Date(Date.now() + 120 * 60_000).toISOString() } });
     world.ops.createWork(admin, mei.id, { title: "On deploy", waitFor: { deploy: "next" } });
@@ -52,6 +54,7 @@ describe("blockedBy", () => {
 
   it("buildingStats (town planning's side bar): running, queued (blocked among them), the building's active schedules; agents, forks, working; the live build", async () => {
     const { world, by, admin } = seededWorld();
+    creditBank(world);
     const mei = by("Mei"), noor = by("Noor");
     world.host.commit = "abcdef1234567"; world.host.startedAt = "2026-10-29T16:30:00.000Z";
     const first = world.ops.createWork(admin, noor.id, { title: "Running" });

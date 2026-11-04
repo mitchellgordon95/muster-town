@@ -48,6 +48,10 @@ describe("grants routes", () => {
     const proposed = await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
     expect(proposed.status).toBe(200);
     expect(proposed.body.grant.status).toBe("proposed");
+    // what it is likely to cost (core grant-estimate.ts): recorded at propose, served signed out with the grant
+    const pub = await json(app, "GET", `/api/grants/${id}`);
+    expect(pub.body.grant.estimate).toMatchObject({ askTokens: 8_000_000, sample: expect.any(Number), similar: expect.any(Array) });
+    expect(pub.body.grant.estimate.sentence).toMatch(/^ask 8,000,000 · /);
     expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("proposed");
 
     // the board carries the goal, the open proposals and the exploration allowance
@@ -96,5 +100,71 @@ describe("grants routes", () => {
 
     expect((await json(app, "GET", `/api/grants/gr_missing`)).status).toBe(404);
     expect((await json(app, "GET", `/api/buildings/nowhere/grants`)).status).toBe(404);
+  });
+  it("a checkpoint grant in the Town Hall in-tray and the review deck carries its evidence: per key result verdict and note, spend, the top-up line (mt_7b4zc7yja3)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const admin = null; // the system decides (no session needed for a funding decision here)
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 1_000_000 });
+    world.grants.patch(g.id, { status: "checkpoint", history: [...world.grants.require(g.id).history, { at: new Date().toISOString(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    const [k1] = world.grantDesk.get(g.id).keyResults;
+    world.grantDesk.fileCheckpoint(manager, g.id, { status: "claimed", note: "live on the banner", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the board", topUpTokens: 200_000 });
+    const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
+    const row = intray.body.grants.find((x: { id: string }) => x.id === g.id);
+    expect(row.evidence).toMatchObject({
+      grantId: g.id, grantTokens: 1_000_000, spentTokens: 0, topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board", shipped: [],
+      keyResults: [{ verdict: "shipped", note: "live on the banner", status: "claimed" }, { verdict: "not", note: "", status: "not-started" }],
+    });
+    const deck = await json(app, "GET", "/api/review-deck");
+    const slide = deck.body.slides.find((x: { key: string }) => x.key === `checkpoint:${g.id}`);
+    expect(slide.text).toContain("1. ✓ shipped: live on the banner");
+    expect(slide.text).toContain(`2. ✗ not shipped: ${KRS[1]!.text}`);
+    expect(slide.text).toContain("A top-up of 200,000 tokens buys: KR 2: the board");
+  });
+  it("stopping a funded grant is a human's: the manager's stop and close-stopped get 403, its withdraw of a proposal 200; a funder's stop closes it and misses its key results (gr_8i952perny)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
+    const body = { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
+    const propose = async () => {
+      const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body })).body.grant.id as string;
+      await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
+      return id;
+    };
+    const id = await propose();
+    const other = await propose();
+    // the manager still withdraws its own proposal (close as stopped = withdraw_grant)
+    expect((await json(app, "POST", `/api/grants/${other}/close`, { headers: mgr, body: { outcome: "stopped", note: "superseded" } })).status).toBe(200);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "too early" } })).status).toBe(409); // proposed: withdraw or reject it
+    await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { body: { reason: "x" } })).status).toBe(401);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: mgr, body: { reason: "x" } })).status).toBe(403);
+    expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "stopped", note: "x" } })).status).toBe(403);
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: " " } })).status).toBe(400);
+    expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("funded");
+    const stopped = await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "the plan is wrong" } });
+    expect(stopped.status).toBe(200);
+    // no session ran on it: it closes at once
+    const got = (await json(app, "GET", `/api/grants/${id}`)).body.grant;
+    expect(got).toMatchObject({ status: "closed", outcome: "stopped" });
+    expect(got.keyResults).toHaveLength(2);
+    for (const k of got.keyResults) expect(k).toMatchObject({ status: "missed", statusNote: "Grant stopped: the plan is wrong", archivedAt: expect.any(String) });
+    expect((await json(app, "POST", `/api/grants/${id}/stop`, { headers: auth, body: { reason: "again" } })).status).toBe(409);
+    const ev = world.events.list({ types: ["grant.closed"], desc: true, limit: 5 }).find((e) => e.payload.grantId === id)!;
+    expect(ev.payload).toMatchObject({ outcome: "stopped", reason: "the plan is wrong", grantTokens: 1_000_000, spentTokens: 0, unspentTokens: 1_000_000, returnedTo: "pool" });
+    // the Town Hall in-tray lists it for the record (routed, nothing to decide); the withdrawn proposal is not a stop
+    const intray = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
+    expect(intray.stopped.map((g: { id: string }) => g.id)).toEqual([id]);
+    expect(intray.grants.map((g: { id: string }) => g.id)).not.toContain(id);
+    expect(intray.routes[id]).toMatchObject({ canDecide: false });
+    const deck = (await json(app, "GET", "/api/review-deck", { headers: auth })).body;
+    expect(deck.slides.find((x: { kind: string }) => x.kind === "stopped")).toMatchObject({ grantId: id });
   });
 });

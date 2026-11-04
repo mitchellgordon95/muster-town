@@ -28,22 +28,24 @@ describe("fundingFor with Bank-only money (the Bank is the only place a credenti
 
   it("failover is the next session's pick: after a cap death the Bank hands out the api-key input's key (booked as api-key) until the cap resets; never two in one session (1:1 mt_x40qq8poc3)", () => {
     const { world, seed, bid, noor } = open();
-    world.bank.addInput(seed.admin.id, { label: "sub", source: "subscription", model: "m", tokens: 1_000_000, recurrence: "daily", weeklyCapTokens: 7_000_000, token: "sk-ant-oat01-test-token" });
+    const sub = world.bank.addInput(seed.admin.id, { label: "sub", source: "subscription", model: "m", tokens: 1_000_000, recurrence: "daily", weeklyCapTokens: 7_000_000, token: "sk-ant-oat01-test-token" });
     const buffer = world.bank.addInput(seed.admin.id, { label: "buffer", source: "api-key", model: "m", tokens: 500_000, recurrence: "once", apiKey: "sk-ant-api03-fallback" });
     const now = new Date();
-    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription" });
+    const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", funding: "subscription", credentialInputId: sub.id });
     world.ops.endSession(s.id, { status: "error", error: "You've hit your org's monthly spend limit · your session limit resets 8:50pm (UTC)", spendLimit: "You've hit your org's monthly spend limit" });
     expect(world.bank.capState(now).cappedAt).toBeTruthy();
     const f = world.budget.fundingFor(bid, { now });
     expect(f).toEqual({ allocationId: null, auth: "api-key", credential: { kind: "api-key", secret: "sk-ant-api03-fallback", inputId: buffer.id } });
     expect(Object.keys(credentialEnv(f.credential))).toEqual(["ANTHROPIC_API_KEY"]);
-    // once the reset in the SDK's message has passed: back on the subscription
-    const later = new Date(Date.parse(world.bank.capState(now).resetsAt) + 60_000);
-    expect(world.bank.capState(later).cappedAt).toBeNull();
+    // the limit carries the reset the SDK's message named (8:50pm UTC); once it has passed: back on the subscription
+    const limit = world.bank.availability.open(sub.id)[0]!;
+    expect(limit).toMatchObject({ scope: "*", kind: "window" });
+    expect(limit.until!.slice(11, 16)).toBe("20:50");
+    const later = new Date(Date.parse(limit.until!) + 60_000);
     expect(world.budget.fundingFor(bid, { now: later }).auth).toBe("subscription");
-    // capped with nothing to fail over to: still the subscription (the cap hold holds new starts)
+    // capped with nothing to fail over to: the work waits with the limit's reason (availability.ts; no learned-cap hold)
     world.bank.cancelInput(seed.admin.id, buffer.id);
-    expect(world.budget.fundingFor(bid, { now }).auth).toBe("subscription");
+    expect(() => world.budget.fundingFor(bid, { now })).toThrow(/^sub: limited, resets /);
     world.close();
   });
 

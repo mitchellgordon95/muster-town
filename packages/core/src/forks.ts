@@ -3,9 +3,9 @@
  * short-lived resident row ("Pix 3", forkOf = the manager) that takes a free desk (never growing the lab), works one
  * assignment and is retired when its session ends. The runtime (step 2) calls `forkManager` and `retireFork`.
  */
-import { Agent, type Assignment, type Building } from "@muster-town/schema";
+import { isGone, Agent, type Assignment, type Building, type Session } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
-import { buildingQueue, homeOf, managerAgentOf } from "./domain.ts";
+import { buildingQueue, forkableManagerOf, homeOf } from "./domain.ts";
 import { interruptNow, isWorking } from "./wakes.ts";
 import { sessionView } from "./bank.ts";
 import { buildingRoleId } from "./permissions.ts";
@@ -39,8 +39,9 @@ export function nextForkN(world: World, managerId: string): number {
  * are skipped; a row the lane gate holds keeps its `heldReason` (as for a resident's queue).
  */
 export function forkableQueue(world: World, b: Building): Assignment[] {
-  const manager = managerAgentOf(world, b);
-  if (!manager || manager.status === "banned" || manager.status === "retired") return [];
+  // a visitor manager is never forked: its building's queue is held (forkableManagerOf)
+  const manager = forkableManagerOf(world, b);
+  if (!manager || isGone(manager)) return [];
   if (world.budget.remaining(b.id) <= 0) return [];
   return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
 }
@@ -115,7 +116,7 @@ export function forkDeskSlot(world: World, agentId: string, defaults: (buildingI
  */
 export function forkManager(world: World, buildingId: string, assignmentId: string): { fork: Agent; desk: number; assignment: Assignment } {
   const b = world.buildings.require(buildingId, "building");
-  const manager = managerAgentOf(world, b);
+  const manager = forkableManagerOf(world, b);
   if (!manager) throw new AppError("conflict", `${b.name} has no manager agent to fork.`);
   const a = world.assignments.require(assignmentId, "assignment");
   if (a.buildingId !== b.id || a.queue !== "building") throw badRequest(`"${a.title}" isn't on ${b.name}'s building queue.`);
@@ -291,7 +292,7 @@ export function forksOf(world: World, managerId: string): { live: ForkSummary[];
 export const STOP_FORK_TIMEOUT_MS = 5 * 60_000;
 
 /**
- * `stop_fork` (manager/reviewer: building.assign on the fork's building): interrupt a fork's running work session with
+ * `stop_fork` (manager: building.assign on the fork's building): interrupt a fork's running work session with
  * "finish this step, write your pages, submit_report now", and log the request with its deadline. `stopOverdueForks`
  * stops the session hard if no report has landed by then (the stopped path writes the "Session ended without a report"
  * report and cancels the assignment). Asking twice for one session keeps the first deadline.
@@ -303,20 +304,32 @@ export function requestForkStop(world: World, me: Agent, input: { forkId?: strin
   if (!fork.forkOf) throw badRequest(`${fork.name} is not a fork; stop_fork stops forks only.`);
   if (fork.id === me.id) throw badRequest("You can't stop yourself: submit_report ends your session.");
   const bid = homeOf(fork);
-  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager or a reviewer of ${fork.name}'s building can stop it (building.assign).`);
-  if (fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
+  if (!bid || !world.permissions.can(me, "building.assign", bid)) throw new AppError("forbidden", `Only the manager of ${fork.name}'s building can stop it (building.assign).`);
+  if (fork.status === "stopped" || isGone(fork)) throw new AppError("conflict", `${fork.name} is ${fork.status}.`);
   const session = world.sessions.first("agentId = ? AND status = 'running' AND purpose = 'work'", [fork.id], "ORDER BY startedAt DESC, rowid DESC");
   if (!session || !isWorking(world, fork.id)) throw new AppError("conflict", `${fork.name} has no running work session.`);
   if (input.assignmentId && session.assignmentId !== input.assignmentId) throw new AppError("conflict", `${fork.name} is not running ${input.assignmentId} now (it is on ${session.assignmentId ?? "no assignment"}).`);
+  return interruptFork(world, me, fork, session, input.reason ?? "", now);
+}
+
+/**
+ * The interrupt half of `requestForkStop`, no permission check: tell the fork to wrap up, log the request with its
+ * deadline and leave it to `stopOverdueForks`. A human stopping a grant (`Grants.stop`) calls it for each of the
+ * grant's forks. Asking twice for one session keeps the first deadline.
+ */
+export function interruptFork(world: World, me: Agent, fork: Agent, session: Session, why: string, now = new Date()) {
+  const bid = homeOf(fork);
   const prior = world.events.list({ agentId: fork.id, types: ["system"], payloadKey: "stopFork", desc: true, limit: 20 })
     .find((e) => e.payload.stopFork === "requested" && e.payload.sessionId === session.id);
   if (prior) return { forkId: fork.id, sessionId: session.id, deadline: String(prior.payload.deadline), note: `${fork.name} was already asked to stop; the hard stop stays at ${stamp(String(prior.payload.deadline))}.` };
   const deadline = new Date(now.getTime() + STOP_FORK_TIMEOUT_MS).toISOString();
   const at = stamp(deadline);
-  const reason = (input.reason ?? "").trim();
+  const reason = why.trim();
+  // read before this request's event is appended: with no marker yet, the seeding would count it twice
+  const pending = pendingStops(world, now);
   interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
   const req = world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
-  setPendingStops(world, [...pendingStops(world, now), { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
+  setPendingStops(world, [...pending, { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
   return { forkId: fork.id, sessionId: session.id, deadline, note: `${fork.name} was interrupted: finish its step, write its pages and submit_report. If no report by ${at}, the town stops it and files "Session ended without a report"; either way the fork retires and its report reaches your in-tray.` };
 }
 
@@ -335,7 +348,7 @@ export function stopOverdueForks(world: World, now = new Date()): string[] {
     // past its deadline: stopped now or never (a session that is not running at the deadline never runs again)
     const fork = world.agents.get(p.forkId);
     const session = world.sessions.get(p.sessionId);
-    if (!fork || session?.status !== "running" || fork.status === "retired" || fork.status === "stopped" || fork.status === "banned") continue;
+    if (!fork || session?.status !== "running" || fork.status === "stopped" || isGone(fork)) continue;
     const by = world.agents.get(p.by)?.name ?? "its manager";
     world.events.append({ type: "system", agentId: fork.id, buildingId: homeOf(fork), text: `${fork.name} ${session.reportId ? "filed its report but was still running" : "did not file its report"} ${STOP_FORK_TIMEOUT_MS / 60_000} min after ${by} asked it to stop: session stopped`, payload: { stopFork: "hard", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: p.by, reportId: session.reportId ?? null, requestEventId: p.eventId } });
     world.ops.stopAgent(null, fork.id);

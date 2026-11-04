@@ -7,7 +7,7 @@ import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { ADJ_HINT, Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
@@ -17,6 +17,7 @@ import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
 import { IdLink } from "./Markdown";
+import { PlantFlag } from "./Places";
 
 /** "Captain: <captain>" (docs/goals.md "Captains on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
@@ -73,6 +74,10 @@ function Overview({ b }: { b: SnapshotBuilding }) {
     ? { today: row.tokensToday ?? 0, allTime: row.tokensAllTime } : live ? { today: live.tokensToday ?? 0, allTime: live.tokensAllTime ?? 0 } : null;
   const places = useTown((s) => s.places);
   const hasBoard = places.some((p) => p.id === `board:${b.id}`);
+  // Plant a flag here (gr_zsm1piyqyx): whoever may (building.assign, or a captain of its goal), same form as F on the map
+  const canInteract = useTown((s) => s.me?.canInteract !== false);
+  const flagHere = b.kind !== "town-hall" && canInteract && store.canFlag(b.id);
+  const [flagging, setFlagging] = useState(false);
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
@@ -93,15 +98,19 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
           {hasTray ? (
             <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
-              <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+              <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
         </div>
       ) : null}
-      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? (
-        <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
+      {b.kind !== "town-hall" && ((b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id)) || flagHere) ? (
+        <div className="actions">
+          {b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? <Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act> : null}
+          {flagHere && !flagging ? <button className="btn" onClick={() => setFlagging(true)} title="A quick request for this building's manager to delegate (F on the map)">⚑ Plant a flag</button> : null}
+        </div>
       ) : null}
+      {flagging ? <PlantFlag targets={[b]} onClose={() => setFlagging(false)} /> : null}
       {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
         <div className="actions"><Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
       ) : null}
@@ -113,7 +122,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       <KV items={[
-        ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
+        ["Work done", usage ? <span title={ADJ_HINT}><b>{fmtTokens(usage.today)}</b> tokens today · <b>{fmtTokens(usage.allTime)}</b> in all</span> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
           ["Budget", live && live.bankTokens > 0 ? <>{fmtTokens(live.remainingTokens)} left to draw from the Bank</>
             : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
@@ -121,7 +130,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Collective defaults", defaultsLine(b, repo)],
           ["Desks", `${members.length} / ${b.headcount}`],
-          ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
+          ["Reports", b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "The manager agent"} reads and decides them` : "people with review rights read and decide them (no manager agent)"],
         ] : [
           ["Manager", b.managerAgentId && agents[b.managerAgentId] ? <>★ {agents[b.managerAgentId].name}: the planning agent. It answers 1:1s and facilitates reorg meetings; the in-tray is the humans'.</> : "the Planner, once someone plans with it"],
         ]) as [string, ReactNode][],
@@ -150,8 +159,9 @@ function RetainerMeta({ x }: { x: ScheduleView }) {
   const n = (t: number) => t.toLocaleString("en-US");
   return (
     <div className="doc-row-meta retainer-meta">
-      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}</span>
+      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}{x.retainer === "funded" ? ` · claims ${n(x.claimTokens ?? 0)} now` : ""}</span>
       <Pill tone={x.retainer === "funded" ? "ok" : x.retainer === "asked" || x.retainer === "countered" ? "warn" : undefined}>{RETAINER_WORDS[x.retainer] ?? x.retainer}</Pill>
+      {x.missedRuns ? <Pill tone="bad">missed {x.missedRuns} run{x.missedRuns === 1 ? "" : "s"}</Pill> : null}
     </div>
   );
 }

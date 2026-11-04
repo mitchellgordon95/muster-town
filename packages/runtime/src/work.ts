@@ -1,6 +1,6 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, NoCredential, type World, appendAgentLog, chainBlock, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
-import { countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, codeWorkspace, createDoc, fallbackReportBody, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workSystemPrompt } from "@muster-town/core";
+import { isGone, countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
 
 /** The allocation a session of this agent would be charged to now, or null (also when the Bank holds no credential: the spend is still recorded). */
@@ -31,7 +31,7 @@ export function preflightWork(ctx: Ctx, starting: Set<string>, agentId: string, 
   const { world } = ctx;
   if (starting.has(agentId) || ctx.live.has(agentId)) throw new AppError("conflict", "Agent is already in a work session.");
   const agent = world.agents.require(agentId, "agent");
-  if (agent.status === "banned" || agent.status === "stopped" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
+  if (agent.status === "stopped" || isGone(agent)) throw new AppError("conflict", `${agent.name} is ${agent.status}.`);
   const bid = homeOf(world, agentId);
   if (!bid) throw new AppError("bad_request", `${agent.name} has no building.`);
   // the Bank holds nothing that can run it (a fresh town, a hosted collective before its owner adds a key): held, not out of budget
@@ -110,13 +110,27 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const bid = homeOf(world, agentId);
   const live = ctx.live.get(agentId);
   const agentNow = world.agents.require(agentId, "agent");
-  const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || agentNow.status === "banned" || agentNow.status === "retired";
+  const stopped = !!o.stopped || (live?.sessionId === sessionId && live.stopped) || agentNow.status === "stopped" || isGone(agentNow);
   const counts = o.counts ? countsOf(o.counts) : splitRaw(o.tokens ?? 0, session.model);
   const usage = { tokens: rawTokens(counts), counts, costUsd: Math.max(0, o.costUsd ?? 0), turns: Math.max(0, Math.round(o.turns ?? 0)) };
   const error = o.error ?? null;
   const reportSubmitted = !!o.reportSubmitted || !!world.sessions.get(sessionId)?.reportId;
 
-  if (session.purpose === "work" && !reportSubmitted) {
+  // Promised and available (core availability.ts): a session that died because its credential couldn't serve it (a model
+  // or plan limit, billing, a revoked key) didn't fail the work. Its assignment goes back to the front of the queue to be
+  // funded by another credential, or to wait with the limit's reason; no fallback report. Only when the session ran on a
+  // Bank input, so the limit is recorded and dispatch won't hand the same credential straight back.
+  const credentialFailure = session.purpose === "work" && !stopped && !reportSubmitted && !!session.credentialInputId
+    && !!classifyFailure([o.spendLimit, error].filter(Boolean).join(" "), session.model);
+  const requeue = credentialFailure && session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
+  if (requeue && requeue.status === "active") {
+    const front = world.db.prepare("SELECT MIN(position) AS p FROM assignments WHERE buildingId = ? AND status = 'pending'").get(requeue.buildingId) as { p: number | null };
+    setAssignmentStatus(world, requeue.id, "pending", { position: front.p === null ? requeue.position : Math.min(requeue.position, front.p - 1) });
+    world.agents.patch(agentId, { currentAssignmentId: null });
+    world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session couldn't run on its credential; "${requeue.title}" is back at the front of the queue`, payload: { sessionId, assignmentId: requeue.id, requeued: "credential", error: (o.spendLimit || error || "").slice(0, 300) } });
+  }
+
+  if (session.purpose === "work" && !reportSubmitted && !requeue) {
     try {
       const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const body = fallbackReportBody(o.finalText ?? "", error, assignment);

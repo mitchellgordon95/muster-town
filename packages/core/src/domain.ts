@@ -1,4 +1,4 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
+import { isGone, Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
@@ -11,6 +11,7 @@ import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
+import { withAsks } from "./rollup-asks.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -177,7 +178,8 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   if (decision === "stop") {
     for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [author.id])) setAssignmentStatus(world, a.id, "cancelled");
     if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });
-    world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
+    // a gone author stays gone: stop would be the first step of a revive (docs/invariants/agent-lifecycle.md)
+    if (!isGone(author)) world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
     return { doc, assignment };
   }
   // P2: a parked report (its author queued its own continuation with `resumeWhen`). Approve leaves it parked (it
@@ -220,7 +222,8 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
   const building = world.buildings.require(buildingId, "building");
   if (building.kind === "town-hall") throw new AppError("bad_request", "Plant the flag in a building, not the Town Hall: it has no manager to delegate it.");
   if (actor.kind !== "human") throw new AppError("forbidden", "Only a human plants a flag; as an agent, give the work with `assign`.");
-  world.permissions.require(actor, "building.assign", buildingId);
+  // a captain of the building's goal (or one above) plants there too (gr_zsm1piyqyx); outside their subtree still 403
+  if (!world.goalTree.captainsBuilding(actor, buildingId)) world.permissions.require(actor, "building.assign", buildingId);
   const body = text.trim();
   if (!body) throw new AppError("bad_request", "A flag needs a note: what you want done.");
   const holder = world.holderOf(actor);
@@ -270,6 +273,8 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
     const building = world.buildings.get(flag.buildingId ?? "");
     const manager = managerAgentOf(world, building);
     if (!opts.assigneeId) {
+      const visitor = visitorManagerRefusal(world, building);
+      if (visitor) throw visitor;
       if (!manager) throw new AppError("bad_request", `${building?.name ?? "The building"} has no manager agent to fork: approve the flag, or name a visitor of the building (assigneeId).`);
       assignee = manager;
       queue = "building";
@@ -277,7 +282,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
       assignee = world.agents.require(opts.assigneeId, "agent");
       const home = assignee.homeBuildingId ?? assignee.buildingId;
       if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name the manager itself or a visitor of the building.`);
-      if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+      if (isGone(assignee)) throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
     }
   }
   const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
@@ -303,7 +308,25 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
   if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
   const a = world.agents.get(building.managerAgentId);
-  return a && a.kind !== "human" && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired" ? a : undefined;
+  // a visitor manager (it adopted the goal, `adoptGoal`) manages only while online: offline, the building is unmanaged
+  return a && a.kind !== "human" && a.status !== "stopped" && !isGone(a) && !(a.kind === "visitor" && a.status === "offline") ? a : undefined;
+}
+
+/**
+ * The manager the town can fork and run sessions for: `managerAgentOf` when it is a resident. A visitor manager runs
+ * its own sessions (Claude Code over MCP), so the town never forks it nor starts a session as it, and the building's
+ * queue is held (1:1 mt_26vin80bpm; docs/invariants/agent-lifecycle.md invariant 10).
+ */
+export function forkableManagerOf(world: World, building: Building | undefined): Agent | undefined {
+  const m = managerAgentOf(world, building);
+  return m?.kind === "resident" ? m : undefined;
+}
+
+/** The refusal for building-queue work in a visitor-managed building; null when its manager is not a visitor. */
+export function visitorManagerRefusal(world: World, building: Building | undefined): AppError | null {
+  const m = building?.managerAgentId ? world.agents.get(building.managerAgentId) : undefined;
+  if (!building || m?.kind !== "visitor" || isGone(m)) return null;
+  return new AppError("conflict", `${building.name}'s manager ${m.name} is a visitor: the town can't fork a visitor, so nothing goes on its building queue. Offer the work to ${m.name} by id (agentId ${m.id}) instead.`);
 }
 
 /** Who works this building's in-tray right now. */
@@ -351,13 +374,29 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
     `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
     [], "ORDER BY updatedAt, rowid",
-  ).map((g) => world.grantDesk.view(g));
+  ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
+}
+
+/** How long a stopped grant stays on the Town Hall in-tray and review deck after it closes (gr_8i952perny): 3 days. */
+const STOPPED_SHOWN_MS = 3 * 24 * 3_600_000;
+
+/**
+ * Grants a human stopped (`Grants.stop`, gr_8i952perny), newest first: every one still `stopping`, and those closed as
+ * stopped in the last 3 days. Nothing to decide (the stop was the decision), so they are not counted in the badge; the
+ * in-tray and the review deck show who stopped it, why, and what was spent and returned. Withdrawn proposals are not stops.
+ */
+function stoppedGrants(world: World, now = Date.now()): GrantView[] {
+  const since = new Date(now - STOPPED_SHOWN_MS).toISOString();
+  return world.grants.where("status = 'stopping' OR (status = 'closed' AND outcome = 'stopped' AND closedAt >= ?)", [since], "ORDER BY updatedAt DESC, rowid DESC")
+    .filter((g) => g.history.some((h) => h.action === "stop"))
+    .map((g) => world.grantDesk.view(g));
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[] } {
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world), blocked: world.grantDesk.blockedBuildings() };
+  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts)
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */

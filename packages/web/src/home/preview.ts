@@ -3,6 +3,7 @@
  * on the building lots, people as status-coloured dots. One `/api/town` fetch per source every REFRESH_MS, shared by
  * every canvas that shows it; a canvas that leaves the page stops being drawn.
  */
+import { isGone } from "@muster-town/schema";
 import type { Snapshot } from "../api";
 import { World } from "../map/world";
 import { drawOverview, OverviewCam } from "../map/overview";
@@ -42,7 +43,7 @@ function draw(c: HTMLCanvasElement, f: Feed) {
   cam.cx = lots.length ? ((x0 + x1) / 2) * T : (world.w * T) / 2;
   cam.cy = (lots.length ? ((y0 + y1) / 2) * T : (world.h * T) / 2) + (bottom - top) / 2 / cam.z;
   const dots = snap.agents
-    .filter((a) => a.status !== "retired" && a.status !== "banned")
+    .filter((a) => !isGone(a))
     .map((a) => ({ x: a.pos.x * T + T / 2, y: a.pos.y * T + T, color: STATUS_COLOR[a.status] ?? "#9a9db3" }));
   drawOverview(g, world, cam, { dots, labelMinPx: Infinity });
 }

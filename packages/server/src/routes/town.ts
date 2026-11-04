@@ -1,5 +1,5 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -12,7 +12,7 @@ const EventsQuery = z.object({
   buildingId: z.string().optional(),
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
-const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
+const SessionsQuery = z.object({ agentId: z.string().optional(), grantId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
 const FunderQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
@@ -51,7 +51,7 @@ export async function townRoutes(app: FastifyInstance) {
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}),
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress() } : {}),
   }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
@@ -92,8 +92,19 @@ export async function townRoutes(app: FastifyInstance) {
       isAdmin: world.permissions.isAdmin(holder),
       canInteract: canInteract(world, user.id),
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
+      direct: directGoals(user.id),
+      directDefaultGoalId: defaultDirectGoal(world, holder),
+      captainOf: world.buildings.all().filter((b) => world.goalTree.captainsBuilding(holder, b.id)).map((b) => b.id),
+      directBuildingIds: world.buildings.where("kind != 'town-hall'", [], "ORDER BY createdAt, rowid").filter((b) => canDirect(world, holder, b.id)).map((b) => b.id),
     };
   });
+
+  /** The goals a user may direct work under: granted rows, then the goals they captain (gr_cuobjlny6r). */
+  const directGoals = (userId: string): AuthMe["direct"] => {
+    const granted = directGrantsOf(world, userId).map((r) => ({ goalId: r.goalId, text: world.goalTree.get(r.goalId)?.text ?? r.goalId, how: "granted" as const }));
+    const captained = world.goals.where("ownerId = ? AND status = 'active'", [userId], "ORDER BY createdAt, rowid").map((g) => ({ goalId: g.id, text: g.text, how: "captain" as const }));
+    return [...granted, ...captained];
+  };
 
   // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the Town Hall in-tray.
   app.post("/api/access-requests", async (req) => {
@@ -110,7 +121,28 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/access-requests/:id/decide", async (req) => {
     const input = parse(AccessDecisionInput, req.body);
-    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant) };
+    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant, input.directGoalId ?? null) };
+  });
+
+  // "Direct work under <goal>" (gr_cuobjlny6r): let-in members with their goals (User stats' Members table), for an
+  // admin or a captain; grant and revoke one goal at a time (an admin, or a captain of the goal or one above it).
+  app.get("/api/members", async (req) => {
+    const actor = actorOf(world, req);
+    const h = world.holderOf(actor);
+    if (!world.permissions.can(actor, "town.manage_roles") && !(h.kind === "user" && world.goals.first("ownerId = ?", [h.id]))) {
+      throw new AppError("forbidden", "Only an admin or a goal's captain sees the members list.", 403, "town.manage_roles");
+    }
+    return { members: membersView(world) };
+  });
+
+  app.post<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body);
+    return { direct: grantDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
+  });
+
+  app.delete<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body ?? req.query);
+    return { removed: revokeDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
   });
 
   app.get("/api/events", async (req) => {
@@ -126,6 +158,16 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get("/api/sessions", async (req) => {
     const q = parse(SessionsQuery, req.query);
+    // one grant's sessions (gr_4tf9hd64d5): every one, newest first, each with its list-price dollars, agent name and
+    // assignment title; their adjustedOutputTokens sum to GET /api/grants/:id spentTokens (Grants.spent reads the same rows)
+    if (q.grantId) {
+      const rows = world.sessions.where("grantId = ?", [q.grantId], "ORDER BY startedAt DESC, rowid DESC");
+      const sessions = rows.map((s) => ({
+        ...sessionView(s), usd: cents(sessionListUsd(s)), agentName: world.nameOf(s.agentId),
+        assignmentTitle: (s.assignmentId && world.assignments.get(s.assignmentId)?.title) || null,
+      }));
+      return { sessions, grantId: q.grantId, tokens: sessions.reduce((n, s) => n + s.adjustedOutputTokens, 0), usd: cents(rows.reduce((n, s) => n + sessionListUsd(s), 0)) };
+    }
     const rows = q.agentId
       ? world.sessions.where("agentId = ?", [q.agentId], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`)
       : world.sessions.where("1 = 1", [], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`);
@@ -184,7 +226,10 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post("/api/buildings", async (req, reply) => {
     const input = parse(CreateBuildingInput, req.body);
-    const building = world.ops.createBuilding(actorOf(world, req), input);
+    const created = world.ops.createBuilding(actorOf(world, req), input);
+    // no name typed: one cheap-model call names it like a place (flag dc_42c9cjbzls); the goal's short text stays on failure
+    const named = !input.name?.trim() && app.runtime?.nameBuilding;
+    const building = named ? await app.runtime!.nameBuilding!(created.id).catch(() => world.buildings.require(created.id, "building")) : created;
     return reply.code(201).send({ building });
   });
 
@@ -254,6 +299,14 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the operating reserve.");
     const { tokens } = parse(z.object({ tokens: z.number().int().nonnegative() }), req.body);
     return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
+  /** The retainer lookahead (admin): `{hours}` of due runs each retainer claims (default 6; docs/bank.md). → { retainerLookaheadHours, free } */
+  app.put("/api/town/retainer-lookahead", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the retainer lookahead.");
+    const { hours } = parse(z.object({ hours: z.number().int().min(1).max(168) }), req.body);
+    return { retainerLookaheadHours: world.setRetainerLookahead(hours, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
   });
 
   /**
@@ -423,7 +476,9 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
     const desks = world.desksConfig();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined });
+    // a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
+    const hosted = !!world.host.hosted;
+    return world.bank.fly(desks, !!process.env.FLY_APP_NAME && !hosted, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {
@@ -439,6 +494,12 @@ export async function townRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
     const user = requireUser(req);
     return { input: world.bank.cancelInput(user.id, req.params.id) };
+  });
+
+  // "Try now": clear an observed credential limit (core availability.ts) so the next session may try the input again
+  app.post<{ Params: Params }>("/api/bank/limits/:id/clear", async (req) => {
+    const user = requireUser(req);
+    return { limit: world.bank.clearLimit(user.id, req.params.id) };
   });
 
   // public, read-only: every funding stream (earmarks too), what each can still pay, and the expected session size a key

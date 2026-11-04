@@ -25,7 +25,7 @@ const WALK = [...HEAD, "..BBBBBBBB..", "..SBBBBBBS..", "..SBBBBBBS..", "...BBBBB
 
 const SKIN = ["#f1c9a5", "#c68642", "#f6d7bd", "#8d5524", "#e0ac69"];
 const PALETTES: Record<string, string>[] = [
-  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 librarian
+  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 red
   { H: "#1c1c1c", B: "#4f8fc9", P: "#2f2f3a", S: SKIN[1] },
   { H: "#d9a441", B: "#5aa66b", P: "#3a3a4a", S: SKIN[0] },
   { H: "#2b2b2b", B: "#b26fd1", P: "#2d3550", S: SKIN[2] },
@@ -33,7 +33,7 @@ const PALETTES: Record<string, string>[] = [
   { H: "#c4553a", B: "#3fbfb0", P: "#2f2f3a", S: SKIN[0] },
   { H: "#6b4f3a", B: "#d85f8f", P: "#2d3550", S: SKIN[0] },
   { H: "#f0f0f0", B: "#ffffff", P: "#5b7aa6", S: SKIN[0] }, // 7 human player
-  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 moderator
+  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 grey
   { H: "#2a1d14", B: "#e86a3a", P: "#2f2f3a", S: SKIN[2] },
   { H: "#8a6236", B: "#6a7de0", P: "#3a3a4a", S: SKIN[1] },
   { H: "#101010", B: "#9ac23f", P: "#2d3550", S: SKIN[3] },
@@ -360,6 +360,19 @@ export function drawStats(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#e0b04a"; g.fillRect(px + 9, py + 7, 2, 3);
   g.fillStyle = "#c94f4f"; g.fillRect(px + 12, py + 8, 1, 2);
 }
+/**
+ * The "?" help sign just inside every building's door (TILE.HELP, place `help:<buildingId>`): a paper-yellow board
+ * with an ink "?" on a wooden post, the paper card's colours (style guide §2). Draws on the floor.
+ */
+export function drawHelpSign(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 4, py + 15, 8, 1);
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 7, py + 11, 2, 5);
+  g.fillStyle = "#3b2f12"; g.fillRect(px + 2, py + 1, 12, 11);
+  g.fillStyle = "#fbefc4"; g.fillRect(px + 3, py + 2, 10, 9);
+  // the "?", 5x7 pixels
+  g.fillStyle = "#3b2f12";
+  for (const [x, y] of [[1, 0], [2, 0], [3, 0], [0, 1], [4, 1], [4, 2], [3, 3], [2, 4], [2, 6]]) g.fillRect(px + 6 + x, py + 3 + y, 1, 1);
+}
 /** Filing cabinet stood against a wall face: a grey steel cabinet with three drawers, the top one ajar. Draw the wall first. */
 export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 11, 1);
@@ -475,7 +488,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats";
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -499,6 +512,7 @@ export function iconUrl(kind: IconKind): string {
     case "schedule": drawSchedule(g, 0, 0); break;
     case "goals": g.drawImage(tl.wallFace, 0, 0); drawGoalChart(g, 0, 0); break;
     case "stats": drawStats(g, 0, 0); break;
+    case "help": drawHelpSign(g, 0, 0); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {
       g.drawImage(tl.deskL, 0, 0);

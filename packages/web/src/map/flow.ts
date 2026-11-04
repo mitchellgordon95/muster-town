@@ -7,7 +7,7 @@
  */
 import type { Place, SnapshotBuilding } from "@muster-town/schema";
 import type { Bank } from "../api";
-import { claimedTokens, fmtTokens } from "../format";
+import { claimedTokens, fmtTokens, netFreeTokens, signed } from "../format";
 import { roundRect } from "./overlay";
 import { T } from "./sprites";
 
@@ -215,7 +215,7 @@ export function drawFlow(g: CanvasRenderingContext2D, now: number, flow: Flow, b
 
   // title card
   const lines: [string, string][] = bank
-    ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${bank.free ? fmtTokens(claimedTokens(bank.free)) : "…"} claimed · ${bank.free ? fmtTokens(bank.free.freeTokens) : "…"} free · Esc to return`]]
+    ? [[`${fmtTokens(bank.balanceTokens)} adj. tokens in the Bank`, `${bank.free ? fmtTokens(claimedTokens(bank.free)) : "…"} claimed · ${bank.free ? signed(netFreeTokens(bank.free), fmtTokens) : "…"} free · Esc to return`]]
     : [[flow.error ? "Couldn't read the Bank" : "Reading the Bank…", flow.error ?? "Esc to return"]];
   const [t1, t2] = lines[0];
   const hint = bank && !flows.some((f) => (f.s?.pct ?? 0) > 0) ? "No building draws on the Bank yet" : t2;
@@ -237,7 +237,7 @@ function drawLegend(g: CanvasRenderingContext2D, bank: Bank, x: number, y: numbe
   const rows: [string, string][] = [
     ["Balance", fmtTokens(bank.balanceTokens)],
     ["Claimed", bank.free ? fmtTokens(claimedTokens(bank.free)) : "…"],
-    ["Free", bank.free ? fmtTokens(bank.free.freeTokens) : "…"],
+    ["Free", bank.free ? signed(netFreeTokens(bank.free), fmtTokens) : "…"],
   ];
   const RH = 20, PAD = 12, HEAD = 26;
   g.font = `700 12px ${FONT}`;

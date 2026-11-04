@@ -1,4 +1,6 @@
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
+import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { notifyMentions } from "../mentions.ts";
@@ -14,7 +16,7 @@ import type { VerbIn } from "./types.ts";
 export const HEARING_RANGE = 3;
 
 export function nearbyAgents(world: World, me: Agent, range = HEARING_RANGE): (Agent & { distance: number })[] {
-  return world.agents.where("status NOT IN ('banned','retired') AND id != ?", [me.id])
+  return world.agents.where(`${NOT_GONE} AND id != ?`, [me.id])
     .map((a) => ({ ...a, distance: chebyshev(a.pos, me.pos) }))
     .filter((a) => a.distance <= range)
     .sort((a, b) => a.distance - b.distance);
@@ -33,8 +35,8 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     p.kind === "door" || p.kind === "plaza" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
     p.kind === "mod-station" || p.kind === "planning" || p.kind === "town-map" || p.kind === "goal-tree" || p.id === "schedule-board" || p.kind === "bench" || p.id === "intray:town-hall" || p.id === "board:town-hall" ||
-    // the board, schedule board, filing cabinet and in-tray (manager's desk) of the building I'm in / my home building
-    ((p.kind === "board" || p.kind === "schedule" || p.kind === "cabinet" || p.kind === "intray") && mine(p)) ||
+    // the board, schedule board, filing cabinet, in-tray (manager's desk) and help sign of the building I'm in / my home building
+    ((p.kind === "board" || p.kind === "schedule" || p.kind === "cabinet" || p.kind === "intray" || p.kind === "help") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
   return {
@@ -110,10 +112,12 @@ export async function say(world: World, me: Agent, input: VerbIn<"say">) {
   world.events.append({ type: "agent.said", agentId: me.id, buildingId: me.buildingId, text: input.text, payload: { heardBy: listeners.map((a) => a.id) } });
   for (const a of listeners) sendMessage(world, { kind: "heard", fromId: me.id, fromKind: "agent", toId: a.id, body: input.text });
   notifyMentions(world, me, input.text, { where: "speech", buildingId: me.buildingId });
+  // a let-in member's first Say counts once in the join funnel (gr_58n37j410s step 3)
+  if (me.kind === "human" && me.ownerUserId) countMemberAct(world, me.ownerUserId);
   return { heardBy: listeners.map((a) => a.name) };
 }
 
-/** \`stop_fork\` (manager/reviewer): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
+/** \`stop_fork\` (manager): ask a live fork to wrap up and file its report now; hard stop after the timeout (forks.ts). */
 export async function stop_fork(world: World, me: Agent, input: VerbIn<"stop_fork">) {
   return requestForkStop(world, me, input);
 }
@@ -176,7 +180,7 @@ function idleNote(world: World, me: Agent, to: Agent): string | undefined {
   if (to.kind !== "resident" || !["idle", "stopped", "out-of-budget"].includes(to.status)) return undefined;
   const how = world.permissions.can(me, "building.assign", homeOf(to))
     ? `If it needs action, use \`assign\` to give ${to.name} the work.`
-    : `If it needs action, ask someone who can \`assign\` (a manager or reviewer of ${to.name}'s building).`;
+    : `If it needs action, ask someone who can \`assign\` (the manager of ${to.name}'s building).`;
   return `Delivered to ${to.name}'s inbox, but ${to.name} is ${to.status} and will not see it until a session starts: a \`tell\` does not start work. ${how}`;
 }
 
@@ -218,12 +222,12 @@ export async function accept_assignment(world: World, me: Agent, input: VerbIn<"
 export async function ban(world: World, me: Agent, input: VerbIn<"ban">) {
   const target = world.agents.require(input.agentId, "agent");
   const bid = homeOf(target);
-  // ban is a town-level act (moderators / admin)
+  // ban is a town-level act (admins)
   if (!world.permissions.can(me, "town.ban")) throw forbidden("town.ban");
   if (target.kind === "human") throw badRequest("Humans can't be banned with this verb.");
   if (target.status === "retired") throw badRequest(`${target.name} was dismissed.`);
   world.movement.cancel(target.id, "Banned.");
-  world.agents.patch(target.id, { status: "banned" });
+  world.setStatus(target.id, "banned", `${target.name} was banned`);
   world.events.append({ type: "agent.banned", agentId: target.id, buildingId: bid, text: `${target.name} was banned by ${me.name}: ${input.reason}`, payload: { by: world.holderOf(me).id, reason: input.reason, pendingManagerReview: true } });
   return { banned: target.id };
 }

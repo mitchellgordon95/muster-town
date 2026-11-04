@@ -7,7 +7,7 @@
  * desks in place with the − / + beside it (mt_cyd2t5ioob decision 5): optimistic, reverted on error; a lower count
  * only caps the next fork, running ones keep their desks. A goal with no building attached shows a + beside its desks
  * tag instead (mt_n25udpflus decision 3: a building is a thin layer on a goal): one press makes a lab attached there,
- * named after the goal, with 1 desk and its manager (the same POST /api/buildings the Planning desk uses), then the
+ * named by one cheap-model call on the goal (the goal's short text if it fails; runtime naming.ts), with 1 desk and its manager (the same POST /api/buildings the Planning desk uses), then the
  * usual − / + for it.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type PointerEvent as RPointerEvent } from "react";
@@ -220,7 +220,7 @@ function Box({ b, on, dim, now, proposals, desks, onDesks, onBuild, making, drop
         {node.status === "retired" ? <span className="ge-tag bad">retired</span> : <span className={`ge-tag desks ${d.desks ? "" : "none"} ${onBuild && !node.buildings.length ? "steps" : ""}`} title={d.desks ? `${deskWord(d.desks)} work this goal (the headcount of every building attached here or below), ${d.inUse} in use now` : "No building is attached here or below: nobody works this goal"}>
           {deskWord(d.desks)}
           {onBuild && !node.buildings.length ? <button className="gc-step" aria-label={`Add a building here: ${clip(node.text)}`} disabled={making}
-            title="Add a building attached to this goal: named after it, with 1 desk and its manager (the same as the Planning desk's New building); − / + beside it then set its desks"
+            title="Add a building attached to this goal: a short name picked from the goal, with 1 desk and its manager (the same as the Planning desk's New building); − / + beside it then set its desks"
             onClick={(e) => { e.stopPropagation(); onBuild(node.id); }}>{making ? "…" : "+"}</button> : null}
         </span>}
         {node.ownerId ? <span className="ge-tag captain" title={`Captain: ${node.owner.name} (set on this goal; goals below inherit it)`}>👤 {node.owner.name}</span> : null}
@@ -234,7 +234,7 @@ function Box({ b, on, dim, now, proposals, desks, onDesks, onBuild, making, drop
             const step = (to: number, label: string) => <button className="gc-step" aria-label={`${label} a desk: ${x.name}`} title={`${label === "Add" ? "Add" : "Remove"} a desk (${x.name} to ${to}); a lower count only stops new forks, running ones keep their desks`}
               disabled={to < 1 || to > MAX_HEADCOUNT} onClick={(e) => { e.stopPropagation(); onDesks!(x.id, n, to); }}>{label === "Add" ? "+" : "−"}</button>;
             return <span key={x.id} className={`ge-tag building ${onDesks ? "steps" : ""}`} title={`${x.name} is attached here: ${deskWord(n)}, ${x.inUse} in use`}>
-              {onDesks ? step(n - 1, "Remove") : null}{x.name} · {n}{onDesks ? step(n + 1, "Add") : null}
+              {onDesks ? step(n - 1, "Remove") : null}<span className="gc-bname">{x.name}</span><span className="gc-bn">· {n}</span>{onDesks ? step(n + 1, "Add") : null}
             </span>;
           })}
       </div> : null}

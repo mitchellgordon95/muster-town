@@ -70,7 +70,7 @@ Haiku 5.5 over 100k-token prompts costs 5× every column, so its weights are the
 A session with several models (a Fable session's Haiku subagent) keeps `byModel` (migration 035); each model's counters are priced at that model's list price and the sum is expressed in the unit model's output tokens (`adjustedOfUsage(model, counts, byModel, unit)`; the Bank's unit is Opus 5.5, see step 3).
 
 Where it shows (always next to `tokens` and the five counters):
-- `GET /api/sessions?agentId=&limit=` (new; newest first), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
+- `GET /api/sessions?agentId=&limit=` (new; newest first); `GET /api/sessions?grantId=` every session of one grant, newest first, no cap, each row with `usd` (list price, `sessionListUsd`), `agentName`, `assignmentTitle`, plus top-level `tokens` (= the grant's `spentTokens`) and `usd` (gr_4tf9hd64d5), `GET /api/agents/:id` `currentSession`, `GET /api/agents/:id/session`.
 - events: `session.ended`, `bank.input`, `bank.credited` carry `adjustedOutputTokens`.
 - `GET /api/bank` (the Bank page's payload): `creditedCounts` and `adjustedCreditedTokens`, overall and per input.
 
@@ -91,6 +91,18 @@ The five counters stay alongside: ledger rows (`usage`, `bank_debits`, `bank_cre
 Conversion (migration `037_adjusted_tokens.sql`, once): every size above ÷30 (Opus and any non-Fable model) or ÷24 (an input whose model is Fable), rounded; the ledger's `tokens` recomputed from its counters at Opus 5.5 weights (a credit at its input's model). One `bank.converted` event lists every converted input, grant, building and allocation as `[before, after]`. Live figures (2026-10-26): bi_au5kt05vlj 40M/day, cap 280M → 1,333,333/day, cap 9,333,333; bi_foh0utko9b 20M/day, cap 100M → 666,667/day, cap 3,333,333; gr_iq5m7dug56 24,000,000 → 800,000. New defaults: `dailyTokensPerAgent` 350,000, the seed's house budget 1,700,000.
 
 Tests: `core/test/bank-adjusted.test.ts` (037), `core/test/token-counters.test.ts` (booking), `server/test/live.test.ts` (`accounting`), `server/test/desk.test.ts`, `server/test/adjusted.test.ts`.
+
+## The adjusted-token mix (1:1 mt_rbc3exb393, 2026-11-01)
+
+One global, daily-updated estimate of what an adj. token is made of. Code: `core/src/token-mix.ts` (`computeTokenMix`, pure), `Bank.mix()` / `refreshMix()` / `mixDue()` in `core/src/bank.ts`, the `TokenMix` type and `splitByMix` in `schema/src/tokens.ts`.
+
+- **Formula** (unchanged, exact; prices in the table above): adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h), each weight the kind's Opus 5.5 list price over its $20/MTok output price (other models: priced at their own list price, converted at $20/MTok). A session's real counters are always priced exactly; the mix never replaces the weights.
+- **The mix**: the five counters summed over every ended session (`status != 'running'`, `endedAt` in the window) of the last 7 full UTC days, back-filled and empty sessions left out. It stores `counts`, `rawTokens`, `adjustedTokens` (the counts at Opus 5.5 weights), `rawPerAdjusted` (raw / adjusted), `rawShare` and `costShare` per kind (each sums to 1), `formula`, `weights`, `windowDays`, `from`, `to`, `computedAt`, `sessions`, `source` (`usage`, or `calibration` when the window has no usage: the step-1 split, 30 raw per adj. token, output + cache read).
+- **Stored** in the `meta` table under key `tokenMix` (no migration). The first `mix()` read back-fills it from the existing sessions; the runtime calls `bank.mixDue()` every tick and it recomputes once per UTC day, posting one `bank.mix` event whose text reads "1 adj. token ≈ R raw tokens (x% input, y% cache read, z% cache write, w% output) from N sessions, from to to".
+- **Used** wherever the Bank has only a bare adjusted number and must say what tokens stand behind it: a Bank input's credits and the `bank.input` event (`creditCounts`), a bare-number charge or usage record (`Budget.charge` / `recordUsage` pass the mix to `booked`), a bare-number `Bank.draw`. They split `tokens × rawPerAdjusted` raw tokens in the mix's proportions (`splitByMix`, largest remainder), which prices back to the same adj. tokens. The back-fill rule above (`splitRaw`, 30 / 24) stays as the fixed rule for history and for a desk that posts only a raw total, so `isBackfilled` keeps recognising those rows; nothing stored is rewritten.
+- **Shown**: `GET /api/finance` and `GET /api/bank` carry `mix` (the same record). The Bank page's Tokens & sources tab, under the Tokens sum check, reads "1 adj. token ≈ R raw tokens: x% input, y% cache read, z% cache write, w% output (from the last 7 days of usage, N sessions, updated daily; last …)", with the formula and the cost shares under it (`mixLine`, web `BankFinance.tsx`). `npm run check:finance` checks Σ counts = rawTokens, Σ weight × count = adjustedTokens (±1), rawPerAdjusted = raw / adjusted, both share sets sum to 1, /api/bank and /api/finance carry the same record, and it was computed under 26 h ago.
+
+Tests: `core/test/token-mix.test.ts`, web `test/finance.test.tsx`.
 
 ## Unexpected out-of-tokens deaths (step 5)
 
@@ -136,17 +148,106 @@ Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11a
 
 Read-only: it books nothing. Core `funders.ts` (`funderWeek`, `funderWeights`) attributes each session in a window by the credential it ran on: a donated api-key input (`credentialInputId`) or a grant's own input (`fundedWith`) makes it **literal** for that donor, whole; any other session is **pooled**, and a subscription donor's share of it is their subscription credits in the window ÷ everyone's (`Bank.creditsSince`). `GET /api/funders/:userId/week` (`me`; sign-in required) and `GET /api/goals/:id/spend?funder=me` read it; the Town Hall in-tray's "Funded by me" view, the deck's "Your week as a funder" slide and the goal tree's filter show it (docs/goals.md build step 8).
 
+## Dollars at API list price (display only)
+
+The finance endpoints carry each token figure's dollar twin at API list price (gr_gmzli3f96j): GET /api/finance `usd` (used, left, burn and inflow per day) and GET /api/finance/spend `usd` on every row plus `usdSumCheck`. A session is priced at the list output price of the model it is booked in (`bankModelOf`: Opus 5.5 at $20 per million since migration 076, a pre-076 Fable session at Fable's $50 per million), never as tokens × $20, so history is not read 2.5× low; everything with no session behind it (unattributed, weight mismatch, not funded, left, burn, inflow) is priced at BANK_MODEL's $20 per million. Nothing is stored or charged. On a subscription-funded town these are what the same usage would cost on an API key, not cash spent; the Bank page says so in one footnote. Field details: docs/architecture.md.
+
 ## Retainers (1:1 mt_cyd2t5ioob decision 2)
 
-A retainer is standing money for a scheduled job, approved by a human in the Town Hall in-tray and claimed in the Bank; recurring jobs never draw on grants. A schedule carries `tokensPerRun` (Bank tokens, i.e. Opus 5.5 output tokens) and asks for tokensPerRun × runs left. While funded, it is the fourth claim on free tokens (after funded grants' remaining, open asks and reservations): `retainerTokens` = Σ over funded schedules of min(tokensPerRun × runs left, approved total − drawn), with `retainerJobs` counting them (core `free-tokens.ts`, `retainers.ts`). Its runs' sessions (lane `retainer`, sourceId = the schedule) are what it has **drawn**, derived like a grant's spend. Approving is refused (409) when the ask would dip into the operating reserve. Ending the schedule (cancel, last run, paused past its end) releases what it still claims. Rules in full: docs/how-work-gets-done.md §7a.
+A retainer is standing money for a scheduled job, approved by a human in the Town Hall in-tray and claimed in the Bank; recurring jobs never draw on grants. A schedule carries `tokensPerRun` (Bank tokens, i.e. Opus 5.5 output tokens) and asks for tokensPerRun × runs left. While funded, it is the fourth claim on free tokens (after funded grants' remaining, open asks and reservations): `retainerTokens` = Σ over funded schedules of min(tokensPerRun × runs left, approved total − drawn), with `retainerJobs` counting them (core `free-tokens.ts`, `retainers.ts`). Its runs' sessions (lane `retainer`, sourceId = the schedule) are what it has **drawn**, derived like a grant's spend. Approving is never refused for lack of tokens (2026-11-02): a run the usable balance can't cover when it comes due is missed. Ending the schedule (cancel, last run, paused past its end) releases what it still claims. Rules in full: docs/how-work-gets-done.md §7a.
+
+
+**Lookahead and missed runs (2026-11-01).** Mitchell: "i think they should claim their tokens before running, but
+obviously if its a recurring job we can't do the whole thing, it would be infinity. so maybe we have a setting that
+defaults to 6 hours … if the retainer attempts to execute without having any available input, then we just mark it as
+missed in the schedule, and the manager who owns it gets an inbox notification." So:
+
+- **The approval is the ceiling; the claim is what is near.** A funded retainer claims tokensPerRun × the runs due within
+  the town's `retainerLookaheadHours` (default 6, `PUT /api/town/retainer-lookahead`, an admin), plus what each run
+  already fired may still spend, never more than its approved total less drawn. It sorts first in the overdraft walk:
+  its runs are due at a time.
+- **Missed, not queued.** When a funded retainer's run comes due and no credential serves its model (an observed limit)
+  or the walk covers none of its claim, the run is missed: no assignment, a `schedule.skipped` event with `missed: true`,
+  and the schedule's `missedRuns` counts the streak (migration 082). The building's manager gets one message on the
+  first miss of a streak; the first run that can fire resets the count. The building panel shows "missed N runs".
+
+## Promised and available (2026-11-01)
+
+**Mitchell said** (2026-11-01): "right now i think we consider all donations as 'available' tokens. but in reality there's
+a projected / predicted / promised availability, and then there's what actually happens when we try to query with the API
+key." A donation's tokens are a promise: the donor's ceiling. Someone may promise 10M on a key loaded with 2M, disable the
+key, or share a plan that hits its own limit. The Bank can't know which in advance, so it never predicts a limit. It
+observes what the provider says.
+
+**What is observed** (core `availability.ts`, table `credential_limits`, migration 080). Per Bank input and model class
+(`fable`, `opus`, `sonnet`, `haiku`, `other`, or `*` for every model):
+
+| The provider said | Kind | Scope | Lifts |
+|---|---|---|---|
+| "Switch to another model to continue", a per-model weekly window (`seven_day_opus`, …) | model-limit | that model | at the reset it names, else a probe |
+| a five-hour or weekly plan limit ("You've hit your limit · resets 3pm (UTC)") | window | every model | at the reset it names, else a probe |
+| "credit balance is too low", `billing_error` | billing | every model | a probe |
+| `invalid x-api-key`, an expired or revoked OAuth token | auth | every model | a probe |
+| overloaded, a transient 429, anything else | nothing | | |
+
+Sources: a session's error at its end (`ops.endSession`), and the SDK's `rate_limit_event` while it runs (host sessions
+directly; desks post it as a `rate-limit` activity once their image is rebuilt). `rejected` records the window with its
+reset; `allowed` clears it; `allowed_warning` changes nothing. A `rejected` window the session runs past on extra usage (`overageStatus`
+`allowed`/`allowed_warning`, or `isUsingOverage`) records nothing: the plan's included allowance is used up but bought
+credits still serve it (1:1 mt_a64faz59yr; before, such an event held every session on the plan until the weekly reset).
+
+**Probes.** With no reset named, the limit holds until `probeAt`, when one session may try: 1 h, doubling per failure to
+24 h; 6 h doubling to 48 h for billing and auth. A session that succeeds on the input and model clears the limit (an
+Opus success clears nothing for Fable). The input's owner or an admin can clear one by hand ("Try now" on the Bank's
+inputs, `POST /api/bank/limits/:id/clear`). Each change is a `bank.limit` event.
+
+**Dispatch.** `Budget.fundingFor` takes the session's model (`Budget.sessionModel`: a building-queue row's own model, else
+the agent's, else the building's). A limited input is skipped for another credential that serves the same model (an API
+key when the subscription is limited); with none, the work waits and its `heldReason` and map line say why ("Max plan:
+Fable limited, tries again 2026-11-01 03:28 UTC"). The model is never switched: an unasked drop in quality is worse than
+waiting. A member's own input that is limited holds their grant's work; it never falls back to the pool.
+
+**Requeue.** A work session that dies on its credential didn't fail the work: its assignment goes back to the front of the
+queue with no fallback report, and dispatch funds it from another credential or holds it with the limit's reason.
+
+**The usable balance** (`Bank.unavailable`, `Bank.usableBalance`). Claims are covered by what sessions can actually draw
+on, not by every credit. A credit is left out when its input can't serve any model before the credit runs out:
+
+- a subscription credit whose input has an every-model limit lasting past the credit's expiry (today's quota sits behind a
+  reset that comes too late; a five-hour window resetting tonight leaves it in);
+- an API key's remaining credit while the key is broken (billing, auth) or limited with no reset named.
+
+A limit on one model (Fable) leaves the credit in: other models can still spend it. Free tokens' `generalTokens` is the
+usable balance; `promisedTokens`, `unavailableTokens` and `unavailable` (per input, with the limit's words) show the rest
+when there is any.
+
+**The overdraft walk** (`free-tokens.ts`, Mitchell 2026-11-01: "the approved grants go on a queue … once we process the
+grants we can and get to the back, the queue should stop. and while this is happening, we can show like an 'overdrafted'
+number"). Nothing is stored: every read walks the claims in order against the usable balance after the operating reserve.
+
+1. retainers (their runs are due at a time),
+2. funded grants, by when they were funded,
+3. open exploration reservations,
+4. open proposals' asks (not promises yet, so they soak up a shortfall first and are never listed as overdrafted).
+
+The approved claims the walk doesn't fully cover are `overdrafted`, and their shortfall sums to `overdraftTokens` (the
+Bank's Free tokens section shows both in red). A funded grant with nothing covered holds its grant-lane work ("held:
+overdrafted, the Bank's usable balance doesn't cover grant gr_… (N tokens short)", map line to the Bank); one straddling
+the line runs. It recovers by itself: a key fixed, a reset passed or a new credit, and the next read covers it again. The
+walk's result is cached for 5 s, and any new event invalidates it.
 
 ## Cancelling an input (2026-11-01)
 
-Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). What happens to the credit already
-paid in depends on the source:
+Cancelling stops an input's future credits and forgets its key (`Bank.cancelInput`). Whatever it credited but nobody
+spent expires at once, and the `bank.input` event says how many tokens lapsed (`expiredTokens`). Spent tokens stay in the
+history. A credit is a promise backed only by the input's own credential, so once that is forgotten nothing can pay for
+the rest:
 
-- **API key:** the credit stays. That money was paid in and the key's balance is the town's until it is spent.
-- **Subscription:** the live credit expires at once (`expiresAt` = the cancel time) and the `bank.input` event says how
-  many unspent tokens lapsed (`expiredTokens`). A subscription credit is quota the plan serves today, not money; before
-  this, replacing a 15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read
-  6.7M right after Mitchell set 2M on 2026-11-01).
+- **Subscription:** the live credit is today's plan quota (`expiresAt` = the cancel time). Before this, replacing a
+  15M-a-day donation with a 2M one left the old day's 15M spendable until its renewal (the Bank read 6.7M right after
+  Mitchell set 2M on 2026-11-01).
+- **API key:** the credit is what its donor agreed to be billed for, not money the town holds. Before this it stayed in
+  the shared balance after the key was forgotten, and other donors' keys (or the subscription) ended up paying for it.
+  Draws from the general balance don't name a credit, so the unspent rest is found oldest credit first (the Bank hands
+  out the oldest live key). Each affected credit is split into its spent part and a new row for the rest that expires
+  at the cancel time, so the finance identity counts the rest as `expired`.

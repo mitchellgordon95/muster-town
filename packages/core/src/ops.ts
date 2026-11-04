@@ -1,15 +1,16 @@
-import { AgentPermissionsPatch, WorkInput, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
-import { AppError, badRequest, forbidden } from "./errors.ts";
+import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
+import { isCheckpointAssignment } from "./lanes.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
@@ -37,6 +38,7 @@ export class Ops {
   createUser(name: string, opts: { id?: string } = {}) { return createUser(this.world, name, opts); }
   ensureAvatar(userId: string): Agent { return ensureAvatar(this.world, userId); }
   registerVisitor(userId: string, input: (typeof RegisterVisitorInput)["_input"]) { return registerVisitor(this.world, userId, input); }
+  adoptGoal(agentId: string, goalId: string) { return adoptGoal(this.world, agentId, goalId); }
 
   createBuilding(actor: Actor, input: (typeof CreateBuildingInput)["_input"]) {
     if (actor) this.world.permissions.require(actor, "town.manage_buildings");
@@ -119,7 +121,7 @@ export class Ops {
   setAgentModel(actor: Actor, agentId: string, model: string | null): Agent {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor && !this.canSetModel(actor, agent)) throw forbidden("building.manage");
-    if (agent.kind === "human" || agent.kind === "service") throw badRequest(`${agent.name} doesn't run model sessions.`);
+    if (agent.kind === "human") throw badRequest(`${agent.name} doesn't run model sessions.`);
     const next = model?.trim() || null;
     const updated = this.world.agents.patch(agentId, { model: next });
     this.world.events.append({ type: "system", agentId, text: `${agent.name}'s model: ${next ?? "building default"}`, payload: { model: next, by: actor ? this.world.holderOf(actor).id : "system" } });
@@ -163,6 +165,8 @@ export class Ops {
       if (deskFreed) this.world.layout.releaseDesk(agentId);
       this.world.agents.patch(agentId, { currentAssignmentId: null, currentMeetingId: null, activity: "" });
       const retired = this.world.setStatus(agentId, "retired", `${agent.name} was dismissed`);
+      // a dismissed visitor manager leaves its building unmanaged (adoptGoal); a resident manager's row is kept as before
+      if (agent.kind === "visitor") for (const b of this.world.buildings.where("managerAgentId = ?", [agentId])) this.world.buildings.upsert({ ...b, managerAgentId: null });
       const by = actor ? this.world.holderOf(actor).id : "system";
       this.world.events.append({ type: "agent.retired", agentId, buildingId: bid, text: `${agent.name} was dismissed${actor ? ` by ${actor.name}` : ""}`, payload: { by, purge: !!opts.purge, cancelledAssignments: cancelled, deskFreed } });
       return { agent: retired, cancelledAssignments: cancelled, revokedTokens, removedMemberships, deskFreed };
@@ -195,7 +199,7 @@ export class Ops {
    */
   archiveReport(actor: Actor, docId: string, opts: { deckSlide?: number } = {}): ArchiveResult {
     const doc = this.world.docs.require(docId, "doc");
-    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId)) throw forbidden("building.review");
+    if (actor && !this.world.permissions.isAdmin(actor) && !this.world.permissions.can(actor, "building.review", doc.buildingId) && !this.world.goalTree.captainsBuilding(actor, doc.buildingId)) throw forbidden("building.review");
     return archiveReport(this.world, actor, docId, opts);
   }
 
@@ -247,7 +251,7 @@ export class Ops {
     const waitFor = inp.waitFor ? validateWait(this.world, inp.waitFor) : null;
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent)) throw goneError(agent);
     const a = createAssignment(this.world, {
       agentId, title: inp.title ?? "Check in", description: inp.description ?? CHECK_IN,
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" }, waitFor,
@@ -259,6 +263,8 @@ export class Ops {
   stopAgent(actor: Actor, agentId: string): Agent {
     const agent = this.world.agents.require(agentId, "agent");
     if (actor) this.requireAgentControl(actor, agent);
+    // gone is terminal: stopping a retired agent would let resume revive it (docs/invariants/agent-lifecycle.md)
+    if (isGone(agent)) throw goneError(agent);
     this.world.movement.cancel(agentId, "Stopped.");
     return this.world.setStatus(agentId, "stopped", `${agent.name} was stopped`, { by: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" } });
   }
@@ -304,7 +310,7 @@ export class Ops {
   startNext(actor: Actor, assignmentId: string): StartNextResult {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "pending") throw new AppError("conflict", `Assignment "${a.title}" is ${a.status}, not queued.`);
-    if (agent.status === "banned" || agent.status === "retired") throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent)) throw goneError(agent);
     // starting it by hand overrides what it waits on
     const assignment = moveToFront(this.world, a.waitFor ? this.world.assignments.upsert({ ...a, waitFor: null, updatedAt: nowIso() }).id : a.id);
     // manager forks: building-queue work runs as the next fork (when a desk is free), never as the manager holding it
@@ -324,11 +330,14 @@ export class Ops {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
-    if (agent.status === "banned" || (agent.status === "retired" && !agent.forkOf)) throw new AppError("conflict", `${agent.name} is ${agent.status === "retired" ? "dismissed" : "banned"}.`);
+    if (isGone(agent) && !(agent.status === "retired" && agent.forkOf)) throw goneError(agent);
+    // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
+    // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
+    const system = { kind: "system" as const, id: "system" };
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
+      createdBy: isCheckpointAssignment(a) || !actor ? system : this.world.holderOf(actor),
     });
   }
 
@@ -350,7 +359,7 @@ export class Ops {
   }
 
   /** Runtime: a session starts. Work sessions activate the assignment and set status `working`; manage sessions set `working` too. */
-  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; credentialInputId?: string | null; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
+  startSession(agentId: string, opts: { purpose: Session["purpose"]; model: string; assignmentId?: string | null; meetingId?: string | null; backend?: Session["backend"]; funding?: Session["funding"]; inputId?: string | null; credentialInputId?: string | null; lane?: Session["lane"]; size?: Pick<Session, "cpuKind" | "cpus" | "memoryMb"> | null }): Session {
     const agent = this.world.agents.require(agentId, "agent");
     const session = this.world.sessions.upsert({
       id: newId("se"), agentId, assignmentId: opts.assignmentId ?? null, meetingId: opts.meetingId ?? null, purpose: opts.purpose, backend: opts.backend ?? "host",
@@ -363,6 +372,8 @@ export class Ops {
       cpuKind: opts.size?.cpuKind ?? null, cpus: opts.size?.cpus ?? null, memoryMb: opts.size?.memoryMb ?? null,
       // goal-directed budgets: the session spends in its assignment's lane (a grant's spend is the sum of its sessions)
       ...(opts.assignmentId ? (({ lane, grantId }) => ({ lane, grantId }))(this.world.assignments.require(opts.assignmentId, "assignment")) : {}),
+      // a host call with no assignment may name its lane (a grant cost estimate is directed: 1:1 mt_c9u1kr15jp)
+      ...(!opts.assignmentId && opts.lane ? { lane: opts.lane } : {}),
       // wakes step 1: the session works for its assignment's human, or for the human in its meeting (a 1:1, a mention reply)
       origin: (opts.assignmentId ? this.world.assignments.get(opts.assignmentId)?.origin : null)
         ?? (opts.meetingId ? (((m) => m && meetingOrigin(m))(this.world.meetings.get(opts.meetingId)) ?? null) : null),
@@ -398,6 +409,8 @@ export class Ops {
       byModel: result.byModel && Object.keys(result.byModel).length ? result.byModel : s.byModel ?? null,
       wallMs: Number.isFinite(wallMs) ? Math.round(wallMs) : null, cpuMs: result.cpuMs ?? null, stealMs: result.stealMs ?? null,
     });
+    // the session's own login token dies with it (docs/secrets.md "Login tokens")
+    this.world.tokens.revokeSession(sessionId);
     const agent = this.world.agents.require(s.agentId, "agent");
     // a 1:1 answered beside a work session ends while the work goes on (and vice versa): idle only when neither runs
     if (agent.status === "working" && !this.world.sessions.count("agentId = ? AND status = 'running' AND purpose IN ('work', 'manage')", [agent.id])) this.world.setStatus(agent.id, "idle");
@@ -406,6 +419,14 @@ export class Ops {
     // Bank step 4: a subscription-cap death (the desk's SPEND_LIMIT, or an error that reads like one) → bank.cap
     const cap = result.spendLimit || (session.error && SPEND_LIMIT.test(session.error) ? session.error : null);
     if (cap) this.world.bank.recordCap(session, homeOf(agent), cap);
+    // promised and available (availability.ts): what the session's end says about the input it ran on. A failure that is
+    // about the credential (a model or plan limit, billing, auth) records a limit on that input and model; a session that
+    // finished with tokens shows the input serves the model, so its limits for it clear. Interrupted sessions say nothing.
+    if (session.credentialInputId && session.status !== "interrupted") {
+      const said = [result.spendLimit, session.error].filter(Boolean).join(" ");
+      const limit = said ? this.world.bank.availability.recordFailure({ inputId: session.credentialInputId, model: session.model, text: said, sessionId: session.id }) : null;
+      if (!limit && session.status === "done" && session.tokens > 0) this.world.bank.availability.recordSuccess(session.credentialInputId, session.model, new Date(), `${agent.name}'s session on ${session.model} succeeded`);
+    }
     // the body goes back to its desk unless it's in a meeting, walking or talking (flag dc_ihwq7bfi4o)
     walkHome(this.world, agent.id);
     // Bank step 2: a model the price table doesn't know is priced as Opus 5.5; say so once per model per process
@@ -454,7 +475,7 @@ export class Ops {
   /**
    * A request is open to every human as soon as an agent files it (no approval step); the human decides whether to do it.
    * claim: any human (avatar). done: the claimer (or admin) with `body` → creates a `human-report` in the library.
-   * delete: a moderator (town.approve_request) removes a request that misuses the town; returns `request: null`.
+   * delete: an admin (town.approve_request) removes a request that misuses the town; returns `request: null`.
    */
   requestAction(actor: Agent, docId: string, action: RequestAction, body?: string): { request: Doc | null; humanReport: Doc | null } {
     const doc = this.world.docs.require(docId, "doc");
@@ -470,7 +491,7 @@ export class Ops {
         this.world.permissions.require(actor, "town.approve_request");
         this.world.docs.delete(doc.id);
         this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
-        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `A moderator deleted your outbox request "${doc.title}".` });
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `An admin deleted your outbox request "${doc.title}".` });
         return { request: null, humanReport: null };
       }
       case "claim":
@@ -513,7 +534,7 @@ export class Ops {
   /** POST /meetings/:id/start → discussing. */
   startMeeting(actor: Actor, meetingId: string): Meeting {
     const m = this.world.meetings.require(meetingId, "meeting");
-    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+    if (actor && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     return setMeetingPhase(this.world, meetingId, "discussing");
   }
   meetingSay(actor: Agent, meetingId: string, text: string, attach?: string): Meeting { return meetingSpeak(this.world, actor, meetingId, text, attach); }
@@ -547,7 +568,7 @@ export class Ops {
       const m = this.world.meetings.require(meetingId, "meeting");
       // a 1:1's own human ends it, member or not (gr_58n37j410s)
       const own = m.kind === "one-on-one" && !!m.withUserId && m.withUserId === this.world.holderOf(actor).id;
-      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall")) throw forbidden("meeting.facilitate");
+      if (!own && m.facilitatorId !== actor.id && !this.world.permissions.can(actor, "meeting.facilitate", m.buildingId ?? "town-hall") && !this.world.permissions.can(actor, "building.review", m.buildingId ?? "town-hall") && !this.world.goalTree.captainsBuilding(actor, m.buildingId)) throw forbidden("meeting.facilitate");
     }
     return endMeeting(this.world, null, meetingId, closing, actor ? this.world.holderOf(actor) : { kind: "system", id: cause ?? "town" });
   }

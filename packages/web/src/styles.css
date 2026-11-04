@@ -103,8 +103,10 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .hud-row .notice-text { color: var(--text); white-space: normal; line-height: 1.3; }
 .hud-row .notice-text b { color: var(--text); }
 .hud-row.warn { border-color: #4a4226; }
-.hud-row.with-actions { cursor: default; }
-.hud-row.with-actions .btn { flex: none; }
+.hud-row.with-actions { cursor: default; flex-wrap: wrap; }
+.hud-row.with-actions .notice-text { flex: 1 1 calc(100% - 30px); }
+/* the buttons wrap under the text: "Let in + direct work under <goal>" is wider than the HUD (gr_cuobjlny6r live check) */
+.hud-row.with-actions .btn, .intray-row .actions .btn { flex: none; max-width: 100%; white-space: normal; text-align: left; }
 .hud-row.meet em { color: var(--meet); }
 .hud-row.ok { border-color: #2f5c3f; }
 .hud-row.ok em { color: #6fdc8c; }
@@ -198,9 +200,15 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .rules-head b { color: var(--gold); }
 .rules-head span { color: var(--muted); font-size: 12px; flex: 1; }
 .rules-card .form textarea { font-family: var(--mono); font-size: 12.5px; }
-.now { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ok); background: #18241c; border: 1px solid #284232; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
-.now .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; }
 @keyframes pulse { 50% { opacity: .3; } }
+/* the agent panel's first line: what it's doing now, in plain words (panels/nowLine.ts) */
+.now-line { margin: 6px 0 2px; font-size: 13.5px; line-height: 1.4; color: var(--text, #e8e9f0); }
+.now-line.working .now-what { color: var(--ok); }
+.now-what { display: flex; align-items: baseline; gap: 7px; }
+.now-what .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: pulse 1.2s ease-in-out infinite; flex: none; transform: translateY(-1px); }
+.now-task { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.details-toggle { display: block; background: none; border: 0; padding: 2px 0; margin: 0 0 6px; color: var(--text, #e8e9f0); font: inherit; font-size: 12.5px; cursor: pointer; }
+.details-toggle:hover { text-decoration: underline; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; margin: 0 0 6px; font-size: 13px; }
 .kv > div { display: contents; }
 .kv dt { color: var(--muted); }
@@ -312,6 +320,12 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .grant-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 12.5px; }
 .grant-history li { display: grid; grid-template-columns: 9ch 1fr; gap: 8px; align-items: baseline; }
 .grant-history time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.grant-sessions { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; font-size: 12.5px; }
+.grant-sessions li { display: grid; grid-template-columns: max-content 1fr; gap: 8px; align-items: baseline; }
+.grant-sessions time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.grant-sessions .link { text-align: left; }
+.grant-sessions-total { margin-top: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.grant-sessions-total.bad { color: var(--bad); }
 .md blockquote { margin: 8px 0; padding: 4px 12px; border-left: 3px solid var(--line-2); color: var(--muted); }
 .md pre { background: #12131a; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .md pre code { background: none; padding: 0; }
@@ -399,6 +413,10 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .stats-table td:first-child { white-space: nowrap; }
 .stats-scroll { overflow-x: auto; }
 .stats-table .faint { color: var(--faint); }
+.members-table td { vertical-align: top; }
+.member-avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; margin-right: 4px; }
+.member-goal { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px 0 0; }
+.member-direct { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 
 /* library / outbox */
 .proposal { margin-bottom: 10px; }
@@ -452,15 +470,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
   /* collapsed (the default for a member on a phone): one line, so the map stays usable */
   .hud.collapsed { width: auto; max-width: calc(100% - 24px); padding: 8px 10px; }
   /* a guest on a phone: the card stays under ~35% of the screen so the agent beside the ghost shows (KR 2, dc_el70fwhsar) */
-  .hud.guest { max-height: 35%; padding: 10px 12px; }
-  .hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }
-  .hud.guest .hud-block { margin-top: 6px; }
-  .hud.guest .hud-notices { display: none; }
-  .hud.guest .here-list { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
-  .hud.guest .here-row { width: auto; padding: 2px 7px; }
-  .hud.guest .here-row span { display: none; }
-  .hud.guest .here-more { padding-left: 2px; }
-  .hud.guest .guest-text { margin-bottom: 6px; }
+  .hud.guest { max-height: 35%; }
   /* the town map's and the room editor's toolbars sit at the bottom on a phone, clear of the HUD card at the top */
   .layout-bar { top: auto; bottom: 12px; left: 12px !important; right: 12px; transform: none; max-width: none !important; gap: 6px; }
   .layout-bar-title { flex-direction: column; gap: 2px; font-size: 12px; }
@@ -477,6 +487,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .intray-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .intray-who b { color: var(--text); }
 .intray-proposal { font-size: 12px; color: #c4c7dc; }
+.rollup-ask { border-left: 2px solid #e8c35a; padding-left: 6px; margin: 2px 0; color: #e6e1c8; }
 .member-row, .resident-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
 .member-row > .member, .resident-row > .member { flex: 1; min-width: 0; }
 .member-row > .btn, .resident-row > .btn { align-self: center; }
@@ -540,6 +551,20 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .here-row span { overflow-wrap: anywhere; }
 .here-more { font-size: 11.5px; color: var(--faint); padding-left: 8px; }
 .guest-card .guest-text b { color: var(--text); }
+/* a guest's card is kept short at every size: the town is what they see (kr_c3c7651d18, under 15% of a 1280x720 screen
+   with the minimap). Working agents are chips (their building is in the tooltip), and operator notices (redeploys,
+   in-trays) are for members, not strangers; the "who is here" line says what its label would. */
+.hud.guest { padding: 10px 12px; }
+.hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }
+.hud.guest .goal span { display: inline; margin: 0 6px 0 0; }
+.hud.guest .hud-block { margin-top: 6px; }
+.hud.guest .hud-notices { display: none; }
+.hud.guest .guest-card > .hud-label { display: none; }
+.hud.guest .here-list { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
+.hud.guest .here-row { width: auto; padding: 2px 7px; }
+.hud.guest .here-row span { display: none; }
+.hud.guest .here-more { padding-left: 2px; }
+.hud.guest .guest-text { margin-bottom: 6px; }
 /* Bank: top-contributors leaderboard (gold for the podium) */
 .leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .lb-row { display: grid; grid-template-columns: 28px minmax(0, 9em) 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); background: #1d1f28; font-size: 13px; }
@@ -605,6 +630,13 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 @media (max-width: 520px) { .rollup-card-field, .rollup-card-call { grid-template-columns: 1fr; gap: 0; } }
 .grant-row { cursor: default; }
 .grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
+/* the checkpoint card's evidence (mt_7b4zc7yja3): what shipped per key result, the top-up line; the plan sits under the fold */
+.checkpoint-evidence { font-size: 12px; margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+.evidence-krs { margin: 0 0 2px 18px; padding: 0; }
+.evidence-shipped { color: #8fd694; }
+.evidence-not { color: #f08a8a; }
+.evidence-partly { color: #e8c76a; }
+.grant-plan > summary { cursor: pointer; font-size: 12px; color: #9aa0bd; margin-top: 4px; }
 .grant-decide { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
 .grant-inputs { display: grid; grid-template-columns: 170px 1fr; gap: 6px; }
 /* waterfall step 6: the board's key-results view (goal-directed buildings) */
@@ -680,6 +712,10 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .spend-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; } /* basis auto: a one-line date range (Sources) shrinks to its min-content before the name does; with basis 0 the name got only the leftover and broke per character */
 .spend-tokens { text-align: right; min-width: 90px; font-variant-numeric: tabular-nums; }
 .spend-share { text-align: right; min-width: 48px; font-variant-numeric: tabular-nums; }
+.spend-usd { text-align: right; min-width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.finance-usd { white-space: nowrap; }
+.spend-grant-line { display: block; font-size: 11.5px; padding: 0 0 2px; } /* a grant row's spent vs funded · outcome · key results (gr_dt1l35tydx) */
+.spend-grant-line .spend-over { color: var(--bad); }
 .spend-date { min-width: auto; } /* Sources dates: the column shrinks to one whole date, never below it; a range wraps after the arrow, never inside a date at its hyphens */
 .spend-date .day { white-space: nowrap; }
 .spend-children { margin-left: 4px; border-left: 1px solid var(--line); padding-left: 16px; }
@@ -809,6 +845,12 @@ div.spend-row > .muted { font-size: 11.5px; }
 .gc-box .ge-node-meta { display: flex; flex-wrap: wrap; gap: 5px 4px; overflow: hidden; max-height: 37px; }
 .gc-blds { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
 .gc-blds .ge-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* a building row: a long name ellipses (the tag's title has it whole), the desk count and the − / + never move (flag dc_42c9cjbzls) */
+.gc-blds .ge-tag.building { display: inline-flex; align-items: center; gap: 3px; box-sizing: border-box; min-width: 0; }
+.gc-blds .ge-tag.building.steps { width: 100%; }
+.gc-bname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-blds .ge-tag.building.steps .gc-bn { margin-right: auto; }
+.gc-bn, .gc-blds .gc-step { flex: none; }
 .gc-box .ge-node-meta:empty { display: none; }
 .ge-tag.captain { background: #3a2b4a; color: #e2c9ff; font-weight: 700; }
 .ge-tag.steps { display: inline-flex; align-items: center; gap: 3px; padding: 0 2px; }
@@ -857,3 +899,16 @@ div.spend-row > .muted { font-size: 11.5px; }
 .ge-kr-card .goal-kr-acts { margin-left: auto; }
 .ge-check { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 @media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body, .ge-body.sized { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-divider { display: none; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }
+
+/* the in-tray as a list (Mitchell's flag dc_2hllscunfx): one line per item */
+.intray-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 5px; padding-bottom: 5px; margin-bottom: 3px; }
+.intray-line-lead { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; max-width: 28%; overflow: hidden; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.intray-line-lead .intray-building { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-right: 0; }
+.intray-line-lead .intray-building .glyph { vertical-align: -2px; margin-right: 4px; }
+.intray-line-lead > *, .intray-line-lead img { flex: none; }
+.intray-line-lead > .intray-building { flex: 0 1 auto; }
+.intray-line-lead img { width: 12px; height: 16px; image-rendering: pixelated; }
+.intray-line-lead img.intray-avatar { width: 16px; height: 16px; border-radius: 50%; image-rendering: auto; }
+.intray-line-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.intray-line-end { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; white-space: nowrap; }
+.intray-focus > .btn { margin-bottom: 8px; }

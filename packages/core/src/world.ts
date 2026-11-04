@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -11,6 +11,7 @@ import { laneHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
+import { AppError } from "./errors.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
 import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
@@ -180,6 +181,7 @@ export class World {
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
     this.layout.follow = (before, moved) => followRelayout(this, before, moved);
+    this.layout.beforeGrow = (buildingId, headcount) => this.goalTree.requireDesksFit(buildingId, this.goalTree.attachmentOf(buildingId), headcount);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
@@ -310,6 +312,15 @@ export class World {
     return tokens;
   }
 
+  /** Set the retainer lookahead (`PUT /api/town/retainer-lookahead`, an admin): hours of due runs a retainer claims. Logs it. */
+  setRetainerLookahead(hours: number, by: string | null = null): number {
+    const was = this.town.get().retainerLookaheadHours;
+    if (was === hours) return hours;
+    this.town.set({ retainerLookaheadHours: hours });
+    this.events.append({ type: "system", agentId: by, text: `Retainer lookahead set to ${hours} hours (was ${was})`, payload: { retainerLookaheadHours: hours, from: was } });
+    return hours;
+  }
+
   /**
    * Save the collective defaults (`PUT /api/town/defaults`, 1:1 mt_n25udpflus decision 3) and write them through to every
    * lab, so the Building columns stay the effective values every reader uses. The Town Hall keeps its own (no code access).
@@ -352,10 +363,14 @@ export class World {
     return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? (id === "system" ? "Town" : id);
   }
 
-  /** Set status (no-op if unchanged) and append `agent.status`. */
+  /**
+   * Set status (no-op if unchanged) and append `agent.status`. Only the moves in STATUS_TRANSITIONS (schema) are allowed:
+   * any other throws a 409 conflict ("X is retired"), so nothing revives a gone agent (docs/invariants/agent-lifecycle.md).
+   */
   setStatus(agentId: string, status: AgentStatus, text?: string, extra: Record<string, unknown> = {}): Agent {
     const a = this.agents.require(agentId, "agent");
     if (a.status === status) return a;
+    if (!canTransition(a.status, status)) throw new AppError("conflict", `${a.name} is ${a.status}: can't become ${status}.`);
     const updated = this.agents.upsert({ ...a, status });
     this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { ...extra, status, from: a.status } });
     return updated;
@@ -370,7 +385,7 @@ export class World {
     if (!place || place.kind !== "meeting-room") return place?.pos;
     const taken = new Set<string>();
     let mine: Tile | undefined;
-    for (const a of this.agents.where("status NOT IN ('banned','retired')")) {
+    for (const a of this.agents.where(NOT_GONE)) {
       const t = this.movement.destination(a.id) ?? a.pos;
       if (a.id === agentId) mine = t;
       else taken.add(`${t.x},${t.y}`);
@@ -416,15 +431,21 @@ export class World {
       type: "snapshot",
       town: this.town.get(),
       buildings: this.buildingsWithIntray(),
-      agents: this.agents.where("status NOT IN ('banned','retired')"),
+      agents: this.agents.where(NOT_GONE),
       places: this.layout.places,
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
-        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const } : {}) },
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress() } : {}) },
       outbox: this.outboxOpen(),
     };
+  }
+
+  /** A hosted collective's founder road (TownHealth `founder`): latest exploration start, open proposals, ever funded. */
+  founderProgress(): FounderProgress {
+    const ex = this.db.prepare("SELECT ts FROM events WHERE type = 'exploration.started' ORDER BY id DESC LIMIT 1").get() as { ts: string } | undefined;
+    return { exploringSince: ex?.ts ?? null, proposals: this.grants.count("status IN ('proposed', 'countered')"), funded: this.grants.count("fundedAt IS NOT NULL") > 0 };
   }
 
   /** Outbox requests nobody has claimed yet (requestStatus open): the map's outbox badge. */

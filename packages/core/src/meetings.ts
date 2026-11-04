@@ -1,7 +1,9 @@
-import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { countMemberAct } from "./access.ts";
+import { canDirect } from "./direct.ts";
 import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
-import { buildingRoleId, townRoleId, type Holder } from "./permissions.ts";
+import { buildingRoleId, type Holder } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
 import { presentedReviewDeck } from "./review-deck.ts";
 import { oneLine } from "./text.ts";
@@ -16,33 +18,30 @@ type CreateMeeting = (typeof CreateMeetingInput)["_input"];
 
 /**
  * Residents of a building, stopped ones included (a standup is where they get reactivated with a new task); for
- * town-hall meetings, agents holding manager/reviewer anywhere plus town moderators.
+ * town-hall meetings, the agents holding a lab's manager role.
  */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired') AND forkOf IS NULL", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where(`homeBuildingId = ? AND kind = 'resident' AND ${NOT_GONE} AND forkOf IS NULL`, [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
-    for (const r of ["manager", "reviewer"] as const) for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, r))) ids.add(id);
+    for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, "manager"))) ids.add(id);
   }
-  for (const id of world.permissions.agentsWithRole(townRoleId("moderator"))) ids.add(id);
-  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
+  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && !isGone(s); });
 }
 
 /**
- * The building's manager (set explicitly in its settings), else its reviewer agent, else the first resident by join
+ * The building's manager (set explicitly in its settings), else the first resident by join
  * order. Town hall: the first active manager among the invitees (buildings in creation order), else the first active
  * invitee (docs/meetings.md §3.4). Never the first *invitee* by default: the UI's picker sends invitees sorted by
  * name, which made the facilitator whoever sorted first.
  */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
-  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && s !== "banned" && s !== "retired"; };
+  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && !isGone(s); };
   if (buildingId && buildingId !== TOWN_HALL_ID) {
     const manager = world.buildings.get(buildingId)?.managerAgentId;
     if (active(manager)) return manager;
-    const rev = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find(active);
-    if (rev) return rev;
     const first = defaultAttendees(world, buildingId).find((id) => active(id) && attendees.includes(id));
     if (first) return first;
   } else {
@@ -79,18 +78,19 @@ export function decisionOutcomes(world: World, m: Meeting, agentId?: string): De
   return out;
 }
 
-/** Create a meeting. `actor` undefined = system (scheduler); otherwise needs meeting.facilitate or building.review. */
+/** Create a meeting. `actor` undefined = system (scheduler); otherwise, in a lab, `canDirect` there (staff, a captain over its goal, or "direct work under" it); at the Town Hall, meeting.facilitate or building.review. */
 export function createMeeting(world: World, input: CreateMeeting, actor?: Agent): Meeting {
   const inp = CreateMeetingInput.parse(input);
   const bid = inp.buildingId && inp.buildingId !== TOWN_HALL_ID ? inp.buildingId : null;
   const b = bid ? world.buildings.require(bid, "building") : null;
-  if (actor && !world.permissions.can(actor, "meeting.facilitate", bid ?? TOWN_HALL_ID) && !world.permissions.can(actor, "building.review", bid ?? TOWN_HALL_ID)) throw forbidden("meeting.facilitate");
+  // a lab: the building's staff, a captain over its goal, or a member who may direct work under it (direct.ts)
+  if (actor && !(bid ? canDirect(world, actor, bid) : world.permissions.can(actor, "meeting.facilitate", TOWN_HALL_ID) || world.permissions.can(actor, "building.review", TOWN_HALL_ID))) throw forbidden("meeting.facilitate", directRefusal(world, bid));
   const attendeeIds = inp.attendeeIds ? [...new Set(inp.attendeeIds)] : defaultAttendees(world, bid);
   for (const id of inp.attendeeIds ?? []) {
     const a = world.agents.get(id);
     if (!a) throw notFound("agent", id);
     if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
-    if (a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
+    if (isGone(a)) throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
   }
   const brings = inp.brings ?? { mode: "status" as const, text: "" };
   if (brings.mode === "custom" && !brings.text.trim()) throw badRequest("Say what attendees should bring (custom), or pick status update or nothing.");
@@ -130,7 +130,7 @@ function inviteAsk(m: Meeting): string {
 }
 
 /** An agent a human can hold a 1:1 with: a resident (or manager) still working in the town. */
-const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**
  * Who answers a 1:1 about `authorId`'s work: the author itself if it is a working resident; a fork's parent (the
@@ -147,25 +147,11 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
   return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
 }
 
-/** New 1:1s a member (no facilitate/review in the building) may open per UTC day, across all buildings (gr_58n37j410s). */
-export const MEMBER_ONE_ON_ONES_PER_DAY = 1;
-
-/** Whether a human runs 1:1s in a building as its staff (facilitator or reviewer), not as a member. */
-export function isOneOnOneStaff(world: World, human: Agent | Holder, buildingId: string): boolean {
-  return world.permissions.can(human, "meeting.facilitate", buildingId) || world.permissions.can(human, "building.review", buildingId);
-}
-
-/**
- * The manager's 1:1 prompt line for a member's 1:1 (gr_58n37j410s): who they are and what the manager does and doesn't
- * do for them; "" when the human runs the building (facilitate, review or assign there) or it's the Town Hall.
- */
-export function oneOnOneMemberBlock(world: World, m: Pick<Meeting, "kind" | "buildingId" | "withUserId">): string {
-  if (m.kind !== "one-on-one" || !m.withUserId || !m.buildingId || m.buildingId === TOWN_HALL_ID) return "";
-  const h: Holder = { kind: "user", id: m.withUserId };
-  if (isOneOnOneStaff(world, h, m.buildingId) || world.permissions.can(h, "building.assign", m.buildingId)) return "";
-  const b = world.buildings.get(m.buildingId);
-  return `## Who you are talking to
-${world.nameOf(m.withUserId)} is a new member of the town (let in, not an admin or reviewer of ${b?.name ?? "this building"}). Answer them and orient them: what ${b?.name ?? "the building"} does and is working on now, and their first steps (Connect your agent from the HUD, the outbox for asking humans to do something, joining a building's meetings). Don't take direction from them and don't create work from this 1:1: no \`assign\`, no assigned decisions; a member's 1:1 is not a human source for a directed assignment. If they want something built, tell them the town's admins decide what gets built and funded.`;
+/** Why a human may not hold a 1:1 or meeting in a lab: they don't direct work under its goal. */
+function directRefusal(world: World, buildingId: string | null): string {
+  const b = buildingId ? world.buildings.get(buildingId) : undefined;
+  if (!b) return "Only the Town Hall's staff call a meeting there.";
+  return `You can't direct work in ${b.name} yet: 1:1s and meetings there need "direct work under" its goal ("${oneLine(world.goalTree.purposeOf(b), 100)}") or a goal above it. An admin or that goal's captain grants it.`;
 }
 
 /**
@@ -175,20 +161,16 @@ ${world.nameOf(m.withUserId)} is a new member of the town (let in, not an admin 
  * `in-meeting` (its host session answers, runtime/src/manage.ts). With `opts.docId` (any doc) or `opts.grantId` (a
  * grant's "Talk to <manager>": its proposer, resolved the same way, else the building's manager) the human's first
  * line presents it, so the agent's prompt carries its id (and a grant's key result). Returns the human's open 1:1
- * with that agent if any (presenting the subject there if it isn't yet). Needs meeting.facilitate or building.review
- * on the building; a let-in member (town.interact) may open the default 1:1 with a non-Town-Hall manager, at most
- * MEMBER_ONE_ON_ONES_PER_DAY new ones a UTC day (returning to the open one is always allowed).
+ * with that agent if any (presenting the subject there if it isn't yet). Needs `canDirect` on the
+ * building (its staff, a captain over its goal, or a member granted "direct work under" it: gr_cuobjlny6r, Mitchell
+ * mt_hlizi9wxxc); no permission, no 1:1. At the Town Hall, `canPlan`.
  */
 export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
   // the Town Hall's manager is the Planner, its one agent to talk to ("Plan with an agent", docs/goals.md)
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
   if (townHall && opts.agentId && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
-  const staff = townHall ? world.reorgs.canPlan(human, opts.goalId) : isOneOnOneStaff(world, human, b.id);
-  // a let-in member (town.interact, no facilitate/review here) talks to the manager only, one new 1:1 a UTC day (gr_58n37j410s)
-  const member = !staff && !townHall && world.holderOf(human).kind === "user" && world.permissions.can(human, "town.interact", b.id);
-  if (!staff && !member) throw forbidden("meeting.facilitate");
-  if (member && (opts.agentId || opts.docId || opts.grantId || opts.goalId)) throw new AppError("forbidden", `As a member you talk to ${b.name}'s manager: open the 1:1 from its panel's "Talk to ★".`, 403, "meeting.facilitate");
+  if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !canDirect(world, human, b.id)) throw forbidden("meeting.facilitate", townHall ? undefined : directRefusal(world, b.id));
   // the Planner itself (created, or resumed if stopped, by ensurePlanner), never "has no manager agent"
   if (townHall) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
   const h = world.holderOf(human);
@@ -232,9 +214,6 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   };
   if (open[0]) return present(open[0]);
   const ts = nowIso();
-  if (member && world.meetings.count("kind = 'one-on-one' AND withUserId = ? AND createdAt >= ?", [h.id, `${ts.slice(0, 10)}T00:00:00.000Z`]) >= MEMBER_ONE_ON_ONES_PER_DAY) {
-    throw new AppError("conflict", "You already opened a 1:1 today; members get one new 1:1 a day. Come back tomorrow (UTC) or continue the one you have.");
-  }
   const meeting = world.meetings.upsert(Meeting.parse({
     id: newId("mt"), kind: "one-on-one", buildingId: b.id, title: `1:1: ${world.nameOf(h.id)} and ${target.name}`, scheduledAt: ts, phase: "discussing",
     facilitatorId: target.id, attendeeIds: [target.id], withUserId: h.id, createdAt: ts, startedAt: ts,
@@ -345,6 +324,8 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });
   if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
+  // a let-in member's first 1:1 line counts once in the join funnel (gr_58n37j410s step 3); other meetings don't
+  if (m.kind === "one-on-one" && h.kind === "user") countMemberAct(world, h.id);
   notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
 }

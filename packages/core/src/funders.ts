@@ -15,7 +15,7 @@ import type { World } from "./world.ts";
  */
 
 const DAY = 86_400_000;
-const PURPOSE: Record<Session["purpose"], string> = { work: "work session", manage: "manager session", review: "review session", facilitate: "meeting facilitation", summary: "meeting summary", "meeting-reply": "meeting reply" };
+const PURPOSE: Record<Session["purpose"], string> = { work: "work session", manage: "manager session", review: "review session", facilitate: "meeting facilitation", summary: "meeting summary", "meeting-reply": "meeting reply", naming: "building naming", estimate: "grant cost estimate" };
 
 interface Attribution {
   from: string; to: string;

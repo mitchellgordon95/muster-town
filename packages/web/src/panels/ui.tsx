@@ -134,6 +134,11 @@ export function nameOf(id: string | null | undefined): string {
   if (s.me?.user.id === id) return s.me.user.name;
   const known = store.names.get(id);
   if (known) return known;
+  // a user id (a 1:1's human, a doc's human author): its avatar in the snapshot carries the name
+  if (id.startsWith("us_")) {
+    const avatar = Object.values(s.agents).find((a) => a.kind === "human" && a.ownerUserId === id);
+    if (avatar) return avatar.name;
+  }
   // dismissed/banned agents aren't in the snapshot; GET /api/agents/:id still answers for them
   if (id.startsWith("ag_") && !lookups.has(id)) {
     lookups.add(id);

@@ -168,3 +168,56 @@ export function withNeedsLine(body: string, line: string): string {
   while (end > r[0] + 1 && !lines[end - 1]!.trim()) end--;
   return [...lines.slice(0, end), "", line, "", ...lines.slice(r[1])].join("\n");
 }
+
+/**
+ * Folding "go fund gr_xxx" rollups into the item's own row (1:1 mt_7b4zc7yja3): a rollup's ask about a decision that
+ * already has its own Town Hall in-tray row (a grant proposal, a checkpoint, a grant closed as done, a retainer ask) is
+ * shown on that row, and a rollup that asks nothing else is acknowledged on submit instead of becoming its own card.
+ */
+const WAITING_LINE = /^_(?:Already waiting in your in-tray|Nothing else waiting in your in-tray)[^\n]*_\s*$/gm;
+
+/** The body without the town's generated "Already waiting in your in-tray" line (it names every open proposal). */
+export function withoutWaitingLine(body: string): string {
+  return body.replace(/\r\n/g, "\n").replace(WAITING_LINE, "");
+}
+
+// a Key results table row ("| gr_x, 10 / 20 | kr_y | at-risk | note |") reads as "gr_x, 10 / 20 · kr_y · at-risk · note"
+const tableRow = (l: string) => /^\s*\|.*\|\s*$/.test(l) ? l.trim().replace(/^\|\s*|\s*\|$/g, "").split(/\s*\|\s*/).filter(Boolean).join(" · ") : l;
+const plainLine = (l: string) => tableRow(l).replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+
+/** The rollup's own words about `id`: its Needs line naming it, else its first other line naming it outside "## Decided" (as plain text), else its title when that names it; null if neither does. */
+export function askLineFor(title: string, body: string, id: string): string | null {
+  const re = new RegExp(`\\b${id}\\b`);
+  // the Needs section's line first; a "## Decided" line ("dc_x → approve (checkpoint for gr_y)") reports a decision, it asks nothing
+  const lines: { text: string; section: string | undefined }[] = [];
+  let section: string | undefined;
+  for (const l of withoutWaitingLine(body).split("\n")) {
+    const h = HEADING.exec(l);
+    if (h) { section = sectionOf(h[1]!); continue; }
+    if (section !== "Decided" && re.test(l) && plainLine(l)) lines.push({ text: l, section });
+  }
+  const hit = lines.find((l) => l.section === "Needs from") ?? lines[0];
+  if (hit) return plainLine(hit.text);
+  return re.test(title) ? plainLine(title) : null;
+}
+
+/** "Nothing", "None", "Nothing needed." and the like: a Needs line that asks nothing. */
+const NOTHING = /^(?:_?\s*)?(?:nothing|none|no(?:thing)? (?:new|needed|asks?)|n\/a)\b/i;
+
+/**
+ * True when a rollup asks a human nothing beyond the items in `waitingIds` (which have their own in-tray rows): it has
+ * no Shipped items, and every line of its Needs section (the generated waiting line aside) says nothing or names one of
+ * those items. Such a rollup is folded into those rows.
+ */
+export function rollupAsksOnly(body: string, waitingIds: Iterable<string>): boolean {
+  const p = parseRollup(body);
+  if (p.items.length || p.missingSections.length) return false;
+  const ids = [...waitingIds];
+  const lines = rollupNeeds(withoutWaitingLine(body)).split("\n").map(plainLine).filter(Boolean);
+  return lines.every((l) => NOTHING.test(l) || ids.some((id) => new RegExp(`\\b${id}\\b`).test(l)));
+}
+
+/** The verb a rollup's ask reads with on its row, by the item's state: "<building> asks you to fund this". */
+export function askVerb(status: string): string {
+  return status === "checkpoint" ? "continue" : status === "closed" ? "mark" : status === "asked" ? "approve" : "fund";
+}

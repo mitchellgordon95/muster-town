@@ -319,6 +319,8 @@ export function BuildingFunding({ rev }: { rev: number }) {
 /** What funds the town. The owner of an input, or an admin, can cancel it (past credits stay in the Bank). */
 export function BankInputs({ bank, onChange }: Props) {
   const me = useTown((s) => s.me);
+  // a hosted collective (its health says its funding): the key from Start is one 1,000,000-token input (server hub.ts STARTER_KEY_TOKENS)
+  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
   const inputs = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
   return (
     <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
@@ -328,7 +330,15 @@ export function BankInputs({ bank, onChange }: Props) {
           <tbody>
             {inputs.map((i) => (
               <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
-                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}</td>
+                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}
+                  {(i.limits ?? []).filter((l) => l.inForce).map((l) => (
+                    <div key={l.id} title={l.reason} style={{ color: "#c0392b" }}>
+                      {l.text.slice(i.label.length + 2)}
+                      {!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
+                        ? <> <Act small run={async () => { await api().clearBankLimit(l.id); store.toast(`${i.label}: the next session may try it`, "ok"); onChange(); }}>Try now</Act></>
+                        : null}
+                    </div>
+                  ))}</td>
                 <td>{i.userName}</td>
                 <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div className="muted">{creditsLeftLine(i)}</div> : null}</td>
                 <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
@@ -340,9 +350,13 @@ export function BankInputs({ bank, onChange }: Props) {
           </tbody>
         </table>
       )}
+      {hosted ? <div className="foot-note">{HOSTED_CAP_LINE}</div> : null}
     </Section>
   );
 }
+
+/** Shown on a hosted Bank: new work stops when the inputs are spent; 1:1s, Ask about and summaries still run on the key. */
+const HOSTED_CAP_LINE = "Work on your key stops at 1,000,000 tokens (about $20) until you add more here; talking to your agents still uses it.";
 
 const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> = {
   "below-one-session": "below one session",

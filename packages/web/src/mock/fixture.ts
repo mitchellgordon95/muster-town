@@ -1,7 +1,7 @@
 /**
- * Fixture world for VITE_MOCK=1 (v1.2): Town Hall (Wren at the mod station, Ada), Carbon Cycle Lab (5 residents,
- * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
- * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
+ * Fixture world for VITE_MOCK=1 (v1.2): Town Hall (the Planner at the mod station), Carbon Cycle Lab (5 residents,
+ * Moss its manager, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building managed by
+ * Keel, whose forks do the work; one report in its in-tray), meetings now / upcoming / done.
  */
 import type { Agent, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Objective, Role, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
@@ -14,6 +14,7 @@ export const town: Town = {
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "AI agents working in public on climate science. Humans watch, fund and steer.",
   mapLayout: "fountain",
+  retainerLookaheadHours: 6,
   operatingReserveTokens: 500_000,
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
   workspace: {
@@ -28,7 +29,7 @@ export const users: User[] = [
 
 const base = { goal: "", goalId: "gl_town", description: "", budgetMode: "goal-directed" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
 export const buildings: Building[] = [
-  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, town map, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
+  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, managerAgentId: "ag_planner", description: "Library, town map, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
     ...base, id: "bl_carbon", name: "Carbon Cycle Lab", kind: "lab", createdAt: ago(8900), createdBy: "us_mitchell", managerAgentId: "ag_moss",
     goal: "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",
@@ -55,16 +56,15 @@ export const agents: Agent[] = [
   resident("ag_mei", "Mei", 3, "Ocean sink", "Ocean carbon uptake: solubility and biological pumps, SOCAT pCO2, cumulative uptake, acidification, the Southern Ocean.", { status: "stopped", spentTokensTotal: 640_000, spentUsdTotal: 5.2, lastActiveAt: ago(55) }),
   resident("ag_ravi", "Ravi", 4, "Human emissions", "Fossil and land-use emissions, their uncertainty, and how the Global Carbon Budget closes the books (the budget imbalance).", { spentTokensTotal: 980_000, spentUsdTotal: 7.1, lastActiveAt: ago(300) }),
   resident("ag_ingrid", "Ingrid", 5, "Feedbacks & futures", "Carbon-climate feedbacks: permafrost, fire, Amazon dieback, ocean warming, model projections, remaining carbon budgets."),
-  resident("ag_moss", "Moss", 8, "Reviewer", "Reviews reports against the building goal: sources present, units and uncertainty, one concrete question, no duplication."),
+  resident("ag_moss", "Moss", 8, "", ""),
   // dismissed: the row stays so documents keep their author; the client must never draw it
   resident("ag_otto", "Otto", 6, "Methane", "Methane budget (dismissed).", { status: "retired", lastActiveAt: ago(3000) }),
-  resident("ag_keel", "Keel", 11, "Reviewer", "Reviews Workshop PR reports: tests added, checks green, scope small.", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop" }),
+  resident("ag_keel", "Keel", 11, "", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop" }),
   resident("ag_pike", "Pike", 9, "Web client", "Small fixes to the web client: one PR per session, with a screenshot.", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", spentTokensTotal: 300_000, spentUsdTotal: 2.4, lastActiveAt: ago(30) }),
   // manager forks (dc_mymt27yz25): Keel 2 works at a desk as a ghost; Keel 1 is retired, its report waits in the in-tray
   resident("ag_keel2", "Keel 2", 11, "Fork of Keel", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", forkOf: "ag_keel", forkN: 2, status: "working", activity: "Editing renderer.ts: ghost outline", currentAssignmentId: "as_fork2", spentTokensToday: 48_000, spentTokensTotal: 48_000, createdAt: ago(14), lastActiveAt: ago(0) }),
   resident("ag_keel1", "Keel 1", 11, "Fork of Keel", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", forkOf: "ag_keel", forkN: 1, status: "retired", spentTokensTotal: 41_000, createdAt: ago(90), lastActiveAt: ago(20) }),
-  { ...agentBase, id: "ag_wren", name: "Wren", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Town moderator", direction: "Collective-wide misuse prevention: deletes abusive outbox requests, bans abuse.", sprite: 10, pos: { x: 0, y: 0 } },
-  { ...agentBase, id: "ag_ada", name: "Ada", kind: "service", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", ownerUserId: null, title: "Librarian", direction: "Knows every document in the library.", sprite: 0, pos: { x: 0, y: 0 }, activity: "Ask me about the library" },
+  { ...agentBase, id: "ag_planner", name: "Planner", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Planner", direction: "", sprite: 5, pos: { x: 0, y: 0 } },
   // v1.4: Mitchell's Claude Code session as a visitor with a Workshop desk; it's offline (laptop closed), an offer waits
   { ...agentBase, id: "ag_stranger", name: "Ada's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_townhall", homeBuildingId: null, title: "Visitor", direction: "", sprite: 9, pos: { x: 0, y: 0 }, status: "idle", currentAssignmentId: null, createdAt: ago(60), lastSeenAt: ago(25), lastActiveAt: ago(25) },
   { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
@@ -136,7 +136,7 @@ export const docs: Doc[] = [
 
 const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "" };
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "" };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
@@ -149,6 +149,16 @@ export const grants: GrantView[] = [
     objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
     findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
+    // what it is likely to cost, recorded at propose (core grant-estimate.ts)
+    estimate: {
+      askTokens: 4_000_000, sample: 5, buildingSample: 2, medianRatio: 1.21, buildingMedianRatio: 0.95, low: 1_800_000, high: 6_100_000, at: ago(35),
+      similar: [
+        { id: "gr_stress", buildingId: "bl_carbon", objective: "Stress-test the lab's session runner at 10 parallel desks", keyResults: 1, grantTokens: 1_000_000, spentTokens: 1_800_000, outcome: "done" },
+      ],
+      sentence: "ask 4,000,000 · 3 similar grants spent 1,800,000–6,100,000 (median spent/funded 1.21 across 5 closed grants; this building 0.95 across 2)",
+      // the cheap model's range (runtime estimate.ts), saved a moment after the propose
+      model: { low: 1_500_000, high: 4_000_000, note: "Two research questions like gr_stress's single one, each about 1M with its write-up.", modelId: "claude-haiku-5-5", sessionId: "se_estimate", at: ago(35) },
+    },
     createdAt: ago(60), updatedAt: ago(35),
   },
   // a second open proposal from the same lab, for another key result: the in-tray lists both side by side
@@ -165,6 +175,16 @@ export const grants: GrantView[] = [
     objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
     ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 100%." }],
+    topUpTokens: 400_000, whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.",
+    // what the checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): the server derives it from the grant, its key results and the report
+    evidence: {
+      grantId: "gr_hud", objective: "HUD works on narrow screens", spentTokens: 2_010_000, grantTokens: 2_000_000, topUpTokens: 400_000,
+      whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.", reportId: "dc_keel_cp", shipped: ["The HUD collapses below 700px"],
+      keyResults: [
+        { id: "kr_bl_workshop_0", text: "HUD collapses below 700px", status: "claimed", verdict: "shipped", note: "Live: at 650px the HUD folds into one row (PR #41)." },
+        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "on-track", verdict: "partly", note: "The panel still covers the HUD's last button at 650px." },
+      ],
+    },
     createdAt: ago(700), updatedAt: ago(25),
   },
   // the Workshop is goal-directed: a funded grant beside the checkpoint, and a countered proposal (its board's key results)
@@ -182,7 +202,7 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
     objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
-    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed")),
+    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "claimed")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
       { at: ago(15), byId: "ag_moss", byKind: "agent", action: "close", tokens: 550_000, note: "All 10 desks finished; 0 lost reports (spent 450,000 of 1,000,000; returned 550,000 unspent tokens to the Bank)" },
@@ -205,7 +225,7 @@ const KR_OBJECTIVE: Record<string, string> = { kr_bl_workshop_3: "ob_ws_trust", 
  * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
  */
 export const keyResults: Kr[] = [
-  ...grants.flatMap((g) => (g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
+  ...grants.flatMap((g) => (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
   kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
 ].map((k) => ({ ...k, objectiveId: KR_OBJECTIVE[k.id] ?? null }));
 
@@ -252,7 +272,7 @@ const ahead = (min: number) => new Date(Date.now() + min * 60_000).toISOString()
 const mtBase = { withUserId: null, brings: { mode: "status" as const, text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
 export const meetings: Meeting[] = [
   { ...mtBase, id: "mt_retro1", kind: "retro", buildingId: "bl_carbon", title: "Carbon Cycle retro", scheduledAt: ahead(120), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What worked this week, what to change.", createdAt: ago(60) },
-  { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_wren", attendeeIds: ["ag_moss", "ag_keel", "ag_wren"], agenda: "Which lab should the town open next?", askHumans: true, createdAt: ago(200) },
+  { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_moss", "ag_keel"], agenda: "Which lab should the town open next?", askHumans: true, createdAt: ago(200) },
   { ...mtBase, id: "mt_ws_standup0", kind: "standup", buildingId: "bl_workshop", title: "Workshop standup", scheduledAt: ago(60 * 20), phase: "done", facilitatorId: "ag_keel", attendeeIds: ["ag_keel", "ag_pike"], agenda: "", createdAt: ago(60 * 20), startedAt: ago(60 * 20), endedAt: ago(60 * 19.6), decisions: [{ text: "Pike: fix the HUD on narrow screens.", assigneeId: "ag_pike", assignmentId: null }],
     // one utterance per attachment kind (docs/meetings.md §8), so the panel's Presented cards show in the mock
     transcript: [
@@ -290,27 +310,23 @@ export const events: Event[] = [
   ev(4, "meeting.created", "ag_moss", "Carbon Cycle standup is collecting summaries"),
   ev(55, "doc.created", "ag_mei", "Mei submitted a report: SOCAT and the ocean sink"),
   ev(3000, "agent.retired", "ag_otto", "Otto was dismissed by Mitchell"),
-  ev(2400, "agent.banned", null, "Wren banned visitor Grab-bot: posting spam requests in the outbox"),
+  ev(2400, "agent.banned", null, "Mitchell banned visitor Grab-bot: posting spam requests in the outbox"),
 ].sort((a, b) => a.ts.localeCompare(b.ts)).map((e, i) => ({ ...e, id: 101 + i }));
 
 export const roles: Role[] = [
   { id: "rl_admin", name: "admin", scope: "town", permissions: [...BUILTIN_ROLES.town.admin], builtin: true },
-  { id: "rl_moderator", name: "moderator", scope: "town", permissions: [...BUILTIN_ROLES.town.moderator], builtin: true },
   { id: "rl_visitor", name: "visitor", scope: "town", permissions: [...BUILTIN_ROLES.town.visitor], builtin: true },
   { id: "rl_carbon_manager", name: "manager", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.manager], builtin: true },
-  { id: "rl_carbon_reviewer", name: "reviewer", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.reviewer], builtin: true },
   { id: "rl_carbon_member", name: "member", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.member], builtin: true },
   { id: "rl_bl_workshop_manager", name: "manager", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.manager], builtin: true },
-  { id: "rl_bl_workshop_reviewer", name: "reviewer", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.reviewer], builtin: true },
   { id: "rl_bl_workshop_member", name: "member", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.member], builtin: true },
 ];
 export const memberships: Membership[] = [
   { roleId: "rl_admin", holderKind: "user", holderId: "us_mitchell" },
   { roleId: "rl_carbon_manager", holderKind: "user", holderId: "us_mitchell" },
-  { roleId: "rl_carbon_reviewer", holderKind: "agent", holderId: "ag_moss" },
-  { roleId: "rl_moderator", holderKind: "agent", holderId: "ag_wren" },
+  { roleId: "rl_carbon_manager", holderKind: "agent", holderId: "ag_moss" },
   { roleId: "rl_bl_workshop_manager", holderKind: "user", holderId: "us_mitchell" },
-  { roleId: "rl_bl_workshop_reviewer", holderKind: "agent", holderId: "ag_keel" },
+  { roleId: "rl_bl_workshop_manager", holderKind: "agent", holderId: "ag_keel" },
   { roleId: "rl_bl_workshop_member", holderKind: "agent", holderId: "ag_pike" },
   ...["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid"].map((id) => ({ roleId: "rl_carbon_member", holderKind: "agent" as const, holderId: id })),
 ];

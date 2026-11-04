@@ -192,14 +192,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
-  // The join funnel (grant gr_fibsfwr4tz step 3): public counts only, never who. The guest card pings `view` once per load;
+  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load;
   // the root's GET also lists every hosted collective, so their strangers are rows too.
   app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
     const all = [own, ...hosted];
-    return { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    const funnel = { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
+    return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.

@@ -19,6 +19,7 @@ import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
 import { StatsPanel } from "./panels/StatsPanel";
+import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
@@ -97,6 +98,18 @@ async function boot(): Promise<Phase> {
     }, () => undefined);
   };
   store.onRedeployEvent = loadRedeployLive;
+  // a hosted collective: a key added, an exploration started, a proposal filed or funded moves the founder's HUD notice
+  // (health figures are recomputed every 5 s on the server, so wait a little longer than that before refetching)
+  let founderTimer: ReturnType<typeof setTimeout> | null = null;
+  store.onFounderChanged = () => {
+    founderTimer ??= setTimeout(() => {
+      founderTimer = null;
+      a.health().then(({ funding, founder }) => {
+        const h = store.state.health;
+        if (h && funding) store.set({ health: { ...h, funding, ...(founder ? { founder } : {}) } });
+      }, () => undefined);
+    }, 6000);
+  };
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
@@ -200,6 +213,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
     case "manual": return null; // a paper sheet over the town, not a side panel (App)
+    case "help": return null; // a building's help sign: a paper card over the town (App)
   }
 }
 
@@ -208,6 +222,7 @@ export function App() {
   const open = useTown((s) => s.panel);
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
+  const helpSign = open?.kind === "help" && open.id ? open.id : null;
   // the goal tree editor is a sheet over the map too; it stays open while a link from it fills the side panel
   // (a grant, a building, the Planner's 1:1) and closes when its own panel ref is closed or with its ×
   const [goals, setGoals] = useState<PanelRef | null>(null);
@@ -218,7 +233,7 @@ export function App() {
     prevOpen.current = open;
   }, [open]);
   const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
-  const panel = manual || open?.kind === "goals" ? null : open;
+  const panel = manual || helpSign || open?.kind === "goals" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
   const plan = useTownPlan();
   const planSel = plan?.selected ?? null;
@@ -232,7 +247,7 @@ export function App() {
   const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
   useTown((s) => s.me);
   // human-only: a guest has no roles, and agents don't use the web client
-  const canAssign = (id: string) => store.can("building.assign", id);
+  const canAssign = (id: string) => store.canFlag(id);
   const canFlag = flagTargets(buildings, canAssign).length > 0;
   const [pw, setPw] = usePanelWidth();
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.
@@ -299,6 +314,7 @@ export function App() {
       <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
+      {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>

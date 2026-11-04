@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meetingNotice } from "../src/meetings.ts";
 import { oneOnOnePrompt } from "../src/prompts.ts";
-import { buildingRoleId, oneOnOneMemberBlock, townRoleId } from "../src/index.ts";
+import { buildingRoleId, canDirect, grantDirect, revokeDirect, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 describe("the manager's 1:1", () => {
@@ -9,6 +9,7 @@ describe("the manager's 1:1", () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     // no manager agent: send a message instead
+    world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: null });
     expect(() => world.ops.openOneOnOne(admin, "carbon-cycle")).toThrow(/no manager agent/);
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     const m = world.ops.openOneOnOne(admin, "carbon-cycle");
@@ -124,14 +125,22 @@ describe("the manager's 1:1", () => {
   });
 });
 
-describe("a member's 1:1 with a manager (gr_58n37j410s step 1)", () => {
-  it("a let-in member opens the default 1:1 (not a target, not the Town Hall), one new 1:1 a UTC day; returning is allowed; admins uncapped", async () => {
+describe("a member's 1:1 needs direct work under the building's goal (gr_cuobjlny6r)", () => {
+  it("a let-in member without it is refused; with it, the same 1:1 as staff (targets too) inside the goal's subtree only; no daily cap", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
+    const carbonGoal = world.goalTree.create(null, { parentId: "gl_town", text: "Carbon goal" }).id;
+    world.goalTree.attach(null, "carbon-cycle", carbonGoal);
+    const sub = world.goalTree.create(null, { parentId: carbonGoal, text: "Sub goal" }).id;
     const other = world.ops.createBuilding(admin, { name: "New lab" });
+    world.goalTree.attach(null, other.id, world.goalTree.create(null, { parentId: "gl_town", text: "Other goal" }).id);
     world.agents.patch(by("Noor").id, { homeBuildingId: other.id, buildingId: other.id });
     world.ops.updateBuilding(admin, other.id, { managerAgentId: by("Noor").id });
+    const subLab = world.ops.createBuilding(admin, { name: "Sub lab" });
+    world.goalTree.attach(null, subLab.id, sub);
+    world.agents.patch(by("Ravi").id, { homeBuildingId: subLab.id, buildingId: subLab.id });
+    world.ops.updateBuilding(admin, subLab.id, { managerAgentId: by("Ravi").id });
     const user = (name: string, role: "member" | "visitor") => {
       const { user: u } = world.ops.createUser(name);
       world.permissions.grant({ kind: "user", id: u.id }, townRoleId(role));
@@ -139,39 +148,31 @@ describe("a member's 1:1 with a manager (gr_58n37j410s step 1)", () => {
     };
     const ana = user("Ana", "member");
     const vic = user("Vic", "visitor");
-    // a visitor (not let in) can't
-    expect(() => world.ops.openOneOnOne(vic, "carbon-cycle")).toThrow(/meeting.facilitate/);
-    // a member: no doc/agent/grant targets, and not the Town Hall's Planner
-    const doc = world.docs.first("authorId = ?", [mei.id]) ?? world.docs.all()[0];
-    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle", { agentId: mei.id })).toThrow(/As a member you talk to/);
-    if (doc) expect(() => world.ops.openOneOnOne(ana, "carbon-cycle", { docId: doc.id })).toThrow(/As a member you talk to/);
-    const th = world.buildings.first("kind = 'town-hall'")!;
-    expect(() => world.ops.openOneOnOne(ana, th.id)).toThrow();
-    // the default 1:1 with the manager
+    // no permission, no 1:1: a visitor, and a plain let-in member
+    expect(() => world.ops.openOneOnOne(vic, "carbon-cycle")).toThrow(/direct work under/);
+    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle")).toThrow(/direct work under/);
+    // a visitor can't be granted it
+    expect(() => grantDirect(world, admin, world.holderOf(vic).id, carbonGoal)).toThrow(/Let them in first/);
+    grantDirect(world, admin, world.holderOf(ana).id, carbonGoal);
+    expect(canDirect(world, ana, "carbon-cycle")).toBe(true);
+    expect(canDirect(world, ana, subLab.id)).toBe(true); // a goal under it
+    expect(canDirect(world, ana, other.id)).toBe(false); // outside the subtree
+    // the default 1:1 and a target, like staff
     const m = world.ops.openOneOnOne(ana, "carbon-cycle");
     expect(m).toMatchObject({ kind: "one-on-one", phase: "discussing", facilitatorId: mei.id, withUserId: world.holderOf(ana).id });
-    // the manager's prompt says who they are talking to; an admin's 1:1 has no such line
-    expect(oneOnOneMemberBlock(world, m)).toMatch(/new member of the town[\s\S]*not a human source for a directed assignment/);
-    expect(oneOnOneMemberBlock(world, world.ops.openOneOnOne(admin, "carbon-cycle"))).toBe("");
-    // they speak, the manager answers
+    expect(world.ops.openOneOnOne(ana, "carbon-cycle", { agentId: mei.id }).id).toBe(m.id);
+    expect(world.ops.openOneOnOne(ana, subLab.id).facilitatorId).toBe(by("Ravi").id);
+    expect(() => world.ops.openOneOnOne(ana, other.id)).toThrow(/direct work under/);
     world.ops.meetingSay(ana, m.id, "Hi, what does this building do?");
-    await world.verbs.meeting(mei, { meetingId: m.id, action: "speak", text: "We track the carbon cycle. Start with Connect your agent." });
-    // returning to the open one is not new
-    expect(world.ops.openOneOnOne(ana, "carbon-cycle").id).toBe(m.id);
-    // a second NEW 1:1 the same UTC day is refused, in any building, with a clear sentence (409 conflict)
-    let err: unknown;
-    try { world.ops.openOneOnOne(ana, other.id); } catch (e) { err = e; }
-    expect(err).toMatchObject({ code: "conflict" });
-    expect((err as Error).message).toMatch(/You already opened a 1:1 today; members get one new 1:1 a day/);
-    // the member ends their own 1:1; a new one the same day is still refused
+    await world.verbs.meeting(mei, { meetingId: m.id, action: "speak", text: "We track the carbon cycle." });
+    // no daily cap (mt_hlizi9wxxc): end it and open another the same day
     expect(world.ops.endMeeting(ana, m.id).phase).toBe("done");
-    expect(() => world.ops.openOneOnOne(ana, "carbon-cycle")).toThrow(/one new 1:1 a day/);
-    // the next UTC day it opens (the count is from today's midnight)
-    world.meetings.upsert({ ...world.meetings.require(m.id), createdAt: "2000-01-01T12:00:00.000Z" });
-    expect(world.ops.openOneOnOne(ana, other.id).facilitatorId).toBe(by("Noor").id);
-    // admins are uncapped
-    world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
-    world.ops.endMeeting(admin, world.ops.openOneOnOne(admin, "carbon-cycle").id);
-    expect(world.ops.openOneOnOne(admin, other.id).phase).toBe("discussing");
+    expect(world.ops.openOneOnOne(ana, "carbon-cycle").id).not.toBe(m.id);
+    // revoked: refused again
+    expect(revokeDirect(world, admin, world.holderOf(ana).id, carbonGoal)).toBe(true);
+    expect(() => world.ops.openOneOnOne(ana, subLab.id)).toThrow(/direct work under/);
+    // a captain of the goal may, without a row
+    world.goalTree.setOwner(null, world.goalTree.require(carbonGoal), world.holderOf(ana).id);
+    expect(canDirect(world, ana, subLab.id)).toBe(true);
   });
 });

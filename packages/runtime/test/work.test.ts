@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { callVerb, deferred, init, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
+import { callVerb, deferred, init, managerless, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
 
 const REPORT = { title: "Mauna Loa growth rate", verdict: "continue", body: "## Summary\nGrowth 2.4 ± 0.1 ppm/yr.\n\n## Proposal for next session\nHow does the 13C record attribute the rise?\nBecause attribution matters." };
 
@@ -42,7 +42,11 @@ describe("work session", () => {
 
     // options: MCP over http with the agent's bearer token, tool allow/deny lists, model, turns
     const opts = sdk.sessions[0].options;
-    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: `Bearer ${world.tokens.getOrCreate("agent", noor.id)}` } });
+    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: expect.stringMatching(/^Bearer at_/) } });
+    // the session's own token, revoked when it ended (docs/secrets.md "Login tokens")
+    const bearerTok = (opts.mcpServers!.town as { headers: Record<string, string> }).headers.Authorization.slice("Bearer ".length);
+    expect(world.tokens.resolve(bearerTok)).toBeUndefined();
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE sessionId = ?").get(session.id)).toEqual({ n: 0 });
     expect(opts.allowedTools).toEqual(expect.arrayContaining(["mcp__town__look", "mcp__town__submit_report", "WebSearch", "WebFetch"]));
     expect(opts.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"]));
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
@@ -198,6 +202,7 @@ describe("work session", () => {
 describe("waiting assignments", () => {
   test("the tick unblocks a met wait and the scheduler starts it; the runtime fills world.host for deploy waits", async () => {
     const { world, runtime, by } = setup(happyWork);
+    managerless(world);
     const noor = by("Noor");
     expect(world.host.startedAt).toBe("2026-10-19T10:00:00.000Z");
     expect(typeof world.host.isLive).toBe("function");

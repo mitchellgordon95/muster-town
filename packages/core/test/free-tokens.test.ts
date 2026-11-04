@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, exploreCapAt, freeTokens, newId, nowIso } from "../src/index.ts";
+import { buildingRoleId, exploreCapAt, exploreCapsOnPath, freeTokens, newId, nowIso } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -54,6 +54,19 @@ describe("free tokens (docs/how-work-gets-done.md §7)", () => {
     expect(freeTokens(world, b.id).freeTokens).toBe(0);
   });
 
+  it("caps combine as the smallest on the path to the root: a captain tightens, never loosens (gr_yu6qw3j9x5)", () => {
+    const { world, admin, a, a1 } = setup();
+    expect(exploreCapAt(world.goals, a1.id)).toBeNull();
+    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 500_000 });
+    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 5_000_000 });
+    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
+    expect(exploreCapAt(world.goals, a.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
+    expect(exploreCapsOnPath(world.goals, a1.id)).toEqual([{ tokensPerDay: 5_000_000, goalId: a.id }, { tokensPerDay: 500_000, goalId: "gl_town" }]);
+    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 100_000 });
+    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 100_000, goalId: a.id });
+    expect(world.goalTree.tree().children.find((c) => c.id === a.id)!.funding.exploreCap).toEqual({ tokensPerDay: 100_000, goalId: a.id });
+  });
+
   it("the exploration cap is inherited from the nearest goal that sets one; none = uncapped; the tree shows it with the free tokens", () => {
     const { world, admin, a, a1 } = setup();
     expect(exploreCapAt(world.goals, a1.id)).toBeNull();
@@ -78,36 +91,40 @@ describe("free tokens (docs/how-work-gets-done.md §7)", () => {
       expect(freeTokens(world, a1.id).freeTokens).toBe(3_000);
     });
 
-    it("funding a grant (or topping one up) is refused when it would dip into the reserve; a reserve of 0 keeps the old rule", () => {
+    it("funding a grant (or topping one up) past what is free is allowed: the shortfall is overdrawn and the grant waits its turn (1:1 mt_fgsticyyhr)", () => {
       const { world, admin, a1, propose, spend } = setup();
       world.town.set({ operatingReserveTokens: 4_000 });
-      // free under A1 besides the grant itself: 10,000 − 4,000 + the 3,000 earmark = 9,000 (its own ask doesn't count against it)
-      const big = propose(9_500);
-      expect(() => world.grantDesk.decide(admin, big.id, { action: "fund" })).toThrow(/would dip into the operating reserve \(4,000 tokens .*\): 9,000 tokens are free/);
-      expect(world.grants.require(big.id).status).toBe("proposed");
-      const funded = world.grantDesk.decide(admin, big.id, { action: "fund", tokens: 9_000 });
-      expect(funded.status).toBe("funded");
-      expect(freeTokens(world, a1.id).freeTokens).toBe(0);
-      // held at its checkpoint, a top-up past what is free is refused too
-      spend(funded.id, 9_000);
-      world.grants.patch(funded.id, { status: "checkpoint" });
-      expect(() => world.grantDesk.decide(admin, funded.id, { action: "adjust", tokens: 20_000 })).toThrow(/operating reserve/);
-      // with no reserve, a human may over-commit as before
-      world.town.set({ operatingReserveTokens: 0 });
-      expect(world.grantDesk.decide(admin, propose(50_000).id, { action: "fund" }).status).toBe("funded");
+      // free under A1: 10,000 − 4,000 + the 3,000 earmark = 9,000; funding 9,500 overdraws by 500 and still runs (partly covered)
+      const big = world.grantDesk.decide(admin, propose(9_500).id, { action: "fund" });
+      expect(big.status).toBe("funded");
+      expect(freeTokens(world, a1.id)).toMatchObject({ freeTokens: 0, overdraftTokens: 500 });
+      expect(world.events.list({ types: ["grant.funded"] }).at(-1)?.text).toMatch(/; 500 tokens overdrawn, partly covered, it runs until the Bank can cover it$/);
+      // held at its checkpoint, a top-up past what is free goes through too
+      spend(big.id, 9_000);
+      world.grants.patch(big.id, { status: "checkpoint" });
+      expect(world.grantDesk.decide(admin, big.id, { action: "adjust", tokens: 20_000 }).status).toBe("funded");
+      // a second grant with nothing left to cover it: funded, its work waits
+      const later = world.grantDesk.decide(admin, propose(5_000).id, { action: "fund" });
+      expect(later.status).toBe("funded");
+      expect(world.events.list({ types: ["grant.funded"] }).at(-1)?.text).toMatch(/5,000 tokens overdrawn, its work waits until the Bank can cover it$/);
     });
 
-    it("directed work, 1:1s and meetings still draw on the balance below the reserve", () => {
+    it("manager sessions (1:1s, meetings, the team-lead wake) still draw on the balance below the reserve; work of every lane waits at it (Mitchell, 2026-11-02)", () => {
       const { world, admin, b } = setup();
       world.town.set({ operatingReserveTokens: 8_000 });
       const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
       const dir = world.ops.createWork(admin, manager.id, { title: "directed" });
+      // above the reserve: directed work runs (there are free tokens: 10,000 + 3,000 earmark − 8,000)
+      expect(world.budget.canStart(manager.id, dir)).toBe(true);
       const before = world.bank.balance();
       world.budget.charge(manager.id, 5_000, 0);
       expect(world.bank.balance()).toBe(before - 5_000);
       expect(world.bank.balance()).toBeLessThan(8_000);
       expect(freeTokens(world, b.id).freeTokens).toBe(0);
-      expect(world.budget.canStart(manager.id, dir)).toBe(true);
+      // within the reserve: a session with no assignment (the manager's) starts and is still charged; directed work waits
+      expect(world.budget.canStart(manager.id)).toBe(true);
+      expect(world.budget.canStart(manager.id, dir)).toBe(false);
+      expect(world.assignments.require(dir.id).heldReason).toMatch(/within the operating reserve/);
     });
   });
 });

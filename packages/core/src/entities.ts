@@ -1,14 +1,14 @@
-import {
+import { isGone, NOT_GONE,
   Agent, CreateBuildingInput, patchOf, ROOT_GOAL_ID, CreateResidentInput, RegisterVisitorInput,
   type Building, type BuildingDefaults, type Lot, type Tile, type User,
 } from "@muster-town/schema";
-import { AppError, badRequest } from "./errors.ts";
+import { AppError, badRequest, notFound } from "./errors.ts";
 import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
 import type { Before, Moved } from "./world/map.ts";
-import { MAX_HEADCOUNT, TOWN_HALL_ID } from "./world/layout.ts";
+import { MAX_HEADCOUNT } from "./world/layout.ts";
 import { nearestWalkable } from "./world/path.ts";
 import type { Actor } from "./ops.ts";
 import type { World } from "./world.ts";
@@ -21,7 +21,7 @@ export function createUser(world: World, name: string, opts: { id?: string } = {
 }
 
 /**
- * Create a building: built-in building roles (manager/reviewer/member), creator gets `manager`,
+ * Create a building: built-in building roles (manager/member), creator gets `manager`,
  * lot assigned, `building.created` event. It copies the collective defaults (model, cheap model, max turns, daily budget,
  * code access: `TownMeta.defaults()`).
  */
@@ -29,7 +29,7 @@ export function createBuilding(
   world: World,
   input: In<typeof CreateBuildingInput> & SpecText,
   creatorUserId: string | null,
-  opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean } = {},
+  opts: { id?: string; kind?: Building["kind"]; lot?: Lot; starterResidents?: boolean; manager?: ManagerSpec } = {},
 ): Building {
   const inp = CreateBuildingInput.parse(input);
   // goal/description text only from old specs (seed, import-v0); the API and UI set the attachment instead
@@ -47,6 +47,7 @@ export function createBuilding(
   const goalId = inp.goalId ?? ROOT_GOAL_ID;
   const goal = world.goals.get(goalId);
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
+  if (opts.kind !== "town-hall") world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
   return world.transaction(() => {
     const building = world.buildings.upsert({
       ...inp, ...text, ...defaults, name: inp.name || world.goalTree.defaultName(goalId), goalId, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
@@ -56,10 +57,13 @@ export function createBuilding(
     if (creatorUserId) world.permissions.grant({ kind: "user", id: creatorUserId }, buildingRoleId(id, "manager"));
     world.layout.rebuild();
     world.events.append({ type: "building.created", buildingId: id, text: `${building.name} was built`, payload: { createdBy: creatorUserId } });
-    if (opts.starterResidents && building.kind === "lab") seedManager(world, id);
+    if ((opts.starterResidents || opts.manager) && building.kind === "lab") seedManager(world, id, opts.manager);
     return world.buildings.require(id);
   });
 }
+
+/** A seeded manager's name, sprite and model (collective.json `manager`); left out = town-named, on the starter model. */
+type ManagerSpec = { name?: string; sprite?: number; model?: string };
 
 /** The model a new building's manager runs on (flag dc_knetp3kqnu); its forks inherit it. */
 export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
@@ -68,10 +72,11 @@ export const STARTER_MANAGER_MODEL = "claude-fable-5-1";
  * A building made from the UI/API moves in its one named manager, town-named, on Fable, at a desk (1:1 mt_wngibcr98b
  * decision 1: no standing residents; its queued work runs on forks of the manager).
  */
-function seedManager(world: World, buildingId: string): void {
-  const manager = createResident(world, { buildingId, model: STARTER_MANAGER_MODEL });
+export function seedManager(world: World, buildingId: string, spec: ManagerSpec = {}): Agent {
+  const manager = createResident(world, { buildingId, name: spec.name, sprite: spec.sprite, model: spec.model ?? STARTER_MANAGER_MODEL });
   world.buildings.upsert({ ...world.buildings.require(buildingId), managerAgentId: manager.id });
   syncManagerRoles(world);
+  return world.agents.require(manager.id);
 }
 
 /**
@@ -103,10 +108,12 @@ export function updateBuilding(world: World, id: string, patch: Partial<In<typeo
   // a headcount below the desks in use is accepted: it caps the next fork (freeDesks), running forks keep their desks
   // and the lab shrinks as they free (WorldMap `drawn`)
   if (p.headcount !== undefined && p.headcount > MAX_HEADCOUNT) throw badRequest(`headcount must be <= ${MAX_HEADCOUNT}`);
+  // desks per subtree (gr_yu6qw3j9x5): a raise must fit every desk total on the path (a lower one always may)
+  if (p.headcount !== undefined && p.headcount > cur.headcount) world.goalTree.requireDesksFit(cur.id, world.goalTree.attachmentOf(cur), p.headcount);
   if (p.managerAgentId) {
     const a = world.agents.get(p.managerAgentId);
     if (!a || a.kind !== "resident" || a.homeBuildingId !== id || a.forkOf) throw badRequest("The manager must be a (named) resident of this building.");
-    if (a.status === "stopped" || a.status === "banned" || a.status === "retired") throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
+    if (a.status === "stopped" || isGone(a)) throw badRequest(`Can't make ${a.name} manager: they are ${a.status}.`);
   }
   const { goalId, ...rest } = p;
   const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
@@ -194,26 +201,6 @@ export function createResident(world: World, input: In<typeof CreateResidentInpu
   });
 }
 
-/** A town moderator: a Town Hall resident holding the town `moderator` role, seated at the mod station. */
-export function createTownModerator(world: World, input: { name: string; sprite?: number; direction?: string; model?: string }): Agent {
-  const th = world.buildings.require(TOWN_HALL_ID, "building");
-  return world.transaction(() => {
-    const id = newId("ag");
-    world.agents.upsert(Agent.parse({
-      id, name: input.name, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-      title: "Moderator", sprite: input.sprite ?? 6, model: input.model ?? null,
-      direction: input.direction ?? "Collective-wide misuse prevention: delete outbox requests that misuse the town and ban agents that misuse the town. Every building keeps its own policies; you don't review research.",
-      pos: world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
-    }), { silent: true });
-    const desk = world.layout.claimDesk(th.id, id);
-    const agent = world.agents.patch(id, { pos: desk.pos });
-    world.permissions.ensureTownRoles();
-    world.permissions.grant(agent, townRoleId("moderator"));
-    world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} (town moderator) took a seat at the mod station`, payload: { kind: "resident", townModerator: true } });
-    return agent;
-  });
-}
-
 function spawnPoint(world: World, buildingId?: string | null): Tile {
   const p = (buildingId && world.layout.door(buildingId)) || world.layout.place("plaza")?.pos;
   return p ? { ...p } : { x: 1, y: world.layout.grid.h - 3 };
@@ -221,7 +208,7 @@ function spawnPoint(world: World, buildingId?: string | null): Tile {
 
 /** The nearest walkable tile to `p` (within 3 tiles) no live body stands on, so two newcomers don't arrive stacked; `p` when all are taken. */
 function freeTileNear(world: World, p: Tile): Tile {
-  const taken = new Set(world.agents.where("status NOT IN ('retired','banned')").map((o) => `${o.pos.x},${o.pos.y}`));
+  const taken = new Set(world.agents.where(NOT_GONE).map((o) => `${o.pos.x},${o.pos.y}`));
   for (let r = 0; r <= 3; r++) {
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
@@ -232,15 +219,68 @@ function freeTileNear(world: World, p: Tile): Tile {
   return { ...p };
 }
 
+/** The lab attached to `goalId` or to the nearest goal above it (a goal under a building's goal is that building's work); undefined when the chain has none. */
+function labOnChain(world: World, goalId: string): Building | undefined {
+  for (const g of world.goalTree.ancestors(goalId)) {
+    const b = world.buildings.first("goalId = ? AND kind = 'lab'", [g.id], "ORDER BY createdAt, id");
+    if (b) return b;
+  }
+  return undefined;
+}
+
 /**
- * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `buildingId` it
- * claims a free desk there like a resident (`homeBuildingId` set; no free desk → it waits at the Town Hall visitor
- * bench, still homed in the building); without one it sits at the visitor bench.
+ * The lab a visitor working on `goalId` sits in (`labOnChain`). A goal whose chain has no lab with desks is refused:
+ * the visitor `adopt`s it instead (`adoptGoal`).
+ */
+function visitorBuildingFor(world: World, goalId: string): Building {
+  const goal = world.goalTree.get(goalId);
+  if (!goal || goal.status === "retired") throw notFound("goal", goalId);
+  const b = labOnChain(world, goalId);
+  if (b) return b;
+  throw new AppError("conflict", `No building works on "${goal.text}" or a goal above it, so it has no desks to join yet. Adopt it (\`adopt\`, POST /api/goals/${goalId}/adopt) to become its building's manager, or pick a goal that has a building.`);
+}
+
+/**
+ * A visitor adopts a goal no building works on (gr_a5ct690l7a step 4; 1:1 mt_26vin80bpm): a lab is built on the goal
+ * (headcount 1, its owner as the creator) and the visitor becomes its manager, homed there at a desk beyond the
+ * headcount, with the building's manager role. The town never forks a visitor, so the building's queue is held
+ * (`forkableManagerOf`, `visitorManagerRefusal`); offline it is unmanaged (`managerAgentOf`), and dismissing the
+ * visitor clears `managerAgentId`. A goal with a lab on it or above it is refused (409): register on that goal instead.
+ */
+export function adoptGoal(world: World, agentId: string, goalId: string): { building: Building; agent: Agent; desk: boolean } {
+  const me = world.agents.require(agentId, "agent");
+  if (me.kind !== "visitor") throw new AppError("forbidden", "Only a visitor adopts a goal: a resident's building is set by the town.");
+  if (isGone(me)) throw new AppError("conflict", `${me.name} is ${me.status}.`);
+  const goal = world.goals.get(goalId);
+  if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
+  const managed = world.buildings.first("managerAgentId = ? AND kind = 'lab'", [me.id]);
+  if (managed) throw new AppError("conflict", `${me.name} already manages ${managed.name}; a visitor manages one building.`);
+  const lab = labOnChain(world, goalId);
+  if (lab) throw new AppError("conflict", `${lab.name} already works on ${lab.goalId === goalId ? "this goal" : "a goal above it"}, so it has desks to join: register a visitor on goal ${goalId} (goalId) instead of adopting it.`);
+  return world.transaction(() => {
+    const b = createBuilding(world, { goalId, headcount: 1 }, me.ownerUserId ?? null);
+    world.buildings.upsert({ ...b, managerAgentId: me.id });
+    if (me.homeBuildingId && world.layout.deskOf(me.id)) world.layout.releaseDesk(me.id);
+    world.agents.patch(me.id, { homeBuildingId: b.id });
+    const desk = claimVisitorDesk(world, me.id, b.id);
+    if (desk) world.movement.cancel(me.id, "Moved to a new desk.");
+    const agent = desk ? world.agents.patch(me.id, { pos: desk.pos, buildingId: b.id }) : world.agents.require(me.id);
+    syncManagerRoles(world);
+    world.events.append({ type: "building.updated", agentId: me.id, buildingId: b.id, text: `${me.name} adopted "${goal.text}" and manages ${b.name}`, payload: { adoptedBy: me.id, goalId, fields: ["managerAgentId"] } });
+    return { building: world.buildings.require(b.id), agent, desk: !!desk };
+  });
+}
+
+/**
+ * A user's visitor agent (Claude Code over MCP or the CLI). Returns the agent and its token. With `goalId` (or the
+ * older `buildingId`) it is homed in that goal's building and gets a desk BEYOND the headcount there: it never takes a
+ * fork slot (`freeDesks` leaves visitor desks out) and holds the desk while online (presence.ts releases it when the
+ * visitor goes offline and claims one again when it is back). Without either it sits at the Town Hall visitor bench.
  */
 export function registerVisitor(world: World, userId: string, input: In<typeof RegisterVisitorInput>): { agent: Agent; token: string } {
   const inp = RegisterVisitorInput.parse(input);
   world.users.require(userId, "user");
-  const b = inp.buildingId ? world.buildings.require(inp.buildingId, "building") : null;
+  const b = inp.goalId ? visitorBuildingFor(world, inp.goalId) : inp.buildingId ? world.buildings.require(inp.buildingId, "building") : null;
   return world.transaction(() => {
     const id = newId("ag");
     // insert first (desk names come from the agents table), then claim the desk and move the body there
@@ -249,10 +289,7 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
       ownerUserId: userId, title: inp.title ?? "Visitor", sprite: 6, pos: spawnPoint(world, b?.id), createdAt: nowIso(),
       inheritsOwner: inp.inheritsOwner ?? true,
     }), { silent: true });
-    let desk: ReturnType<typeof world.layout.claimDesk> | null = null;
-    if (b) {
-      try { desk = world.layout.claimDesk(b.id, id); } catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
-    }
+    const desk = b ? claimVisitorDesk(world, id, b.id) : null;
     const pos = desk ? desk.pos : world.presence.benchSeat(id);
     const agent = world.agents.patch(id, { pos, buildingId: world.layout.buildingAt(pos)?.id ?? null });
     world.permissions.ensureTownRoles();
@@ -260,9 +297,15 @@ export function registerVisitor(world: World, userId: string, input: In<typeof R
     // v1.5: the agent is capped by its owner, so the owner holds the visitor baseline too (GitHub sign-in already grants it)
     world.permissions.grant({ kind: "user", id: userId }, townRoleId("visitor"));
     const where = desk ? `took a desk in ${b!.name}` : "is at the visitor bench";
-    world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk } });
+    world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.homeBuildingId ?? agent.buildingId, text: `${agent.name} arrived as a visitor and ${where}`, payload: { kind: "visitor", ownerUserId: userId, desk: !!desk, goalId: inp.goalId ?? null } });
     return { agent, token: world.tokens.create("agent", agent.id) };
   });
+}
+
+/** A visitor's desk beyond the headcount in `buildingId`, or null when the building has none to give (not a lab, or at MAX_HEADCOUNT desks). */
+export function claimVisitorDesk(world: World, agentId: string, buildingId: string) {
+  try { return world.layout.claimDesk(buildingId, agentId, { visitor: true }); }
+  catch (e) { if (e instanceof AppError && e.code === "conflict") return null; throw e; }
 }
 
 /** The user's human avatar (kind `human`), created at the plaza on first call. */
@@ -275,17 +318,5 @@ export function ensureAvatar(world: World, userId: string): Agent {
     pos: freeTileNear(world, spawnPoint(world)), createdAt: nowIso(),
   }));
   world.events.append({ type: "agent.created", agentId: agent.id, text: `${user.name} walked into town`, payload: { kind: "human", userId } });
-  return agent;
-}
-
-/** Ada-style service agent standing next to a place. */
-export function createServiceAgent(world: World, input: { name: string; title: string; placeId: string; sprite?: number; id?: string }): Agent {
-  const place = world.layout.requirePlace(input.placeId);
-  const pos = world.layout.isWalkable(place.pos.x + 1, place.pos.y) ? { x: place.pos.x + 1, y: place.pos.y } : place.pos;
-  const agent = world.agents.upsert(Agent.parse({
-    id: input.id ?? newId("ag"), name: input.name, kind: "service", buildingId: place.buildingId, homeBuildingId: place.buildingId ?? TOWN_HALL_ID,
-    title: input.title, sprite: input.sprite ?? 0, pos, createdAt: nowIso(),
-  }));
-  world.events.append({ type: "agent.created", agentId: agent.id, buildingId: agent.buildingId, text: `${agent.name} (${agent.title}) is at the ${place.name}`, payload: { kind: "service" } });
   return agent;
 }

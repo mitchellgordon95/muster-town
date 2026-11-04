@@ -1,4 +1,4 @@
-import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
+import { isGone, BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
 import { AppError, forbidden } from "./errors.ts";
 import { BUDGET_POLICY } from "./policy.ts";
 import type { Repos } from "./store.ts";
@@ -116,7 +116,7 @@ export class Permissions {
 
   /** A live agent named some lab's manager (`managerAgentId`; the Town Hall's, the Planner, doesn't count). */
   private managesABuilding(agent: Agent): boolean {
-    if (agent.status === "retired" || agent.status === "banned" || agent.forkOf) return false;
+    if (isGone(agent) || agent.forkOf) return false;
     return !!this.repos.buildings.first("managerAgentId = ? AND kind != 'town-hall'", [agent.id]);
   }
 
@@ -174,7 +174,7 @@ export class Permissions {
     this.repos.memberships.remove({ roleId, holderKind: h.kind, holderId: h.id });
   }
 
-  /** Agents (not users) holding a role, e.g. the building's moderator agent(s). */
+  /** Agents (not users) holding a role, e.g. the building's manager agent. */
   agentsWithRole(roleId: string): string[] {
     return this.repos.memberships.forRole(roleId).filter((m) => m.holderKind === "agent").map((m) => m.holderId);
   }

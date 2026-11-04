@@ -1,8 +1,8 @@
 import {
-  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -17,6 +17,7 @@ import { ftsQuery } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { linkPostmortem } from "../postmortems.ts";
+import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -145,8 +146,11 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
     return { ...d, author: world.nameOf(d.authorId), sources, files,
       ...(files.length ? { filesNote: "Read one with `read` {id, file}. On a desk you can save them under ~/skills/<name>/ and run the scripts." } : {}) };
   }
-  const revisions = d.topicOf ? revisionsOf(world, d.id).map((r) => ({ ...r, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
-  return { ...d, author: world.nameOf(d.authorId), sources, ...(revisions ? { revisions } : {}) };
+  // A topic page's revisions are listed without their bodies: a page rewritten often carries hundreds of thousands
+  // of characters of old text, which made `read` too big for a session. GET /api/docs/:id still returns the bodies.
+  const revisions = d.topicOf ? revisionsOf(world, d.id).map(({ body, ...r }) => ({ ...r, chars: body.length, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
+  return { ...d, author: world.nameOf(d.authorId), sources,
+    ...(revisions ? { revisions, ...(revisions.length ? { revisionsNote: "Old bodies are not shown here; GET /api/docs/<id> returns them." } : {}) } : {}) };
 }
 
 /** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
@@ -324,6 +328,12 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     }
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
+    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A checkpoint or close rollup is
+    // its grant's report and stays.
+    const rowIds = format && !checkpointGrantId && !closedGrants.length ? waitingRowIds(world) : null;
+    const asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
+    const folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -345,10 +355,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     }
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = "pending";
+    const decision: Doc["decision"] = folded ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
-    const where = townHall ? "the Town Hall in-tray (the humans decide on it)"
+    const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
+      : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
@@ -392,7 +403,7 @@ const laneOf = (i: LaneFields): LaneFields | undefined =>
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
-  if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
+  if (!world.permissions.can(me, "building.review", doc.buildingId) && !world.goalTree.captainsBuilding(me, doc.buildingId)) throw forbidden("building.review");
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
   // a rollup waits for the humans
   if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
@@ -421,6 +432,8 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
+    const visitor = visitorManagerRefusal(world, building);
+    if (visitor) throw visitor;
     if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
   } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");

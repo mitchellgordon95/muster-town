@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceFly, FinanceSources, FinanceSpend } from "../src/api";
-import { donationNote, FINANCE_TERMS, flyCheckLine, flyWindowTotals, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
-import { BANK_TABS } from "@muster-town/schema";
+import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } from "../src/api";
+import { approxUsd, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
 import { claimedTokens } from "../src/format";
@@ -69,14 +69,32 @@ describe("finance page", () => {
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
     const all = { spend: sp, sources: src, fly };
-    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "Grant"]);
+    expect(FINANCE_TERMS.map(([t]) => t)).toEqual(["Adjusted token (adj. token)", "Expiring and permanent", "Overdrawn", "Held", "Claimed", "Free tokens", "Earmark", "Exploration cap", "Not funded", "≈ $ (API list price)", "Grant"]);
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
       expect(html, t).toContain("Terms used on this page");
       for (const [term] of FINANCE_TERMS) expect(html, `${t}: ${term}`).toContain(`<dt><b>${term}</b></dt>`);
       expect(html.indexOf("Terms used on this page"), t).toBeLessThan(html.indexOf("As of 2026-10-27"));
     }
-    expect(tabOf("Overview", {})).toContain("1 adj. token ≈ 30 raw tokens on Opus, 24 on Fable");
+    expect(tabOf("Overview", {})).toContain("What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens &amp; sources.");
+  });
+  it("Tokens & sources says what 1 adj. token is made of, from the stored mix, with the formula (1:1 mt_rbc3exb393)", () => {
+    const mix: TokenMix = {
+      unitModel: "claude-opus-5-5", weights: { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 },
+      formula: "adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h)",
+      windowDays: 7, from: "2026-10-25T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z", computedAt: "2026-11-01T00:00:12.000Z", source: "usage", sessions: 412,
+      counts: { input: 100_000, output: 10_000, cacheRead: 1_000_000, cacheWrite5m: 40_000, cacheWrite1h: 0 }, rawTokens: 1_150_000, adjustedTokens: 50_000, rawPerAdjusted: 23,
+      rawShare: { input: 100 / 1150, output: 10 / 1150, cacheRead: 1000 / 1150, cacheWrite5m: 40 / 1150, cacheWrite1h: 0 },
+      costShare: { input: 0.4, output: 0.2, cacheRead: 0.2, cacheWrite5m: 0.2, cacheWrite1h: 0 },
+    };
+    const m = mixLine(mix);
+    expect(m.line).toBe("1 adj. token ≈ 23.0 raw tokens: 8.7% input, 87.0% cache read, 3.5% cache write, 0.87% output (from the last 7 days of usage, 412 sessions, updated daily; last 2026-11-01 00:00 UTC).");
+    expect(m.formula).toContain("adj. tokens = output + 0.2 × input + 0.01 × cache read");
+    expect(m.formula).toContain("Of what those tokens cost: 40.0% input, 20.0% cache read, 20.0% cache write, 20.0% output.");
+    const html = renderToStaticMarkup(<BankView tab="Tokens & sources" bank={null} fin={{ f: { ...f, mix }, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
+    expect(html).toContain("1 adj. token ≈ 23.0 raw tokens: 8.7% input");
+    expect(tabOf("Tokens & sources", {})).not.toContain("1 adj. token ≈");
+    expect(mixLine({ ...mix, source: "calibration", sessions: 0 }).line).toContain("no usage in the last 7 days yet, so the first calibration");
   });
   it("uses no internal names anywhere on the page", () => {
     const html = page({ spend: sp, sources: src, fly });
@@ -142,7 +160,7 @@ describe("finance page: spending", () => {
     const note = notFundedNote(live);
     expect(note.split).toEqual([
       { name: "Town Workshop", tokens: 4269596, usageRows: 5 }, { name: "Prod", tokens: 123238, usageRows: 3 }, { name: "unattributed", tokens: 7, usageRows: 1 }]);
-    expect(note.lines.join(" ")).toContain("before PR #131 (chargeUsage) the runtime skipped the debit");
+    expect(note.lines.join(" ")).toContain("before PR #131 (chargeUsage) the runtime left some sessions' usage recorded but not charged. Fixed on 2026-10-31.");
     expect(note.lines).toContain("No new unpaid usage since 2026-10-26.");
     expect(note.differ).toBe("These differ: the rows by building come to 4,392,841 adj. tokens, but Not funded is 195,957 adj. tokens. Not funded is exact (what sessions counted, less what was paid); the split by building is an estimate by the 2-second rule.");
     expect(note.after).toEqual([
@@ -167,6 +185,51 @@ describe("finance page: spending", () => {
   });
 });
 
+// gr_dt1l35tydx: the same spend with the grant fields and the grants block
+const grantRow = (over: Partial<SpendNode>): SpendNode => ({ kind: "grant", id: "gr_x", name: "X", tokens: 543_933, share: 0.1, sessions: 3, grantTokens: 600_000, status: "closed", outcome: "done", outcomeGroup: "done", krCounts: { met: 1, missed: 0, claimed: 0, open: 0 }, ...over });
+const spG: FinanceSpend = {
+  ...sp,
+  rows: sp.rows.map((r) => r.id !== "workshop" ? r : { ...r, children: r.children!.map((c) => c.kind !== "grant" ? c : { ...c, grantTokens: 400, status: "closed", outcome: "cut", outcomeGroup: "cut" as const, krCounts: { met: 0, missed: 0, claimed: 2, open: 1 } }) }),
+  grants: { count: 1, funded: 400, spent: 500, byOutcome: { done: { count: 0, tokens: 0 }, cut: { count: 1, tokens: 500 }, open: { count: 0, tokens: 0 } }, overFunding: { count: 1, tokens: 100 } },
+  grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" },
+};
+
+describe("finance page: what each grant bought (gr_dt1l35tydx)", () => {
+  const text = (g: ReturnType<typeof grantLine>) => g && [g.spent, g.outcome, g.over, g.krs].filter(Boolean).join(" · ");
+  it("reads spent vs funded, outcome and key results on a grant row", () => {
+    expect(text(grantLine(grantRow({})))).toBe("spent 543,933 of 600,000 funded (91%) · done · key results 1 of 1 met");
+    expect(text(grantLine(grantRow({ tokens: 203_676, grantTokens: 120_000, outcome: "cut", outcomeGroup: "cut", krCounts: { met: 0, missed: 0, claimed: 0, open: 0 } }))))
+      .toBe("spent 203,676 of 120,000 funded · cut · over by 83,676");
+    expect(grantLine(grantRow({ tokens: 203_676, grantTokens: 120_000 }))!.over).toBe("over by 83,676");
+    expect(text(grantLine(grantRow({ status: "funded", outcome: null, outcomeGroup: "open", krCounts: { met: 0, missed: 0, claimed: 2, open: 1 } }))))
+      .toBe("spent 543,933 of 600,000 funded (91%) · still open · key results 0 of 3 met (2 claimed, waiting for a human)");
+    // no line for an unknown grant (no fields) or any other row
+    expect(grantLine({ kind: "grant", id: "gr_y", name: "gr_y", tokens: 5, share: 0, sessions: 1 })).toBeNull();
+    expect(grantLine({ ...grantRow({}), kind: "assignment" })).toBeNull();
+  });
+  it("opens the tab with one sentence by outcome and a ✓ line, ✗ when it does not add up", () => {
+    expect(grantsSentence(spG)).toBe("Grants: 500 tokens spent on 1 grant: 500 on 1 cut. 1 grant spent more than it was funded (100 over in total).");
+    const many = { ...spG, grants: { count: 39, funded: 1, spent: 14_336_699, byOutcome: { done: { count: 23, tokens: 11_200_000 }, cut: { count: 6, tokens: 2_593_904 }, open: { count: 10, tokens: 542_795 } }, overFunding: { count: 10, tokens: 3_000_000 } } };
+    expect(grantsSentence(many)).toBe("Grants: 14,336,699 tokens spent on 39 grants: 11,200,000 on 23 done, 2,593,904 on 6 cut, 542,795 on 10 still open. 10 grants spent more than they were funded (3,000,000 over in total).");
+    expect(grantsSentence({ ...many, grants: { ...many.grants, overFunding: { count: 0, tokens: 0 } } })).toMatch(/No grant spent more than it was funded\.$/);
+    expect(grantsCheckLine(spG)).toEqual({ ok: true, text: "The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens." });
+    expect(grantsCheckLine({ ...spG, grantsCheck: { ...spG.grantsCheck!, ok: false, diff: 7 } })).toEqual({ ok: false, text: "Does not add up (off by 7): done, cut and still-open grants come to 500, but the grant rows come to 493." });
+    const html = page({ spend: spG });
+    const section = html.slice(html.indexOf("<h3>Spending</h3>"));
+    expect(section.indexOf("Grants: 500 tokens spent on 1 grant")).toBeGreaterThan(-1);
+    expect(section.indexOf("Grants: 500 tokens")).toBeLessThan(section.indexOf("Town Workshop"));
+    expect(section).toContain("✓ The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens.");
+    expect(section).toContain(`<span class="spend-grant-line muted">spent 500 of 400 funded · cut · <span class="spend-over">over by 100</span> · key results 0 of 3 met (2 claimed, waiting for a human)</span>`);
+  });
+  it("shows nothing new when the server sends no grant fields or block (an older server)", () => {
+    const html = page({ spend: sp });
+    expect(html).not.toContain("spend-grant-line");
+    expect(html).not.toContain("Grants: ");
+    expect(grantsSentence(sp)).toBeNull();
+    expect(grantsCheckLine(sp)).toBeNull();
+  });
+});
+
 // GET /api/finance/sources for the same 1,000 received: 800 credited by two inputs (one cancelled), 200 donated (one retired)
 const src: FinanceSources = {
   inputs: [
@@ -185,6 +248,34 @@ const src: FinanceSources = {
   creditedTokens: 800, donatedTokens: 200, totalReceived: 1000, expiredTokens: 50,
   sumCheck: { ok: true, diff: 0, identity: "credits + donations = total received" }, financeTotal: 1000, matchesFinance: true, at: "2026-10-29T00:00:00.000Z",
 };
+
+describe("finance page: dollars at API list price (gr_gmzli3f96j)", () => {
+  const usd = { used: 1234.5, left: 1, burnPerDay: 0.4, inflowPerDay: 0.1, pricedAt: "api-list" as const };
+  // the Spending rows' dollars: Workshop $18.00, Bank $5.00, less $0.60 and $0.40 = $22.00
+  const spUsd: FinanceSpend = { ...sp, usd: { used: 22, sessionsTotal: 23, unattributed: 0, weightMismatch: 0.6, notFunded: 0.4 },
+    usdSumCheck: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" },
+    rows: sp.rows.map((r, i) => ({ ...r, usd: [18, 5, -0.6, -0.4][i] })) };
+  it("formats dollars with separators and a minus sign", () => {
+    expect([dollars(1234.5), dollars(-0.4), approxUsd(0.1)]).toEqual(["$1,234.50", "−$0.40", "≈ $0.10"]);
+  });
+  it("shows ≈ $ next to used, left, burn and coming in on the Overview, with one footnote", () => {
+    const ov = tabOf("Overview", { f: { ...f, usd } });
+    for (const s of ["Used so far", "≈ $1,234.50", "≈ $1.00", "≈ $0.40", "≈ $0.10", USD_NOTE]) expect(ov).toContain(s);
+    expect(ov.split(USD_NOTE).length - 1).toBe(1);
+    // a server without dollars: no ≈ $ and no footnote
+    const old = tabOf("Overview", {});
+    expect(old).not.toMatch(/≈ \$\d/);
+    expect(old).not.toContain(USD_NOTE);
+  });
+  it("shows each building's dollars on Spending with a ✓ line that they add up to the used dollars", () => {
+    expect(spendUsdCheckLine(spUsd)).toEqual({ ok: true, text: "The server checked that the rows' dollars add up to the used dollars, $22.00 at API list price." });
+    expect(spendUsdCheckLine(sp)).toBeNull();
+    const html = tabOf("Spending", { spend: spUsd });
+    for (const s of ["$18.00", "$5.00", "−$0.60", "✓ The server checked that the rows&#x27; dollars add up", "(≈ $22.00)", USD_NOTE]) expect(html).toContain(s);
+    const bad = spendUsdCheckLine({ ...spUsd, usdSumCheck: { ...spUsd.usdSumCheck!, ok: false, diff: 0.05 } })!;
+    expect(bad).toEqual({ ok: false, text: "Dollars do not add up (off by $0.05): the rows come to $22.00, but used is $22.00." });
+  });
+});
 
 describe("finance page: sources", () => {
   it("names inputs and notes donations counted under their size", () => {
@@ -238,7 +329,7 @@ const flyDay = (day: string, deskMs: number, townUsd: number, buildings: Finance
 const fly: FinanceFly = {
   windowDays: 10, from: "2026-10-20", to: "2026-10-29",
   rates: { desk: rate, town: rate, extraRamUsdPerGbMonth: 6, region: "iad", source: "https://docs.fly.io/about/pricing", pricedAt: "2026-10-29" },
-  desksBackend: "fly", townOnFly: true, capUsdPerDay: 10,
+  desksBackend: "fly", townOnFly: true, townPaidBy: "self", createdAt: null, capUsdPerDay: 10,
   today: { day: "2026-10-29", deskUsd: 1.2, townUsd: 0.11, totalUsd: 1.31, capUsdPerDay: 10, underCap: true },
   days: [
     { ...flyDay("2026-10-29", 0, 0.11), deskUsd: 1.2, totalUsd: 1.31, deskMs: 64.5 * 3_600_000, sessions: 12 },
@@ -274,6 +365,26 @@ describe("finance page: hosting (Fly.io)", () => {
   it("says so when nothing is on Fly or no cap is set", () => {
     const html = page({ fly: { ...fly, rates: { ...fly.rates, desk: null, town: null }, desksBackend: "docker", townOnFly: false, today: { ...fly.today, capUsdPerDay: null, underCap: null } } });
     for (const s of ["desks are not on Fly (docker)", "the server is not on a Fly Machine: $0", "none set"]) expect(html).toContain(s);
+  });
+  it("a self-hosted town shows its own Town Machine", () => {
+    const html = page({ fly });
+    for (const s of ["Town Machine</th>", "Town Machine size", "the town Machine runs all day"]) expect(html).toContain(s);
+    expect(html).not.toContain(HOSTED_FLY_NOTE);
+  });
+  it("a hosted collective: no Town Machine column or size, the muster.town line, the window from its creation", () => {
+    const zero = (d: FinanceFly["days"][number]) => ({ ...d, townUsd: 0, totalUsd: d.deskUsd });
+    const days = fly.days.slice(0, 3).map(zero);
+    const hosted: FinanceFly = {
+      ...fly, townOnFly: false, townPaidBy: "host", createdAt: "2026-10-27T15:04:00.000Z", windowDays: 3, from: "2026-10-27", to: "2026-10-29",
+      rates: { ...fly.rates, town: null }, today: { ...fly.today, townUsd: 0, totalUsd: fly.today.deskUsd }, days,
+      totals: { ...fly.totals, townUsd: 0, totalUsd: fly.totals.deskUsd },
+    };
+    const html = page({ fly: hosted });
+    for (const s of [HOSTED_FLY_NOTE, "Since it was created (2026-10-27 → 2026-10-29)", "Desks</th><th>Total</th>", "✓ The server checked that each day&#x27;s desks equal that day&#x27;s total"]) expect(html).toContain(s);
+    for (const s of ["Town Machine</th>", "Town Machine size", "the town Machine runs all day", "$0.11"]) expect(html).not.toContain(s);
+    expect(flyWindowLabel(hosted)).toBe("Since it was created (2026-10-27 → 2026-10-29)");
+    // a hosted collective older than the window: the usual label
+    expect(flyWindowLabel({ ...hosted, createdAt: "2026-09-01T00:00:00.000Z" })).toBe("Last 3 days (2026-10-27 → 2026-10-29)");
   });
   it("leaves the section out when the endpoint can't be loaded", () => {
     expect(page({})).not.toContain("Hosting (Fly.io)");
