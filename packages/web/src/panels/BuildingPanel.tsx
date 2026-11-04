@@ -7,7 +7,7 @@ import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { ADJ_HINT, Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
 import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
@@ -98,7 +98,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
           {hasTray ? (
             <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
-              <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+              <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
@@ -122,7 +122,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       <KV items={[
-        ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
+        ["Work done", usage ? <span title={ADJ_HINT}><b>{fmtTokens(usage.today)}</b> tokens today · <b>{fmtTokens(usage.allTime)}</b> in all</span> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
           ["Budget", live && live.bankTokens > 0 ? <>{fmtTokens(live.remainingTokens)} left to draw from the Bank</>
             : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
@@ -130,7 +130,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Collective defaults", defaultsLine(b, repo)],
           ["Desks", `${members.length} / ${b.headcount}`],
-          ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
+          ["Reports", b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "The manager agent"} reads and decides them` : "people with review rights read and decide them (no manager agent)"],
         ] : [
           ["Manager", b.managerAgentId && agents[b.managerAgentId] ? <>★ {agents[b.managerAgentId].name}: the planning agent. It answers 1:1s and facilitates reorg meetings; the in-tray is the humans'.</> : "the Planner, once someone plans with it"],
         ]) as [string, ReactNode][],

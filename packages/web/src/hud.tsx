@@ -15,6 +15,7 @@ import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
+import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
 import "./panels/hiw.css";
 
@@ -275,7 +276,7 @@ function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
   const [dismissed, setDismissed] = useState<string | null>(null);
   const key = youreInDue(me, localStore());
   if (!key || dismissed === key) return null;
-  const home = firstManagerBuilding(buildings);
+  const home = firstManagerBuilding(buildings, canTalkToManager);
   const manager = home?.managerAgentId ? agents[home.managerAgentId] : undefined;
   const dismiss = () => { try { localStore()?.setItem(key, new Date().toISOString()); } catch { /* private mode: hidden for this page only */ } setDismissed(key); };
   return (

@@ -17,24 +17,34 @@ const MAX_BUFFERED = 8 * 1024 * 1024;
 export async function wsRoutes(app: FastifyInstance) {
   const world = app.world;
 
+  /** the same frame to one socket, skipping a closed one and dropping one that has fallen too far behind */
+  const sendRaw = (socket: WebSocket, data: string) => {
+    if (socket.readyState !== socket.OPEN) return;
+    if (socket.bufferedAmount > MAX_BUFFERED) { socket.close(1013, "too slow"); return; }
+    socket.send(data);
+  };
+  // One subscription for the whole server: a change is stringified once and the one string goes to every streaming socket.
+  // (One subscription per socket cost a JSON.stringify per viewer per change: about 0.06 ms of loop time each, docs/scaling.md row 2.)
+  const streaming = new Set<WebSocket>();
+  world.changes.subscribe((msg) => {
+    if (streaming.size === 0) return;
+    const data = JSON.stringify(msg);
+    for (const socket of streaming) sendRaw(socket, data);
+  });
+
   app.get("/ws", { websocket: true }, (socket: WebSocket, req: FastifyRequest) => {
     let avatarId: string | null = null;
-    let unsubscribe: (() => void) | null = null;
     app.load.clientOpened();
     let counted = true;
-    const gone = () => { unsubscribe?.(); unsubscribe = null; if (counted) { counted = false; app.load.clientClosed(); } };
+    const gone = () => { streaming.delete(socket); if (counted) { counted = false; app.load.clientClosed(); } };
 
-    const send = (msg: ServerMessage | (ServerMessage & Record<string, unknown>)) => {
-      if (socket.readyState !== socket.OPEN) return;
-      if (socket.bufferedAmount > MAX_BUFFERED) { socket.close(1013, "too slow"); return; }
-      socket.send(JSON.stringify(msg));
-    };
+    /** a frame for this socket alone (the snapshot and error frames differ per socket) */
+    const send = (msg: ServerMessage | (ServerMessage & Record<string, unknown>)) => sendRaw(socket, JSON.stringify(msg));
     const fail = (message: string) => send({ type: "error", message });
-    /** snapshot first, then stream; subscribe synchronously after so nothing falls in between */
+    /** snapshot first, then stream; join the shared subscription synchronously after so nothing falls in between */
     const stream = () => {
-      unsubscribe?.();
       send(avatarId ? { ...world.snapshot(), avatarAgentId: avatarId } : world.snapshot());
-      unsubscribe = world.changes.subscribe(send);
+      streaming.add(socket);
     };
     if (req.auth?.kind === "user") avatarId = world.ops.ensureAvatar(req.auth.user.id).id;
     stream();

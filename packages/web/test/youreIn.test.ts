@@ -33,5 +33,9 @@ describe("the one-time You're in card (gr_58n37j410s step 2)", () => {
     const b = (id: string, kind: string, managerAgentId: string | null) => ({ id, kind, managerAgentId }) as unknown as SnapshotBuilding;
     expect(firstManagerBuilding([b("town-hall", "town-hall", "ag_p"), b("bl_x", "building", null), b("workshop", "building", "ag_pix")])?.id).toBe("workshop");
     expect(firstManagerBuilding([b("town-hall", "town-hall", "ag_p")])).toBeNull();
+    // a member without "direct work under" a goal gets no Talk on the card; one granted it gets that building
+    const bs = [b("town-hall", "town-hall", "ag_p"), b("workshop", "building", "ag_pix"), b("bl_y", "building", "ag_y")];
+    expect(firstManagerBuilding(bs, () => false)).toBeNull();
+    expect(firstManagerBuilding(bs, (id) => id === "bl_y")?.id).toBe("bl_y");
   });
 });

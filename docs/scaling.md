@@ -14,8 +14,8 @@ Live values: `GET https://muster.town/api/health` at 2026-11-02T03:13:27Z (serve
 
 | # | Resource | Measured ceiling (source) | Live value now | Trigger to act | Next fix (in order) | Then scale-out |
 |---|---|---|---|---|---|---|
-| 1 | WebSocket egress (network path) | about 20–25 MB/s total, where the viewer ramps flattened (stress runs 3 and 4, dc_jea12u6sal; rollup dc_eldvky6svj) | not measured live; 1 WS client, so near 0 | 10 MB/s sustained (half the ceiling), or `wsClients` ≥ 600 | 1. stringify once per change (gr_n0p3ast5pp step 4); 2. coalesce walker moves into one frame per tick; 3. smaller snapshot (23.4 KB at 13 walkers) | read replicas serving viewers (below) |
-| 2 | WebSocket per-viewer fanout (main thread) | 1,200 viewers sustained, 1,600 marginal, 2,000 fail; about 0.06 ms of loop time per viewer per change (dc_eldvky6svj, page dc_258ct4a96c) | `wsClients` 1 | `wsClients` ≥ 600 (50 % of 1,200) | 1. stringify-once in packages/server/src/ws.ts (step 4, kr_vc8rkafulk); 2. re-run the viewer ramp on a throwaway to get the new ceiling | read replicas for viewers |
+| 1 | WebSocket egress (network path) | about 20–25 MB/s total, where the viewer ramps flattened (stress runs 3 and 4, dc_jea12u6sal; rollup dc_eldvky6svj) | not measured live; 1 WS client, so near 0 | 10 MB/s sustained (half the ceiling), or `wsClients` ≥ 600 | 1. stringify once per change: done 11-04 (gr_n0p3ast5pp step 4, below); 2. coalesce walker moves into one frame per tick; 3. smaller snapshot (23.4 KB at 13 walkers) | read replicas serving viewers (below) |
+| 2 | WebSocket per-viewer fanout (main thread) | 1,200 viewers sustained, 1,600 marginal, 2,000 fail (dc_eldvky6svj, page dc_258ct4a96c); on a desk, one change costs the main thread 20.7 ms of wall time (10.5 ms CPU) at 1,000 sockets after stringify-once, 25.2 ms (12.7 ms) before (table below) | `wsClients` 1 | `wsClients` ≥ 600 (50 % of 1,200) | 1. stringify-once in packages/server/src/ws.ts: done 11-04 (step 4, kr_vc8rkafulk); 2. re-run the viewer ramp on a throwaway to get the new ceiling; 3. pre-frame one buffer per change (ws `Sender.frame`) only if the fanout row fires: it bypasses the library's per-socket queue | read replicas for viewers |
 | 3 | Runtime tick (main thread, every 5 s) | `SLOW_TICK_MS` = 500 ms (packages/runtime/src/index.ts). Desk p95 163 / 473 / 1,841 ms at 1× / 2× / 4× world size; live p95 crosses 500 ms at about 1.5× today's world (range 1.2–1.8×) (dc_er6dxw6kil) | last tick 138 ms; slowest recent 635 ms (03:12:18Z, explore 172 ms, work 243 ms). Earlier samples 154–291 ms (dc_dij54lgnuk, dc_er6dxw6kil) | tick p95 ≥ 350 ms over 100 ticks (70 % of 500), or world size ≥ 1.2× today (≥ 120k events, ≥ 10 buildings) | 1. cache `Bank.expectedSession` per tick (or a rolling aggregate); 2. sum Bank debits once per tick, not per funding candidate; 3. memoize free tokens per tick in `exploreTick` (all from the step 1 profile, dc_er6dxw6kil). Runtime code is the Workshop's: Prod measures, the fix goes through them | bigger Machine does not help a single thread much; next is moving the tick off the main thread (worker), not built |
 | 4 | Restarts (every one drops all WebSockets) | each restart 2.8–3.8 s; 35 in 4 h 11 min on 10-31/11-01 (dc_dij54lgnuk); outside pollers saw 2 timeouts in one (dc_2ns1jgf0fu) | 15 "Redeploy finished" events in the 24 h before 03:13Z 11-02 (events 96,125–100,995), mostly two bursts (21:23–22:29Z and 02:24–03:07Z) | > 10 restarts in 24 h. **Firing now (15).** | 1. coalesced CI redeploy and the prebuilt server (page dc_eka5xluv6o, PR #230 live); 2. drain without throwing away sessions (grant gr_w9ue1k1p0c); 3. clients reconnect without a full snapshot (not started) | a second Machine for zero-downtime deploys needs replicas first |
 | 5 | Database and volume growth | volume 10 GB (deploy/recover.sh default "like the live one"); the monitor's `disk` metric is yellow under 25 % free, red under 10 % | backup `bytes` 44,505,918 (44.5 MB) at 03:00Z 11-02. Growth: 40.0 MB (00:00Z 11-01, dc_ovwbrarmw8) → 44.5 MB in 27 h, about 0.17 MB/h (two points; dc_dij54lgnuk's 0.9 MB/h came from 2 h of one busy night). At this rate 10 GB lasts years | db ≥ 1,000 MB, or volume free < 50 % | 1. prune old `events` and `agent.tool`/`agent.thought` rows into the export (not built); 2. `VACUUM` after the prune; 3. grow the volume (`fly volumes extend`, $0.15/GB-month) | — |
@@ -27,6 +27,31 @@ The stress ceilings (rows 1 and 2) were measured on a clone of the Machine when 
 `performance-1x` (a dedicated core) on 10-31 after the CPU-throttle incident (docs/postmortem-2026-10-31-cpu-throttle-503.md),
 so the viewer ceiling is probably higher now; that is not measured. Load never goes to muster.town itself: re-measure on a
 throwaway (`deploy/fly/throwaway.sh`, `scripts/stress/viewers.mjs`).
+
+## WebSocket fanout: stringify once (step 4, 2026-11-04)
+
+Before 11-04, `packages/server/src/ws.ts` subscribed every socket to `world.changes` itself, so one change was
+`JSON.stringify`-ed once per viewer. Now one subscription per server stringifies a change once and hands the same string
+to every streaming socket; the per-socket `readyState` and "too slow" (`bufferedAmount` > 8 MB → close 1013) checks stay,
+and the snapshot and error frames stay per socket (they differ). Test: packages/server/test/live.test.ts "a change reaching
+N sockets is stringified once".
+
+Measured on a desk (1 vCPU, 2 GB, Node 22, the server with `MUSTER_TOWN_RUNTIME=off` plus 8 scripted walkers; load never goes
+to muster.town): `scripts/stress/viewers.mjs --steps 1000 --hold 60 --procs 4 --walkers 8`, three 60 s holds each way, medians.
+"ms per change" is main-thread time inside the `world.changes` fan-out (a temporary timer around the emitter, not committed);
+the 4 client processes share the one core with the server, so wall time includes their preemption and the CPU column is the
+cleaner figure. Event-loop lag is health `load.lagMs` (p99 over 1 s samples), its p50 and max over the hold.
+
+| | before (per-socket stringify) | after (stringify once) | change |
+|---|---|---|---|
+| ms per change at 1,000 sockets, wall | 25.2 (24.2–25.7) | 20.7 (20.6–21.7) | −18 % |
+| ms per change at 1,000 sockets, CPU | 12.7 (12.1–12.7) | 10.5 (10.3–11.0) | −17 % |
+| event-loop lag p50 / max, ms | 111 / 132 | 85 / 107 | −23 % / −19 % |
+| egress, kB/s per client (× 1,000) | 6.9 | 7.0 | same |
+| clients dropped (1013) / errors | 0 / 0 | 0 / 0 | same |
+
+So the stringify was about a fifth of the fan-out; the rest is the `ws` library framing and writing each socket (about 10 µs
+per socket per change). The next cut there is pre-framing (row 2, fix 3), worth doing only when the row fires.
 
 ## Tick time vs world size
 

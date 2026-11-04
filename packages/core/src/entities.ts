@@ -219,19 +219,56 @@ function freeTileNear(world: World, p: Tile): Tile {
   return { ...p };
 }
 
-/**
- * The lab a visitor working on `goalId` sits in: the building attached to that goal, else to the nearest goal above it
- * (a goal under a building's goal is that building's work). A goal whose chain has no lab with desks is refused for now
- * (a visitor adopting such a goal is gr_a5ct690l7a step 4).
- */
-function visitorBuildingFor(world: World, goalId: string): Building {
-  const goal = world.goalTree.get(goalId);
-  if (!goal || goal.status === "retired") throw notFound("goal", goalId);
+/** The lab attached to `goalId` or to the nearest goal above it (a goal under a building's goal is that building's work); undefined when the chain has none. */
+function labOnChain(world: World, goalId: string): Building | undefined {
   for (const g of world.goalTree.ancestors(goalId)) {
     const b = world.buildings.first("goalId = ? AND kind = 'lab'", [g.id], "ORDER BY createdAt, id");
     if (b) return b;
   }
-  throw new AppError("conflict", `No building works on "${goal.text}" or a goal above it, so it has no desks to join yet. Pick a goal that has a building.`);
+  return undefined;
+}
+
+/**
+ * The lab a visitor working on `goalId` sits in (`labOnChain`). A goal whose chain has no lab with desks is refused:
+ * the visitor `adopt`s it instead (`adoptGoal`).
+ */
+function visitorBuildingFor(world: World, goalId: string): Building {
+  const goal = world.goalTree.get(goalId);
+  if (!goal || goal.status === "retired") throw notFound("goal", goalId);
+  const b = labOnChain(world, goalId);
+  if (b) return b;
+  throw new AppError("conflict", `No building works on "${goal.text}" or a goal above it, so it has no desks to join yet. Adopt it (\`adopt\`, POST /api/goals/${goalId}/adopt) to become its building's manager, or pick a goal that has a building.`);
+}
+
+/**
+ * A visitor adopts a goal no building works on (gr_a5ct690l7a step 4; 1:1 mt_26vin80bpm): a lab is built on the goal
+ * (headcount 1, its owner as the creator) and the visitor becomes its manager, homed there at a desk beyond the
+ * headcount, with the building's manager role. The town never forks a visitor, so the building's queue is held
+ * (`forkableManagerOf`, `visitorManagerRefusal`); offline it is unmanaged (`managerAgentOf`), and dismissing the
+ * visitor clears `managerAgentId`. A goal with a lab on it or above it is refused (409): register on that goal instead.
+ */
+export function adoptGoal(world: World, agentId: string, goalId: string): { building: Building; agent: Agent; desk: boolean } {
+  const me = world.agents.require(agentId, "agent");
+  if (me.kind !== "visitor") throw new AppError("forbidden", "Only a visitor adopts a goal: a resident's building is set by the town.");
+  if (isGone(me)) throw new AppError("conflict", `${me.name} is ${me.status}.`);
+  const goal = world.goals.get(goalId);
+  if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
+  const managed = world.buildings.first("managerAgentId = ? AND kind = 'lab'", [me.id]);
+  if (managed) throw new AppError("conflict", `${me.name} already manages ${managed.name}; a visitor manages one building.`);
+  const lab = labOnChain(world, goalId);
+  if (lab) throw new AppError("conflict", `${lab.name} already works on ${lab.goalId === goalId ? "this goal" : "a goal above it"}, so it has desks to join: register a visitor on goal ${goalId} (goalId) instead of adopting it.`);
+  return world.transaction(() => {
+    const b = createBuilding(world, { goalId, headcount: 1 }, me.ownerUserId ?? null);
+    world.buildings.upsert({ ...b, managerAgentId: me.id });
+    if (me.homeBuildingId && world.layout.deskOf(me.id)) world.layout.releaseDesk(me.id);
+    world.agents.patch(me.id, { homeBuildingId: b.id });
+    const desk = claimVisitorDesk(world, me.id, b.id);
+    if (desk) world.movement.cancel(me.id, "Moved to a new desk.");
+    const agent = desk ? world.agents.patch(me.id, { pos: desk.pos, buildingId: b.id }) : world.agents.require(me.id);
+    syncManagerRoles(world);
+    world.events.append({ type: "building.updated", agentId: me.id, buildingId: b.id, text: `${me.name} adopted "${goal.text}" and manages ${b.name}`, payload: { adoptedBy: me.id, goalId, fields: ["managerAgentId"] } });
+    return { building: world.buildings.require(b.id), agent, desk: !!desk };
+  });
 }
 
 /**

@@ -103,13 +103,15 @@ export function StatsView({ f }: { f: JoinFunnelView }) {
 
 /**
  * The let-in members and the goals each may direct work under. `goal` is the one the Grant button gives (the viewer's
- * default, as the Let in card's second button); null = the viewer can't grant. Each held goal has its own Revoke.
+ * default, as the Let in card's second button, named once above the table so the button stays short on a phone); null = the viewer
+ * can't grant. Each held goal has its own Revoke.
  */
 export function MembersTable({ members, goal, onGrant, onRevoke }: { members: MemberView[]; goal: { id: string; text: string; short: string } | null; onGrant: (userId: string, goalId: string) => Promise<unknown>; onRevoke: (userId: string, goalId: string) => Promise<unknown> }) {
   if (!members.length) return <Empty>Nobody has been let in yet.</Empty>;
   return (
+    <>{goal ? <div className="muted">Grant gives direct work under “{goal.short}”.</div> : null}
     <div className="stats-scroll"><table className="table stats-table members-table">
-      <thead><tr><th>Member</th><th title="When an admin let them in">Let in</th><th title="The goals they may direct work under: a 1:1 or meeting with a manager of a building under one of them">Direct work under</th><th /></tr></thead>
+      <thead><tr><th>Member</th><th title="When an admin let them in">Let in</th><th title="The goals they may direct work under: a 1:1 or meeting with a manager of a building under one of them">Direct work under</th></tr></thead>
       <tbody>
         {members.map((m) => {
           const who = m.githubLogin ? `@${m.githubLogin}` : m.name;
@@ -118,20 +120,20 @@ export function MembersTable({ members, goal, onGrant, onRevoke }: { members: Me
             <tr key={m.userId}>
               <td title={m.name}>{m.avatarUrl ? <img className="member-avatar" src={m.avatarUrl} alt="" /> : null}{who}</td>
               <td title={m.letInAt ?? "not through a join request"}>{m.letInAt ? timeAgo(m.letInAt) : <span className="faint">–</span>}</td>
-              <td>
+              <td><div className="member-direct">
                 {m.direct.length ? m.direct.map((d) => (
                   <span key={d.goalId} className="member-goal" title={d.text}>
                     {goalShortName(d.text)}
                     <Act small run={() => onRevoke(m.userId, d.goalId)} title={`${who} may no longer direct work under "${goalShortName(d.text)}"`}>Revoke</Act>
                   </span>
                 )) : <span className="faint">none</span>}
-              </td>
-              <td className="num">{goal && !holds ? <Act small tone="primary" run={() => onGrant(m.userId, goal.id)} title={`${who} may then open a 1:1 with a manager under "${goal.text}"`}>Grant {goal.short}</Act> : null}</td>
+                {goal && !holds ? <Act small tone="primary" run={() => onGrant(m.userId, goal.id)} title={`${who} may then open a 1:1 with a manager under "${goal.text}"`}>Grant</Act> : null}
+              </div></td>
             </tr>
           );
         })}
       </tbody>
-    </table></div>
+    </table></div></>
   );
 }
 

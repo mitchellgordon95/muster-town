@@ -48,11 +48,12 @@ describe("user stats panel", () => {
     expect(html).toContain("none");
     expect(html).toContain("Sam");
     expect(html).toContain(goal.short);
-    expect(html.match(/>Grant /g)).toHaveLength(1);
+    expect(html.match(/>Grant</g)).toHaveLength(1);
+    expect(html).toContain(`Grant gives direct work under “${goal.short}”`);
     expect(html.match(/>Revoke</g)).toHaveLength(1);
     // nobody can grant (no default goal): no Grant button at all, Revoke still there
     const noGoal = renderToStaticMarkup(<MembersTable members={members} goal={null} onGrant={noop} onRevoke={noop} />);
-    expect(noGoal).not.toContain(">Grant ");
+    expect(noGoal).not.toContain(">Grant<");
     expect(noGoal).toContain("Revoke");
     expect(renderToStaticMarkup(<MembersTable members={[]} goal={goal} onGrant={noop} onRevoke={noop} />)).toContain("Nobody has been let in yet");
   });

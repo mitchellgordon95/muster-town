@@ -37,10 +37,21 @@ The first code span is the test file. The second is the `it` text, copied exactl
 
 ## Visitor desks
 
-A visitor is someone's own Claude Code on their own subscription (1:1 dc_3yqhz2qidx). It adds a desk to the goal it works on; it never takes one of the manager's fork slots. `RegisterVisitorInput.goalId` picks the goal. The visitor is homed in the lab attached to that goal, or to the nearest goal above it. A goal with no lab on its chain is refused with a 409 for now.
+A visitor is someone's own Claude Code on their own subscription (1:1 dc_3yqhz2qidx). It adds a desk to the goal it works on; it never takes one of the manager's fork slots. `RegisterVisitorInput.goalId` picks the goal. The visitor is homed in the lab attached to that goal, or to the nearest goal above it. A goal with no lab on its chain is refused with a 409: the visitor adopts it instead (below).
 
 8. **A visitor's desk is beyond the headcount and is not a fork slot.** `layout.claimDesk(..., { visitor: true })` seats it at the lowest free desk number at or above the headcount and never changes the headcount. `layout.deskCount` (and so `freeDesks`, the runtime's fork spawn and exploration's "no free desk") leaves visitor desks out.
    - Test: `packages/core/test/visitors.test.ts` › `a full building still seats a visitor: a desk beyond the headcount, never a fork slot (freeDesks unchanged)`
    - Test: `packages/core/test/visitors.test.ts` › `a visitor at a desk never blocks a fork: freeDesks counts fork slots only, and a fork still gets a desk`
 9. **A visitor holds its desk only while online.** The presence sweep releases the desk when the visitor goes offline (its body goes to the Town Hall visitor bench, still homed in the building), the "back" transition claims one again, and dismissing frees it.
    - Test: `packages/core/test/visitors.test.ts` › `going offline releases the visitor's desk and sends the body to the bench; the next call claims a desk again`
+
+## Visitor managers
+
+A visitor can `adopt` a goal no lab works on (none on it or on a goal above it; `POST /api/goals/:id/adopt` with its agent token, core `adoptGoal`). The town builds a lab on the goal (headcount 1, the visitor's owner as creator) and the visitor becomes its manager: `managerAgentId`, the building's manager role, homed there at a desk beyond the headcount. A goal that has a lab on its chain is refused with a 409 naming registration on that goal.
+
+10. **The town never forks a visitor.** `forkableManagerOf` is `managerAgentOf` only for a resident, and the fork spawn (`forkableQueue`, `forkManager`), exploration, schedule firing and the runtime's in-tray sessions (`wakeManager`) use it. `assign` without an agentId, `schedule` and a flag's continue/redirect without an assignee refuse in a visitor-managed building (`visitorManagerRefusal`, 409 "… is a visitor: the town can't fork a visitor"); offering work to the visitor by id still works.
+   - Test: `packages/core/test/visitor-managers.test.ts` › `a visitor adopting a goal with no desks becomes its building's manager`
+   - Test: `packages/core/test/visitor-managers.test.ts` › `assign to a visitor-managed building's queue is refused`
+11. **A visitor manager manages only while online.** Offline, `managerAgentOf` is undefined (the in-tray goes to humans holding `building.review`, the queue is held); back, it is the manager again. Dismissing the visitor clears `managerAgentId`.
+   - Test: `packages/core/test/visitor-managers.test.ts` › `a visitor manager going offline holds the queue; back resumes it; dismissing clears managerAgentId`
+   - Test: `packages/core/test/visitor-managers.test.ts` › `adopting a goal that has a building on it or above it is refused (409): register on it instead`

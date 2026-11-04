@@ -5,7 +5,7 @@
  * Each fire is ordinary work that ends in a report the manager decides; the schedule only saves re-typing the `assign`.
  */
 import { CreateScheduleInput, EditScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
-import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
+import { createAssignment, createDoc, forkableManagerOf, managerAgentOf, visitorManagerRefusal } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { checkForkModel } from "./forks.ts";
 import { resolveLane } from "./lanes.ts";
@@ -92,6 +92,8 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   const input = parsed.data;
   const b = world.buildings.require(buildingId, "building");
   if (b.kind === "town-hall") throw badRequest("The Town Hall has no workers to run a schedule; schedule work on a building.");
+  const visitor = visitorManagerRefusal(world, b);
+  if (visitor) throw visitor;
   const r = input.repeat;
   const rep = repeatOf(r);
   let next: Date | null = input.runsAt ? new Date(input.runsAt) : nextOccurrence(rep, at);
@@ -193,7 +195,7 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
  * manager agent: nobody (null). One named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1).
  */
 export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
-  const manager = managerAgentOf(world, b);
+  const manager = forkableManagerOf(world, b);
   return manager ? { agentId: manager.id, queue: "building" } : null;
 }
 

@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -81,7 +81,8 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   const building = world.buildings.get(buildingId);
   if (!building) return [];
   // the Town Hall's manager (the Planner) has no in-tray to work: only its 1:1s ("Plan with an agent") are answered, below
-  const mgr = building.kind === "town-hall" ? undefined : managerAgentOf(world, building);
+  // a visitor manager works its in-tray from its own client: the town never starts a session as it (forkableManagerOf)
+  const mgr = building.kind === "town-hall" ? undefined : forkableManagerOf(world, building);
   const out: Promise<Session>[] = [];
   const add = (p: Promise<Session> | null) => { if (p) out.push(p); };
   if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, intrayOf(world, building.id).filter((d) => !st.offered.has(d.id))));
