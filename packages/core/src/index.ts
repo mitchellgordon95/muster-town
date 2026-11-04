@@ -87,3 +87,4 @@ export { digestCard } from "./secretary.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
+export { CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, firstTurnUsage, storedFirstTurn, type FirstTurn } from "./cache-miss.ts";
