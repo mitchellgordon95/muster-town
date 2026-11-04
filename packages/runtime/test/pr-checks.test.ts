@@ -180,6 +180,45 @@ describe("main's CI (gr_7op2v8fjcl)", () => {
     expect(world.town.mainCi()).toMatchObject({ state: "green", sha: "cccc333" });
   });
 
+  it("a failed or cancelled deploy job (promote, image) after a passed check is not red: no fixer, nothing queued (as_dh0rv1hv0f)", async () => {
+    const world = World.open(":memory:");
+    const { gh, fetch, set } = fakeMain();
+    set("aaaa111", [{ name: "check", status: "completed", conclusion: "success" }, { name: "promote", status: "completed", conclusion: "failure" }, { name: "image", status: "completed", conclusion: "cancelled" }]);
+    let t = Date.parse("2026-11-04T18:00:00Z");
+    const p = createPrPoller(world, { repoUrl, token: () => "ghs_x", fetch, now: () => new Date(t) });
+    await p.poll();
+    expect(p.main()).toMatchObject({ state: "green", sha: "aaaa111", failedStep: null, fixer: null });
+    expect(world.assignments.where("createdBy = 'main-ci'")).toHaveLength(0);
+    expect(world.town.mainCi()?.state).not.toBe("red"); // mainRedLine (core main-fix.ts) is null unless red
+    // a code check failing next to a failed deploy job is red, and names only the code check
+    gh.head = "bbbb222";
+    set("bbbb222", [{ name: "check", status: "completed", conclusion: "failure" }, { name: "promote", status: "completed", conclusion: "failure" }]);
+    t += 60_000;
+    await p.poll();
+    expect(p.main()).toMatchObject({ state: "red", failedStep: "check" });
+  });
+
+  it("a busy main stays pending (running, or its run cancelled by the next push): never red, no fixer, nothing queued (as_dh0rv1hv0f)", async () => {
+    const world = World.open(":memory:");
+    const { gh, fetch, set } = fakeMain();
+    let t = Date.parse("2026-11-04T18:00:00Z");
+    const p = createPrPoller(world, { repoUrl, token: () => "ghs_x", fetch, now: () => new Date(t) });
+    // five merges in a row, each read while running and then read again after the next push cancelled it
+    for (const sha of ["aaaa111", "bbbb222", "cccc333", "dddd444", "eeee555"]) {
+      gh.head = sha;
+      set(sha, [{ name: "check", status: "in_progress", conclusion: null }]);
+      await p.poll(); t += 60_000;
+      expect(p.main()).toMatchObject({ state: "pending", sha, fixer: null });
+      set(sha, [{ name: "check", status: "completed", conclusion: "cancelled" }, { name: "promote", status: "completed", conclusion: "skipped" }]);
+      await p.poll(); t += 60_000;
+      expect(p.main()).toMatchObject({ state: "pending", sha, failedStep: null, fixer: null });
+      expect(world.town.mainCi()?.state).not.toBe("red"); // mainRedLine (core main-fix.ts) is null unless red
+    }
+    expect(p.main()!.since).toBe("2026-11-04T18:00:00.000Z"); // one pending stretch, never a red episode
+    expect(world.assignments.where("createdBy = 'main-ci'")).toHaveLength(0);
+    expect(gh.calls.some((c) => /^\/commits\/\w+$/.test(c))).toBe(false); // no author read: nothing was red
+  });
+
   it("without a repo token main is read at most every 5 minutes (GitHub allows 60 anonymous calls/h)", async () => {
     const world = World.open(":memory:");
     const { gh, fetch, set } = fakeMain();
