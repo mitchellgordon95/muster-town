@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -172,7 +172,7 @@ export class World {
           case TILE.FLOWERS: drawFlowers(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BANK_SPENDING: drawSpendingBoard(g, px, py); break;
           case TILE.BANK_SERVER: drawBankServer(g, px, py); break;
-          case TILE.BANK_FOUNTAIN: drawBankFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
+          case TILE.BANK_CHEST: drawBankChest(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BANK_LEDGER: drawBankLedger(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;
           case TILE.TABLE: drawTable(g, px, py, {

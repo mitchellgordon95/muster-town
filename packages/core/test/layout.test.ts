@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BANK_FIXTURES, BANK_LOT, TILE, bankTabOf } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, BANK_TABS, TILE, bankTabOf } from "@muster-town/schema";
 import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
@@ -37,7 +37,16 @@ describe("layout", () => {
       for (const c of st.cells) expect(at(c.x, c.y)).toBe(st.tile);
       expect(findPath(grid, world.layout.requirePlace("plaza").pos, p.pos), st.name).not.toBeNull();
     }
-    expect(bankTabOf("bank")).toBe("Overview");
+    expect(bankTabOf("bank")).toBe("Balance");
+    expect(bankTabOf("bank:free")).toBe("Balance"); // the retired fountain: old events and deep links name it
+    // gr_567tikzitl step 2: Donate first, the chest where the fountain stood, no Free tokens tab, tile 23 never reused
+    expect([...BANK_TABS]).toEqual(["Donate", "Balance", "Inputs", "Spending", "Hosting"]);
+    for (const st of BANK_FIXTURES.stations) expect(BANK_TABS as readonly string[]).toContain(st.tab);
+    const chest = BANK_FIXTURES.stations.find((st) => st.slug === "donate")!;
+    expect(chest).toMatchObject({ tab: "Donate", name: "Chest", tile: TILE.BANK_CHEST, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } });
+    expect(bankTabOf("bank:donate")).toBe("Donate");
+    expect(Object.values(TILE)).not.toContain(23);
+    expect(grid.tiles).not.toContain(23);
     // outside, not in any building
     expect(world.layout.buildingAt(bank.pos)).toBeNull();
   });

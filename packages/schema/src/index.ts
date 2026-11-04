@@ -2142,8 +2142,9 @@ export const TILE = {
   PILLAR: 20,
   /** a building's schedule board: a calendar on its back wall (place `schedule:<buildingId>`; the map marks its active schedules) */
   SCHEDULE_BOARD: 21,
-  /** the Bank's stations (BANK_FIXTURES.stations): each opens one tab of the Bank panel */
-  BANK_LEDGER: 22, BANK_FOUNTAIN: 23, BANK_SPENDING: 24, BANK_SERVER: 25,
+  /** the Bank's stations (BANK_FIXTURES.stations): each opens one tab of the Bank panel. 23 was the retired Free tokens
+   * fountain (gr_567tikzitl step 2): never reuse it, old saved maps may still carry it (the web draws it as floor). */
+  BANK_LEDGER: 22, BANK_SPENDING: 24, BANK_SERVER: 25,
   /** a goal's signpost at the end of its plaza (place `plaza:<goalId>`; the map labels it with the goal's words) */
   SIGNPOST: 26,
   /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
@@ -2156,6 +2157,8 @@ export const TILE = {
   STATS: 33,
   /** the "?" help sign on a post just inside every building's door (place `help:<buildingId>`): opens the building's help card */
   HELP: 34,
+  /** the Bank's chest (station `bank:donate`, gr_567tikzitl step 2): opens the Donate tab */
+  BANK_CHEST: 35,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
@@ -2165,29 +2168,30 @@ export const BANK_LOT = { x: 2, y: 14, w: 17, h: 9 } as const;
 /**
  * The Bank's interior, relative to BANK_LOT. Shared so core's layout and the web mock build the same room.
  * Every tab of the Bank panel is a thing in the room (Mitchell, 1:1 mt_ew2d0mm7h9): the vault (place `bank`) opens
- * Overview, each station (place `bank:<slug>`) its own tab; money in on the left, money out on the right.
+ * Balance, each station (place `bank:<slug>`) its own tab; money in on the left, money out on the right. The chest
+ * (Donate) stands where the Free tokens fountain stood (gr_567tikzitl step 2): per-goal free tokens live in the goal editor.
  */
 export const BANK_FIXTURES = {
   door: { x: 8, y: 0 },
   /** two columns framing the entrance */
   pillars: [{ x: 6, y: 1 }, { x: 10, y: 1 }],
-  /** vault door in the back wall, gold bars stacked either side of the walk up to it; the `bank` place stands in front (Overview) */
+  /** vault door in the back wall, gold bars stacked either side of the walk up to it; the `bank` place stands in front (Balance) */
   vault: { x: 8, y: 8 }, vaultStand: { x: 8, y: 7 },
   gold: [{ x: 6, y: 7 }, { x: 7, y: 7 }, { x: 9, y: 7 }, { x: 10, y: 7 }],
   /** the town map on its stand (place `bank-map`: E zooms out to the coin flow); stand below it */
   map: { x: 14, y: 2 }, mapStand: { x: 14, y: 3 },
   stations: [
-    { slug: "ledger", tab: "Tokens & sources", name: "Ledger desk", tile: TILE.BANK_LEDGER, cells: [{ x: 2, y: 2 }, { x: 3, y: 2 }], stand: { x: 2, y: 3 } },
-    { slug: "free", tab: "Free tokens", name: "Fountain", tile: TILE.BANK_FOUNTAIN, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } },
+    { slug: "donate", tab: "Donate", name: "Chest", tile: TILE.BANK_CHEST, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } },
+    { slug: "ledger", tab: "Inputs", name: "Ledger desk", tile: TILE.BANK_LEDGER, cells: [{ x: 2, y: 2 }, { x: 3, y: 2 }], stand: { x: 2, y: 3 } },
     { slug: "spending", tab: "Spending", name: "Spending board", tile: TILE.BANK_SPENDING, cells: [{ x: 11, y: 2 }], stand: { x: 11, y: 3 } },
     { slug: "hosting", tab: "Hosting", name: "Server rack", tile: TILE.BANK_SERVER, cells: [{ x: 14, y: 5 }], stand: { x: 14, y: 6 } },
   ],
 } as const;
-/** The Bank panel's tabs, in order; Overview is the vault's. */
-export const BANK_TABS = ["Overview", ...BANK_FIXTURES.stations.map((s) => s.tab)] as const;
-/** The Bank tab a place opens: `bank` → Overview, `bank:<slug>` → its station's tab. */
+/** The Bank sheet's tabs, in order: Donate (the chest) first, then Balance (the vault's), then the other stations'. */
+export const BANK_TABS = ["Donate", "Balance", "Inputs", "Spending", "Hosting"] as const;
+/** The Bank tab a place opens: `bank` → Balance, `bank:<slug>` → its station's tab; the retired fountain's `bank:free` (old events, deep links) → Balance. */
 export function bankTabOf(placeId: string): string {
-  return BANK_FIXTURES.stations.find((s) => `bank:${s.slug}` === placeId)?.tab ?? "Overview";
+  return BANK_FIXTURES.stations.find((s) => `bank:${s.slug}` === placeId)?.tab ?? "Balance";
 }
 /** The Bank's places: the vault's `bank` first (code finds the Bank by it), then one per station. Absolute tiles from the lot's corner. */
 export function bankPlaces(x0: number, y0: number): Place[] {

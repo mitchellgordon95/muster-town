@@ -178,7 +178,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
     <Section title="Donate">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <div className="row2">
-          <Field label="To" hint={bank ? "Shared by every building: the one balance they all draw on." : `Held by ${building?.name ?? "this building"} alone.`}>
+          <Field label="To" hint={bank ? (sub ? "Shared by every building. Subscription tokens expire at each daily renewal; buildings spend them first." : "Shared by every building: credited to the one balance they all draw on.") : `Held by ${building?.name ?? "this building"} alone. ${AUTH_HINT[auth]}`}>
             <select value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="bank">The Bank (every building)</option>
               {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -249,7 +249,6 @@ export function Donate({ onChange }: { onChange: () => void }) {
         ) : null}
         {needsKey && !sub ? <KeyLimitNote /> : null}
         {warning ? <div className="foot-note warn" role="status">⚠ {warning}</div> : null}
-        <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank's balance; every building draws on it.") : AUTH_HINT[auth]}</div>
         <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
       </form>
     </Section>
@@ -313,6 +312,70 @@ export function BuildingFunding({ rev }: { rev: number }) {
         {retired.length ? <button type="button" className="btn sm link" onClick={() => setShowRetired(!showRetired)}>{showRetired ? "Hide" : "Show"} {retired.length} retired</button> : null}
       </div>
     </Section>
+  );
+}
+
+/**
+ * "Funding the town now" (gr_567tikzitl step 2, kr_00lym2zmif): under the Donate form, what pays for the town today: every
+ * active Bank input (what it can still pay and when a session last drew on it) and the tokens donated straight to buildings.
+ * Cancelled inputs and the dated credits are on the Inputs tab.
+ */
+export function FundingNow({ bank, rev }: { bank: Bank | null; rev?: number }) {
+  const streams = useLoad(() => api().bankStreams(), [rev]);
+  if (!bank) return <Section title="Funding the town now"><Loading /></Section>;
+  const byInput = new Map((streams.data?.streams ?? []).map((x) => [x.inputId, x]));
+  const inputs = bank.inputs.filter((i) => !i.cancelledAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const held = bank.buildings.filter((b) => b.heldTokens > 0).sort((a, b) => b.heldTokens - a.heldTokens);
+  return (
+    <Section title="Funding the town now" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
+      {!inputs.length && !held.length ? <Empty>Nothing funds the town yet. Be the first.</Empty> : (
+        <table className="table funding-now">
+          <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>Size</th><th title="What it can still pay, in adjusted tokens">Left</th><th>Last draw</th></tr></thead>
+          <tbody>
+            {inputs.map((i) => {
+              const x = byInput.get(i.id);
+              const left = x?.balance ?? i.balanceTokens;
+              return (
+                <tr key={i.id}>
+                  <td>{i.label} <Pill tone={i.source === "subscription" ? "ok" : "warn"}>{i.source === "subscription" ? "subscription" : "API key"}</Pill></td>
+                  <td>{i.userName}</td>
+                  <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}</td>
+                  <td>{left === undefined ? "–" : fmtTokens(left)}</td>
+                  <td>{x?.goalId ? (x.lastDrawAt ? timeAgo(x.lastDrawAt) : "never") : <span title="General draws are pooled, not named per input">pooled</span>}</td>
+                </tr>
+              );
+            })}
+            {held.map((b) => (
+              <tr key={b.buildingId}>
+                <td>Donated to {b.name} <Pill>building</Pill></td>
+                <td>–</td>
+                <td>–</td>
+                <td>{fmtTokens(b.heldTokens)}</td>
+                <td>–</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Section>
+  );
+}
+
+/** The Donate tab's prose for the sidebar: where a donation goes, how a key is kept, what the table under the form lists. */
+export function DonateAbout() {
+  return (
+    <>
+      <p className="muted">
+        Donate to the Bank to fund every building: your tokens join the one balance they all draw on (or, with an earmark, only work
+        under that goal). Donate to one building to fund it alone. A key or a subscription token is stored server-side and never shown again;
+        you or an admin can cancel an input on the Inputs tab any time (past credits stay in the Bank).
+      </p>
+      <p className="muted">
+        Funding the town now lists every active input, with what it can still pay ({ADJ}) and when a session last drew on it
+        (general draws are pooled, so only an earmark or a grant&apos;s own input shows a time), then the tokens given straight to
+        buildings and not yet spent. Cancelled inputs and each input&apos;s dated credits are on the Inputs tab.
+      </p>
+    </>
   );
 }
 

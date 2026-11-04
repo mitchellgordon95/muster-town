@@ -261,22 +261,31 @@ export function drawSpendingBoard(g: CanvasRenderingContext2D, px: number, py: n
   for (const [x, h] of [[3, 5], [6, 3], [9, 6], [12, 2]]) g.fillRect(px + x, py + 9 - h, 2, h);
   g.fillStyle = "#f2c94c"; g.fillRect(px + 3, py + 9, 11, 1);
 }
-/** The Bank's fountain (Free tokens tab), two tiles: a marble basin of water with coins in it; each tile draws its half. */
-export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
-  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px, py + 14, T, 2);
-  g.fillStyle = "#d9cfb6"; g.fillRect(px, py + 4, T, 11);
-  g.fillStyle = "#f5f0e2"; g.fillRect(px, py + 4, T, 2);
-  if (!n.l) { g.fillStyle = "#c2b79c"; g.fillRect(px, py + 4, 2, 11); }
-  if (!n.r) { g.fillStyle = "#c2b79c"; g.fillRect(px + T - 2, py + 4, 2, 11); }
-  g.fillStyle = "#3d7fc4"; g.fillRect(px + (n.l ? 0 : 2), py + 6, T - (n.l ? 0 : 2) - (n.r ? 0 : 2), 7);
-  g.fillStyle = "#7fb6e8"; g.fillRect(px + (n.l ? 1 : 3), py + 7, 5, 1);
-  g.fillStyle = "#f2c94c"; g.fillRect(px + (n.l ? 3 : 5), py + 10, 2, 2); g.fillRect(px + 10, py + 9, 2, 2);
-  if (n.l) { // the spout rises from the middle seam
-    g.fillStyle = "#f5f0e2"; g.fillRect(px - 1, py, 2, 6);
-    g.fillStyle = "#9fd0f2"; g.fillRect(px - 2, py + 1, 1, 4); g.fillRect(px + 1, py + 1, 1, 4);
-  }
+/**
+ * The Bank's chest (Donate tab, gr_567tikzitl step 2), two tiles where the fountain stood: a dark-wood chest with gold
+ * straps, the lid seam and the lock across the middle; each tile draws its half (like the ledger desk). Nothing above the tile.
+ */
+export function drawBankChest(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  const x0 = px + (n.l ? 0 : 1), x1 = px + T - (n.r ? 0 : 1), w = x1 - x0;
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(x0 + 1, py + 14, w - 2, 2);
+  // lid (rounded at the outer corners), then the body
+  g.fillStyle = "#5a3920"; g.fillRect(x0, py + 4, w, 4);
+  g.fillRect(x0 + (n.l ? 0 : 1), py + 3, w - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  g.fillStyle = "#fff1b0"; g.fillRect(x0 + (n.l ? 0 : 2), py + 3, w - (n.l ? 0 : 2) - (n.r ? 0 : 2), 1);
+  g.fillStyle = "#3b2414"; g.fillRect(x0, py + 8, w, 6);
+  // the lid seam in gold, and a gold strap at each outer end
+  g.fillStyle = "#d7ad3a"; g.fillRect(x0, py + 8, w, 1);
+  if (!n.l) g.fillRect(x0 + 1, py + 3, 2, 11);
+  if (!n.r) g.fillRect(x1 - 3, py + 3, 2, 11);
+  // the lock plate across the seam between the two tiles, with its keyhole
+  g.fillStyle = "#f2c94c";
+  if (n.r && !n.l) g.fillRect(px + T - 2, py + 6, 2, 6);
+  if (n.l) g.fillRect(px, py + 6, 2, 6);
+  g.fillStyle = "#3b2414";
+  if (n.l) g.fillRect(px, py + 8, 1, 2);
+  if (n.r && !n.l) g.fillRect(px + T - 1, py + 8, 1, 2);
 }
-/** The Bank's ledger desk (Tokens & sources tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
+/** The Bank's ledger desk (Inputs tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
 export function drawBankLedger(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
   g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 8);
   g.fillStyle = "#5a3920"; g.fillRect(px, py + 6, T, 2);

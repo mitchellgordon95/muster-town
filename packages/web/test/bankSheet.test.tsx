@@ -48,8 +48,19 @@ describe("the Bank sheet", () => {
     expect(html).toContain('aria-selected="true" class="bank-tab on">Spending</button>');
     expect([bankSheetTab("Hosting"), bankSheetTab("nope"), bankSheetTab()]).toEqual(["Hosting", BANK_TABS[0], BANK_TABS[0]]);
   });
-  it("puts the Overview's unit line and notes in the sidebar, none in the centre", () => {
-    const { centre, sidebar } = columns(sheet("Overview"));
+  it("opens on Donate: the form (signed out: the sign-in line) at the top of the centre, what funds the town under it, the explanations in the sidebar (gr_567tikzitl step 2, kr_00lym2zmif)", () => {
+    expect(BANK_TABS[0]).toBe("Donate");
+    expect(bankSheetTab()).toBe("Donate");
+    const html = sheet(bankSheetTab());
+    expect(html).toContain('aria-selected="true" class="bank-tab on">Donate</button>');
+    const { centre, sidebar } = columns(html);
+    expect(centre.indexOf("Sign in to donate")).toBeGreaterThan(0);
+    expect(centre.indexOf("Sign in to donate")).toBeLessThan(centre.indexOf("Funding the town now"));
+    expect(sidebar).toContain("Donate to the Bank to fund every building");
+    expect(prose(centre)).toEqual([]);
+  });
+  it("puts the Balance tab's unit line and notes in the sidebar, none in the centre", () => {
+    const { centre, sidebar } = columns(sheet("Balance"));
     expect(sidebar).toContain("the unit the town pays for AI model work in");
     expect(sidebar).toContain("About this tab");
     expect(sidebar).toContain("Terms used on this page");

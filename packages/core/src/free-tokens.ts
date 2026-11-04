@@ -119,7 +119,7 @@ function claims(world: World, except?: string, now = new Date()): Claim[] {
 }
 
 /**
- * Free tokens under every goal in one pass (GET /api/goals, the Bank's Free tokens tab). Keys: goal ids. `except`: a
+ * Free tokens under every goal in one pass (GET /api/goals: the goal editor's Funding block). Keys: goal ids. `except`: a
  * grant whose own claim is left out (funding it asks what is free besides it).
  */
 export function freeTokensAll(world: World, now = new Date(), except?: string): Map<string, FreeTokens> {
