@@ -46,8 +46,12 @@ export const realSdk: Sdk = {
   },
 };
 
-export function userMessage(text: string): SDKUserMessage {
-  return { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null };
+/** A picture sent with a user message (meetingImages.ts): base64 bytes of a raster image. */
+export interface ImageBlock { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } }
+
+/** A user message: the text alone, or the images first and the text after them. */
+export function userMessage(text: string, images: ImageBlock[] = []): SDKUserMessage {
+  return { type: "user", message: { role: "user", content: images.length ? [...images, { type: "text", text }] : text }, parent_tool_use_id: null };
 }
 
 /** Async-iterable queue of user messages; `close()` ends the stream (the SDK then finishes). */
@@ -56,9 +60,9 @@ export class InputChannel implements AsyncIterable<SDKUserMessage> {
   private waiter: ((v: IteratorResult<SDKUserMessage>) => void) | null = null;
   closed = false;
 
-  push(text: string): boolean {
+  push(text: string, images?: ImageBlock[]): boolean {
     if (this.closed) return false;
-    const msg = userMessage(text);
+    const msg = userMessage(text, images);
     if (this.waiter) { const w = this.waiter; this.waiter = null; w({ value: msg, done: false }); }
     else this.queue.push(msg);
     return true;

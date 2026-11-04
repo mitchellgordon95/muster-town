@@ -8,6 +8,7 @@ import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
 import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
@@ -87,6 +88,7 @@ function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
     <div className="reply-box">
       <textarea {...media.props} rows={2} placeholder="Optional note: with one, your note becomes the assignment and the flag is its context" value={note} onChange={(e) => setNote(e.target.value)} />
       <div className="actions">
+        <AttachButton small media={media} />
         <Act small run={decide("approve")} title="Nothing to do: mark the flag handled, no assignment">Handled</Act>
         <Act small tone="primary" disabled={!manager} run={decide(note.trim() ? "redirect" : "continue")} title={manager ? `Queue it to the building as a directed assignment: a fork of ${manager.name} runs it` : "This building has no manager agent to run it"}>Queue it</Act>
       </div>
