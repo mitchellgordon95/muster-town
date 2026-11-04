@@ -2,7 +2,7 @@
 /**
  * Disclosure census (goal gl_1ds3wl2n78, grant gr_zak30564zh, kr_p6l1w6tade): open every panel and every tab of it at
  * 1280×800 and 390×844 (touch) and count what its first screen shows, against the progressive-disclosure bar
- * (findings dc_j5ejqhvl9e): first screen ≤12 controls and ≤200 words, the whole panel ≤3 screens as it opens (collapsed).
+ * (findings dc_j5ejqhvl9e): first screen ≤12 controls and ≤200 words; the whole panel ≤3 screens as it opens is reported.
  *
  * Two modes:
  *   mock  every panel kind, signed in as the mock admin, through the dev-only `window.__muster.open`. Start the mock first:
@@ -12,6 +12,15 @@
  *         #/agent, #/meeting, #/assignment, #/session, #/kr, #/manual, #/connect, #/bank. The ids come from the town's API,
  *         plus any --grants=gr_a,gr_b and --docs=dc_a,dc_b you name.
  *           node scripts/disclosure-census.mjs live [https://muster.town/workshop/] [--grants=…] [--docs=…]
+ * The verdict is kr_p6l1w6tade's bar: first screen ≤12 controls and ≤200 words. Screens (>3 as it opens) print as a
+ * "long" note on the row, not a fail: a list that scrolls is fine when its first screen is a summary.
+ *
+ * Decision (step 4, as_daweqw8v78): the goal tree's canvas is a map, like the pixel map. Its cards are a zoomed-out
+ * picture of the tree (10–21% zoom on live: their words are not readable text) and its toolbar is map chrome, so the
+ * whole-sheet row of `goals` / `kr` is excluded and only the selected goal's detail pane (.ge-detail) is measured
+ * against the bar. Showing desk steppers only on the selected card would cut controls but not the card words, so
+ * the sheet would fail on words either way.
+ *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
@@ -39,7 +48,7 @@ const SIZES = [{ n: "laptop", w: 1280, h: 800, touch: false }, { n: "phone", w: 
   .filter((s) => !flags.sizes || list(flags.sizes).includes(s.n));
 
 /** Why a panel is out of the census, or null. */
-const excluded = (t) => t.kind === "bank" ? "the Bank: Bank Transparency's grant" : (t.kind === "library" && t.docId) || t.kind === "manual" ? "document body" : null;
+const excluded = (t, part) => (t.kind === "goals" || t.kind === "kr") && part !== "detail" ? "map: the goal tree canvas; its detail row counts" : t.kind === "bank" ? "the Bank: Bank Transparency's grant" : (t.kind === "library" && t.docId) || t.kind === "manual" ? "document body" : null;
 
 // ---- targets ----
 let targets;
@@ -68,7 +77,7 @@ if (mode === "mock") {
     ...(bl ? [{ kind: "building", id: bl.id }] : []), ...(mgr ? [{ kind: "agent", id: mgr.id }] : []),
     ...(meetings[0] ? [{ kind: "meeting", id: meetings[0].id }] : []),
     ...list(flags.assignments).map((id) => ({ kind: "assignment", id })), ...list(flags.sessions).map((id) => ({ kind: "session", id })),
-    ...list(flags.krs).map((id) => ({ kind: "kr", id })),
+    ...[...new Set(["kr_p6l1w6tade", ...list(flags.krs)])].map((id) => ({ kind: "kr", id })),
     { kind: "manual" }, { kind: "connect" }, { kind: "bank" },
   ];
 }
@@ -117,11 +126,12 @@ const measure = (page, part) => page.evaluate((part) => {
   return { ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, screens: +screens.toFixed(1) };
 }, part);
 
-const verdict = (t, m) => {
+const verdict = (t, m, part) => {
   if (!m) return "no panel";
-  const ex = excluded(t); if (ex) return `excluded (${ex})`;
-  const why = [m.ctl > BAR.ctl && `ctl>${BAR.ctl}`, m.words > BAR.words && `words>${BAR.words}`, m.screens > BAR.screens && `screens>${BAR.screens}`].filter(Boolean);
-  return why.length ? `FAIL ${why.join(" ")}` : "pass";
+  const ex = excluded(t, part); if (ex) return `excluded (${ex})`;
+  const why = [m.ctl > BAR.ctl && `ctl>${BAR.ctl}`, m.words > BAR.words && `words>${BAR.words}`].filter(Boolean);
+  const long = m.screens > BAR.screens ? ` (long: ${m.screens} screens)` : "";
+  return (why.length ? `FAIL ${why.join(" ")}` : "pass") + long;
 };
 
 // ---- run ----
@@ -152,7 +162,7 @@ for (const size of SIZES) {
       const m = await measure(page);
       rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab, ...(m ?? {}), verdict: verdict(t, m) });
       // the goal tree is a sheet with the tree beside the selected goal: its detail pane gets its own row (kr_3jie8qwdt6)
-      if (t.kind === "goals" || t.kind === "kr") { const d = await measure(page, "detail"); if (d) rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab: "(selected goal's detail)", ...d, verdict: verdict(t, d) }); }
+      if (t.kind === "goals" || t.kind === "kr") { const d = await measure(page, "detail"); if (d) rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab: "(selected goal's detail)", ...d, verdict: verdict(t, d, "detail") }); }
       if (i === 0 && flags.shots) await page.screenshot({ path: `${flags.shots}/${size.n}-${label(t).replace(/[:/]/g, "_")}.png` }).catch(() => {});
     }
     if (mode === "mock") await page.evaluate(() => window.__muster.open(null));
@@ -163,9 +173,9 @@ await browser.close();
 
 if (flags.json) console.log(JSON.stringify(rows, null, 1));
 else {
-  console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words, ≤${BAR.screens} screens collapsed`);
+  console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words (over ${BAR.screens} screens is noted as long)`);
   console.log("| size | panel | tab | ctl | ctl total | words | words total | screens | verdict |\n|---|---|---|---|---|---|---|---|---|");
   for (const r of rows) console.log(`| ${r.size} | ${r.panel} | ${r.tab ?? ""} | ${r.ctl ?? ""} | ${r.ctlAll ?? ""} | ${r.words ?? ""} | ${r.total ?? ""} | ${r.screens ?? ""} | ${r.verdict} |`);
-  const counted = rows.filter((r) => r.verdict === "pass" || r.verdict.startsWith("FAIL"));
-  console.log(`\n${counted.filter((r) => r.verdict === "pass").length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
+  const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
+  console.log(`\n${counted.filter((r) => r.verdict.startsWith("pass")).length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
 }

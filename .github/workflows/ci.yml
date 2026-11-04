@@ -89,3 +89,47 @@ jobs:
           fi
           curl -fsS -X POST https://muster.town/api/admin/redeploy \
             -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"image":false}'
+
+  # The published self-host image (docs/self-host.md path B, gr_q1jrelx2ty): every green main is built from
+  # deploy/fly/Dockerfile with plain docker and pushed as ghcr.io/mitchellgordon95/muster-town:<sha> and :prod.
+  # Runs beside promote (not after it); a .github/-only change doesn't redeploy the town (promote's docs/CI filter).
+  image:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest # amd64 only
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/mitchellgordon95/muster-town
+    steps:
+      # the context is prepared like deploy/fly/build.sh: a fresh public clone (not actions/checkout, whose token in
+      # .git/config would be baked into the image), on branch main at this commit so the seed's /data/repo can `git pull`,
+      # the git directory as `gitdir`, deploy/fly/dockerignore as the context's .dockerignore. The Dockerfile insists the
+      # seed checkout is clean.
+      - name: build context
+        run: |
+          git clone -q --branch main https://github.com/mitchellgordon95/muster-town.git ctx
+          cd ctx
+          git reset -q --hard "$GITHUB_SHA"
+          git remote set-url origin https://github.com/mitchellgordon95/muster-town.git
+          mv .git gitdir
+          cp deploy/fly/dockerignore .dockerignore
+      - name: docker build
+        working-directory: ctx
+        run: |
+          start=$(date +%s)
+          docker build -f deploy/fly/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
+          echo "docker build took $(( $(date +%s) - start ))s"
+      - name: push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:prod"
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:prod"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:prod")
+          echo "pushed $IMAGE:$GITHUB_SHA and :prod ($digest)"
+          echo "\`pushed $IMAGE:${GITHUB_SHA:0:7} and :prod ($digest)\`" >> "$GITHUB_STEP_SUMMARY"

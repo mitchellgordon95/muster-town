@@ -19,6 +19,7 @@ import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
+import { clipText } from "./showMore";
 import { canOneOnOne, canTalkAtTownHall, grantTalkTarget, openOneOnOne, secretaryOf } from "./oneOnOne";
 import { decideJoin, letInGoal } from "./letIn";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
@@ -541,6 +542,9 @@ function EstimateLine({ g }: { g: GrantView }) {
  * sit one click away (gr_zak30564zh). `onPage`: the grant's own page, whose header carries the objective and whose Plan
  * and History sections carry the stop condition and the latest note, so the row leaves those out.
  */
+/** Characters of a key result shown on the grant page before its fold (about one line of the side panel). */
+const KR_LINE = 50;
+
 export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route, onPage }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute; onPage?: boolean }) {
   useTown((s) => s.me);
   const manager = useTown((s) => { const b = s.buildings.find((x) => x.id === g.buildingId); return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined; });
@@ -607,12 +611,15 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const pct = g.grantTokens ? Math.round((g.spentTokens / g.grantTokens) * 100) : 0;
   // the key results and stop condition: under the fold on a checkpoint, where the evidence comes first (mt_7b4zc7yja3)
   const folded = checkpoint && !!g.evidence;
+  // on the grant's own page each key result opens on one line; the full text sits in its "How to check" fold (kr_p6l1w6tade)
+  const krLine = (text: string) => (onPage ? clipText(text, KR_LINE).head : text);
   const planList = (<>
       <ul className="grant-krs">
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
-            <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {k.text} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
-            <details className="kr-more"><summary>How to check{k.statusNote ? " · note" : ""}</summary>
+            <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {krLine(k.text)} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
+            <details className="kr-more"><summary>{onPage ? "details" : `How to check${k.statusNote ? " · note" : ""}`}</summary>
+              {krLine(k.text) !== k.text ? <div className="kr-full">{k.text}</div> : null}
               <div className="muted kr-check">How to check: {k.howToCheck}</div>
               {k.statusNote ? <div className="muted kr-check">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div> : null}
             </details>
@@ -685,7 +692,8 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         {author ? <img src={portraitUrl(author.sprite, 1)} alt="" /> : null}<b>{manager ? `★ ${manager.name}` : nameOf(g.proposedBy)}</b>
         <span>{timeAgo(g.updatedAt)}</span>
         <Pill tone={checkpoint ? "warn" : g.status === "rejected" || stop ? "bad" : g.status === "countered" || g.status === "draft" || g.status === "closed" ? "" : "ok"}>{stop && g.status === "closed" ? "stopped" : g.status}</Pill>
-        <GrantLink id={g.id} />
+        {/* on its own page the header already names this grant: no link to itself */}
+        {onPage ? null : <GrantLink id={g.id} />}
       </div>
       {onPage ? null : <div className="doc-row-title">{g.objective}</div>}
       <RoutedTo route={route} />
