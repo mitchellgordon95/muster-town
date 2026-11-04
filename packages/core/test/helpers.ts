@@ -92,13 +92,13 @@ export function undoTokenCounters(db: import("better-sqlite3").Database): void {
 
 /**
  * Undo migration 037's columns (the raw totals it made generated; the stored adjusted `tokens` / `spentTokens` stay as
- * plain columns) so 037 runs again on next open. Its one-time size conversion runs again too. Migration 088 (an index
+ * plain columns) so 037 runs again on next open. Its one-time size conversion runs again too. Migration 089 (an index
  * on bank_debits.tokens) is undone with it.
  */
 export function undoAdjustedTokens(db: import("better-sqlite3").Database): void {
-  // 037 drops bank_debits.tokens, which migration 088's index covers: drop the index and let 088 run again after 037
+  // 037 drops bank_debits.tokens, which migration 088's index covers: drop the index and let 089 run again after 037
   db.exec("DROP INDEX IF EXISTS bank_debits_credit");
-  db.prepare("DELETE FROM schema_version WHERE version = 88").run();
+  db.prepare("DELETE FROM schema_version WHERE version = 89").run();
   const cols = (t: string) => (db.prepare(`PRAGMA table_xinfo("${t}")`).all() as { name: string }[]).map((r) => r.name);
   for (const t of ["usage", "bank_debits", "bank_credits"]) if (cols(t).includes("rawTokens")) db.exec(`ALTER TABLE ${t} DROP COLUMN rawTokens`);
   if (cols("allocations").includes("spentRawTokens")) db.exec("ALTER TABLE allocations DROP COLUMN spentRawTokens");
