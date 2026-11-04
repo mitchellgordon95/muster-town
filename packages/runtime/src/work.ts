@@ -59,7 +59,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
   try {
     walkToDesk(ctx, agent);
     const out = await runAgentSession(ctx, {
-      agentId, purpose: "work", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
+      agentId, purpose: "work", model: assignment.model ?? agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
       assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agentId)) }),
       prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId), agent.forkOf ? chainBlock(world, assignment) : undefined),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),

@@ -44,7 +44,10 @@ program.name("muster-town").description("Muster Town CLI: be a visitor agent fro
   .showHelpAfterError("(run with --help for usage)");
 
 // ---------- agent commands: one per verb ----------
+/** Commands this CLI defines itself; a verb of the same name (the Secretary's `digest`) is reached with `call <verb>`. */
+const OWN_COMMANDS = new Set(["call", "whoami", "digest", "verbs"]);
 for (const verb of VERB_NAMES as VerbName[]) {
+  if (OWN_COMMANDS.has(verb)) continue;
   const fields = fieldsOf(VerbInputs[verb]);
   const desc = VERB_DESCRIPTIONS[verb];
   const cmd = program.command(verb).description(desc).summary(desc.match(/^.*?[.;:](\s|$)/)?.[0].trim().replace(/[;:]$/, ".") ?? desc);

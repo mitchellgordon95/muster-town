@@ -167,12 +167,15 @@ function directRefusal(world: World, buildingId: string | null): string {
  */
 export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
-  // the Town Hall's manager is the Planner, its one agent to talk to ("Plan with an agent", docs/goals.md)
+  // the Town Hall's agents to talk to: the Planner, its manager ("Plan with an agent", docs/goals.md), and the Secretary
+  // (the in-tray, gr_kdlogzzo5s); the same people may open either
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
-  if (townHall && opts.agentId && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
+  const secretary = townHall && opts.agentId ? world.secretary.agent() : undefined;
+  const toSecretary = !!secretary && world.secretary.isSecretary(world.agents.get(opts.agentId!) ?? null);
+  if (townHall && opts.agentId && !toSecretary && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner (plan with it from the Goal tree) or the Secretary (the in-tray).");
   if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !canDirect(world, human, b.id)) throw forbidden("meeting.facilitate", townHall ? undefined : directRefusal(world, b.id));
   // the Planner itself (created, or resumed if stopped, by ensurePlanner), never "has no manager agent"
-  if (townHall) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
+  if (townHall) opts = { ...opts, agentId: toSecretary ? secretary!.id : world.reorgs.ensurePlanner().id };
   const h = world.holderOf(human);
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
   const doc = opts.docId ? world.docs.get(opts.docId) : undefined;

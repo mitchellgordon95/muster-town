@@ -207,11 +207,11 @@ const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
 };
 
 /**
- * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's brief in a Planner 1:1,
+ * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's (or the Secretary's) brief in its 1:1,
  * and, beside a live work session, what that session is doing and how to hand it the human's request.
  */
 const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
-  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
+  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), world.secretary.brief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
