@@ -16,3 +16,19 @@ h1 { font-size: var(--fs-xl); }
 h2, h3 { font-size: var(--fs-lg); }
 h4, h5, h6 { font-size: var(--fs-md); }
 small, sub, sup { font-size: var(--fs-xs); }
+
+/* The palette (grant gr_kvmwutmybu, kr_qge1yo1lmi): the only colour literals in the web CSS, at most 24 tokens.
+   Everything else is var(--token) or a tint of tokens: color-mix(in srgb, var(--ok) 24%, var(--bg)) for a status
+   background, color-mix(in srgb, var(--black) 35%, transparent) for a shadow. `npm run check:css` fails CI on a colour
+   literal (or a font size off the scale) anywhere else. */
+:root {
+  /* dark town UI: surfaces, darkest first, and borders */
+  --bg: #14151c; --panel: #1b1d27; --panel-2: #20232f; --raised: #2a2d3a; --line: #2e3142; --line-2: #3a3e55;
+  /* text, brightest first: all ≥4.5:1 on --panel-2 */
+  --text: #e8e9f0; --soft: #c4c7dc; --muted: #9a9db3; --faint: #8e92ab;
+  /* meaning: links, status, meetings, money */
+  --accent: #7cc4ff; --link: #7aa2ff; --ok: #6fdc8c; --warn: #ffcf5e; --bad: #ff7b7b; --meet: #c79bff; --gold: #e8b840;
+  /* paper sheets (how it works, homepage, manual): paper, ink and the three page hues */
+  --paper: #fbefc4; --ink: #3b2f12; --blue: #2d6aa8; --green: #2f7d46; --amber: #8a5a00;
+  --black: #000; --white: #fff;
+}

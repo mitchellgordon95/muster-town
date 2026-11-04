@@ -31,7 +31,7 @@ const want = (v) => !ONLY || ONLY.includes(v);
 const SIZES = (process.argv[2] ?? "laptop,phone").split(",").map((s) => (s === "phone" ? [390, 844, "phone"] : [1280, 800, "laptop"]));
 
 function measure() {
-  const parse = (s) => { const m = s.match(/[\d.]+/g); return m ? m.map(Number) : [0, 0, 0, 0]; };
+  const parse = (s) => { const m = s.match(/[\d.]+(e-?\d+)?/g); if (!m) return [0, 0, 0, 0]; const n = m.map(Number); return s.startsWith("color(srgb") ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : n; }; // color-mix() computes to color(srgb r g b / a), 0..1
   const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
   const rootBg = parse(getComputedStyle(document.body).backgroundColor);
   const bgOf = (el) => { const stack = []; for (let e = el; e; e = e.parentElement) { const s = getComputedStyle(e).backgroundColor; const c = parse(s); if (s !== "rgba(0, 0, 0, 0)" && (c[3] ?? 1) > 0) { stack.push(c); if ((c[3] ?? 1) >= 0.95) break; } } let b = (rootBg[3] ?? 1) > 0 ? rootBg.slice(0, 3) : [20, 21, 28]; for (const c of stack.reverse()) { const a = c[3] ?? 1; b = [0, 1, 2].map((i) => c[i] * a + b[i] * (1 - a)); } return b; };

@@ -11,6 +11,7 @@
     "check": "tsx scripts/check.ts",
     "check:docs": "tsx scripts/check-doc-refs.ts",
     "check:finance": "tsx scripts/finance-check.ts",
+    "check:css": "node scripts/check-css.mjs",
     "check:deadcode": "knip --include files,dependencies,unlisted,binaries,exports,types --no-progress",
     "test": "npm run test -ws --if-present",
     "dev": "MUSTER_TOWN_DEV=1 npx tsx watch packages/server/src/main.ts",
