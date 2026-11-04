@@ -13,7 +13,7 @@
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
 import { useState } from "react";
-import { api, type Bank, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import { api, type Bank, type Finance, type FinanceCash, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
@@ -26,7 +26,7 @@ export const dollars = (x: number) => `${x < 0 ? "−" : ""}$${Math.abs(x).toLoc
 /** A token figure's dollar twin at API list price, as shown after it: "≈ $1,234.56". */
 export const approxUsd = (x: number) => `≈ ${dollars(x)}`;
 /** The one footnote under every "≈ $" figure (gr_gmzli3f96j). */
-export const USD_NOTE = "Dollars are at API list price; a subscription pays a flat fee instead.";
+export const USD_NOTE = "Dollars are at API list price; a subscription pays a flat fee instead. What was paid in cash is the \u201cPaid in cash, last 30 days\u201d row on Balance.";
 const Usd = ({ x }: { x: number | undefined }) => (x === undefined ? null : <span className="muted finance-usd"> {approxUsd(x)}</span>);
 
 /** The sum check in words: what the four figures add up to, and by how much it misses when it does. */
@@ -494,13 +494,49 @@ export function ProjectionView({ f }: { f: Finance }) {
           <tr><td>Tokens left last</td><td>{runwayText(p)}</td></tr>
         </tbody>
       </table>
+      <CashView f={f} />
     </Section>
+  );
+}
+
+/** The cash row's words (gr_qggxximtru step 2): the total, its three parts, the ratio to list price (or why there is none) and the check. */
+export function cashLines(c: FinanceCash, check?: { ok: boolean; text: string }): { total: string; parts: string; ratio: string; check: { ok: boolean; text: string } } {
+  const sum = c.plans + c.apiKeys + c.hosting;
+  const ok = check ? check.ok : Math.abs(sum - c.total) <= 0.01;
+  return {
+    total: dollars(c.total),
+    parts: `plans ${dollars(c.plans)} · API keys ${dollars(c.apiKeys)} · hosting ${dollars(c.hosting)}`,
+    ratio: c.perDollar == null
+      ? "No plan recorded yet: add one on Inputs (\u201cPlans paid for\u201d)."
+      : `Each $1 paid bought ≈ ${dollars(c.perDollar)} of work at list price (${dollars(c.listUsd)} of work in the same ${c.windowDays} days).`,
+    check: ok
+      ? { ok: true, text: `The server checked that plans + API keys + hosting = ${dollars(c.total)}.` }
+      : { ok: false, text: `Cash does not add up: the parts come to ${dollars(sum)}, but the total is ${dollars(c.total)}.` },
+  };
+}
+
+/** Paid in cash, last 30 days (on Balance, under the list-price figures): what running the collective cost in dollars. */
+function CashView({ f }: { f: Finance }) {
+  if (!f.cash) return null;
+  const l = cashLines(f.cash, f.cashCheck);
+  return (
+    <div className="finance-cash">
+      <table className="table">
+        <tbody>
+          <tr title="Plan fees prorated over the last 30 days, sessions run on API keys at list price, and the Fly hosting estimate (Hosting tab)"><td>Paid in cash, last {f.cash.windowDays} days</td><td><b>{l.total}</b></td></tr>
+          <tr className="sub-row"><td colSpan={2}>{l.parts}</td></tr>
+          <tr className="sub-row"><td colSpan={2}>{l.ratio}</td></tr>
+        </tbody>
+      </table>
+      <Check c={l.check} />
+    </div>
   );
 }
 
 /** The Next N days section's prose for the sidebar. */
 export const ProjectionAbout = ({ f }: { f: Finance }) => (
   <>
+    {f.cash ? <p className="muted">Paid in cash, last {f.cash.windowDays} days: the plans recorded on Inputs (each $ per month × the share of the 30 days it ran), what the sessions run on API keys cost at list price (Anthropic bills a key per token), and the Fly hosting estimate of the Hosting tab. Each $1 paid bought is the list-price value of all the work in those 30 days divided by that cash.</p> : null}
     <p className="muted">Next {f.projection.days} days: coming in is what the active recurring Bank inputs are expected to credit per day (a subscription at most its weekly cap / 7); one-off donations and one-time inputs are not counted. Tokens left last is what is left divided by the net per day.</p>
     {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
   </>
