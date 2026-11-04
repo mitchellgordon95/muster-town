@@ -10,7 +10,7 @@ import { SkillDetails } from "./Skills";
 import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
-import { RollupCards, rollupCardsOf } from "./RollupCards";
+import { RollupReport, rollupCardsOf } from "./RollupCards";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
 
@@ -139,7 +139,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
-      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupCards parsed={cards} full /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
+      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupReport parsed={cards} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview && doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : null}
       {/* the buttons that act on the doc come after reading it, big (Mitchell's flag dc_4uiv48047s) */}
@@ -150,13 +150,14 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {canPromote && doc.state === "building" ? <Act run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
       </div>
       {sources.length || doc.provenance.urls.length ? (
-        <div className="provenance">
-          <h4>Provenance</h4>
+        // folded (progressive disclosure, 1:1 mt_i50xwu4z2t): a rollup's covered reports are the record, not the read
+        <details className="provenance">
+          <summary>Provenance · {sources.length + doc.provenance.urls.length} source{sources.length + doc.provenance.urls.length === 1 ? "" : "s"}</summary>
           <ul>
             {sources.map((id) => <li key={id}><button className="link" onClick={() => void openDocLink(id)}>{store.state.docs[id]?.title ?? id}</button></li>)}
             {doc.provenance.urls.map((u) => <li key={u}><a href={u} target="_blank" rel="noopener noreferrer">{u}</a></li>)}
           </ul>
-        </div>
+        </details>
       ) : null}
     </article>
   );

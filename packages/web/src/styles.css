@@ -646,6 +646,31 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .rollup-card-call.none { font-weight: normal; color: inherit; }
 .rollup-card-after { margin-top: 6px; color: #c4c7dc; }
 @media (max-width: 520px) { .rollup-card-field, .rollup-card-call { grid-template-columns: 1fr; gap: 0; } }
+/* a rollup opened from the in-tray (RollupReport): the calls first, the cards next, the record folded (1:1 mt_i50xwu4z2t) */
+.rollup-report .rollup-intro { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+.rollup-report .rollup-intro p { margin: 0; }
+.rollup-top { background: #2a2516; border: 1px solid #4f4524; border-radius: var(--r); padding: 8px 11px; margin: 0 0 12px; font-size: 13.5px; }
+.rollup-top.none { background: #1e2433; border-color: #2f3a52; }
+.rollup-top-head { font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; color: #f0d48a; margin-bottom: 4px; }
+.rollup-top.none .rollup-top-head { color: var(--muted); }
+.rollup-top-list { margin: 0; padding-left: 20px; }
+.rollup-top-list li { margin: 3px 0; }
+.rollup-top-list .md, .rollup-top-list .md p { display: inline; margin: 0; }
+.rollup-top-ref { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid #4f4524; border-radius: 9px; padding: 0 6px; margin-right: 6px; vertical-align: 1px; }
+.rollup-top-waiting { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.rollup-top-waiting p { margin: 0; }
+.rollup-report .rollup-h { font-size: 13px; margin: 0 0 6px; }
+.rollup-fold { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; font-size: 13px; }
+.rollup-fold > summary { cursor: pointer; color: var(--muted); font-size: 12.5px; list-style: none; }
+.rollup-fold > summary::before { content: "▸ "; }
+.rollup-fold[open] > summary::before { content: "▾ "; }
+.rollup-fold > summary::-webkit-details-marker { display: none; }
+.rollup-fold .md { margin-top: 6px; }
+.provenance > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); list-style: none; }
+.provenance > summary::before { content: "▸ "; }
+.provenance[open] > summary::before { content: "▾ "; }
+.provenance > summary::-webkit-details-marker { display: none; }
+.provenance[open] > summary { margin-bottom: 6px; }
 .grant-row { cursor: default; }
 .grant-krs { margin: 2px 0 2px 16px; padding: 0; font-size: 12px; }
 /* the checkpoint card's evidence (mt_7b4zc7yja3): what shipped per key result, the top-up line; the plan sits under the fold */

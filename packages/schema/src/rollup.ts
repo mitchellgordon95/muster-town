@@ -12,6 +12,8 @@ export const ROLLUP_LABELS = ["What it is", "What you'd see", "Your call"] as co
 /** One screen: at most this many Shipped items and pictures. */
 export const ROLLUP_MAX_ITEMS = 3;
 export const ROLLUP_MAX_PICTURES = 2;
+/** "What it is" is read in a glance: over this many words the filing warns (the detail belongs in the covered reports). */
+export const ROLLUP_MAX_WHAT_WORDS = 80;
 
 export interface RollupPicture { alt: string; src: string }
 export interface RollupItem {
@@ -33,6 +35,8 @@ export interface ParsedRollup {
   items: RollupItem[];
   /** Markdown from the heading after Shipped to the end (Decided, Key results, Needs). */
   after: string;
+  /** The three sections after Shipped, each without its heading ("" when absent); `other` is any heading in between that isn't one of them. */
+  sections: { decided: string; keyResults: string; needs: string; other: string };
   /** Headings of ROLLUP_SECTIONS the body lacks. */
   missingSections: string[];
 }
@@ -93,7 +97,8 @@ export function parseRollup(body: string): ParsedRollup {
     else if (shippedAt >= 0 && i > shippedAt && shippedEnd === lines.length) shippedEnd = i;
   });
   const missingSections = ROLLUP_SECTIONS.filter((s) => !present.has(s)).map((s) => s === "Needs from" ? "Needs from Mitchell" : s);
-  if (shippedAt < 0) return { before: body.trim(), shippedIntro: "", items: [], after: "", missingSections };
+  const sections = splitSections(lines.slice(shippedAt < 0 ? 0 : shippedEnd));
+  if (shippedAt < 0) return { before: body.trim(), shippedIntro: "", items: [], after: "", sections, missingSections };
   const section = lines.slice(shippedAt + 1, shippedEnd);
   const starts = section.flatMap((l, i) => ITEM.test(l) && itemTitle(l) ? [i] : []);
   const items = starts.map((s, n) => parseItem(section.slice(s, starts[n + 1] ?? section.length)));
@@ -102,8 +107,40 @@ export function parseRollup(body: string): ParsedRollup {
     shippedIntro: section.slice(0, starts[0] ?? section.length).join("\n").trim(),
     items,
     after: lines.slice(shippedEnd).join("\n").trim(),
+    sections,
     missingSections,
   };
+}
+
+/** The Decided / Key results / Needs sections of the lines after Shipped, each without its heading; other "##" headings keep theirs under `other`. */
+function splitSections(lines: string[]): ParsedRollup["sections"] {
+  const out = { decided: [] as string[], keyResults: [] as string[], needs: [] as string[], other: [] as string[] };
+  let cur: keyof typeof out = "other", fence = false;
+  for (const l of lines) {
+    if (/^\s*```/.test(l)) fence = !fence;
+    const h = fence ? null : HEADING.exec(l);
+    const s = h ? sectionOf(h[1]!) : undefined;
+    if (s === "Decided" || s === "Key results" || s === "Needs from") { cur = s === "Decided" ? "decided" : s === "Key results" ? "keyResults" : "needs"; continue; }
+    if (h) cur = "other";
+    out[cur].push(l);
+  }
+  const join = (ls: string[]) => ls.join("\n").trim();
+  return { decided: join(out.decided), keyResults: join(out.keyResults), needs: join(out.needs), other: join(out.other) };
+}
+
+/** A "Your call" that asks nothing: empty or "None…" (markdown stripped). The deck's isNoCall says the same. */
+const noCall = (call: string) => !call.trim() || /^none\b/i.test(call.replace(/[*_`]/g, "").trim());
+
+/**
+ * What the rollup asks the human, in the order they read it (the report view and the deck put these first): each Shipped
+ * item whose "Your call" is not None (with its number and title), then the Needs section's own lines, the generated
+ * "Already waiting" line and "Nothing needed" left out. Empty = for the record.
+ */
+export function rollupAsks(p: ParsedRollup): { n: number | null; title: string; call: string }[] {
+  const items = p.items.flatMap((it, i) => noCall(it.yourCall) ? [] : [{ n: i + 1, title: it.title, call: it.yourCall.replace(/\s+/g, " ").trim() }]);
+  const needs = withoutWaitingLine(p.sections.needs).split("\n").map((l) => l.trim()).filter((l) => l && !NOTHING.test(plainLine(l)))
+    .map((l) => ({ n: null, title: "", call: l.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "") }));
+  return [...items, ...needs];
 }
 
 /** True when every Shipped item carries the three labels (the in-tray then shows cards). */
@@ -114,6 +151,10 @@ export function rollupHasCards(p: ParsedRollup): boolean {
 /** What `submit_report` tells a manager about a rollup's format: missing labels, too many items or pictures. Headings are checked separately (refused). */
 export function rollupWarnings(p: ParsedRollup): string[] {
   const out = p.items.flatMap((it, i) => it.missing.length ? [`Shipped item ${i + 1} ("${it.title.slice(0, 60)}") lacks ${it.missing.map((l) => `**${l}:**`).join(", ")}`] : []);
+  for (const [i, it] of p.items.entries()) {
+    const words = it.whatItIs.split(/\s+/).filter(Boolean).length;
+    if (words > ROLLUP_MAX_WHAT_WORDS) out.push(`Shipped item ${i + 1} ("${it.title.slice(0, 60)}"): "What it is" is ${words} words; keep it under ${ROLLUP_MAX_WHAT_WORDS} (two or three sentences; the detail is in the covered reports)`);
+  }
   if (p.items.length > ROLLUP_MAX_ITEMS) out.push(`${p.items.length} Shipped items; keep it to ${ROLLUP_MAX_ITEMS} (one screen)`);
   const pics = p.items.reduce((n, it) => n + it.pictures.length, 0);
   if (pics > ROLLUP_MAX_PICTURES) out.push(`${pics} pictures; keep it to ${ROLLUP_MAX_PICTURES}`);
