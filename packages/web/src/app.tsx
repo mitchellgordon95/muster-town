@@ -25,7 +25,7 @@ import { PlanningPanel } from "./panels/PlanningPanel";
 import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
-import { BankPanel } from "./panels/BankPanel";
+import { BankSheet } from "./panels/BankSheet";
 import { GrantPanel } from "./panels/GrantPanel";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
@@ -205,7 +205,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
-    case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
+    case "bank": return null; // a sheet over the map like the goal editor (App, BankSheet)
     case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "assignment": return <AssignmentPanel key={panel.id} id={panel.id!} />;
@@ -233,7 +233,16 @@ export function App() {
     prevOpen.current = open;
   }, [open]);
   const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
-  const panel = manual || helpSign || open?.kind === "goals" ? null : open;
+  // the Bank is a sheet over the map too (gr_567tikzitl step 1); every opener still opens PanelRef kind "bank" with its tab
+  const [bankSheet, setBankSheet] = useState<PanelRef | null>(null);
+  const prevBank = useRef(open);
+  useEffect(() => {
+    if (open?.kind === "bank") setBankSheet(open);
+    else if (!open && prevBank.current?.kind === "bank") setBankSheet(null);
+    prevBank.current = open;
+  }, [open]);
+  const closeBank = useCallback(() => { setBankSheet(null); if (store.state.panel?.kind === "bank") store.open(null); }, []);
+  const panel = manual || helpSign || open?.kind === "goals" || open?.kind === "bank" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
   const plan = useTownPlan();
   const planSel = plan?.selected ?? null;
@@ -316,6 +325,7 @@ export function App() {
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
+      {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
