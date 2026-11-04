@@ -8,6 +8,7 @@ import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
+import { cashCheck, financeCash, CASH_FLY_DAYS, type CashCheck, type FinanceCash } from "./finance-cash.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -963,6 +964,16 @@ export class Bank {
     // a hosted collective's creation = its first event (the window starts no earlier than that day)
     const createdAt = o.hosted ? this.events.list({ limit: 1 })[0]?.ts ?? null : null;
     return townFly(this.repos, desks, townOnFly, { ...o, createdAt }, now);
+  }
+
+  /**
+   * GET /api/finance `cash` + `cashCheck`: what the last 30 days cost in cash (plan fees prorated, API-key sessions at
+   * list price, the Fly estimate) next to the list-price value of the same work (finance-cash.ts). Read-only.
+   */
+  cash(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt" | "windowDays"> = {}, now = new Date()): { cash: FinanceCash; cashCheck: CashCheck } {
+    const fly = this.fly(desks, townOnFly, { ...o, windowDays: CASH_FLY_DAYS }, now);
+    const cash = financeCash({ fees: this.fees(), sessions: this.repos.sessions.all(), inputs: this.repos.bankInputs.all(), fly }, now);
+    return { cash, cashCheck: cashCheck(cash) };
   }
 
   summary(): BankSummary {
