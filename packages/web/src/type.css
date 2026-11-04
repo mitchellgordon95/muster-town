@@ -1,0 +1,18 @@
+/* The type scale (grant gr_kvmwutmybu, kr_68eg5yskoo): every font size in the web client is one of these steps, so
+   each view shows at most six sizes. Imported first by both bundles (main.tsx, home/main.tsx). Fixed px, never em/rem:
+   a relative size inside a sized parent compounds into an off-scale fraction. --fs-display is only the paper sheets'
+   headline (homepage, how-it-works card, manual). */
+:root {
+  --fs-xs: 11px;      /* uppercase labels, timestamps, chips */
+  --fs-sm: 12px;      /* secondary text, small buttons, code */
+  --fs-md: 13px;      /* body text in panels */
+  --fs-lg: 15px;      /* panel titles, paper-sheet body, big buttons */
+  --fs-xl: 22px;      /* close ×, sheet subheads, narrow-screen headlines */
+  --fs-xxl: 28px;     /* sheet headlines on short screens */
+  --fs-display: 34px; /* paper-sheet headline */
+}
+/* Browser defaults are em multiples of the parent (h2 1.5em, small "smaller"): pin them to the scale. */
+h1 { font-size: var(--fs-xl); }
+h2, h3 { font-size: var(--fs-lg); }
+h4, h5, h6 { font-size: var(--fs-md); }
+small, sub, sup { font-size: var(--fs-xs); }
