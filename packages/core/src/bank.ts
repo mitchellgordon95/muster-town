@@ -312,6 +312,16 @@ const EXPECTED_SESSION_MIN_SAMPLE = 5;
 export const STREAM_IDLE_DAYS = 7;
 
 /** The p-th percentile (0..1) of `xs`, nearest rank; 0 for none. */
+/** `Bank.expectedSession`'s window: work sessions that ended after `?`. */
+const ENDED_WORK = "purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?";
+/** The columns `sessionTokens` reads, plus the agent (read raw: zod-parsing whole rows was most of the tick, dc_avj0n0doki). */
+const ENDED_COLS = ["agentId", "model", "bankModel", "byModel", "input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"];
+type EndedRow = { agentId: string; model: string; bankModel: string | null; byModel: string | null } & { [K in keyof TokenCounts]: number | null };
+const endedRowUsage = (r: EndedRow) => ({
+  model: r.model, bankModel: r.bankModel, byModel: r.byModel ? (JSON.parse(r.byModel) as Record<string, TokenCounts>) : null,
+  input: r.input ?? 0, output: r.output ?? 0, cacheRead: r.cacheRead ?? 0, cacheWrite5m: r.cacheWrite5m ?? 0, cacheWrite1h: r.cacheWrite1h ?? 0,
+});
+
 export function percentile(xs: number[], p: number): number {
   if (!xs.length) return 0;
   const sorted = [...xs].sort((a, b) => a - b);
@@ -610,16 +620,36 @@ export class Bank {
    */
   expectedSession(buildingId?: string | null, now = new Date()): { tokens: number; sample: number } {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-    const ended = this.repos.sessions.where("purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?", [since]);
-    const sizes = (rows: Session[]) => rows.map((s) => sessionTokens(s)).filter((t) => t > 0);
-    if (buildingId) {
-      const homes = new Set(this.repos.agents.where("homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId]).map((a) => a.id));
-      const own = sizes(ended.filter((s) => homes.has(s.agentId)));
-      if (own.length >= EXPECTED_SESSION_MIN_SAMPLE) return { tokens: percentile(own, 0.9), sample: own.length };
+    // it runs every tick and at every session start: keep the window's sizes while the window holds the same ended sessions
+    // (count, newest end and raw total: a session ending, settling its usage or leaving the window changes the key)
+    const key = this.repos.sessions.columns<{ n: number; last: string | null; raw: number | null }>(["COUNT(*) AS n", "MAX(endedAt) AS last", "SUM(tokens) AS raw"], ENDED_WORK, [since])[0]!;
+    const stamp = `${key.n}|${key.last ?? ""}|${key.raw ?? 0}`;
+    let c = this.expectedCache;
+    if (c?.stamp !== stamp) {
+      const ended = this.repos.sessions.columns<EndedRow>(ENDED_COLS, ENDED_WORK, [since]).map((r) => ({ agentId: r.agentId, tokens: sessionTokens(endedRowUsage(r)) }));
+      c = this.expectedCache = { stamp, ended, byBuilding: new Map(), town: null };
     }
-    const all = sizes(ended);
-    return all.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(all, 0.9), sample: all.length } : { tokens: EXPECTED_SESSION_DEFAULT, sample: 0 };
+    if (buildingId) {
+      // who counts as the building's is read every call (one small read), so a move between buildings shows at once
+      const homes = this.repos.agents.columns<{ id: string }>(["id"], "homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId], "ORDER BY id").map((a) => a.id);
+      const members = homes.join(",");
+      let hit = c.byBuilding.get(buildingId);
+      if (hit?.members !== members) {
+        const set = new Set(homes);
+        const own = c.ended.filter((s) => set.has(s.agentId)).map((s) => s.tokens).filter((t) => t > 0);
+        hit = { members, value: own.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(own, 0.9), sample: own.length } : null };
+        c.byBuilding.set(buildingId, hit);
+      }
+      if (hit.value) return { ...hit.value };
+    }
+    if (!c.town) {
+      const all = c.ended.map((s) => s.tokens).filter((t) => t > 0);
+      c.town = all.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(all, 0.9), sample: all.length } : { tokens: EXPECTED_SESSION_DEFAULT, sample: 0 };
+    }
+    return { ...c.town };
   }
+  /** `expectedSession`'s cache: the window's ended work sessions as (agent, booked tokens), and the p90s taken from them (per building, with the members they were taken over). */
+  private expectedCache: { stamp: string; ended: { agentId: string; tokens: number }[]; byBuilding: Map<string, { members: string; value: { tokens: number; sample: number } | null }>; town: { tokens: number; sample: number } | null } | null = null;
 
   /** Live keyed earmarks scoped to `goalId`, oldest first. */
   earmarksFor(goalId: string): BankInput[] {
