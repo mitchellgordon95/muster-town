@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -14,6 +14,38 @@ const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
 /** toy dollars: Opus 5.5 output at $20 per million tokens, to the cent (core bankTokensUsd + cents) */
 const toyUsd = (tokens: number) => Math.round(tokens * 20 / 1e4) / 100;
+/**
+ * A toy lane × token-kind table (gr_lwgus14rd2 step 1): fixed Opus counters per lane (7d = 5 × today), one back-filled
+ * session not counted, all in the Town Workshop; rows + notCounted = sessionsTokens exactly.
+ */
+function toyLaneKind(window: "today" | "7d"): SpendByLaneKind {
+  const k = window === "7d" ? 5 : 1;
+  const W = { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 } as const;
+  const kinds = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"] as const;
+  const raw: [LaneKindRow["lane"], number, number[]][] = [
+    ["grant", 4, [20_000, 60_000, 9_000_000, 30_000, 150_000]],
+    ["exploration", 1, [5_000, 15_000, 2_000_000, 10_000, 40_000]],
+    ["directed", 1, [2_000, 8_000, 900_000, 4_000, 10_000]],
+    ["manager", 6, [10_000, 30_000, 5_000_000, 20_000, 120_000]],
+    ["other", 3, [1_000, 6_000, 300_000, 2_000, 0]],
+  ];
+  const row = (lane: LaneKindRow["lane"], sessions: number, counts: number[]): LaneKindRow => {
+    const cells = Object.fromEntries(kinds.map((kind, i) => { const t = Math.round(counts[i]! * k * W[kind]); return [kind, { tokens: t, usd: toyUsd(t) }]; })) as LaneKindRow["kinds"];
+    const tokens = kinds.reduce((s, kind) => s + cells[kind].tokens, 0);
+    return { lane, sessions: sessions * k, kinds: cells, tokens, usd: toyUsd(tokens), cacheWriteShare: tokens ? Math.round((cells.cacheWrite5m.tokens + cells.cacheWrite1h.tokens) / tokens * 1e4) / 1e4 : 0 };
+  };
+  const rows = raw.map(([lane, n, c]) => row(lane, n, c));
+  const total = row("total", rows.reduce((s, r) => s + r.sessions, 0) / k, kinds.map((_, i) => raw.reduce((s, r) => s + r[2][i]!, 0)));
+  const notCounted = { sessions: 1, tokens: 1_000 * k, usd: toyUsd(1_000 * k) };
+  const table = { rows, total, notCounted };
+  const day = new Date(); day.setUTCHours(0, 0, 0, 0);
+  const from = new Date(day.getTime() - (window === "7d" ? 7 : 0) * 86_400_000).toISOString();
+  return {
+    window, from, to: now(), windowNote: window === "today" ? "today so far (UTC)" : "the last 7 full UTC days and today so far", ...table,
+    sessionsTokens: rows.reduce((s, r) => s + r.tokens, 0) + notCounted.tokens, check: { ok: true, diff: 0, identity: "Σ lane × kind rows + not counted (back-filled) = Σ sessions in the window" },
+    buildings: { workshop: table },
+  };
+}
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** the mock tree's exploration caps set on a goal (tokens/day), inherited one level down; the root's is town-wide */
@@ -212,7 +244,7 @@ export class MockApi implements Api {
     await wait();
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
-    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [] };
+    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
   }
   async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
     await wait();
@@ -289,13 +321,13 @@ export class MockApi implements Api {
     await wait();
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
     const to = day(0), from = day(29);
-    const zero = { guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
     const workshop = [
-      { ...zero, day: day(6), guestCardViews: 9, signIns: 1 },
-      { ...zero, day: day(2), guestCardViews: 14, signIns: 1, asked: 1, letIn: 1 },
-      { ...zero, day: day(0), guestCardViews: this.guestCardViews - 23, asked: 1 },
+      { ...zero, day: day(6), homeViews: 5, guestCardViews: 9, guestVisitors: 4, signInStarted: 2, signIns: 1 },
+      { ...zero, day: day(2), homeViews: 7, guestCardViews: 14, guestVisitors: 6, signInStarted: 1, signIns: 1, asked: 1, letIn: 1 },
+      { ...zero, day: day(0), homeViews: 3, guestCardViews: this.guestCardViews - 23, guestVisitors: 2, asked: 1 },
     ];
-    const hosted = [{ ...zero, day: day(2), guestCardViews: 4, signIns: 1, asked: 1, declined: 1 }];
+    const hosted = [{ ...zero, day: day(2), guestCardViews: 4, guestVisitors: 2, signInStarted: 1, signIns: 1, asked: 1, declined: 1 }];
     const sum = (rows: typeof workshop) => Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, rows.reduce((n, r) => n + r[k], 0)])) as typeof zero;
     const collectives = [
       { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000 },
@@ -473,6 +505,22 @@ export class MockApi implements Api {
     const buildings = this.sim.buildings.filter((b) => b.kind === "lab").map((b) => Object.assign(b, defaults));
     for (const b of buildings) this.sim.emit({ type: "building", building: b });
     return clone({ defaults, buildings });
+  }
+
+  async publishSettings(patch: { repoUrl: string; token?: string }) {
+    await wait();
+    const prev = this.sim.town.publish;
+    const same = prev?.repoUrl === patch.repoUrl && !patch.token;
+    const publish = { repoUrl: patch.repoUrl, tokenSet: !!patch.token || !!prev?.tokenSet, lastPushAt: same ? prev!.lastPushAt : null, lastPushCommit: same ? prev!.lastPushCommit : null, lastPushError: same ? prev!.lastPushError : null };
+    this.sim.town.publish = publish;
+    return clone({ publish });
+  }
+
+  async clearPublish() {
+    await wait();
+    const cleared = !!this.sim.town.publish;
+    delete this.sim.town.publish;
+    return { cleared };
   }
 
   async setMaxRunning(maxRunning: number) {
@@ -773,7 +821,7 @@ export class MockApi implements Api {
     };
   }
   // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row
-  async financeSpend(): Promise<FinanceSpend> {
+  async financeSpend(window: "today" | "7d" = "today"): Promise<FinanceSpend> {
     const { used } = await this.finance();
     // sessions counted past what was paid: one building row and a toy not-funded row (so the Spending tab shows its note,
     // split two buildings and the unattributed part, summing to it exactly); with a not-funded row nothing is unattributed
@@ -801,7 +849,7 @@ export class MockApi implements Api {
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now() };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now(), byLaneKind: toyLaneKind(window) };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {

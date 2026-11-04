@@ -135,6 +135,8 @@ export const Collective = z.object({
   url: z.string().default(""),
   /** not open yet: listed as "coming soon", with no Open link */
   placeholder: z.boolean().optional(),
+  /** whether an agent session ever ran there (false: a never-run collective, listed after the others as "Not started yet"); absent for a placeholder */
+  started: z.boolean().optional(),
 });
 export type Collective = z.infer<typeof Collective>;
 
@@ -1447,14 +1449,20 @@ export interface GoalFunding {
  */
 export interface IntrayRoute { goalId: string; ownerId: string; ownerName: string; mine: boolean; canDecide: boolean }
 /**
+ * One group of a digest card's "Decisions needed" (core digestDecisions; Mitchell, 1:1 mt_i50xwu4z2t: "can we do the
+ * same thing for the decisions that need me?"): a heading by the kind of yes/no (Money, Go / no-go, Questions in words,
+ * Already overtaken, Errands), an optional note under it, and its lines. Empty groups are left out.
+ */
+export interface DigestGroup { heading: string; note: string | null; lines: string[]; /** "Already overtaken": the rollups one Approve-all archives */ docIds?: string[] }
+/**
  * The Secretary's latest digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray and slide 2 of the deck:
- * "Decisions needed" live at every read (core digestDecisions), the card's own "Shipped since last digest" markdown,
- * and the rollups it covers (archived ones leave the in-tray's list and stay here; `pending` ones still ask a call).
+ * "Decisions needed" live at every read (core digestDecisions, grouped), the card's own "Shipped since last digest"
+ * markdown (grouped under the run's theme headings), and the rollups it covers (archived ones leave the in-tray's list
+ * and stay here; `pending` ones still ask a call).
  */
 export interface DigestCard {
   doc: Doc;
-  decisions: string[];
-  askedOfYou: string | null;
+  decisions: DigestGroup[];
   shipped: string;
   covered: { id: string; title: string; buildingId: string | null; buildingName: string; pending: boolean }[];
 }
@@ -1553,6 +1561,8 @@ export interface GoalSpend {
   byKeyResult: { id: string; text: string; goalId: string; status: string; tokens: number; sessions: number }[];
   /** the subtree's key results marked met or missed inside the window */
   results: { id: string; text: string; status: "met" | "missed"; at: string }[];
+  /** visitors at desks in the subtree's buildings now. What they spend is NOT tracked (a visitor runs on its own client; Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or self-report), so it is in none of the figures above */
+  visitors: number;
 }
 /** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
 export interface QueueCard {
@@ -2029,6 +2039,7 @@ export const VerbInputs = {
       rollupId: Id.describe("the rollup the item came from (as the read listed it)"),
       line: z.string().trim().min(1).max(400).describe("one plain line, at most 20 words: what a human now sees or can do"),
       picture: z.string().optional().describe("the item's picture src, as the read listed it"),
+      theme: z.string().trim().max(80).optional().describe("the plain theme heading this line goes under (3-6 themes across the card, e.g. \"Joining and letting people in\"); lines with the same theme are grouped"),
     })).max(60).optional().describe("leave out to read the inputs; give one entry per Shipped item to file the card"),
   }),
 } as const;
@@ -2466,7 +2477,9 @@ export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.op
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
   funding: z.enum(["api-key", "none"]).optional(),
   /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
-  founder: FounderProgress.optional() });
+  founder: FounderProgress.optional(),
+  /** a hosted collective only: whether any agent session ever ran (false: a never-run collective; its guest card and first-minute card say so) */
+  started: z.boolean().optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------

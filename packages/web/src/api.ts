@@ -4,13 +4,14 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck, DigestCard, BankStreams, TownHealth, FunderWeek, ReviewSlide,
+  ReviewDeck, DigestCard, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
+import { visitorId } from "./visitor";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
@@ -160,6 +161,29 @@ export interface SpendNode {
   krCounts?: { met: number; missed: number; claimed: number; open: number };
   children?: SpendNode[];
 }
+/** The token kinds of a lane × kind table, in column order. */
+export type TokenKind = "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h";
+/** One row of `byLaneKind`: a lane (manager = purpose manage, other = every other purpose and lane-less work) or the total. */
+export interface LaneKindRow {
+  lane: "grant" | "exploration" | "directed" | "retainer" | "manager" | "other" | "total";
+  sessions: number;
+  /** per kind: adjusted tokens and dollars at API list price */
+  kinds: Record<TokenKind, { tokens: number; usd: number }>;
+  tokens: number; usd: number;
+  /** (cache write 5 min + 1 h dollars) / the row's dollars */
+  cacheWriteShare: number;
+}
+export interface LaneKindTable { rows: LaneKindRow[]; total: LaneKindRow; notCounted: { sessions: number; tokens: number; usd: number } }
+/**
+ * `byLaneKind` of `GET /api/finance/spend?window=today|7d` (gr_lwgus14rd2 step 1): the window's sessions by lane × token
+ * kind; back-filled sessions (no real breakdown) are in `notCounted`. `buildings` holds the same table per building id
+ * ("none" = no building). rows + notCounted = sessionsTokens within rounding (`check`).
+ */
+export interface SpendByLaneKind extends LaneKindTable {
+  window: "today" | "7d"; from: string; to: string; windowNote: string; sessionsTokens: number;
+  check: { ok: boolean; diff: number; identity: string };
+  buildings: Record<string, LaneKindTable>;
+}
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
 export interface FinanceSpend {
   used: number; sessionsTotal: number; unattributed: number;
@@ -185,6 +209,8 @@ export interface FinanceSpend {
   /** byOutcome's tokens vs Σ the grant rows' tokens */
   grantsCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
+  /** the window's lane × token-kind table (optional here: an older server sends none) */
+  byLaneKind?: SpendByLaneKind;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
 export interface SourceCredit { id: string; createdAt: string; expiresAt: string | null; tokens: number; expiredTokens: number }
@@ -316,7 +342,7 @@ export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | 
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
-export interface JoinFunnelCounts { guestCardViews: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
+export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
 /** One collective's funnel: the days with any count (UTC), its totals and its median wait to decision. */
 interface JoinFunnelCollective {
   slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
@@ -449,7 +475,7 @@ export interface Api {
   deleteObjective(id: string): Promise<void>;
   /** GET /api/join-funnel: the public join funnel counts */
   joinFunnel(): Promise<JoinFunnelView>;
-  /** POST /api/join-funnel/view: the guest card was shown (once per page load) */
+  /** POST /api/join-funnel/view: the guest card was shown (once per page load; with this browser's visitor id, once per day as a visitor) */
   countGuestCardView(): Promise<void>;
   /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
   members(): Promise<MemberView[]>;
@@ -501,6 +527,10 @@ export interface Api {
   /** PUT /api/town/operating-reserve (admin): tokens exploration and grant funding can't claim */
   setOperatingReserve(tokens: number): Promise<{ operatingReserveTokens: number; free: FreeTokens | null }>;
   setTownDefaults(patch: Partial<BuildingDefaults>): Promise<{ defaults: BuildingDefaults; buildings: Building[] }>;
+  /** PUT /api/town/publish (admin, gr_30f8obzab8): where the hourly export pushes; leave `token` out to keep the stored one (409 without a data key) */
+  publishSettings(patch: { repoUrl: string; token?: string }): Promise<{ publish: TownPublish }>;
+  /** DELETE /api/town/publish (admin): stop publishing (repo, token and last push cleared) */
+  clearPublish(): Promise<{ cleared: boolean }>;
   /** open a session transcript in a new tab (admins, the building's manager, the agent itself) */
   openTranscript?(url: string): Promise<void>;
   // docs
@@ -560,7 +590,8 @@ export interface Api {
   /** public: the town's finance summary (used, expired, left, a 30-day projection) */
   finance(): Promise<Finance>;
   /** public: where `used` went, by building → grant → assignment */
-  financeSpend(): Promise<FinanceSpend>;
+  /** `window` picks byLaneKind's window (default today); every other field is all-time */
+  financeSpend(window?: "today" | "7d"): Promise<FinanceSpend>;
   /** public: where the tokens came from, per input (dated credits) and per donation; sums to /api/finance total */
   financeSources(): Promise<FinanceSources>;
   /** public: the Fly.io hosting estimate per day and per building (desk sessions' wall time at list price + the town Machine) */
@@ -636,6 +667,11 @@ function qs(q: object): string {
   return s ? `?${s}` : "";
 }
 
+/** GET /api/buildings/:id/intray with its lists defaulted; every other field (digest, stopped, ...) passes through as sent. */
+export function intrayOf(r: Partial<Intray>): Intray {
+  return { ...r, reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+}
+
 class HttpApi implements Api {
   readonly mock = false;
   constructor(private token: () => string | null) {}
@@ -703,8 +739,7 @@ class HttpApi implements Api {
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   async intray(id: string) {
-    const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+    return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
@@ -723,7 +758,7 @@ class HttpApi implements Api {
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
-  async countGuestCardView() { await this.post("/api/join-funnel/view"); }
+  async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
   async revokeDirect(userId: string, goalId: string) { await this.call("DELETE", `/api/members/${userId}/direct`, { goalId }); }
@@ -751,6 +786,8 @@ class HttpApi implements Api {
   setMapLayout(layout: MapLayout) { return this.call<{ mapLayout: MapLayout }>("PUT", "/api/town/map-layout", { layout }); }
   setOperatingReserve(tokens: number) { return this.call<{ operatingReserveTokens: number; free: FreeTokens | null }>("PUT", "/api/town/operating-reserve", { tokens }); }
   setTownDefaults(patch: Partial<BuildingDefaults>) { return this.call<{ defaults: BuildingDefaults; buildings: Building[] }>("PUT", "/api/town/defaults", patch); }
+  publishSettings(patch: { repoUrl: string; token?: string }) { return this.call<{ publish: TownPublish }>("PUT", "/api/town/publish", patch); }
+  clearPublish() { return this.call<{ cleared: boolean }>("DELETE", "/api/town/publish"); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
@@ -814,7 +851,7 @@ class HttpApi implements Api {
     return { ...r, inputs: r.inputs ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
   async finance() { return this.get<Finance>("/api/finance"); }
-  async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
+  async financeSpend(window?: "today" | "7d") { return this.get<FinanceSpend>(`/api/finance/spend${window ? `?window=${window}` : ""}`); }
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
   async financeFly() { return this.get<FinanceFly>("/api/finance/fly"); }
   async bankStreams() { return this.get<BankStreams>("/api/bank/streams"); }
