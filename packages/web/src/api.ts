@@ -626,6 +626,11 @@ export interface Api {
   connect(handlers: SocketHandlers): Socket;
 }
 
+/** GET /api/buildings/:id/intray with every list defaulted; keeps `stopped` and `digest` (the Town Hall's "Stopped: for the record" section and the Secretary's card read them). */
+export function intrayOf(r: Partial<Intray>): Intray {
+  return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly code: string, readonly status: number) { super(message); }
 }
@@ -730,8 +735,7 @@ class HttpApi implements Api {
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
   async intray(id: string) {
-    const r = await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`);
-    return { reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+    return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }

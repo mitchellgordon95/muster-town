@@ -190,19 +190,19 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
+export function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
   const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
+  const askedOn = askedOnOf(grants, retainers);
+  const list = mode === "list";
+  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
       <div className="doc-list">{stopped.map((g) => list ? grantLine(g, true) : <GrantRow key={g.id} grant={g} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
     </Section>
   ) : null;
-  const askedOn = askedOnOf(grants, retainers);
-  const list = mode === "list";
-  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // blocked buildings aren't counted in the badge, but they wait on a human all the same
   const blockedList = blocked.length ? (
     <Section title={<>Blocked: no key results <Pill tone="bad">{blocked.length}</Pill></>}>
