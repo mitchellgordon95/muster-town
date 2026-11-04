@@ -229,7 +229,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (!prefix) {
     // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
     // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
-    const list = () => collectives(opts.world, opts.hub?.list("active") ?? [], opts.collective);
+    const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
       return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));

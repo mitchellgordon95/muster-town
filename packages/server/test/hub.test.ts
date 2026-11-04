@@ -59,6 +59,11 @@ describe("the hub", () => {
     // the homepage list comes from the hub: Workshop first, then demo; the placeholder only while none exists
     const list = (await json(app, "GET", "/api/collectives")).body.collectives;
     expect(list.map((c: { slug: string; url: string }) => [c.slug, c.url])).toEqual([["workshop", "/workshop/"], ["demo", "/demo/"]]);
+    // gr_a6512x0je1: a fresh hosted collective has never run a session: started false on the list and on its own health
+    expect(list.map((c: { started?: boolean }) => c.started)).toEqual([true, false]);
+    expect((await json(app, "GET", "/demo/api/health")).body.started).toBe(false);
+    expect((await json(app, "GET", "/demo/api/town")).body.health.started).toBe(false);
+    expect((await json(app, "GET", "/api/health")).body.started).toBeUndefined();
     expect((await app.inject("/")).body).toContain('data-preview="/demo/api/town"');
   });
 
