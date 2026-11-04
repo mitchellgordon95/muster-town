@@ -82,5 +82,7 @@ console.warn = warn; console.log = log;
 const q = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; };
 const out: any = { k, sizes, running: count("sessions", "WHERE status = 'running'"), tick: { p50: q(rows.map((r) => r.ms), .5), p95: q(rows.map((r) => r.ms), .95), max: Math.max(...rows.map((r) => r.ms)) }, wall: { p50: q(rows.map((r) => r.wall), .5), p95: q(rows.map((r) => r.wall), .95) }, phases: {} };
 for (const ph of Object.keys(rows[0].phases)) { const xs = rows.map((r) => r.phases[ph] ?? 0); out.phases[ph] = { p50: q(xs, .5), p95: q(xs, .95), max: Math.max(...xs) }; }
+out.sub = {};
+for (const ph of Object.keys(rows[0].sub ?? {})) { const xs = rows.map((r) => r.sub?.[ph] ?? 0); out.sub[ph] = { p50: q(xs, .5), p95: q(xs, .95) }; }
 console.log(JSON.stringify(out));
 process.exit(0);
