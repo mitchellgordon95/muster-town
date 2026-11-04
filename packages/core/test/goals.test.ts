@@ -233,7 +233,8 @@ describe("migration 061: lossless from per-building objectives", () => {
     mkdirSync(migrations);
     const all = join(import.meta.dirname, "..", "migrations");
     for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 60)) copyFileSync(join(all, f), join(migrations, f));
-    const db = new Database(join(dir, "town.db"));
+    // in memory: on a disk file each of the 60 migrations is a synced transaction, and under CI load that took 5.4 s (run 41865260373)
+    const db = new Database(":memory:");
     migrate(db, migrations);
     const now = new Date().toISOString();
     db.prepare("INSERT INTO meta (key, value) VALUES ('town', ?)").run(JSON.stringify({ name: "T", goal: "Make it fundable" }));
