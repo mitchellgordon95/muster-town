@@ -284,6 +284,7 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
  * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
  * funder's with goals.edit here (an admin or the goal's captain); blank = inherit.
  */
+let settingsOpen = false;
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
   const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
   useEffect(() => setCap(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay)), [node.id, node.exploreCapTokensPerDay]);
@@ -291,23 +292,29 @@ function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: G
   const { exploreCap } = node.funding;
   const above = node.parentId ? findGoal(root, node.parentId)?.funding.exploreCap ?? null : null;
   const next = cap.trim() === "" ? null : Math.max(0, fromMillions(cap) || 0);
+  const summary = [exploreCap ? `cap ${fmtTokens(exploreCap.tokensPerDay)} / day` : "no cap", `exploration ${node.funding.explore.on ? "on" : "off"}`, desksText(node, root) ? "desk total set" : null].filter(Boolean).join(" · ");
   return (
     <div className="ge-funding">
       <div className="ge-funding-row">
         <span className="ge-funding-label">Free tokens</span>
         <FreeTokensLine free={node.funding.free} />
       </div>
-      <div className="ge-funding-row">
-        <span className="ge-funding-label">Exploration cap</span>
-        {can ? <>
-          <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
-          <span className="muted">/ day</span>
-          <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
-        </> : null}
-        <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
-      </div>
-      <ExploreRow node={node} can={can} onDone={onDone} />
-      <DesksRow root={root} node={node} can={can} onDone={onDone} />
+      {/* the knobs (cap, explore rule, chunk, desk total) fold to one line (kr_3jie8qwdt6): the goal opens on the goal; the
+          open state carries across goals so a captain setting several doesn't reopen it each time */}
+      <details className="ge-settings" open={settingsOpen} onToggle={(e) => { settingsOpen = e.currentTarget.open; }}>
+        <summary><b>Exploration and money settings</b><span className="muted">{summary}</span></summary>
+        <div className="ge-funding-row">
+          <span className="ge-funding-label">Exploration cap</span>
+          {can ? <>
+            <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
+            <span className="muted">/ day</span>
+            <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
+          </> : null}
+          <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
+        </div>
+        <ExploreRow node={node} can={can} onDone={onDone} />
+        <DesksRow root={root} node={node} can={can} onDone={onDone} />
+      </details>
     </div>
   );
 }

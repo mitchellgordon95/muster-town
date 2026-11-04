@@ -12,7 +12,7 @@
  *         #/agent, #/meeting, #/assignment, #/session, #/kr, #/manual, #/connect, #/bank. The ids come from the town's API,
  *         plus any --grants=gr_a,gr_b and --docs=dc_a,dc_b you name.
  *           node scripts/disclosure-census.mjs live [https://muster.town/workshop/] [--grants=…] [--docs=…]
- * Options: --sizes=laptop,phone (default both), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
+ * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
  * summaries), ctl total (in the whole panel as it opens: what a closed <details> hides is not counted), words (words on the first screen), words total (in the whole panel as it opens), screens (panel body scroll height /
@@ -72,6 +72,8 @@ if (mode === "mock") {
     { kind: "manual" }, { kind: "connect" }, { kind: "bank" },
   ];
 }
+// --only=goals,kr keeps just those panel kinds (one panel's before/after without the whole ~3 min run)
+if (flags.only) targets = targets.filter((t) => list(flags.only).includes(t.kind));
 const hashOf = (t) => t.kind === "library" ? `#/doc/${t.docId}` : t.id ? `#/${t.kind}/${t.id}` : `#/${t.kind}`;
 const label = (t) => t.kind + (t.id ? ":" + t.id : "") + (t.docId ? ":" + t.docId : "");
 
