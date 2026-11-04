@@ -42,6 +42,8 @@ a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); box-shadow: 0 
 .start-note code { font-size: var(--fs-sm); }
 .start-err { font-size: var(--fs-sm); font-weight: 600; color: var(--ink); padding-left: 6px; border-left: 3px solid var(--ink-3); margin: 0; }
 .start-block { margin-top: 6px; }
+/* Short screens: the headline steps down with the how-it-works card on top of it (hiw.css), so home shows ≤6 sizes. */
+@media (max-height: 820px) { .home-sheet h1 { font-size: var(--fs-xxl); } }
 @media (max-width: 760px) { .home-sheet { margin: 12px; padding: 16px 16px 14px; } }
 @media (max-width: 420px) {
   .tiles { grid-template-columns: 1fr 1fr; gap: 12px; }
