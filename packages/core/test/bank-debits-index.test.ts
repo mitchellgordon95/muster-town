@@ -3,7 +3,7 @@ import { ROOT_GOAL_ID } from "@muster-town/schema";
 import { createBuilding, createResident, freeTokensAll, type World } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
-// gr_db6ofyd0yf step 2: migration 088's covering index bank_debits(creditId, tokens). Bank.debited's sums must read it
+// gr_db6ofyd0yf step 2: migration 089's covering index bank_debits(creditId, tokens). Bank.debited's sums must read it
 // (not scan the table) and every Bank figure must be the same with and without it.
 const T0 = new Date("2026-11-04T12:00:00.000Z");
 const DAY = 86_400_000;
@@ -46,7 +46,7 @@ function populated() {
   return { world, ids: world.buildings.all().map((x) => x.id), sub };
 }
 
-describe("bank_debits credit index (migration 088)", () => {
+describe("bank_debits credit index (migration 089)", () => {
   afterEach(() => { vi.useRealTimers(); });
   it("Bank.debited's sums read the index, never scan bank_debits", () => {
     const { world } = populated();
