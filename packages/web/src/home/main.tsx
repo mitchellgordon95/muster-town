@@ -9,6 +9,7 @@ import { readCollectives } from "./collectives";
 import { HomeCard, homeCardSeen, markHomeCardSeen } from "./HomeCard";
 import { mountPreview } from "./preview";
 import { StartCard } from "./StartCard";
+import { visitorId } from "../visitor";
 import "./home.css";
 
 const collectives = readCollectives();
@@ -29,6 +30,10 @@ function Home() {
   if (start) return <StartCard onClose={() => { setStart(false); markHomeCardSeen(); clearHash(); }} />;
   return open ? <HomeCard collectives={collectives} onClose={close} /> : null;
 }
+
+// the join funnel's `homeViews` (gr_zoo2cf2zpp): this browser, once per UTC day; the server drops headless checks
+const visitor = visitorId();
+if (visitor) fetch("/api/join-funnel/home", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ visitor }) }).catch(() => {});
 
 // the server-rendered tiles: live previews, and opening one counts as having seen the card
 for (const c of document.querySelectorAll<HTMLCanvasElement>("canvas.tile-map[data-preview]")) mountPreview(c, c.dataset.preview!);
