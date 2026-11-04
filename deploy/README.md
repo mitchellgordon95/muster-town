@@ -218,6 +218,7 @@ cleared, and once when health itself is down.
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
 | `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
+| `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
 performance-1x, 2048 MB ($33/month = $0.0458/h in iad): on shared-cpu-2x ($0.0186/h) desk sessions measured 84–91 % steal.

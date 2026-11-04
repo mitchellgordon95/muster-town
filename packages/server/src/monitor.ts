@@ -86,7 +86,12 @@ export interface Probes {
   deskBill(now: number): { todayUsd: number; capUsd: number } | null;
   /** the host's cumulative busy (user+nice+system) and steal jiffies from /proc/stat's `cpu` line; null off Linux or unreadable */
   hostCpu(): { cpu: number; steal: number } | null;
+  /** the latest redeploy event that ended its run (payload.terminal): its run state, time, failed step and requester; null = none yet */
+  redeploy(): RedeployEnd | null;
 }
+
+/** The last redeploy run's end: state `failed` / `aborted` (red), or `restarting` / `done` (clean). */
+export interface RedeployEnd { state: string; at: string; step: string | null; requestedBy: string }
 
 /** A finished desk session's steal share: stealMs / (cpuMs + stealMs), 0..1 (desk perf step 1, migration 056). */
 export interface DeskSession { id: string; endedAt: number; share: number }
@@ -178,7 +183,29 @@ export function defaultMetrics(p: Probes): Metric[] {
     deskStealMetric(p),
     deskBillMetric(p),
     hostStealMetric(p),
+    redeployMetric(p),
   ];
+}
+
+/**
+ * `redeploy-failed`: red at once when the latest redeploy run ended `failed` (a step exited non-zero, a dirty tree) or
+ * `aborted` (a server restart cut it), so main sits undeployed until someone looks (11-02: CI's run failed at
+ * `git pull`, nothing alerted, main stayed undeployed ~14 h). It clears CLEAR_AFTER samples after a later run reaches
+ * `restarting` / `done`. The value is the minutes since the failed run ended; the FYI names the step and who asked.
+ */
+function redeployMetric(p: Pick<Probes, "redeploy">): Metric {
+  let last = "";
+  return {
+    key: "redeploy-failed", yellowForMs: 0, redForMs: 0,
+    describe: (v) => `redeploy failed ${v} min ago${last ? ` (${last})` : ""}: main is not live: re-run the redeploy, read the failed step's event output`,
+    read: (now) => {
+      const r = p.redeploy();
+      if (!r) return null;
+      const bad = r.state === "failed" || r.state === "aborted";
+      if (bad) last = `${r.state === "aborted" ? "interrupted by a server restart" : `step "${r.step ?? "?"}"`}, requested by ${r.requestedBy || "?"}`;
+      return { value: Math.max(0, Math.round((now - Date.parse(r.at)) / MIN)), yellow: bad, red: bad };
+    },
+  };
 }
 
 /** host steal thresholds (503 post-mortem 2026-10-31, follow-up A): share of busy + steal between two samples */
@@ -286,6 +313,12 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
       .map((r) => ({ id: r.id, endedAt: Date.parse(r.endedAt), share: r.stealMs / (r.cpuMs + r.stealMs) })),
     deskBill: (now) => { const b = world.deskBill(new Date(now)); return { todayUsd: b.todayUsd, capUsd: b.capUsd }; },
     hostCpu: () => (process.platform === "linux" ? readHostCpu() : null),
+    redeploy: () => {
+      const e = world.events.latestWith("system", "terminal");
+      if (!e) return null;
+      const pl = e.payload as { run?: { state?: string; requestedBy?: string }; step?: unknown };
+      return { state: String(pl.run?.state ?? ""), at: e.ts, step: typeof pl.step === "string" ? pl.step : null, requestedBy: String(pl.run?.requestedBy ?? "") };
+    },
     close: () => h.disable(),
   };
 }

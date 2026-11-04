@@ -1686,6 +1686,16 @@ export const GrantView = Grant.extend({
 });
 export type GrantView = z.infer<typeof GrantView>;
 
+/** What a human's stop of a grant did (gr_8i952perny), read off its history: who, when, why, and once it closed, spent vs granted and where the rest went. */
+export interface GrantStop { byId: string; at: string; reason: string; closed: boolean; spentTokens: number; grantTokens: number; unspentTokens: number; returnedTo: "pool" | "input" }
+/** The grant's stop (its last "stop" history entry), or null when no human stopped it (a withdrawn proposal is not a stop). */
+export function grantStopOf(g: Pick<GrantView, "history" | "status" | "spentTokens" | "grantTokens" | "fundedWith">): GrantStop | null {
+  const e = [...g.history].reverse().find((h) => h.action === "stop");
+  if (!e) return null;
+  const grantTokens = g.grantTokens ?? 0;
+  return { byId: e.byId, at: e.at, reason: e.note, closed: g.status === "closed", spentTokens: g.spentTokens, grantTokens, unspentTokens: Math.max(0, grantTokens - g.spentTokens), returnedTo: g.fundedWith ? "input" : "pool" };
+}
+
 // ---------- sessions (a resident's work session) ----------
 export const SessionStatus = z.enum(["running", "done", "error", "interrupted"]);
 export const Session = z.object({

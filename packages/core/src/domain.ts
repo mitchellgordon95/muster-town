@@ -377,11 +377,26 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }
 
+/** How long a stopped grant stays on the Town Hall in-tray and review deck after it closes (gr_8i952perny): 3 days. */
+const STOPPED_SHOWN_MS = 3 * 24 * 3_600_000;
+
+/**
+ * Grants a human stopped (`Grants.stop`, gr_8i952perny), newest first: every one still `stopping`, and those closed as
+ * stopped in the last 3 days. Nothing to decide (the stop was the decision), so they are not counted in the badge; the
+ * in-tray and the review deck show who stopped it, why, and what was spent and returned. Withdrawn proposals are not stops.
+ */
+function stoppedGrants(world: World, now = Date.now()): GrantView[] {
+  const since = new Date(now - STOPPED_SHOWN_MS).toISOString();
+  return world.grants.where("status = 'stopping' OR (status = 'closed' AND outcome = 'stopped' AND closedAt >= ?)", [since], "ORDER BY updatedAt DESC, rowid DESC")
+    .filter((g) => g.history.some((h) => h.action === "stop"))
+    .map((g) => world.grantDesk.view(g));
+}
+
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[] } {
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[] } {
   const th = world.buildings.first("kind = 'town-hall'");
   // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts)
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings() };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */

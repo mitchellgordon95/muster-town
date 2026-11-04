@@ -5,7 +5,7 @@ import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { explorationSpentToday, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -260,7 +260,7 @@ export class MockApi implements Api {
   /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
   async reviewDeck(): Promise<ReviewDeck> {
     await wait();
-    const t = this.sim.intray("town-hall");
+    const t = this.sim.intray(this.sim.buildings.find((b) => b.kind === "town-hall")?.id ?? "town-hall");
     const slide = (x: Omit<ReviewSlide, "notes" | "pictures" | "since" | "waiters" | "history" | "buildingId">, since: string | null = null): ReviewSlide =>
       ({ notes: "", pictures: [], since, waiters: 0, history: "", buildingId: null, ...x });
     const slides: ReviewSlide[] = [slide({ key: "town", kind: "town", itemId: null, group: 0, title: "State of the town", text: `# Review deck: the state of the town\n\n**${t.grants.length + t.reports.length} decisions below.**` })];
@@ -276,6 +276,7 @@ export class MockApi implements Api {
   async grants(buildingId: string) { await wait(60); return clone([...this.sim.grants.values()].filter((g) => g.buildingId === buildingId && g.status !== "draft")); }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
   async closeGrant(id: string, i: In<typeof CloseGrantInput>) { await wait(); return clone(this.sim.closeGrant(id, i)); }
+  async stopGrant(id: string, i: In<typeof StopGrantInput>) { await wait(); return clone(this.sim.stopGrant(id, i.reason)); }
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
   async deleteKeyResult(id: string) { await wait(); this.sim.deleteKeyResult(id); }

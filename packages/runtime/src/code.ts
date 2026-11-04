@@ -86,7 +86,9 @@ export function codeSource(repoRoot: string, dir: string, o: CodeSourceOptions =
     tried = true;
     if (due) {
       fetchedAt = now();
-      const f = await run("git", ["fetch", "-q", "--no-tags", "origin", `+refs/heads/${branch}:${CODE_REF}`], { cwd: repoRoot, timeoutMs: 60_000, env: o.gitEnv?.() ?? {} });
+      // --no-write-fetch-head: a redeploy's `git pull` in this checkout reads FETCH_HEAD; a concurrent fetch writing it
+      // made the pull fail "Cannot rebase onto multiple branches" (exit 128; 3 of 30 CI redeploys 11-02..11-03)
+      const f = await run("git", ["fetch", "-q", "--no-write-fetch-head", "--no-tags", "origin", `+refs/heads/${branch}:${CODE_REF}`], { cwd: repoRoot, timeoutMs: 60_000, env: o.gitEnv?.() ?? {} });
       if (f.code !== 0) console.log(`[runtime] code checkout: git fetch ${branch} failed (exit ${f.code}); reading ${cur ? "the last snapshot" : "the live commit"}`);
     }
     const commit = (await sha(CODE_REF)) ?? (cur ? null : await sha("HEAD"));

@@ -40,12 +40,12 @@ export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayR
 }
 
 /** The decision buttons for one slide: pure over its props, so tests render it. */
-export function SlideDecision({ slide, n, grants, reports, goalProposals = [], captains = [], retainers = [], routes = {}, onDecided, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
+export function SlideDecision({ slide, n, grants, reports, goalProposals = [], captains = [], retainers = [], routes = {}, onDecided, onMarked, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
   // a presented deck keeps a decided item's slide in place (mt_xywhisvdcm): its decision, no buttons
   if (slide.decided) return <div className="review-decide muted">Decided: {slide.decided}. Move on with →.</div>;
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
-    return g ? <div className="review-decide"><GrantRow grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
+    return g ? <div className="review-decide"><GrantRow grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onMarked={onMarked} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.kind === "goal-proposal") {
     const p = goalProposals.find((x) => x.id === slide.itemId);
@@ -97,6 +97,8 @@ export function ReviewDeckView({ grants, reports, goalProposals = [], captains =
   useEffect(() => { if (deck.data) { setN((cur) => landingSlide(mineSlides(deck.data!.slides, deck.data!.routes ?? {}, view, funder), want.current, cur)); want.current = null; } }, [deck.data]);
   const go = (to: number) => setN(clampSlide(to, slides.length));
   const decided = () => { want.current = nextSlideKey(slides, n); onDecided(); deck.reload(); };
+  // one key result marked: stay on this slide (its grant may have more to mark); if the grant left the deck, the same position is the next item
+  const marked = () => { want.current = slides[clampSlide(n, slides.length) - 1]?.key ?? null; onDecided(); deck.reload(); };
   const key = (e: KeyboardEvent<HTMLDivElement>) => {
     const el = e.target as HTMLElement;
     if (el.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -114,7 +116,7 @@ export function ReviewDeckView({ grants, reports, goalProposals = [], captains =
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : (
         <DeckSlides deck={{ title: deck.data?.title ?? "Review deck", slides }} n={clampSlide(n, slides.length)} go={go}>
-          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} routes={routes} onDecided={decided} onOpenDoc={onOpenDoc} /> : null}
+          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} routes={routes} onDecided={decided} onMarked={marked} onOpenDoc={onOpenDoc} /> : null}
         </DeckSlides>
       )}
       <div className="deck-help muted">← → or space to move · Home/End · <button className="link" onClick={() => setPanelFull(!isPanelFull())}>f: fullscreen</button> · Esc: back to the list</div>

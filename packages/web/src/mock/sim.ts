@@ -202,7 +202,10 @@ export class Sim {
     if (moved && i.objectiveId && [...this.keyResults.values()].filter((x) => x.objectiveId === i.objectiveId).length >= 4) throw new Error("That objective already has 4 key results (at most 4).");
     const next: KeyResult = { ...k, ...words, ...(moved && { objectiveId: i.objectiveId ?? null }), ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
-    for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
+    for (const g of this.grants.values()) {
+      if (g.keyResultId === id) g.keyResult = { ...next };
+      if (g.keyResults.some((x) => x.id === id)) g.keyResults = g.keyResults.map((x) => (x.id === id ? { ...next } : x));
+    }
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);
     return next;
   }
@@ -252,6 +255,20 @@ export class Sim {
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
     if (i.outcome === "done" && g.keyResultId) this.updateKeyResult(g.keyResultId, { status: "claimed", note });
     this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
+    return g;
+  }
+  /** POST /api/grants/:id/stop, as core's Grants.stop with no fork running: it closes as stopped at once, its key results missed. */
+  stopGrant(id: string, reason: string): GrantView {
+    const g = this.grants.get(id);
+    if (!g) throw new Error("grant not found");
+    if (g.status !== "funded" && g.status !== "checkpoint") throw new Error(`This grant is ${g.status}.`);
+    const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
+    g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "stop", tokens: null, note: reason });
+    for (const k of g.keyResults) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "missed", note: `Grant stopped: ${reason}` });
+    Object.assign(g, { status: "closed", outcome: "stopped", closedAt: now(), updatedAt: now() });
+    g.history.push({ at: now(), byId: "system", byKind: "agent", action: "close", tokens: unspent, note: `Stopped: ${reason}` });
+    this.event("grant.closed", null, `Stopped: ${g.objective}: ${reason}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
@@ -521,7 +538,7 @@ export class Sim {
   }
 }
 
-/** Closed early as done by the manager (close_grant) and its key result still claimed: a human marks it met or missed. */
+/** Closed early as done by the manager (close_grant) and any key result still claimed (as core's domain.ts): a human marks each met or missed. */
 function awaitingMark(g: GrantView): boolean {
-  return g.status === "closed" && g.outcome === "done" && g.keyResult?.status === "claimed";
+  return g.status === "closed" && g.outcome === "done" && (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []).some((k) => k.status === "claimed");
 }
