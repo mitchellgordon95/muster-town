@@ -25,7 +25,10 @@ export function youreInLine(me: AuthMe, collective: string): string {
   return who ? `${who} let you join ${collective}.` : "An admin let you join.";
 }
 
-/** The first building with a manager that isn't the Town Hall (the Workshop here): the card's "Talk to ★" goes to them. */
-export function firstManagerBuilding(buildings: SnapshotBuilding[]): SnapshotBuilding | null {
-  return buildings.find((b) => b.kind !== "town-hall" && !!b.managerAgentId) ?? null;
+/**
+ * The first building with a manager that isn't the Town Hall (the Workshop here) and where `canTalk` holds: the card's
+ * "Talk to ★" goes to them. The HUD passes `canTalkToManager`, so a member without "direct work under" gets no Talk (gr_cuobjlny6r).
+ */
+export function firstManagerBuilding(buildings: SnapshotBuilding[], canTalk: (buildingId: string) => boolean = () => true): SnapshotBuilding | null {
+  return buildings.find((b) => b.kind !== "town-hall" && !!b.managerAgentId && canTalk(b.id)) ?? null;
 }
