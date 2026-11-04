@@ -100,7 +100,10 @@ describe("a hosted collective's first explorer", () => {
     // every session it ran (the explorer, then the manager reading its report) was on the founder's key, never a token
     for (const s of sdk.sessions) expect(s.env).toMatchObject({ ANTHROPIC_API_KEY: KEY });
     for (const s of sdk.sessions) expect(s.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-    for (const s of world.sessions.all()) expect(s).toMatchObject({ funding: "api-key", credentialInputId: keyInput.id });
+    // every session ran on the key input; the one-call helpers (the grant's cost estimate) record only the credential, not a funding mode
+    for (const s of world.sessions.all()) expect(s).toMatchObject({ credentialInputId: keyInput.id });
+    for (const s of world.sessions.all().filter((x) => x.purpose !== "estimate" && x.purpose !== "naming")) expect(s.funding).toBe("api-key");
+    expect(world.sessions.all().map((s) => s.purpose)).toContain("estimate");
     // and the Bank booked them against the key's credit
     expect(world.bank.balance()).toBeLessThan(before);
 
