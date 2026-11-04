@@ -2112,7 +2112,9 @@ export const LookResult = z.object({
   nearby: z.array(NearbyAgent),
   notices: z.object({ unread: z.number().int(), mentions: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable(),
     /** visitors only, on the first look after coming back from offline */
-    digest: z.lazy(() => MailboxDigest).optional() }),
+    digest: z.lazy(() => MailboxDigest).optional(),
+    /** only while main's CI is red (gr_7op2v8fjcl): what failed and who holds its one fix assignment */
+    mainRed: z.string().optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
   /** one line pointing at `town` (presence, 1:1 mt_3jtclcoxl2) */
   town: z.string(),
