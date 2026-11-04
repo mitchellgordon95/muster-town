@@ -57,7 +57,7 @@ export interface PrChecks {
 /**
  * Main's CI (gr_7op2v8fjcl): `green` once every check on main's head finished and passed, `red` once one failed
  * (`failedStep` names the failed check runs), `pending` while they run. `since` is the first read that saw this state
- * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent fixing a red main (null until step 2 sets it).
+ * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent holding the fix assignment (the building's manager while it is queued; core/main-fix.ts).
  */
 export interface MainCi {
   state: "green" | "red" | "pending";
@@ -65,6 +65,10 @@ export interface MainCi {
   failedStep: string | null;
   since: string;
   fixer: string | null;
+  /** the last red sha a fix assignment covers (core/main-fix.ts `queueMainFix`): one fix assignment per red sha */
+  fixSha?: string | null;
+  /** the red episode's fix assignment: while it is open, a new red sha gets no second one */
+  fixAssignmentId?: string | null;
   /** when this was read (ISO) */
   checkedAt: string;
 }

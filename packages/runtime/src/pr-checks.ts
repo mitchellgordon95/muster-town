@@ -4,7 +4,7 @@
  * suites on GitHub; `world.host.prChecks` answers from that cache, so `waitMet` stays synchronous. A finished commit is
  * cached for good (its checks can't change), so a PR that is done costs one call per poll until the wait clears.
  */
-import type { MainCi, PrChecks, World } from "@muster-town/core";
+import { queueMainFix, type MainCi, type PrChecks, type RedCommit, type World } from "@muster-town/core";
 
 /** How often pending PR waits (and main's head) are re-read from GitHub. */
 const PR_POLL_MS = 60_000;
@@ -44,8 +44,8 @@ interface PrPoller {
 }
 
 interface Suite { status: string; conclusion: string | null; latest_check_runs_count?: number; app?: { slug?: string } }
-interface Run { name: string; status: string; conclusion: string | null }
-interface CommitChecks { suites: number; complete: boolean; bad: boolean; done: number; total: number; failed: string[] }
+interface Run { name: string; status: string; conclusion: string | null; html_url?: string }
+interface CommitChecks { suites: number; complete: boolean; bad: boolean; done: number; total: number; failed: string[]; failedUrls: string[] }
 
 export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
   const cache = new Map<number, PrChecks>();
@@ -75,11 +75,12 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     const suites = (await gh<{ check_suites: Suite[] }>(`/commits/${sha}/check-suites?per_page=100`)).check_suites.filter((s) => (s.latest_check_runs_count ?? 0) > 0);
     const runs = (await gh<{ check_runs: Run[] }>(`/commits/${sha}/check-runs?per_page=100`)).check_runs;
     const done = runs.filter((r) => r.status === "completed").length;
-    const failed = runs.filter((r) => r.status === "completed" && !OK.has(r.conclusion ?? "")).map((r) => r.name);
+    const bad_ = runs.filter((r) => r.status === "completed" && !OK.has(r.conclusion ?? ""));
+    const failed = bad_.map((r) => r.name), failedUrls = bad_.flatMap((r) => r.html_url ? [r.html_url] : []);
     // a suite completes only when its whole workflow did (jobs that `need` another may not have a run yet)
     const complete = suites.length > 0 && suites.every((s) => s.status === "completed") && done === runs.length;
     const bad = failed.length > 0 || suites.some((s) => !OK.has(s.conclusion ?? ""));
-    const out = { suites: suites.length, complete, bad, done, total: runs.length, failed };
+    const out = { suites: suites.length, complete, bad, done, total: runs.length, failed, failedUrls };
     if (complete) finished.set(sha, out);
     return out;
   }
@@ -98,9 +99,28 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
   }
 
   /**
+   * Who wrote a red commit, as an agent slug (core/main-fix.ts routes its fix to that agent's building): a desk commit's
+   * `<slug>@muster-town.local` author, a merge commit's `from <owner>/agent/<slug>/…` branch, else (a squash merge, which
+   * GitHub authors as the merger) the branch of the PR that brought it. Read once per red sha; null when none says.
+   */
+  async function redCommit(sha: string, runUrls: string[]): Promise<RedCommit> {
+    const c = await gh<{ commit: { author: { name: string; email: string }; message: string } }>(`/commits/${sha}`);
+    const { name, email } = c.commit.author;
+    let slug = /^([a-z0-9-]+)@muster-town\.local$/.exec(email)?.[1] ?? /^Merge pull request #\d+ from [\w.-]+\/agent\/([a-z0-9-]+)\//.exec(c.commit.message)?.[1] ?? null;
+    let via = "";
+    if (!slug) {
+      const prs = await gh<{ number: number; head: { ref: string } }[]>(`/commits/${sha}/pulls`);
+      const pr = prs.find((p) => /^agent\/[a-z0-9-]+\//.test(p.head.ref));
+      if (pr) { slug = /^agent\/([a-z0-9-]+)\//.exec(pr.head.ref)![1]; via = ` (PR #${pr.number} from ${pr.head.ref})`; }
+    }
+    return { slug, author: `${name} <${email}>${via}`, runUrls };
+  }
+
+  /**
    * Main's head and its checks (gr_7op2v8fjcl, kr_mvj61meiwx): green once every check finished and passed, red once one
    * failed (failedStep names it), pending while they run. `since` is the first poll that saw this state; it is kept in the
-   * world (meta `mainCi`) so a restart keeps it. `fixer` stays null until step 2 queues the fix assignment.
+   * world (meta `mainCi`) so a restart keeps it. A red read queues the one fix assignment for its sha (step 2,
+   * core/main-fix.ts); the fix fields last until main is green again, so a pending fix push doesn't drop its fixer.
    */
   async function readMain(): Promise<void> {
     const checkedAt = now().toISOString();
@@ -109,10 +129,19 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     const state = !c.complete ? "pending" as const : c.bad ? "red" as const : "green" as const;
     const failedStep = state === "red" ? (c.failed.join(", ") || "a check suite failed") : null;
     const same = main && main.state === state;
-    const next: MainCi = { state, sha, failedStep, since: same ? main!.since : checkedAt, fixer: same ? main!.fixer : null, checkedAt };
-    const changed = !main || main.sha !== sha || main.state !== state || main.failedStep !== failedStep;
+    const fix = main && state !== "green" ? { fixer: main.fixer, fixSha: main.fixSha ?? null, fixAssignmentId: main.fixAssignmentId ?? null } : { fixer: null, fixSha: null, fixAssignmentId: null };
+    const next: MainCi = { state, sha, failedStep, since: same ? main!.since : checkedAt, ...fix, checkedAt };
+    const changed = !main || main.sha !== sha || main.state !== state || main.failedStep !== failedStep || main.fixer !== next.fixer;
     main = next;
     if (changed) world.town.setMainCi(next);
+    if (state === "red" && next.fixSha !== sha) {
+      let commit: RedCommit;
+      try { commit = await redCommit(sha, c.failedUrls); } catch (e) {
+        deps.log?.(`main checks: who wrote ${sha.slice(0, 7)}: ${e instanceof Error ? e.message : String(e)}`);
+        commit = { slug: null, author: "author not read", runUrls: c.failedUrls };
+      }
+      main = queueMainFix(world, next, commit);
+    }
   }
 
   async function pollNow(): Promise<void> {
