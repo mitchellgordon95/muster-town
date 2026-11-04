@@ -379,18 +379,52 @@ export function DonateAbout() {
   );
 }
 
-/** What funds the town. The owner of an input, or an admin, can cancel it (past credits stay in the Bank). */
-export function BankInputs({ bank, onChange }: Props) {
+/**
+ * "Show 3 cancelled" / "Hide cancelled": the button beside a Bank list's title that reveals its cancelled (or retired) rows
+ * (gr_567tikzitl step 3, kr_y7derda40x: every list shows active rows only by default). Nothing when there are none.
+ */
+export function HiddenToggle({ count, shown, onToggle, word = "cancelled" }: { count: number; shown: boolean; onToggle: () => void; word?: string }) {
+  if (!count) return null;
+  return <button type="button" className="btn sm bank-toggle" aria-expanded={shown} onClick={onToggle}>{shown ? `Hide ${word}` : `Show ${count} ${word}`}</button>;
+}
+
+/**
+ * A table row the reader can pick (click, Enter or Space): picking it again clears it. Its details go to the sheet's
+ * sidebar ("Selected row"). A click on a button inside the row (Cancel, Try now) does not pick it.
+ */
+export function pickRow(id: string, selected: string | null | undefined, onSelect: ((id: string | null) => void) | undefined) {
+  if (!onSelect) return {};
+  const on = selected === id;
+  const pick = () => onSelect(on ? null : id);
+  return {
+    className: on ? "bank-pick on" : "bank-pick", tabIndex: 0, "aria-selected": on,
+    onClick: (e: { target: EventTarget }) => { if (!(e.target as HTMLElement).closest?.("button, a, input")) pick(); },
+    onKeyDown: (e: { key: string; target: EventTarget; currentTarget: EventTarget; preventDefault: () => void }) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); pick(); }
+    },
+  };
+}
+
+/** What funds the town: the active inputs, the cancelled ones behind "Show N cancelled". The owner of an input, or an admin, can cancel it (past credits stay in the Bank). A row picks the input for the sidebar's "Selected row" (its dated credits). */
+export function BankInputs({ bank, onChange, selected, onSelect }: Props & { selected?: string | null; onSelect?: (id: string | null) => void }) {
   const me = useTown((s) => s.me);
-  const inputs = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
+  const [showCancelled, setShowCancelled] = useState(false);
+  const all = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
+  const cancelled = all.filter((i) => i.cancelledAt).length;
+  const inputs = showCancelled ? all : all.filter((i) => !i.cancelledAt);
   return (
-    <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
-      {!inputs.length ? <Empty>No inputs yet.</Empty> : (
+    <Section title="Bank inputs" right={<span className="bank-section-right">
+      <HiddenToggle count={cancelled} shown={showCancelled} onToggle={() => setShowCancelled((x) => !x)} />
+      {bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}
+    </span>}>
+      {!inputs.length ? <Empty>{cancelled ? "No active inputs." : "No inputs yet."}</Empty> : (
         <table className="table">
           <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>{ADJ}</th><th>Credited</th><th /></tr></thead>
           <tbody>
-            {inputs.map((i) => (
-              <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
+            {inputs.map((i) => {
+              const pick = pickRow(i.id, selected, onSelect);
+              return (
+              <tr key={i.id} {...pick} className={[pick.className, i.cancelledAt ? "muted" : ""].filter(Boolean).join(" ") || undefined}>
                 <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}
                   {(i.limits ?? []).filter((l) => l.inForce).map((l) => (
                     <div key={l.id} title={l.reason} style={{ color: "#c0392b" }}>
@@ -401,13 +435,14 @@ export function BankInputs({ bank, onChange }: Props) {
                     </div>
                   ))}</td>
                 <td>{i.userName}</td>
-                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div className="muted">{creditsLeftLine(i)}</div> : null}</td>
+                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div><small className="muted">{creditsLeftLine(i)}</small></div> : null}</td>
                 <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
                 <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
                   ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>
                   : null}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -436,10 +471,12 @@ const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> 
  */
 export function BankStreamsSection({ rev }: { rev?: number }) {
   const r = useLoad(() => api().bankStreams(), [rev]);
+  const [showCancelled, setShowCancelled] = useState(false);
   const d = r.data;
-  const rows = d?.streams.filter((x) => x.goalId || !x.cancelledAt) ?? [];
+  const cancelled = d?.streams.filter((x) => x.cancelledAt && x.goalId).length ?? 0;
+  const rows = d?.streams.filter((x) => !x.cancelledAt || (showCancelled && x.goalId)) ?? [];
   return (
-    <Section title="Streams" right={d ? <Pill title={d.sampleSessions ? `p90 of ${d.sampleSessions} work sessions in the last 7 days` : "default: too few sessions in the last 7 days"}>1 session ≈ {fmtTokens(d.expectedSessionTokens)}</Pill> : null}>
+    <Section title="Streams" right={d ? <span className="bank-section-right"><HiddenToggle count={cancelled} shown={showCancelled} onToggle={() => setShowCancelled((x) => !x)} /><Pill title={d.sampleSessions ? `p90 of ${d.sampleSessions} work sessions in the last 7 days` : "default: too few sessions in the last 7 days"}>1 session ≈ {fmtTokens(d.expectedSessionTokens)}</Pill></span> : null}>
       {r.loading && !d ? <Loading /> : !rows.length ? <Empty>No streams yet.</Empty> : (
         <table className="table">
           <thead><tr><th>Stream</th><th>For</th><th title={ADJ_HINT}>Left</th><th>Last draw</th></tr></thead>
