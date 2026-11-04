@@ -29,8 +29,12 @@ with `sourceId` = the schedule and is held until a human approves. Full rules: d
 
 The runtime tick calls `fireSchedules(world, now)` after `checkWaits`. For each active, unpaused schedule with `nextRunAt <= now`:
 
-1. **Who takes it** (`scheduleTaker`): the building queue (the manager holds it until a fork takes it); a building
-   with no manager agent has nobody, and the schedule ends. Nothing is pinned to an agent before this moment.
+1. **Who takes it** (`scheduleTaker`): the schedule's `takerId` when it names a resident of the building (its own
+   queue, on the schedule's model; migration 088: the Town Hall's Secretary, whose building has no forks, takes its
+   daily digest this way; the Town Hall accepts a schedule only with a takerId); else the building queue (the manager
+   holds it until a fork takes it); a building with no manager agent has nobody, and the schedule ends. A due run with
+   nothing to do is skipped before any session (`schedule.skipped`; today only the Secretary's digest: no new rollup,
+   or a card already filed that UTC day). Nothing is pinned to an agent before this moment.
 2. It creates one normal assignment (`createAssignment`, `createdBy` = the schedule id, the stored lane re-checked by
    `resolveLane`, its origin, pages, and the model on the building queue). Event `schedule.fired`.
 3. **No pile-up:** if the last fire's assignment is still pending or active (queued or running), the run is skipped

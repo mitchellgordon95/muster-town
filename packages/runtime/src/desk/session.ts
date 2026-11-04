@@ -142,7 +142,7 @@ export function gitAuthEnv(world: World, mode: DesksConfig["ghToken"], hostEnv: 
  */
 export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: Set<string>, agentId: string, assignmentId: string, opts: DeskSessionOptions = {}): Promise<Session> {
   const { world } = ctx;
-  const { agent, building } = preflightWork(ctx, starting, agentId, assignmentId);
+  const { agent, building, assignment } = preflightWork(ctx, starting, agentId, assignmentId);
   starting.add(agentId);
   let live: LiveSession | null = null;
   let session: Session | null = null;
@@ -155,7 +155,7 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     }
     const funding = fundingForSession(world, agentId, assignmentId);
     const mode = funding.auth;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId, size: handle.size ?? null });
+    session = world.ops.startSession(agentId, { purpose: "work", model: assignment.model ?? agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId, size: handle.size ?? null });
     if (handle.sizeFallback && handle.size) {
       // gr_uhh6u39vv9 step 3: past the town-wide desk bill cap a session still starts, on the cheaper size
       const bill = world.deskBill();

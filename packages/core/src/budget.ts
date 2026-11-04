@@ -202,12 +202,15 @@ export class Budget {
     catch (e) { if (e instanceof NoCredential) return e.message; throw e; }
   }
 
-  /** The model a session for `agentId` (on `assignment`, if given) would run on: a building-queue row's own model, else the agent's, else the building's. */
+  /**
+   * The model a session for `agentId` (on `assignment`, if given) would run on: a building-queue row's own model, else
+   * the building's; an own-queue row's model (a schedule's named taker, e.g. the Secretary's digest), else the agent's, else the building's.
+   */
   sessionModel(agentId: string | null, assignment?: Assignment | null): string | null {
     const a = agentId ? this.repos.agents.get(agentId) : undefined;
     const b = this.repos.buildings.get(assignment?.buildingId ?? a?.homeBuildingId ?? a?.buildingId ?? "");
     if (assignment?.queue === "building") return assignment.model ?? b?.model ?? null;
-    return a?.model ?? b?.model ?? null;
+    return assignment?.model ?? a?.model ?? b?.model ?? null;
   }
 
   /** Secret: the donor's Anthropic API key for a donor-key allocation (null for subscription / town api-key allocations). */
