@@ -413,7 +413,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .stats-table .faint { color: var(--faint); }
 .members-table td { vertical-align: top; }
 .member-avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; margin-right: 4px; }
-.member-goal { display: inline-flex; align-items: center; gap: 4px; margin: 0 8px 2px 0; }
+.member-goal { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px 0 0; }
+.member-direct { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 
 /* library / outbox */
 .proposal { margin-bottom: 10px; }
