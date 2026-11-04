@@ -226,7 +226,7 @@ function rollupCalls(world: World, d: Doc): { title: string; call: string; overt
 export const stillAsks = (world: World, d: Doc) => rollupCalls(world, d).some((c) => !c.overtaken);
 
 /** The headings of "Decisions needed", in the card's order. */
-export const DIGEST_GROUPS = { money: "Money", goNoGo: "Go / no-go", questions: "Questions in words", overtaken: "Already overtaken", errands: "Errands" } as const;
+const DIGEST_GROUPS = { money: "Money", goNoGo: "Go / no-go", questions: "Questions in words", overtaken: "Already overtaken", errands: "Errands" } as const;
 
 /**
  * "Decisions needed" grouped by the kind of yes/no (Mitchell, 1:1 mt_i50xwu4z2t), from the data the review deck reads,
