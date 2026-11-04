@@ -48,3 +48,16 @@ describe("Talk to Secretary (1:1 mt_1vs893enaw)", () => {
     expect(plain).toContain("Secretary (the daily digest)");
   });
 });
+
+describe("Daily digest button (1:1 mt_i50xwu4z2t)", () => {
+  it("sits in the in-tray header for a human who may press it; disabled with why while a run is live or nothing is new", () => {
+    signIn(AGENTS);
+    const html = (run: { scheduleId: string; runningId: string | null; refused: string | null } | null) => renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} digestRun={run} />);
+    expect(html(null)).not.toContain("Daily digest");
+    const ready = html({ scheduleId: "sc_d", runningId: null, refused: null });
+    expect(ready).toMatch(/<button[^>]*title="Run the Secretary&#x27;s daily digest now[^"]*"[^>]*>Daily digest<\/button>/);
+    expect(ready).not.toMatch(/disabled=""[^>]*>Daily digest/);
+    expect(html({ scheduleId: "sc_d", runningId: "as_r", refused: "a digest run is under way" })).toMatch(/disabled=""[^>]*title="Not now: a digest run is under way"[^>]*>Digest running…<\/button>/);
+  });
+});
+

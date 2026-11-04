@@ -4,7 +4,7 @@
  */
 import type { z } from "zod";
 import type {
-  ReviewDeck, DigestCard, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
+  ReviewDeck, DigestCard, DigestRunView, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
@@ -332,7 +332,7 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null }
+export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -624,6 +624,8 @@ export interface Api {
   editSchedule(id: string, patch: { paused?: boolean }): Promise<ScheduleView>;
   /** a human decides a schedule's retainer ask (POST /api/schedules/:id/retainer; building.fund or the goal's captain) */
   decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
+  /** the in-tray's "Daily digest" button: one Secretary digest run now (POST /api/digest/run; who may decide the digest's retainer) */
+  runDigest(): Promise<{ id: string }>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
   health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
@@ -673,7 +675,7 @@ function qs(q: object): string {
 
 /** GET /api/buildings/:id/intray with its lists defaulted; every other field (digest, stopped, ...) passes through as sent. */
 export function intrayOf(r: Partial<Intray>): Intray {
-  return { ...r, reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+  return { ...r, reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, digestRun: r.digestRun ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
 }
 
 class HttpApi implements Api {
@@ -877,6 +879,7 @@ class HttpApi implements Api {
   async cancelSchedule(id: string) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
   async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
   async decideRetainer(id: string, input: Parameters<Api["decideRetainer"]>[1]) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/retainer`, input)).schedule; }
+  async runDigest() { return (await this.post<{ assignment: { id: string } }>("/api/digest/run")).assignment; }
   async buildingStats(id: string) { return unwrap<BuildingStats>(await this.get(`/api/buildings/${id}/stats`), "stats"); }
 
   connect(h: SocketHandlers): Socket {
