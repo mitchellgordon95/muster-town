@@ -2,10 +2,11 @@
  * The Secretary (gr_kdlogzzo5s step 2, design dc_8gbluwrdgi §1-2): a Town Hall resident that takes its own daily digest
  * schedule (`takerId`), the digest builder's yes/no "Decisions needed" lines from the deck's data, the skip when no new
  * rollup arrived, and filing the card (doc type digest, covered rollups in provenance, the ones that ask nothing archived).
+ * Both sections grouped (Mitchell, 1:1 mt_i50xwu4z2t): decisions by kind of yes/no (overtaken asks retired), Shipped by theme.
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedule, digestCard, fireSchedules, grantHistoryLine, nowIso, reviewDeck, townHallIntray } from "../src/index.ts";
-import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, fileDigest } from "../src/secretary.ts";
+import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, fileDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -56,6 +57,9 @@ describe("the Secretary", () => {
     const s = world.secretary.ensureDigestSchedule(t0)!;
     expect(s).toMatchObject({ buildingId: th.id, takerId: sec.id, lane: "retainer", retainer: "asked", tokensPerRun: DIGEST_TOKENS_PER_RUN, model: th.cheapModel, dailyAt: ["07:00"] });
     expect(world.secretary.ensureDigestSchedule(t0)!.id).toBe(s.id);
+    // the run's instructions on the schedule follow the code (the live schedule was made before the themed form)
+    world.schedules.patch(s.id, { description: "old prompt" });
+    expect(world.secretary.ensureDigestSchedule(t0)!.description).toBe(s.description);
     rollup(["None"], "2030-01-01T06:30:00.000Z");
     const { fired } = fireSchedules(world, new Date("2030-01-01T07:00:30.000Z"));
     expect(fired).toHaveLength(1);
@@ -88,22 +92,65 @@ describe("the Secretary", () => {
     expect(digestIdleReason(world, new Date("2030-01-01T10:00:00.000Z"))).toMatch(/already filed today/);
   });
 
-  it("Decisions needed: yes/no lines from the deck's data (checkpoint with top-up, proposal at its ask, retainer ask, rollup call), outbox as Asked of you", () => {
+  it("Decisions needed, grouped by kind: Money (checkpoint with top-up, proposal at its ask, retainer ask, a rollup call about one of them), Questions in words (a rollup call), Errands (outbox)", () => {
     const { world, admin, proposal, rollup, manager } = setup();
     const p = proposal("Banner shows Usage", 350_000);
     const held = proposal("Stop a grant cleanly", 600_000);
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 600_000 });
     world.grants.patch(held.id, { status: "checkpoint", spentTokens: 410_000, topUpTokens: 200_000, whatTopUpBuys: "the web step" } as never);
     world.secretary.ensureDigestSchedule();
-    rollup(["Merge PR #12?", "None"]);
+    rollup(["Merge PR #12?", "None", `Continue ${held.id} with the top-up: the web step is half built.`]);
     createDoc(world, { type: "request", title: "Photograph the sign", body: "x", authorId: manager.id, authorKind: "agent", state: "building", requestStatus: "open" });
-    const { decisions, askedOfYou } = digestDecisions(world);
-    expect(decisions[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\?$`));
-    expect(decisions).toContain(`Fund ${p.id} (${world.buildings.require(LAB).name}: "Banner shows Usage") at its 350k ask?`);
-    expect(decisions.some((l) => /^Approve Town Hall's retainer "Daily in-tray digest" \(sc_\w+\): 10k per run, \d+k in all\?$/.test(l))).toBe(true);
-    expect(decisions.some((l) => /asks \(dc_\w+, "Item 1"\): Merge PR #12\?$/.test(l))).toBe(true);
-    expect(decisions.some((l) => /Item 2/.test(l))).toBe(false); // a None call is no decision
-    expect(askedOfYou).toBe('Asked of you: 1 outbox request ("Photograph the sign").');
+    const { decisions, count } = digestDecisions(world);
+    expect(decisions.map((g) => g.heading)).toEqual(["Money (4)", "Questions in words (1)", "Errands (1)"]);
+    const money = decisions[0]!.lines;
+    expect(money[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\?$`));
+    expect(money).toContain(`Fund ${p.id} (${world.buildings.require(LAB).name}: "Banner shows Usage") at its 350k ask?`);
+    expect(money.some((l) => /^Approve Town Hall's retainer "Daily in-tray digest" \(sc_\w+\): 10k per run, \d+k in all\?$/.test(l))).toBe(true);
+    // a rollup's call naming an item that waits on its own row sits under Money with it
+    expect(money.some((l) => new RegExp(`asks \\(dc_\\w+, "Item 3"\\): Continue ${held.id} with the top-up`).test(l))).toBe(true);
+    expect(decisions[1]!.lines).toEqual([expect.stringMatching(/asks \(dc_\w+, "Item 1"\): Merge PR #12\?$/)]);
+    expect(JSON.stringify(decisions)).not.toMatch(/Item 2/); // a None call is no decision
+    expect(decisions[2]).toMatchObject({ note: "1 open outbox request: do or decline when you have time.", lines: [expect.stringMatching(/^"Photograph the sign" \(dc_\w+\)$/)] });
+    expect(count).toBe(5); // errands aside
+    expect(groupsText(decisions)).toMatch(/^\*\*Money \(4\)\*\*\n\n- Continue/);
+  });
+
+  it("Already overtaken: a call naming a key result since met, a grant since closed or funded, or a retainer since approved; one Approve-all; filing archives such a rollup", () => {
+    const { world, admin, sec, proposal, rollup } = setup();
+    const g = proposal("Banner shows Usage", 350_000);
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 350_000 });
+    const kr = world.keyResults.first("buildingId = ?", [LAB])!;
+    world.keyResults.patch(kr.id, { status: "met" } as never);
+    const askFund = rollup([`Fund ${g.id} at its ask.`], new Date(Date.now() - 2 * H).toISOString());
+    const askMet = rollup([`Mark ${kr.id} met on the grant if the live check satisfies you.`]);
+    const live = rollup(["Should guests see the in-tray as a list or as cards?", `Mark ${kr.id} met.`]);
+    const goNoGo = rollup(["All four steps are live: go / no-go on the rest?"]);
+    const { decisions, overtakenIds } = digestDecisions(world);
+    expect(decisions.map((x) => x.heading)).toEqual(["Go / no-go (1)", "Questions in words (1)", "Already overtaken (2)"]);
+    expect(decisions[0]!.lines[0]).toMatch(/go \/ no-go on the rest\?$/);
+    expect(decisions[1]!.lines[0]).toMatch(/list or as cards\?$/); // its other call (the met KR) is overtaken and left out
+    const over = decisions[2]!;
+    expect(over).toMatchObject({ note: "Approve these 2 and they drop out; nothing to decide.", docIds: [askFund.id, askMet.id] });
+    expect(over.lines[0]).toContain(`${g.id} was funded after this ask`);
+    expect(over.lines[1]).toContain(`${kr.id} is already met`);
+    expect(overtakenIds).toEqual([askFund.id, askMet.id]);
+    // a retainer since approved
+    const s = world.secretary.ensureDigestSchedule()!;
+    world.schedules.patch(s.id, { retainer: "funded" } as never);
+    const askRetainer = rollup([`Approve the retainer ${s.id} and the first digest lands tomorrow.`]);
+    expect(stillAsks(world, world.docs.require(askRetainer.id))).toBe(false);
+    expect(stillAsks(world, world.docs.require(live.id))).toBe(true);
+    // a "mark met" on a grant closed as done (closing marks its key results met)
+    world.grants.patch(g.id, { status: "closed", outcome: "done" } as never);
+    const askClosed = rollup([`${g.id} closed as done: mark the key results met from the in-tray.`]);
+    expect(overtakenReason(world, { title: "x", whatItIs: "", yourCall: `${g.id} closed: mark its key results met.` }, askClosed)).toBe(`${g.id} closed as done: its key results are set`);
+    // filing the card archives the overtaken rollups too; the live ones stay
+    const doc = fileDigest(world, sec, []);
+    expect(doc.provenance.sourceIds).toEqual([askFund.id, askMet.id, live.id, goNoGo.id, askRetainer.id, askClosed.id]);
+    for (const id of [askFund.id, askMet.id, askRetainer.id, askClosed.id]) expect(world.docs.require(id).decision).toBe("approve");
+    for (const id of [live.id, goNoGo.id]) expect(world.docs.require(id).decision).toBe("pending");
+    expect(townHallIntray(world).reports.map((d) => d.id)).toEqual(expect.arrayContaining([live.id, goNoGo.id]));
   });
 
   it("files the card: doc type digest in the Town Hall, covered rollups in provenance; the ones that ask nothing are archived, a real call stays pending", () => {
@@ -115,14 +162,17 @@ describe("the Secretary", () => {
     expect(x.items.map((i) => [i.rollupId, i.title, i.picture])).toEqual([[quiet.id, "Item 1", "/api/media/mf_x0.png"], [asks.id, "Item 1", "/api/media/mf_x0.png"]]);
     expect(() => fileDigest(world, manager, [])).toThrow(/Only the Town Hall's Secretary/);
     expect(() => fileDigest(world, sec, [{ rollupId: "dc_nope", line: "x" }])).toThrow(/isn't a rollup filed since/);
+    expect(() => fileDigest(world, sec, Array.from({ length: 9 }, (_, i) => ({ rollupId: quiet.id, line: "x", theme: `Theme ${i}` })))).toThrow(/At most 8 theme headings/);
     const doc = fileDigest(world, sec, [
-      { rollupId: quiet.id, line: "The banner shows today's spend", picture: "/api/media/mf_x0.png" },
-      { rollupId: asks.id, line: "Stopping a grant returns its rest to the Bank" },
+      { rollupId: quiet.id, line: "The banner shows today's spend", picture: "/api/media/mf_x0.png", theme: "Bank and speed" },
+      { rollupId: asks.id, line: "Stopping a grant returns its rest to the Bank", theme: "Bank and speed" },
+      { rollupId: asks.id, line: "The in-tray is a one-line list" },
     ]);
-    expect(doc).toMatchObject({ type: "digest", buildingId: "town-hall", state: "building", authorId: sec.id, tags: ["digest"] });
+    expect(doc).toMatchObject({ type: "digest", buildingId: "town-hall", state: "building", authorId: sec.id, tags: ["digest"], title: "Digest " + new Date().toISOString().slice(0, 10) + ": 1 decision, 2 rollups" });
     expect(doc.provenance.sourceIds).toEqual([quiet.id, asks.id]);
-    expect(doc.body).toMatch(/^## Decisions needed\n\n- .*Merge PR #12\?/);
-    expect(doc.body).toMatch(/## Shipped since last digest\n\n- The banner shows today's spend !\[\]\(\/api\/media\/mf_x0\.png\) \(dc_/);
+    expect(doc.body).toMatch(/^## Decisions needed\n\n\*\*Questions in words \(1\)\*\*\n\n- .*Merge PR #12\?/);
+    // Shipped lines grouped under the run's themes in first-use order, unthemed ones last under Other
+    expect(doc.body).toMatch(/## Shipped since last digest\n\n\*\*Bank and speed\*\*\n\n- The banner shows today's spend !\[\]\(\/api\/media\/mf_x0\.png\) \(dc_\w+\)\n- Stopping a grant returns its rest to the Bank \(dc_\w+\)\n\n\*\*Other\*\*\n\n- The in-tray is a one-line list \(dc_/);
     expect(world.docs.require(quiet.id).decision).toBe("approve");
     expect(world.docs.require(asks.id).decision).toBe("pending");
     // the next run has nothing new
@@ -142,7 +192,7 @@ describe("the digest card in the in-tray and the deck (step 3)", () => {
     const c = digestCard(world)!;
     expect(c.doc.id).toBe(doc.id);
     // filed before the proposal, read live: the proposal is a decision line now
-    expect(c.decisions.some((l) => l.startsWith(`Fund ${g.id} `))).toBe(true);
+    expect(c.decisions[0]).toMatchObject({ heading: "Money (1)", lines: [expect.stringMatching(new RegExp(`^Fund ${g.id} `))] });
     expect(c.shipped).toBe(`- The banner shows today's spend ![](/api/media/mf_x0.png) (${quiet.id})`);
     expect(c.covered.map((r) => [r.id, r.pending])).toEqual([[quiet.id, false], [asks.id, true]]);
     // the archived rollup left the in-tray's reports; the one with a real call stays
@@ -152,7 +202,7 @@ describe("the digest card in the in-tray and the deck (step 3)", () => {
     const slides = reviewDeck(world).slides;
     expect(slides.map((s) => s.kind).slice(0, 2)).toEqual(["town", "digest"]);
     expect(slides[1]).toMatchObject({ key: `digest:${doc.id}`, itemId: null, pictures: [{ alt: "", src: "/api/media/mf_x0.png" }] });
-    expect(slides[1]!.text).toMatch(/### Decisions needed\n\n(- .*\n)*- .*Merge PR #12\?/);
+    expect(slides[1]!.text).toMatch(/### Decisions needed\n\n\*\*Money \(1\)\*\*\n\n- Fund gr_\w+ .*\n\n\*\*Questions in words \(1\)\*\*\n\n- .*Merge PR #12\?/);
     expect(slides[1]!.text).toContain(`still asks a call`);
   });
 
