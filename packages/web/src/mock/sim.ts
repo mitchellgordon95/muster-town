@@ -92,7 +92,7 @@ export class Sim {
     const reports = [...this.docs.values()].filter((d) => (d.type === "report" || d.type === "flag") && d.decision === "pending"
       && (hall ? d.type === "report" && !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint" || awaitingMark(g)) : [];
+    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
     const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
     return { reports, chains: this.reportChains(reports), grants, blocked };
   }
@@ -244,7 +244,7 @@ export class Sim {
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
-  /** POST /api/grants/:id/close, as core's Grants.close (outcome "done": closeDone, the key result to claimed). */
+  /** POST /api/grants/:id/close, as core's Grants.close (outcome "done": closeDone, the key results to met). */
   closeGrant(id: string, i: CloseGrantInput): GrantView {
     const g = this.grants.get(id);
     if (!g) throw new Error("grant not found");
@@ -253,7 +253,7 @@ export class Sim {
     const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
     Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
-    if (i.outcome === "done" && g.keyResultId) this.updateKeyResult(g.keyResultId, { status: "claimed", note });
+    if (i.outcome === "done") for (const k of g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
     this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
@@ -538,7 +538,3 @@ export class Sim {
   }
 }
 
-/** Closed early as done by the manager (close_grant) and any key result still claimed (as core's domain.ts): a human marks each met or missed. */
-function awaitingMark(g: GrantView): boolean {
-  return g.status === "closed" && g.outcome === "done" && (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []).some((k) => k.status === "claimed");
-}

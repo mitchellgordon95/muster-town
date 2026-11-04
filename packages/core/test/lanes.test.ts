@@ -337,7 +337,7 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     expect((await world.verbs.propose_grant(mei, { objective: "fresh", stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
   });
 
-  it("close_grant: the manager closes a funded grant early as done; all its open KRs claimed, unspent returned, in the Town Hall in-tray until a human marks them", async () => {
+  it("close_grant: the manager closes a funded grant early as done; all its open KRs met and archived, unspent returned, no Town Hall in-tray row; a human can flip one to missed", async () => {
     const { world, mei, noor, admin, fund, spend } = setup();
     const g = fund(4_000_000, KRS);
     const krs = g.keyResults;
@@ -347,38 +347,37 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
     world.ops.startSession(mei.id, { purpose: "work", model: "m" });
     const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResults: g.keyResults.map(() => ({ status: "claimed" })), checkpointDocId: null });
-    for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows Usage live" });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResults: g.keyResults.map(() => ({ status: "met" })), checkpointDocId: null });
+    for (const k of krs) {
+      expect(world.keyResults.require(k.id)).toMatchObject({ status: "met", statusNote: "the banner shows Usage live", statusBy: mei.id });
+      expect(world.keyResults.require(k.id).archivedAt).toBeTruthy();
+    }
     expect(world.grants.require(g.id).history.at(-1)).toMatchObject({ action: "close", tokens: 3_000_000 });
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/returned 3,000,000 unspent tokens to the Bank/);
     const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
     expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000 });
     await expect(world.verbs.close_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
-    // the manager can't mark met; the rollup links itself as the close report
-    expect(() => world.grantDesk.updateKeyResult(mei, krs[0]!.id, { status: "met" })).toThrow(/building.fund/);
-    const up = await world.verbs.submit_report(mei, { title: "Closed", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nmark it", verdict: "stop", rollup: true });
+    // the manager can't flip it to missed; the rollup links itself as the close report
+    expect(() => world.grantDesk.updateKeyResult(mei, krs[0]!.id, { status: "missed", note: "x" })).toThrow(/building.fund/);
+    const up = await world.verbs.submit_report(mei, { title: "Closed", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing.", verdict: "stop", rollup: true });
     expect(world.docs.require(up.id).tags).toContain("grant-close");
     expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
-    // in the Town Hall in-tray (and its count) until a human marks its KRs met or missed
-    const th = world.buildings.first("kind = 'town-hall'")!;
-    expect(world.ops.townHallIntray().grants.map((x) => x.id)).toContain(g.id);
-    const before = world.ops.intrayCount(th.id);
-    const sent: number[] = [];
-    world.changes.subscribe((m) => { if (m.type === "building" && m.building.id === th.id && m.building.intray !== undefined) sent.push(m.building.intray); });
-    world.grantDesk.updateKeyResult(admin, krs[1]!.id, { status: "missed", note: "not on the board" });
-    world.grantDesk.updateKeyResult(admin, krs[0]!.id, { status: "met", note: "checked" });
+    // no Town Hall in-tray row and no deck slide for it: nothing to mark
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
-    expect(world.ops.intrayCount(th.id)).toBe(before - 1);
-    // marking the KR is not a grant event, but the Town Hall badge is resent with the new count
-    expect(sent.at(-1)).toBe(before - 1);
+    expect(reviewDeck(world).slides.some((sl) => sl.grantId === g.id)).toBe(false);
+    // a human can still flip one to missed (why required, postmortem queued) and undo it
+    expect(() => world.grantDesk.updateKeyResult(admin, krs[1]!.id, { status: "missed" })).toThrow(/Say why/);
+    expect(world.grantDesk.updateKeyResult(admin, krs[1]!.id, { status: "missed", note: "not on the board" }).status).toBe("missed");
+    expect(world.grantDesk.updateKeyResult(admin, krs[1]!.id, { status: "met", note: "it is after all" }).status).toBe("met");
+    expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
   });
 
-  it("a human's Close grant needs no note: the key result's claimed note names who closed it; the manager still gives one", async () => {
+  it("a human's Close grant needs no note: the key result's met note names who closed it; the manager still gives one", async () => {
     const { world, mei, admin, fund } = setup();
     const g = fund(1_000_000);
     expect(() => world.grantDesk.close(mei, g.id, { outcome: "done", note: " " })).toThrow(/evidence/);
     const r = world.grantDesk.close(admin, g.id, { outcome: "done" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "claimed" }] });
+    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met" }] });
     const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
     expect(world.keyResults.require(g.keyResultId!).statusNote).toBe(note);
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);

@@ -669,9 +669,10 @@ export class Grants {
 
   /**
    * The manager's `close_grant` (and POST /api/grants/:id/close with outcome "done"): the work is done before the grant is spent, so the manager
-   * closes a funded (or checkpoint) grant as `closed`, outcome `done`, and claims its open key results with the note as evidence
-   * (Mitchell, town hall mt_6830h8x5qk decision 3). The unspent rest goes back to the Bank by construction: reservations
-   * only count live grants. The grant then waits in the Town Hall in-tray until a human marks each key result met or missed.
+   * closes a funded (or checkpoint) grant as `closed`, outcome `done` (Mitchell, town hall mt_6830h8x5qk decision 3), and its open
+   * key results go straight to `met` with the note as evidence, archived under their goal (town hall mt_v09cn7a8yr decision 2:
+   * no human met/missed step; what shipped goes in the rollup). The unspent rest goes back to the Bank by construction:
+   * reservations only count live grants. A human can still flip a key result to missed from the grant (PATCH /api/key-results/:id).
    * `reportId` links the close report (`checkpointDocId`); without it the manager's next rollup this session links itself.
    */
   closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null }): GrantView {
@@ -695,9 +696,9 @@ export class Grants {
     return this.world.transaction(() => {
       const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
-      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "claimed", note });
+      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "met", note }, { closing: true });
       this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
-      this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Mark each of its key results met or missed in the Town Hall in-tray.`);
+      this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
       return this.view(next);
     });
   }
@@ -768,7 +769,7 @@ ${krs}
 
 Stop condition: ${g.stopCondition}
 
-1. \`checkpoint_grant\` with grantId ${g.id}, a status (not-started, on-track, at-risk or claimed; only a human marks met or missed) and a note with the evidence: one key result at a time with keyResultId, since the checkpoint card shows each one's note on its line (claimed = "✓ shipped", on-track / at-risk = "~ partly", not-started = "✗ not shipped"). Say what shipped and where a human sees it, or what did not and why. Once, give whatTopUpBuys and topUpTokens: what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see); the card shows "A top-up of N tokens buys: …" next to Continue / Adjust / Cut.
+1. \`checkpoint_grant\` with grantId ${g.id}, a status (not-started, on-track, at-risk or claimed; close_grant marks them met, only a human marks missed) and a note with the evidence: one key result at a time with keyResultId, since the checkpoint card shows each one's note on its line (claimed = "✓ shipped", on-track / at-risk = "~ partly", not-started = "✗ not shipped"). Say what shipped and where a human sees it, or what did not and why. Once, give whatTopUpBuys and topUpTokens: what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see); the card shows "A top-up of N tokens buys: …" next to Continue / Adjust / Cut.
 2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). The usual rollup format (the four sections; Shipped items with **What it is:**, **What you'd see:** and **Your call:**); Key results carries each of the grant's key results, its status, how to check it and what the check showed, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens; Needs from Mitchell asks to continue, adjust or cut, and why. Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
     });
   }
@@ -879,10 +880,10 @@ ${krs}
 
   /**
    * PATCH /api/key-results/:id. `status`: the manager up to `claimed`; `met` /
-   * `missed` (and undoing them) need `building.fund`. `text` / `howToCheck` / `sourceDocIds`: a human with
+   * `missed` (and undoing them) need `building.fund`, except `closing` (closeDone marks a closed-as-done grant's key results met). `text` / `howToCheck` / `sourceDocIds`: a human with
    * `building.manage`, or the building's own manager agent.
    */
-  updateKeyResult(actor: Actor, id: string, input: UpdateKeyResultInput): KeyResult {
+  updateKeyResult(actor: Actor, id: string, input: UpdateKeyResultInput, opts: { closing?: boolean } = {}): KeyResult {
     const inp = UpdateKeyResultInput.parse(input);
     const kr = this.world.keyResults.require(id, "key result");
     const words = {
@@ -899,7 +900,7 @@ ${krs}
       if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
       if (moved && inp.objectiveId) this.requireObjectiveRoom(kr.buildingId, inp.objectiveId, kr.id);
     }
-    if (actor && inp.status) {
+    if (actor && inp.status && !opts.closing) {
       const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
       // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Captains on nodes")
       if (judged) {

@@ -125,6 +125,31 @@ describe("grants routes", () => {
     expect(slide.text).toContain(`2. ✗ not shipped: ${KRS[1]!.text}`);
     expect(slide.text).toContain("A top-up of 200,000 tokens buys: KR 2: the board");
   });
+  it("closing a grant as done marks its key results met: no Town Hall in-tray row, no deck slide; a funder can still flip one to missed (mt_v09cn7a8yr decision 2)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
+    const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
+    await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
+    await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
+    expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "done", note: "live on the banner" } })).status).toBe(200);
+    const got = (await json(app, "GET", `/api/grants/${id}`)).body.grant;
+    expect(got).toMatchObject({ status: "closed", outcome: "done" });
+    for (const k of got.keyResults) expect(k).toMatchObject({ status: "met", statusNote: "live on the banner", archivedAt: expect.any(String) });
+    const intray = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
+    expect(intray.grants.map((g: { id: string }) => g.id)).not.toContain(id);
+    const deck = (await json(app, "GET", "/api/review-deck", { headers: auth })).body;
+    expect(deck.slides.some((x: { grantId?: string }) => x.grantId === id)).toBe(false);
+    // the manager can't flip it; a funder can, with a reason, and undo it
+    const k0 = got.keyResults[0].id as string;
+    expect((await json(app, "PATCH", `/api/key-results/${k0}`, { headers: mgr, body: { status: "missed", note: "no" } })).status).toBe(403);
+    expect((await json(app, "PATCH", `/api/key-results/${k0}`, { headers: auth, body: { status: "missed" } })).status).toBe(400);
+    expect((await json(app, "PATCH", `/api/key-results/${k0}`, { headers: auth, body: { status: "missed", note: "not on the banner" } })).body.keyResult.status).toBe("missed");
+    expect((await json(app, "PATCH", `/api/key-results/${k0}`, { headers: auth, body: { status: "met", note: "it is" } })).body.keyResult.status).toBe("met");
+  });
   it("stopping a funded grant is a human's: the manager's stop and close-stopped get 403, its withdraw of a proposal 200; a funder's stop closes it and misses its key results (gr_8i952perny)", async () => {
     const s = await seededApp();
     cleanups.push(s.close);

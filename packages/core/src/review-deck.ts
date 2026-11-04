@@ -4,8 +4,9 @@
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
  *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4), asks to captain a goal and retainer asks · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
- *   6. grants closed as done whose key result needs met or missed, then grants a human stopped (nothing to decide: who,
- *   why, spent and returned; gr_8i952perny) · then one "For the record" slide for rollups whose every call is None.
+ *   6. grants a human stopped (nothing to decide: who, why, spent and returned; gr_8i952perny) · then one "For the record"
+ *   slide for rollups whose every call is None. A grant closed as done has no slide: its key results are met on close
+ *   (town hall mt_v09cn7a8yr decision 2); its close rollup is an ordinary rollup slide.
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
@@ -121,7 +122,7 @@ function asksLines(asks: RollupAsk[] | undefined, verb: string): string {
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const asks = asksLines(rollupAsksFor(world, g), askVerb(g.status));
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
-  // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds and later marks met or missed
+  // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds; met on close as done, missed on a stop
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
   const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "not-started" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
   const testing = [...g.testingPlan.map((t) => t.howToCheck), ...krs.map((k) => k.howToCheck)].join(" · ");
@@ -145,14 +146,6 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
       whatYoudSee: testing,
       picture: proposalPicture(world, g),
       yourCall: `Spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)} adjusted tokens (${pct}%). Continue, adjust (top up) or cut.${g.checkpointDocId ? ` Checkpoint report ${g.checkpointDocId}.` : ""}`,
-    }) };
-  }
-  if (g.status === "closed") {
-    return { ...base, kind: "close", group: 6, since: g.closedAt ?? g.updatedAt, title: `${b}: closed as done — mark ${krs.length === 1 ? "the key result" : "its key results"}`, body: asks + card({
-      whatItIs: `${g.objective} (${g.id}). ${kr}.`,
-      whatYoudSee: krs.find((k) => k.statusNote)?.statusNote || testing,
-      picture: proposalPicture(world, g),
-      yourCall: `Mark ${krs.length === 1 ? "the key result" : "each key result"} met or missed (spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}).${g.checkpointDocId ? ` Close report ${g.checkpointDocId}.` : ""}`,
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
