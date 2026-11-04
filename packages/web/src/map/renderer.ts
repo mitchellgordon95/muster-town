@@ -20,6 +20,7 @@ import { stackBodies } from "./stacks";
 import { whoIsHere } from "../whoIsHere";
 import { purposeOf } from "../purpose";
 import { TILE, bankTabOf } from "@muster-town/schema";
+import { defaultZoom, coarsePointer } from "./zoom";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
@@ -100,7 +101,9 @@ export class MapRenderer {
   private onArrive: (() => void) | null = null;
   private keys = new Set<string>();
   private cam = { x: 0, y: 0, init: false };
+  /** the walking zoom: picked from the viewport (`defaultZoom`) until the -/+ keys set it (`userZoom`) */
   zoom = 3;
+  userZoom = false;
   /** the zoom actually drawn: eases toward `zoom`, or toward the whole-town fit while the Bank's town map is open */
   private z = 0;
   /** the Bank's town map, while it's open */
@@ -370,6 +373,8 @@ export class MapRenderer {
     const dpr = window.devicePixelRatio || 1;
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
+      // phone or laptop, re-picked on resize and rotation until the -/+ keys choose one
+      if (!this.userZoom && w > 0) this.zoom = defaultZoom(w, coarsePointer());
       this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
     }
   }
@@ -527,7 +532,8 @@ export class MapRenderer {
     const ww = w.w * T, wh = w.h * T;
     // centre the avatar in the strip between the HUD and the panel
     const hud = document.querySelector(".hud")?.getBoundingClientRect();
-    this.leftInset = hud ? Math.min(hud.right + 12, viewW * 0.45) : 0;
+    // (a phone's HUD is a strip across the top, not a card on the left: nothing to centre around there)
+    this.leftInset = hud && hud.width < viewW * 0.6 ? Math.min(hud.right + 12, viewW * 0.45) : 0;
     // ease the zoom: out to the whole town (fitted in that strip) while the Bank's town map is open, back to `zoom` after
     const overview = this.overview();
     const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
