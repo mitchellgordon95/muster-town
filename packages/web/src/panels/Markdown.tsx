@@ -116,10 +116,10 @@ function loadKrTexts(): Promise<void> {
   }, () => undefined);
   return krLoad;
 }
-/** Assignment and meeting titles by id, for labelling as_ and mt_ links the store doesn't hold (past meetings, other buildings' work): fetched (GET /api/assignments/:id, /api/meetings/:id) once per id a text cites. */
+/** Assignment, meeting and doc titles by id, for labelling as_, mt_ and dc_ links the store doesn't hold (past meetings, other buildings' work, older docs): fetched (GET /api/assignments/:id, /api/meetings/:id, /api/docs/:id) once per id a text cites. */
 const fetchedTitles = new Map<string, string>();
 const titleAsked = new Set<string>();
-const FETCH_ID_RE = /\b(?:as|mt)_[a-z0-9]{10}\b/g;
+const FETCH_ID_RE = /\b(?:as|mt|dc)_[a-z0-9]{10}\b/g;
 /** An assignment card or meeting that loaded tells the labels its title. */
 export function rememberAssignmentTitle(id: string, title: string) {
   if (fetchedTitles.get(id) === title) return;
@@ -128,10 +128,10 @@ export function rememberAssignmentTitle(id: string, title: string) {
 }
 function loadFetchedTitles(text: string) {
   const s = store.state;
-  const want = [...new Set(text.match(FETCH_ID_RE) ?? [])].filter((id) => !titleAsked.has(id) && !fetchedTitles.has(id) && !(id.startsWith("as_") ? s.assignments[id] : s.meetings[id]));
+  const want = [...new Set(text.match(FETCH_ID_RE) ?? [])].filter((id) => !titleAsked.has(id) && !fetchedTitles.has(id) && !(id.startsWith("as_") ? s.assignments[id] : id.startsWith("dc_") ? s.docs[id] : s.meetings[id]));
   for (const id of want) {
     titleAsked.add(id);
-    const title = id.startsWith("as_") ? api().assignmentCard(id).then((a) => a.title) : api().meeting(id).then((m) => m.title);
+    const title = id.startsWith("as_") ? api().assignmentCard(id).then((a) => a.title) : id.startsWith("dc_") ? api().doc(id).then((d) => d.title) : api().meeting(id).then((m) => m.title);
     title.then((t) => rememberAssignmentTitle(id, t), () => undefined);
   }
 }
@@ -140,7 +140,7 @@ function loadFetchedTitles(text: string) {
 function useIdLabels(text: string): number {
   const [kr, setKr] = useState(0);
   const cites = text.includes("kr_");
-  const citesAs = text.includes("as_") || text.includes("mt_");
+  const citesAs = text.includes("as_") || text.includes("mt_") || text.includes("dc_");
   useEffect(() => {
     if (!cites && !citesAs) return;
     const f = () => setKr((n) => n + 1);
@@ -155,7 +155,7 @@ function useIdLabels(text: string): number {
 
 const clipLabel = (s: string, n = 48) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 
-/** What a reader sees for an id: the agent's, building's or meeting's name, a key result's text (clipped), else the id itself. Docs and grants keep their id (a doc's title is its tooltip). */
+/** What a reader sees for an id: the agent's, building's, meeting's or doc's name, a key result's text (clipped), else the id itself. Grants keep their id. */
 export function idLabel(id: string): string | null {
   const s = store.state;
   switch (id.slice(0, 2)) {
@@ -164,6 +164,7 @@ export function idLabel(id: string): string | null {
     case "mt": { const t = s.meetings[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     case "kr": { const t = krTexts.get(id); return t ? clipLabel(t) : null; }
     case "as": { const t = s.assignments[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
+    case "dc": { const t = s.docs[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     default: return null;
   }
 }
@@ -171,7 +172,7 @@ export function idLabel(id: string): string | null {
 /** The tooltip of an id link: what it opens, and the id when the label is a name. */
 function idTitle(id: string, label: string | null): string | undefined {
   const what: Record<string, string> = { gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file", as: "assignment", se: "session" };
-  if (id.startsWith("dc_")) return store.state.docs[id]?.title;
+  if (id.startsWith("dc_")) return label ? `doc ${id}` : undefined;
   if (id.startsWith("kr_") && krTexts.get(id)) return `key result ${id}: ${krTexts.get(id)}`;
   if (id.startsWith("as_") && label) return `assignment ${id}: ${store.state.assignments[id]?.title ?? fetchedTitles.get(id)}`;
   return label ? `${what[id.slice(0, 2)]} ${id}` : what[id.slice(0, 2)];
