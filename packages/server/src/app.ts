@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, isAppError, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -195,9 +195,21 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
-  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load;
-  // the root's GET also lists every hosted collective, so their strangers are rows too.
-  app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
+  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load
+  // (with the browser's random id: `guestVisitors` counts it once per UTC day; gr_zoo2cf2zpp); the homepage pings `home` the same way (the root only).
+  // Our own headless checks and scripts never count. The root's GET also lists every hosted collective, so their strangers are rows too.
+  const visitorOf = (body: unknown) => typeof body === "object" && body && typeof (body as { visitor?: unknown }).visitor === "string" ? (body as { visitor: string }).visitor : null;
+  app.post(`${prefix}/api/join-funnel/view`, async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    countFunnel(opts.world, "guestCardViews");
+    const v = visitorOf(req.body);
+    return { counted: true, visitor: v ? countVisitor(opts.world, "guestVisitors", v) : false };
+  });
+  if (!prefix) app.post("/api/join-funnel/home", async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    const v = visitorOf(req.body);
+    return { counted: !!v && countVisitor(opts.world, "homeViews", v) };
+  });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
@@ -217,7 +229,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (!prefix) {
     // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
     // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
-    const list = () => collectives(opts.world, opts.hub?.list("active") ?? [], opts.collective);
+    const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
       return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));

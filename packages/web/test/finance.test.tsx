@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } from "../src/api";
+import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, SpendNode } from "../src/api";
 import { approxUsd, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
-import { spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
+import { LaneKind, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
 import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
 import type { Bank } from "../src/api";
@@ -140,6 +140,33 @@ describe("finance page: spending", () => {
     const bad = spendCheckLine({ ...sp, check: { ...sp.check, ok: false, diff: 7 } });
     expect(bad.ok).toBe(false);
     expect(bad.text).toBe("Does not add up (off by 7): the rows come to 1,100, but used is 1,100.");
+  });
+  it("shows spend by lane × token kind: a summary line, the table folded, a building's own table (gr_lwgus14rd2 step 1, kr_pzr1fkgas8)", () => {
+    const cell = (tokens: number) => ({ tokens, usd: tokens * 20 / 1e6 });
+    const row = (lane: LaneKindRow["lane"], sessions: number, out: number, cw1h: number): LaneKindRow => ({
+      lane, sessions, kinds: { input: cell(0), output: cell(out), cacheRead: cell(0), cacheWrite5m: cell(0), cacheWrite1h: cell(cw1h) },
+      tokens: out + cw1h, usd: (out + cw1h) * 20 / 1e6, cacheWriteShare: cw1h / (out + cw1h),
+    });
+    const grant = row("grant", 2, 30_000, 10_000), mgr = row("manager", 5, 5_000, 15_000), total = row("total", 7, 35_000, 25_000);
+    const lk: SpendByLaneKind = {
+      window: "today", from: "2026-11-04T00:00:00.000Z", to: "2026-11-04T18:00:00.000Z", windowNote: "today so far (UTC)",
+      rows: [grant, mgr], total, notCounted: { sessions: 1, tokens: 500, usd: 0.01 }, sessionsTokens: 60_500,
+      check: { ok: true, diff: 0, identity: "Σ lane × kind rows + not counted (back-filled) = Σ sessions in the window" },
+      buildings: { workshop: { rows: [mgr], total: { ...mgr, lane: "total" }, notCounted: { sessions: 0, tokens: 0, usd: 0 } } },
+    };
+    // on the Spending tab: the summary line only, folded
+    const top = centreOf(spendAt(null, { ...sp, byLaneKind: lk }));
+    for (const s of ["By lane × token kind", "today so far (UTC)", "60,000", "$1.20", "cache writes 41.7% of cost", "Show the table"]) expect(top).toContain(s);
+    expect(top).not.toContain("lane-kind-table");
+    expect(centreOf(spendAt("spend:workshop", { ...sp, byLaneKind: lk }))).toContain("cache writes 75.0% of cost");
+    // open: lanes, kinds, the share in red over 20%, the not-counted line and the check
+    const open = renderToStaticMarkup(<LaneKind today={lk} initialOpen />);
+    for (const s of [">Cache write 1 h</th>", "Grant", "Manager wakes", "25.0%", "75.0%", "color:#c0392b", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    const one = renderToStaticMarkup(<LaneKind today={lk} buildingId="workshop" name="Town Workshop" initialOpen />);
+    expect(one).toContain("Manager wakes");
+    expect(one).not.toContain(">Grant<");
+    expect(renderToStaticMarkup(<LaneKind today={lk} buildingId="bl_none" initialOpen />)).toContain("No sessions in this window.");
+    expect(renderToStaticMarkup(<LaneKind />)).toBe("");
   });
   it("formats shares as percentages, negative for not funded", () => {
     expect(pct(0.8182)).toBe("81.8%");

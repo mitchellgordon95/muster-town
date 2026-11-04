@@ -17,6 +17,7 @@ import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
+import { notStarted, notStartedWhy, useWorkingCollective } from "./notStarted";
 import { WATCH_FIRST_EVENT } from "./panels/HowItWorks";
 import "./panels/hiw.css";
 
@@ -67,6 +68,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
   const access = usePendingAccess(!!me?.isAdmin, buildings.find((b) => b.kind === "town-hall")?.intray);
+  // a never-run collective (gr_a6512x0je1): the guest card says so and names one that is working instead
+  const neverRan = notStarted(health);
+  const working = useWorkingCollective(neverRan && (auth.guest || me?.canInteract === false));
   // a guest keeps the card open: it holds Sign in (on a phone it is compact, then one line after Watch first: GuestView)
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
@@ -194,7 +198,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       if (m.phase !== "collecting" && m.phase !== "discussing") continue;
       if (m.kind === "one-on-one") {
         // only the human in it sees their open 1:1
-        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>★ {agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
+        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>{buildings.find((b) => b.id === m.buildingId)?.kind === "town-hall" ? "" : "★ "}{agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
         continue;
       }
       const where = m.buildingId ? buildings.find((b) => b.id === m.buildingId)?.name ?? "" : "Town Hall";
@@ -248,7 +252,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                {view === "compact" ? null : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
+                {view === "compact" ? null : neverRan
+                  ? <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>
+                  : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
                 <SignInButtons onPasteToken={onPasteToken} compact />
               </> : <AskToJoin me={me} />}
             </div>

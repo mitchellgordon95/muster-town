@@ -110,6 +110,18 @@ describe("GitHub web login", () => {
     expect(String(out.headers["set-cookie"])).toMatch(/at_session_4322=; .*Max-Age=0/);
   });
 
+  it("pressing Sign in counts the funnel's signInStarted (gr_zoo2cf2zpp): a browser with no session, never a script or a signed-in browser", async () => {
+    const { app, world } = await setup();
+    const count = () => world.db.prepare("SELECT COALESCE(SUM(signInStarted), 0) AS n FROM join_funnel").get();
+    const browser = { "user-agent": "Mozilla/5.0 (Macintosh) Chrome/131.0 Safari/537.36" };
+    expect((await app.inject({ method: "GET", url: "/auth/github", headers: browser })).statusCode).toBe(302);
+    expect((await app.inject({ method: "GET", url: "/auth/github", headers: { "user-agent": "curl/8.5.0" } })).statusCode).toBe(302);
+    expect(count()).toEqual({ n: 1 });
+    const cookie = cookieOf((await webLogin(app, "code_octo")).headers["set-cookie"], "at_session_4322");
+    expect((await app.inject({ method: "GET", url: "/auth/github", headers: { ...browser, cookie } })).statusCode).toBe(302);
+    expect(count()).toEqual({ n: 2 }); // webLogin's own start (no session) counted; the signed-in press did not
+  });
+
   it("rejects a callback without the matching state cookie, and a bad code", async () => {
     const { app } = await setup();
     const forged = await app.inject({ method: "GET", url: "/auth/github/callback?code=code_octo&state=abc" });

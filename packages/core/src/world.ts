@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -15,12 +15,12 @@ import { openDb, type DB } from "./db.ts";
 import { AppError } from "./errors.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
-import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
+import { exportDoneEvent, exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult, type PublishTarget } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
-import { Secrets } from "./secrets.ts";
+import { PUBLISH_TOKEN_SECRET, Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
 import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
@@ -54,6 +54,21 @@ export interface PrChecks {
   checkedAt: string;
 }
 
+/**
+ * Main's CI (gr_7op2v8fjcl): `green` once every check on main's head finished and passed, `red` once one failed
+ * (`failedStep` names the failed check runs), `pending` while they run. `since` is the first read that saw this state
+ * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent fixing a red main (null until step 2 sets it).
+ */
+export interface MainCi {
+  state: "green" | "red" | "pending";
+  sha: string;
+  failedStep: string | null;
+  since: string;
+  fixer: string | null;
+  /** when this was read (ISO) */
+  checkedAt: string;
+}
+
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
@@ -73,6 +88,8 @@ export interface HostHooks {
    * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
    */
   prChecks?(pr: number): PrChecks | undefined;
+  /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
+  mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
   redeployStatus?(): RedeployLive;
   /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
@@ -441,9 +458,17 @@ export class World {
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
       health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
-        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress() } : {}) },
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress(), started: this.hasRun() } : {}) },
       outbox: this.outboxOpen(),
     };
+  }
+
+  /**
+   * Whether an agent ever worked here: any work, manage or review session (not naming or summaries; the founder road's
+   * `firstSessionAt`). False is a collective that has never run (a hosted one waiting for its founder's key).
+   */
+  hasRun(): boolean {
+    return this.sessions.count("purpose IN ('work', 'manage', 'review')") > 0;
   }
 
   /** A hosted collective's founder road (TownHealth `founder`): latest exploration start, open proposals, ever funded. */
@@ -471,7 +496,54 @@ export class World {
    * db has no file to share, so it runs here). Appends nothing: the runtime appends the one `export.done`.
    */
   async exportOffThread(dir = townEnv("EXPORT") ?? "./export"): Promise<ExportResult> {
-    return this.db.memory ? writeExport(worldSource(this), dir) : exportInWorker(this.db.name, dir);
+    const publish = this.publishTarget();
+    return this.db.memory ? writeExport(worldSource(this), dir, publish) : exportInWorker(this.db.name, dir, publish);
+  }
+
+  /**
+   * Publish to GitHub (gr_30f8obzab8): where this World's export pushes, read from this World's own town meta and secret
+   * (a hosted collective's runtime reads its own, so its export dir only ever pushes to its own repo). null when unset.
+   */
+  publishTarget(): PublishTarget | null {
+    const p = this.town.get().publish;
+    return p?.repoUrl ? { repoUrl: p.repoUrl, token: this.secrets.value(PUBLISH_TOKEN_SECRET), lastPushCommit: p.lastPushCommit } : null;
+  }
+
+  /** One finished export: append its `export.done` and write the push outcome into `Town.publish` (when a repo is set and a push was due). */
+  recordExport(r: ExportResult): void {
+    this.events.append(exportDoneEvent(r));
+    const p = this.town.get().publish;
+    if (!p || (!r.pushedAt && !r.pushError)) return;
+    this.town.set({ publish: r.pushedAt ? { ...p, lastPushAt: r.pushedAt, lastPushCommit: r.pushCommit, lastPushError: null } : { ...p, lastPushError: r.pushError } });
+  }
+
+  /**
+   * PUT /api/town/publish (an admin): the repo the hourly export pushes to and, when given, its token (stored as the
+   * runtime-owned secret; 409 without a data key). No token keeps the stored one. A new repo URL resets the last-push
+   * fields so the next export pushes. The event never carries the token.
+   */
+  setPublish(input: { repoUrl: string; token?: string }, by: string | null = null): TownPublish {
+    const repoUrl = input.repoUrl.trim();
+    if (input.token !== undefined) this.secrets.setOwn(PUBLISH_TOKEN_SECRET, input.token, by);
+    const cur = this.town.get().publish;
+    const same = cur?.repoUrl === repoUrl && input.token === undefined;
+    const publish: TownPublish = {
+      repoUrl, tokenSet: this.secrets.hasOwn(PUBLISH_TOKEN_SECRET),
+      lastPushAt: same ? cur.lastPushAt : null, lastPushCommit: same ? cur.lastPushCommit : null, lastPushError: same ? cur.lastPushError : null,
+    };
+    this.town.set({ publish });
+    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet } });
+    return publish;
+  }
+
+  /** DELETE /api/town/publish (an admin): forget the repo, its token and the last-push fields. */
+  clearPublish(by: string | null = null): { cleared: boolean } {
+    const had = !!this.town.get().publish;
+    const token = this.secrets.clearOwn(PUBLISH_TOKEN_SECRET);
+    if (!had && !token) return { cleared: false };
+    this.town.set({ publish: undefined });
+    this.events.append({ type: "town.publish-cleared", agentId: by, text: "Publish to GitHub cleared", payload: { tokenRemoved: token } });
+    return { cleared: true };
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {
     return importV0(this, dir, opts);

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db.ts";
-import { countFunnel, countMemberAct, decideAccess, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
+import { countFunnel, countMemberAct, countVisitor, decideAccess, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // The join funnel (grant gr_fibsfwr4tz step 3): counted where each step happens, counts only, never who.
@@ -20,7 +20,7 @@ describe("join funnel", () => {
     requestAccess(world, user.id); // still pending: the same request, not a second ask
     decideAccess(world, { kind: "user", id: seed.admin.id }, req.id, true);
     const f = joinFunnel(world);
-    expect(f.totals).toEqual({ guestCardViews: before.guestCardViews + 1, signIns: before.signIns + 1, asked: before.asked + 1, letIn: before.letIn + 1, declined: before.declined, acted: before.acted });
+    expect(f.totals).toEqual({ ...before, guestCardViews: before.guestCardViews + 1, signIns: before.signIns + 1, asked: before.asked + 1, letIn: before.letIn + 1 });
     expect(f.decisions).toBe(1);
     expect(f.medianDecisionMs).toBeGreaterThanOrEqual(0);
     expect(f.daily.at(-1)!.day).toBe(new Date().toISOString().slice(0, 10));
@@ -28,6 +28,29 @@ describe("join funnel", () => {
     expect(rows).not.toContain(user.id);
     expect(rows).not.toContain("stranger");
     expect(world.permissions.rolesOf({ kind: "user", id: user.id }).map((r) => r.id)).toContain(townRoleId("member"));
+  });
+
+  it("a visitor counts once per step per UTC day (gr_zoo2cf2zpp): only the id's sha256 is kept, old rows drop, bad ids never count", () => {
+    const { world } = seededWorld();
+    const now = Date.parse("2026-11-04T12:00:00Z");
+    const id = "b6b1b0d2-9d2e-4b42-9b1e-visitor-one";
+    expect(countVisitor(world, "guestVisitors", id, now)).toBe(true);
+    expect(countVisitor(world, "guestVisitors", id, now)).toBe(false);
+    expect(countVisitor(world, "homeViews", id, now)).toBe(true);
+    expect(countVisitor(world, "guestVisitors", id, now + 86_400_000)).toBe(true); // a new day
+    expect(countVisitor(world, "guestVisitors", "short", now)).toBe(false);
+    expect(countVisitor(world, "guestVisitors", "x".repeat(200), now)).toBe(false);
+    const f = joinFunnel(world, 30, now + 86_400_000);
+    expect(f.totals).toMatchObject({ guestVisitors: 2, homeViews: 1, guestCardViews: 0 });
+    const rows = JSON.stringify(world.db.prepare("SELECT * FROM join_funnel_visitors").all());
+    expect(rows).not.toContain(id);
+    expect(rows).toContain("guestVisitors");
+    // rows older than the window go as new ones come
+    world.db.prepare("INSERT INTO join_funnel_visitors (day, step, idHash) VALUES ('2026-09-01', 'homeViews', 'old')").run();
+    countVisitor(world, "homeViews", "another-visitor-id", now + 86_400_000);
+    expect(world.db.prepare("SELECT count(*) AS n FROM join_funnel_visitors WHERE day = '2026-09-01'").get()).toEqual({ n: 0 });
+    for (const ua of [undefined, "", "Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/131.0", "curl/8.5.0", "python-requests/2.32"]) expect(isAutomatedClient(ua)).toBe(true);
+    expect(isAutomatedClient("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1")).toBe(false);
   });
 
   it("keeps 30 days: an older day drops out; the median is over the window's waits", () => {
@@ -60,8 +83,8 @@ describe("join funnel", () => {
     for (const f of files.filter((f) => f.includes("join_funnel"))) copyFileSync(join(all, f), join(dir, f));
     migrate(db, dir);
     expect(db.prepare("SELECT * FROM join_funnel ORDER BY day").all()).toEqual([
-      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0 },
-      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0 },
+      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0 },
+      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0 },
     ]);
     expect(db.prepare("SELECT * FROM join_funnel_waits").all()).toEqual([{ day: "2026-10-30", waitMs: 7_200_000 }]);
   });

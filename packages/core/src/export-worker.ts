@@ -5,14 +5,14 @@
  */
 import Database from "better-sqlite3";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { dbSource, writeExport, type ExportWorkerMessage } from "./export.ts";
+import { dbSource, writeExport, type ExportWorkerMessage, type PublishTarget } from "./export.ts";
 
-const run = !isMainThread ? (workerData as { exportRun?: { dbPath: string; dir: string } } | null)?.exportRun : undefined;
+const run = !isMainThread ? (workerData as { exportRun?: { dbPath: string; dir: string; publish?: PublishTarget | null } } | null)?.exportRun : undefined;
 if (run && parentPort) {
   let msg: ExportWorkerMessage;
   try {
     const db = new Database(run.dbPath, { readonly: true, fileMustExist: true });
-    try { msg = { ok: true, result: writeExport(dbSource(db), run.dir) }; } finally { db.close(); }
+    try { msg = { ok: true, result: writeExport(dbSource(db), run.dir, run.publish ?? null) }; } finally { db.close(); }
   } catch (e) {
     msg = { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

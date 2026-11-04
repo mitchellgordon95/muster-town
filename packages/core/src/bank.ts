@@ -5,6 +5,7 @@ import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from 
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
+import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
 import type { EventLog } from "./events.ts";
@@ -917,9 +918,9 @@ export class Bank {
     return { ...townFinance(this.repos, now), mix: this.mix(now) };
   }
 
-  /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
-  spend(now = new Date()): FinanceSpend {
-    return townSpend(this.repos, this.events, now);
+  /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts). */
+  spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind } {
+    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now) };
   }
 
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */

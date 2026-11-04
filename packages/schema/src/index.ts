@@ -78,6 +78,25 @@ export type MapLayout = z.infer<typeof MapLayout>;
 /** The operating reserve a town starts with (1:1 mt_lb7tm75jgb). */
 export const OPERATING_RESERVE_TOKENS = 500_000;
 
+/**
+ * Publish to GitHub (gr_30f8obzab8): the collective's own GitHub repo the hourly export pushes its mirror to, per World.
+ * The token is never here: it is the runtime-owned secret MUSTER_TOWN_PUBLISH_TOKEN (docs/secrets.md); `tokenSet` says
+ * whether one is stored. `lastPushAt`/`lastPushCommit`: the last push that landed; `lastPushError`: the last push's failure
+ * (null once a push lands). PUT /api/town/publish sets it, DELETE clears it (an admin).
+ */
+export const TownPublish = z.object({
+  repoUrl: z.string(),
+  tokenSet: z.boolean().default(false),
+  lastPushAt: z.string().nullable().default(null),
+  lastPushCommit: z.string().nullable().default(null),
+  lastPushError: z.string().nullable().default(null),
+});
+export type TownPublish = z.infer<typeof TownPublish>;
+/** A GitHub repo over https: `https://github.com/<owner>/<repo>` with an optional `.git`. */
+export const PublishRepoUrl = z.string().trim().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must be https://github.com/<owner>/<repo>");
+/** PUT /api/town/publish: the repo, and a token (a fine-grained token with Contents read/write); leave `token` out to keep the stored one. */
+export const PutPublishInput = z.object({ repoUrl: PublishRepoUrl, token: z.string().trim().min(1).max(1000).optional() });
+
 export const Town = z.object({
   name: z.string(),
   goal: z.string(),
@@ -101,6 +120,8 @@ export const Town = z.object({
    * /api/town/retainer-lookahead (an admin) sets it.
    */
   retainerLookaheadHours: z.number().int().min(1).max(168).default(6),
+  /** Publish to GitHub (TownPublish): unset until an admin saves a repo */
+  publish: TownPublish.optional(),
 });
 export type Town = z.infer<typeof Town>;
 
@@ -114,6 +135,8 @@ export const Collective = z.object({
   url: z.string().default(""),
   /** not open yet: listed as "coming soon", with no Open link */
   placeholder: z.boolean().optional(),
+  /** whether an agent session ever ran there (false: a never-run collective, listed after the others as "Not started yet"); absent for a placeholder */
+  started: z.boolean().optional(),
 });
 export type Collective = z.infer<typeof Collective>;
 
@@ -1532,6 +1555,8 @@ export interface GoalSpend {
   byKeyResult: { id: string; text: string; goalId: string; status: string; tokens: number; sessions: number }[];
   /** the subtree's key results marked met or missed inside the window */
   results: { id: string; text: string; status: "met" | "missed"; at: string }[];
+  /** visitors at desks in the subtree's buildings now. What they spend is NOT tracked (a visitor runs on its own client; Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or self-report), so it is in none of the figures above */
+  visitors: number;
 }
 /** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
 export interface QueueCard {
@@ -1814,7 +1839,7 @@ export const EventType = z.enum([
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
-  "export.done", "system",
+  "export.done", "town.publish-set", "town.publish-cleared", "system",
   /** the in-process monitor (packages/server/src/monitor.ts): an alert raised, re-sent, cleared, a test, or a gap in samples */
   "alert",
 ]);
@@ -2445,7 +2470,9 @@ export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.op
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
   funding: z.enum(["api-key", "none"]).optional(),
   /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
-  founder: FounderProgress.optional() });
+  founder: FounderProgress.optional(),
+  /** a hosted collective only: whether any agent session ever ran (false: a never-run collective; its guest card and first-minute card say so) */
+  started: z.boolean().optional() });
 export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------

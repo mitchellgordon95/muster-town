@@ -141,6 +141,23 @@ describe("who may interact", () => {
     expect(after.medianDecisionMs).toEqual(expect.any(Number));
     expect(after.collectives[0].totals).toEqual(after.totals);
   });
+
+  it("join funnel top steps (gr_zoo2cf2zpp): a browser's visitor id counts once per day, the homepage ping too, and headless checks or scripts never count", async () => {
+    const { app } = await setup();
+    const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
+    const before = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    const visitor = "0b1f2e3d-4c5b-4a69-8f70-visitor-test";
+    expect((await json(app, "POST", "/api/join-funnel/view", { headers: ua, body: { visitor } })).body).toEqual({ counted: true, visitor: true });
+    expect((await json(app, "POST", "/api/join-funnel/view", { headers: ua, body: { visitor } })).body).toEqual({ counted: true, visitor: false });
+    expect((await json(app, "POST", "/api/join-funnel/view", { headers: { "user-agent": "HeadlessChrome/131.0" }, body: { visitor: "another-visitor-id-xyz" } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/view", { headers: { "user-agent": "curl/8.5.0" } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: ua, body: { visitor } })).body).toEqual({ counted: true });
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: ua, body: { visitor } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: ua, body: {} })).body).toEqual({ counted: false });
+    const after = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    expect(after).toEqual({ ...before, guestCardViews: before.guestCardViews + 2, guestVisitors: before.guestVisitors + 1, homeViews: before.homeViews + 1 });
+    expect(JSON.stringify(app.world.db.prepare("SELECT * FROM join_funnel_visitors").all())).not.toContain(visitor);
+  });
 });
 
 describe("direct work under <goal> (gr_cuobjlny6r, Mitchell mt_hlizi9wxxc decision 1)", () => {

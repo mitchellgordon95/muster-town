@@ -4,6 +4,7 @@
  * resident's wiki pages and log: what it knows and did) | Helpers (a manager's forks) | Details (a fork's own fields).
  * Reports live in the in-tray and library.
  */
+import { clipText } from "./showMore";
 import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
@@ -12,11 +13,11 @@ import { forkTip } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { PanelShell } from "./PanelShell";
 import { DocText, IdLink, Markdown } from "./Markdown";
-import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canTalkAtTownHall, canTalkToManager, openOneOnOne, openPlanner, secretaryOf } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
 import { isPlumbing, latestThought, nowLine } from "./nowLine";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -47,7 +48,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
     <PanelShell
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
-      title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
+      title={<>{agent.name} {building?.managerAgentId === agent.id && building.kind !== "town-hall" ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={<>
         <NowLine agent={agent} forkTask={fork?.assignmentTitle ?? null} />
         {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : agent.forkOf ? <span title={forkTip(agent, nameOf, fork?.assignmentId, fork?.sessionId)}>a helper copy of {nameOf(agent.forkOf)}{building ? ` · ${building.name}` : ""}</span> : role}
@@ -129,12 +130,12 @@ function ForksTab({ managerId }: { managerId: string }) {
   const row = (f: ForkSummary) => (
     <button key={f.agent.id} className="doc-row" title={forkTip(f.agent, nameOf, f.assignmentId, f.sessionId)} onClick={() => store.open({ kind: "agent", id: f.agent.id })}>
       <div className="intray-who"><b>{f.agent.name}</b>{f.agent.status === "retired" ? <span>retired {timeAgo(f.agent.lastActiveAt ?? f.agent.createdAt)}</span> : <StatusPill status={f.agent.status} />}</div>
-      <div className="doc-row-title">{f.assignmentTitle ?? "no assignment"}</div>
+      <div className="doc-row-title">{f.assignmentTitle ? clipText(f.assignmentTitle, 90).head : "no assignment"}</div>
       <div className="doc-row-meta">
         {f.chainId ? <Pill tone="neutral">chain {f.chainId} · hop {f.hop}</Pill> : null}
         {f.sessionId ? <span>{f.tokens || f.agent.status === "retired" ? <>{fmtTokens(f.tokens)} {ADJ}</> : "running"}</span> : null}
         {f.sessionId && fmtPerf(f) ? <span>{fmtPerf(f)}</span> : null}
-        {f.reportTitle ? <span>report: {f.reportTitle}</span> : null}
+        {f.reportTitle ? <span>report: {clipText(f.reportTitle, 90).head}</span> : null}
       </div>
     </button>
   );
@@ -144,7 +145,8 @@ function ForksTab({ managerId }: { managerId: string }) {
       <ErrorLine error={list.error} />
       {family ? <KV items={[["With forks", <>today {fmtTokens(family.today)} (forks {fmtTokens(family.forksToday)}) · total {fmtTokens(family.total)} {ADJ} · {usd(family.usdTotal)} ({family.forks} fork{family.forks === 1 ? "" : "s"})</>]]} /> : null}
       <Section title={<>Live <Pill>{live.length}</Pill></>}>{live.length ? <div className="doc-list">{live.map(row)}</div> : <Empty>No fork is working now.</Empty>}</Section>
-      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
+      {/* retired forks are history: folded to their count (gr_zak30564zh step 4) */}
+      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <details className="grant-fold retired-fold"><summary>Show the {retired.length} retired fork{retired.length === 1 ? "" : "s"}, newest first</summary><div className="doc-list">{retired.map(row)}</div></details> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
     </>
   );
 }
@@ -261,7 +263,7 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
 function canControlAgent(agent: Agent): boolean {
   if (store.can("building.assign", agent.homeBuildingId) || (!!agent.ownerUserId && agent.ownerUserId === store.state.me?.user.id)) return true;
   const home = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
-  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && (store.can("goals.edit") || canOneOnOne(home.id));
+  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && canTalkAtTownHall(home.id);
 }
 
 function TalkTab({ agent }: { agent: Agent }) {
@@ -276,7 +278,9 @@ function TalkTab({ agent }: { agent: Agent }) {
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
   // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
   const townHall = home?.kind === "town-hall";
-  const canTalk = townHall ? store.can("goals.edit") || canOneOnOne(home?.id) : canTalkToManager(home?.id);
+  const canTalk = townHall ? canTalkAtTownHall(home?.id) : canTalkToManager(home?.id);
+  // the Town Hall's Secretary (gr_kdlogzzo5s) takes 1:1s itself, unlike other residents (who work via their manager)
+  const isSecretary = useTown((s) => townHall && secretaryOf(s.agents, home?.id)?.id === agent.id);
   /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
   const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
@@ -344,7 +348,15 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
       <Timeline items={details ? timeline : plain} agentName={agent.name} empty={`${agent.name} hasn't done anything yet.`} />
-      {viaManager && manager ? (
+      {isSecretary ? (
+        !me ? <SignInNote to={`talk to ${agent.name}`} /> : (
+          <div className="callout via-manager">
+            <span>{agent.name} keeps your in-tray digestible: the daily digest card, and in a 1:1 can do a decision you say in your own words (fund, counter or reject; continue, adjust or cut; approve a retainer).</span>
+            {canTalk ? <Act small tone="primary" run={() => openOneOnOne(home!.id, { agentId: agent.id })}>Talk to {agent.name}</Act> : null}
+            {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
+          </div>
+        )
+      ) : viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.forkOf ? `${agent.name} is a helper ${manager.name} started for one task; it doesn't take messages.` : `${agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.`}</span>
           {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
@@ -353,8 +365,8 @@ function TalkTab({ agent }: { agent: Agent }) {
         </div>
       ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
-          <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
+          <span>{agent.name} is {townHall ? "the Town Hall's planning agent" : `${home!.name}'s manager`}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
+          <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to {townHall ? "" : "★ "}{agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
       ) : isManager && !townHall && me.canInteract ? (
@@ -376,6 +388,9 @@ const EVENT_TONE: Partial<Record<Event["type"], string>> = {
   "meeting.utterance": "said", "meeting.phase": "status",
 };
 
+/** The Talk tab opens on its latest lines; the earlier ones are one click away (gr_zak30564zh step 4). */
+const TALK_SHOWN = 5;
+
 function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; agentName: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -384,10 +399,13 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
     while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
     if (el) el.scrollTop = el.scrollHeight; else end.current?.scrollIntoView({ block: "end" });
   }, [items.length]);
+  const [all, setAll] = useState(false);
   if (!items.length) return <Empty>{empty}</Empty>;
+  const earlier = all ? 0 : Math.max(0, items.length - TALK_SHOWN);
   return (
     <div className="chat timeline talk">
-      {items.map((it) => {
+      {earlier ? <button type="button" className="link show-earlier" onClick={() => setAll(true)}>Show {earlier} earlier line{earlier === 1 ? "" : "s"}</button> : null}
+      {items.slice(earlier).map((it) => {
         if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}><Markdown text={it.text} className="bubble" breaks /><small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
         const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
         if (p.interrupt) {
@@ -406,6 +424,9 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
   );
 }
 
+
+/** Wiki topics listed before the rest fold to "N more topics" (gr_zak30564zh step 4: the first screen is a summary). */
+const TOPICS_SHOWN = 6;
 
 /**
  * Memory: what the resident knows (its wiki, one private page per topic, rewritten before each report) and what it did
@@ -434,7 +455,8 @@ function MemoryTab({ agent, topics, memory, loading }: { agent: Agent; topics: s
           </div>
         ) : (
           <>
-            <ul className="topics">{topics.map((t) => <li key={t}>{t}</li>)}</ul>
+            <ul className="topics">{topics.slice(0, TOPICS_SHOWN).map((t) => <li key={t}>{t}</li>)}</ul>
+            {topics.length > TOPICS_SHOWN ? <details className="grant-fold topics-fold"><summary>{topics.length - TOPICS_SHOWN} more topics</summary><ul className="topics">{topics.slice(TOPICS_SHOWN).map((t) => <li key={t}>{t}</li>)}</ul></details> : null}
             <div className="asg-meta">The pages themselves are visible to {agent.name}'s building managers and admins.</div>
           </>
         )}
@@ -527,12 +549,18 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
           ) : null} />
         ))}
       </Section>
+      {/* finished work folds to its count and the latest title (gr_zak30564zh step 4: the first screen is what runs and waits) */}
       <Section title="History">
-        {!history.length ? <Empty>No finished assignments yet.</Empty> : history.map((a) => (
-          <AssignmentRow key={a.id} a={a} actions={canControl && !gone ? (
-            <Act small title="Queue it again, at the front" run={async () => { put(await api().retryAssignment(a.id, true)); store.toast(`"${a.title}" is queued first again`, "ok"); }}>Retry</Act>
-          ) : null} />
-        ))}
+        {!history.length ? <Empty>No finished assignments yet.</Empty> : (
+          <details className="grant-fold history-fold">
+            <summary>{history.length} finished · latest: {clipText(history[0]!.title, 70).head}</summary>
+            {history.map((a) => (
+              <AssignmentRow key={a.id} a={a} actions={canControl && !gone ? (
+                <Act small title="Queue it again, at the front" run={async () => { put(await api().retryAssignment(a.id, true)); store.toast(`"${a.title}" is queued first again`, "ok"); }}>Retry</Act>
+              ) : null} />
+            ))}
+          </details>
+        )}
       </Section>
     </>
   );
@@ -566,7 +594,8 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }
             : blocked.text}
         </div>
       ) : null}
-      {a.description ? <div className="asg-desc"><ShowMore text={a.description} max={160} render={(t) => <DocText text={t} />} /></div> : null}
+      {/* the description (and the links in it) folds under the title: the row opens on its title and state (gr_zak30564zh step 4) */}
+      {a.description && a.description.trim() !== a.title.trim() ? <details className="kr-more asg-desc-fold"><summary>Description</summary><div className="asg-desc"><DocText text={a.description} /></div></details> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}

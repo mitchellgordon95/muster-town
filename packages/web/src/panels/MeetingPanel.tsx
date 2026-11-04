@@ -83,6 +83,9 @@ function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: 
 /** under the server's HUMAN_TYPING_MS (30 s) so a held draft never lapses */
 const TYPING_PING_MS = 10_000;
 
+/** Messages a transcript shows before "Show N earlier messages". */
+const TRANSCRIPT_SHOWN = 6;
+
 function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
@@ -90,9 +93,13 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
   const media = useMediaPaste(setText);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);
+  // the transcript opens on its latest messages; the earlier ones are one click away (gr_zak30564zh step 4)
+  const [allLines, setAllLines] = useState(false);
+  const earlier = allLines ? 0 : Math.max(0, m.transcript.length - TRANSCRIPT_SHOWN);
   const buildings = useTown((s) => s.buildings);
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
+  const hallMeeting = room?.kind === "town-hall";
   const oneOnOne = m.kind === "one-on-one";
   // a 1:1: the human who opened it ends it; only they and the manager speak
   const canRun = oneOnOne ? !!me && me.user.id === m.withUserId : store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
@@ -115,7 +122,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
   return (
-    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
+    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ${hallMeeting ? "" : "★ "}${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
       {oneOnOne ? null : (
         <ol className="phases">
           {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
@@ -148,7 +155,9 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
       <Section title="Transcript">
         {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : oneOnOne && open ? `Say what's on your mind; ${nameOf(m.facilitatorId)} answers here.` : "Nobody has spoken."}</Empty> : (
           <div className="transcript">
-            {m.transcript.map((u, i) => {
+            {earlier ? <button type="button" className="link show-earlier" onClick={() => setAllLines(true)}>Show {earlier} earlier message{earlier === 1 ? "" : "s"}</button> : null}
+            {m.transcript.slice(earlier).map((u, j) => {
+              const i = earlier + j;
               const isMe = u.speakerKind === "user" && u.speakerId === me?.user.id;
               return (
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>

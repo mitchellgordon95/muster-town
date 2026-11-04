@@ -136,6 +136,24 @@ export class Hub {
     }));
   }
 
+  /** slugs seen started: a collective never un-starts, so the sessions table is read once per slug per process */
+  private startedSlugs = new Set<string>();
+  /**
+   * Whether a hosted collective ever ran an agent session (`World.hasRun`, the founder road's firstSessionAt): the homepage
+   * tile and `GET /api/collectives` say "Not started yet" while false. A retired or unmounted collective counts as not started.
+   */
+  started(slug: string): boolean {
+    if (this.startedSlugs.has(slug)) return true;
+    const ran = this.world(slug)?.hasRun() ?? false;
+    if (ran) this.startedSlugs.add(slug);
+    return ran;
+  }
+
+  /** The active collectives as the homepage lists them: each with whether it ever ran (`started`). */
+  listed(): (HubCollective & { started: boolean })[] {
+    return this.list("active").map((h) => ({ ...h, started: this.started(h.slug) }));
+  }
+
   list(state?: HubCollective["state"]): HubCollective[] {
     const rows = state
       ? this.db.prepare("SELECT * FROM collectives WHERE state = ? ORDER BY createdAt, slug").all(state)
