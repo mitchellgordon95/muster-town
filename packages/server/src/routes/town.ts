@@ -1,5 +1,5 @@
 import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -48,7 +48,7 @@ export async function townRoutes(app: FastifyInstance) {
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
   const figures = new HealthCache(() => ({
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world),
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world), export: exportHealth(world),
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
@@ -326,6 +326,25 @@ export async function townRoutes(app: FastifyInstance) {
    * The collective defaults (admin; 1:1 mt_n25udpflus decision 3): model, cheap model, max turns, daily budget per agent
    * and code access for every building. Saving writes them through to every lab. → { defaults, buildings }
    */
+  /**
+   * Publish to GitHub (gr_30f8obzab8; docs/architecture.md "Export"), an admin of this collective: `{repoUrl, token?}`, repoUrl
+   * `https://github.com/<owner>/<repo>`; token a GitHub token with Contents read/write, stored encrypted as the runtime-owned
+   * secret (409 without a data key); left out = keep the stored one. The hourly export pushes its mirror there.
+   * → { publish: {repoUrl, tokenSet, lastPushAt, lastPushCommit, lastPushError} } (never the token; GET /api/town carries it too)
+   */
+  app.put("/api/town/publish", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can set where the town publishes.");
+    return { publish: world.setPublish(parse(PutPublishInput, req.body), world.ops.ensureAvatar(user.id).id) };
+  });
+
+  /** Stop publishing (admin): clears the repo URL, the token and the last-push fields. → { cleared } */
+  app.delete("/api/town/publish", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can stop publishing.");
+    return world.clearPublish(world.ops.ensureAvatar(user.id).id);
+  });
+
   app.put("/api/town/defaults", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
@@ -576,4 +595,14 @@ function desksHealth(world: World) {
   const desks = world.desksConfig();
   const bill = world.deskBill();
   return { backend: desks.backend, size: deskPreset(deskSizeFor(desks, bill).size), billCapUsd: bill.capUsd, billTodayUsd: bill.todayUsd, billPct: bill.pct, overCap: bill.overCap, day: bill.day };
+}
+
+/**
+ * GET /api/health `export` (gr_30f8obzab8): the last hourly export's time and commit (from its `export.done`) and the
+ * collective's last push to GitHub and its error (from `Town.publish`); nulls when never run or no repo is set.
+ */
+function exportHealth(world: World): { lastAt: string | null; commit: string | null; lastPushAt: string | null; pushError: string | null } {
+  const done = world.events.list({ types: ["export.done"], limit: 1, desc: true })[0];
+  const p = world.town.get().publish;
+  return { lastAt: done?.ts ?? null, commit: (done?.payload.commit as string | null | undefined) ?? null, lastPushAt: p?.lastPushAt ?? null, pushError: p?.lastPushError ?? null };
 }
