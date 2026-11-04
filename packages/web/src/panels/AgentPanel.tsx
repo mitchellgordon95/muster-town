@@ -4,6 +4,7 @@
  * resident's wiki pages and log: what it knows and did) | Helpers (a manager's forks) | Details (a fork's own fields).
  * Reports live in the in-tray and library.
  */
+import { clipText } from "./showMore";
 import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Agent, Assignment, BlockedBy, Doc, Event, Permission } from "@muster-town/schema";
@@ -12,7 +13,7 @@ import { forkTip } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { PanelShell } from "./PanelShell";
 import { DocText, IdLink, Markdown } from "./Markdown";
-import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, ShowMore, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
+import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
@@ -129,12 +130,12 @@ function ForksTab({ managerId }: { managerId: string }) {
   const row = (f: ForkSummary) => (
     <button key={f.agent.id} className="doc-row" title={forkTip(f.agent, nameOf, f.assignmentId, f.sessionId)} onClick={() => store.open({ kind: "agent", id: f.agent.id })}>
       <div className="intray-who"><b>{f.agent.name}</b>{f.agent.status === "retired" ? <span>retired {timeAgo(f.agent.lastActiveAt ?? f.agent.createdAt)}</span> : <StatusPill status={f.agent.status} />}</div>
-      <div className="doc-row-title">{f.assignmentTitle ?? "no assignment"}</div>
+      <div className="doc-row-title">{f.assignmentTitle ? clipText(f.assignmentTitle, 90).head : "no assignment"}</div>
       <div className="doc-row-meta">
         {f.chainId ? <Pill tone="neutral">chain {f.chainId} · hop {f.hop}</Pill> : null}
         {f.sessionId ? <span>{f.tokens || f.agent.status === "retired" ? <>{fmtTokens(f.tokens)} {ADJ}</> : "running"}</span> : null}
         {f.sessionId && fmtPerf(f) ? <span>{fmtPerf(f)}</span> : null}
-        {f.reportTitle ? <span>report: {f.reportTitle}</span> : null}
+        {f.reportTitle ? <span>report: {clipText(f.reportTitle, 90).head}</span> : null}
       </div>
     </button>
   );
@@ -144,7 +145,8 @@ function ForksTab({ managerId }: { managerId: string }) {
       <ErrorLine error={list.error} />
       {family ? <KV items={[["With forks", <>today {fmtTokens(family.today)} (forks {fmtTokens(family.forksToday)}) · total {fmtTokens(family.total)} {ADJ} · {usd(family.usdTotal)} ({family.forks} fork{family.forks === 1 ? "" : "s"})</>]]} /> : null}
       <Section title={<>Live <Pill>{live.length}</Pill></>}>{live.length ? <div className="doc-list">{live.map(row)}</div> : <Empty>No fork is working now.</Empty>}</Section>
-      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <div className="doc-list">{retired.map(row)}</div> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
+      {/* retired forks are history: folded to their count (gr_zak30564zh step 4) */}
+      <Section title={<>Retired <Pill>{retired.length}</Pill></>}>{retired.length ? <details className="grant-fold retired-fold"><summary>Show the {retired.length} retired fork{retired.length === 1 ? "" : "s"}, newest first</summary><div className="doc-list">{retired.map(row)}</div></details> : <Empty>No fork has finished yet. With forks on, the building's queued work runs on forks of its manager.</Empty>}{list.data?.notStarted ? <div className="muted">{list.data.notStarted} more retired before a session started (desk failed at startup; nothing spent), not listed.</div> : null}</Section>
     </>
   );
 }
@@ -376,6 +378,9 @@ const EVENT_TONE: Partial<Record<Event["type"], string>> = {
   "meeting.utterance": "said", "meeting.phase": "status",
 };
 
+/** The Talk tab opens on its latest lines; the earlier ones are one click away (gr_zak30564zh step 4). */
+const TALK_SHOWN = 5;
+
 function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; agentName: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -384,10 +389,13 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
     while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
     if (el) el.scrollTop = el.scrollHeight; else end.current?.scrollIntoView({ block: "end" });
   }, [items.length]);
+  const [all, setAll] = useState(false);
   if (!items.length) return <Empty>{empty}</Empty>;
+  const earlier = all ? 0 : Math.max(0, items.length - TALK_SHOWN);
   return (
     <div className="chat timeline talk">
-      {items.map((it) => {
+      {earlier ? <button type="button" className="link show-earlier" onClick={() => setAll(true)}>Show {earlier} earlier line{earlier === 1 ? "" : "s"}</button> : null}
+      {items.slice(earlier).map((it) => {
         if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}><Markdown text={it.text} className="bubble" breaks /><small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
         const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
         if (p.interrupt) {
@@ -406,6 +414,9 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
   );
 }
 
+
+/** Wiki topics listed before the rest fold to "N more topics" (gr_zak30564zh step 4: the first screen is a summary). */
+const TOPICS_SHOWN = 6;
 
 /**
  * Memory: what the resident knows (its wiki, one private page per topic, rewritten before each report) and what it did
@@ -434,7 +445,8 @@ function MemoryTab({ agent, topics, memory, loading }: { agent: Agent; topics: s
           </div>
         ) : (
           <>
-            <ul className="topics">{topics.map((t) => <li key={t}>{t}</li>)}</ul>
+            <ul className="topics">{topics.slice(0, TOPICS_SHOWN).map((t) => <li key={t}>{t}</li>)}</ul>
+            {topics.length > TOPICS_SHOWN ? <details className="grant-fold topics-fold"><summary>{topics.length - TOPICS_SHOWN} more topics</summary><ul className="topics">{topics.slice(TOPICS_SHOWN).map((t) => <li key={t}>{t}</li>)}</ul></details> : null}
             <div className="asg-meta">The pages themselves are visible to {agent.name}'s building managers and admins.</div>
           </>
         )}
@@ -527,12 +539,18 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
           ) : null} />
         ))}
       </Section>
+      {/* finished work folds to its count and the latest title (gr_zak30564zh step 4: the first screen is what runs and waits) */}
       <Section title="History">
-        {!history.length ? <Empty>No finished assignments yet.</Empty> : history.map((a) => (
-          <AssignmentRow key={a.id} a={a} actions={canControl && !gone ? (
-            <Act small title="Queue it again, at the front" run={async () => { put(await api().retryAssignment(a.id, true)); store.toast(`"${a.title}" is queued first again`, "ok"); }}>Retry</Act>
-          ) : null} />
-        ))}
+        {!history.length ? <Empty>No finished assignments yet.</Empty> : (
+          <details className="grant-fold history-fold">
+            <summary>{history.length} finished · latest: {clipText(history[0]!.title, 70).head}</summary>
+            {history.map((a) => (
+              <AssignmentRow key={a.id} a={a} actions={canControl && !gone ? (
+                <Act small title="Queue it again, at the front" run={async () => { put(await api().retryAssignment(a.id, true)); store.toast(`"${a.title}" is queued first again`, "ok"); }}>Retry</Act>
+              ) : null} />
+            ))}
+          </details>
+        )}
       </Section>
     </>
   );
@@ -566,7 +584,8 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }
             : blocked.text}
         </div>
       ) : null}
-      {a.description ? <div className="asg-desc"><ShowMore text={a.description} max={160} render={(t) => <DocText text={t} />} /></div> : null}
+      {/* the description (and the links in it) folds under the title: the row opens on its title and state (gr_zak30564zh step 4) */}
+      {a.description && a.description.trim() !== a.title.trim() ? <details className="kr-more asg-desc-fold"><summary>Description</summary><div className="asg-desc"><DocText text={a.description} /></div></details> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}
