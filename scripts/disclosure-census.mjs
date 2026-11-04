@@ -21,6 +21,9 @@
  * against the bar. Showing desk steppers only on the selected card would cut controls but not the card words, so
  * the sheet would fail on words either way.
  *
+ * Decision (step 4): a meeting's transcript is its speakers' words, like a report's body: words inside .transcript are
+ * not counted (its controls are). The panel opens on the latest 6 messages, the rest behind "Show N earlier".
+ *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
@@ -117,7 +120,7 @@ const measure = (page, part) => page.evaluate((part) => {
   const tw = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
   while (tw.nextNode()) {
     const n = tw.currentNode; const k = (n.textContent.match(/\S+/g) ?? []).length;
-    if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement)) continue;
+    if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement) || n.parentElement.closest(".transcript")) continue;
     total += k; if (shown(n.parentElement)) words += k;
   }
   // screens: the tallest scroller in the panel (itself or a scrolling box inside it, at least 120 px tall)

@@ -19,7 +19,7 @@ import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
-import { digestCard } from "./secretary.ts";
+import { digestCard, groupsText } from "./secretary.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -151,8 +151,8 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     }) };
   }
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
-  // a proposal that asks again for work an earlier grant stopped at its checkpoint: that checkpoint's evidence first
-  const earlier = g.evidence ? `**Asks again for work ${g.evidence.grantId} stopped at its checkpoint** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
+  // a proposal that names the earlier grant it continues (`continues`, 1:1 mt_z1b38bwg98): that grant's evidence first
+  const earlier = g.evidence ? `**Continues the earlier grant ${g.evidence.grantId}** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
   return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     whatYoudSee: g.whatYoudSee || testing,
@@ -334,7 +334,7 @@ function digestSlide(world: World, now: Date): ReviewSlide | null {
   const text = [
     `_Filed by the Secretary ${waitedFor(c.doc.createdAt, now)} ago (${c.doc.id})_`,
     `## ${title}`,
-    `### Decisions needed\n\n${c.decisions.map((l) => `- ${l}`).join("\n") || "Nothing waits on a yes or no."}${c.askedOfYou ? `\n\n${c.askedOfYou}` : ""}`,
+    `### Decisions needed\n\n${groupsText(c.decisions)}`,
     `### Shipped since last digest\n\n${c.shipped || "Nothing shipped."}`,
     `### Covered rollups\n\n${c.covered.map((r) => `- ${r.buildingName}: ${r.title} (${r.id})${r.pending ? " · still asks a call" : ""}`).join("\n") || "_none_"}`,
   ].join("\n\n");

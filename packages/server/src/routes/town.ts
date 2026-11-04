@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -54,7 +54,7 @@ export async function townRoutes(app: FastifyInstance) {
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
     ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress() } : {}),
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress(), started: world.hasRun() } : {}),
   }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
@@ -62,7 +62,7 @@ export async function townRoutes(app: FastifyInstance) {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
     return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
-      budgets, backup, monitor: app.monitor?.view() ?? null, desks,
+      budgets, backup, monitor: app.monitor?.view() ?? null, desks, main: mainHealth(world),
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
       // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
@@ -493,7 +493,12 @@ export async function townRoutes(app: FastifyInstance) {
   // `free`: the town-wide free tokens (docs/how-work-gets-done.md §7; core free-tokens.ts), the one number exploration reads
   app.get("/api/finance", async () => ({ ...world.bank.finance(), free: world.bank.freeTokens?.() ?? null }));
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
-  app.get("/api/finance/spend", async () => world.bank.spend());
+  // ?window=today|7d (default today) picks the window of `byLaneKind`, the lane × token-kind table (gr_lwgus14rd2 step 1); every other field is all-time
+  app.get<{ Querystring: { window?: string } }>("/api/finance/spend", async (req) => {
+    const window = req.query.window ?? "today";
+    if (!(LANE_KIND_WINDOWS as readonly string[]).includes(window)) throw badRequest(`window must be one of ${LANE_KIND_WINDOWS.join(", ")}`);
+    return world.bank.spend(new Date(), window as LaneKindWindow);
+  });
   app.get("/api/finance/sources", async () => world.bank.sources());
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it
@@ -589,6 +594,15 @@ export async function townRoutes(app: FastifyInstance) {
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
   return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
+}
+
+/**
+ * GET /api/health `main` (gr_7op2v8fjcl, kr_mvj61meiwx): main's CI as the runtime last read it from GitHub, from memory (no
+ * database read): `{state green|red|pending, sha, failedStep, since, fixer, checkedAt}`; null without a runtime or before its first read.
+ */
+function mainHealth(world: World) {
+  const m = world.host.mainCi?.();
+  return m ? { state: m.state, sha: m.sha, failedStep: m.failedStep, since: m.since, fixer: m.fixer, checkedAt: m.checkedAt } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */

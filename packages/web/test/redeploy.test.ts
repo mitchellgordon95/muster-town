@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Event } from "@muster-town/schema";
-import { blockedByRedeploy, redeployLine, redeployStatus, SHOW_FINISHED_MS } from "../src/redeploy";
+import { blockedByRedeploy, cacheMissAlert, redeployLine, redeployStatus, SHOW_FINISHED_MS } from "../src/redeploy";
 
 let id = 0;
 const ev = (run: Record<string, unknown> | null, ts = "2026-10-20T18:00:00.000Z", text = "Redeploy: x"): Event =>
@@ -26,5 +26,15 @@ describe("redeploy status", () => {
 
   test("no redeploy events: nothing to show", () => {
     expect(redeployStatus([ev(null)], at)).toBeNull();
+  });
+});
+
+describe("cache-miss alert in the HUD (gr_lwgus14rd2 step 2)", () => {
+  const cm = (ts: string, payload: Record<string, unknown> = { alert: "cache-miss", purpose: "manage" }): Event =>
+    ({ id: ++id, ts, type: "system", agentId: null, buildingId: null, text: "Cache miss: manage sessions on m wrote 31%…", payload }) as Event;
+  test("the latest cache-miss of the last day shows; an older one or another alert does not", () => {
+    expect(cacheMissAlert([cm("2026-10-20T10:00:00.000Z")], at)?.text).toMatch(/^Cache miss: manage/);
+    expect(cacheMissAlert([cm("2026-10-19T10:00:00.000Z")], at)).toBeNull();
+    expect(cacheMissAlert([cm("2026-10-20T10:00:00.000Z", { alert: "funding-mismatch" })], at)).toBeNull();
   });
 });

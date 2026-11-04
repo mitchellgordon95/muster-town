@@ -1,6 +1,6 @@
 :root {
   --bg: #14151c; --panel: #1b1d27; --panel-2: #20232f; --line: #2e3142; --line-2: #3a3e55;
-  --text: #e8e9f0; --muted: #9a9db3; --faint: #6b6f86;
+  --text: #e8e9f0; --muted: #9a9db3; --faint: #8e92ab;
   --accent: #7cc4ff; --ok: #6fdc8c; --warn: #ffcf5e; --bad: #ff7b7b; --meet: #c79bff; --gold: #e8b840;
   --r: 8px; --gap: 12px;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -241,9 +241,9 @@ kbd { font-family: var(--mono); font-size: 11px; background: #2a2d3a; border: 1p
 .doc-chips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
 .doc-chip { color: var(--accent); background: #22252f; border: 1px solid var(--line); border-radius: 10px; padding: 1px 9px; text-decoration: none; max-width: 100%; overflow-wrap: anywhere; }
 .chatbar textarea { flex: 1; min-height: 40px; }
-.msg small { display: block; margin-top: 3px; font-size: 10.5px; color: var(--faint); }
+.msg small { display: block; margin-top: 3px; font-size: 10.5px; color: var(--muted); }
 .timeline .ev { align-self: stretch; }
-.talk .ev { border-bottom: none; padding: 1px 4px; font-family: var(--mono); font-size: 11.5px; opacity: .75; }
+.talk .ev { border-bottom: none; padding: 1px 4px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 .talk .msg + .ev, .talk .ev + .msg { margin-top: 4px; }
 
 /* forms */
@@ -483,6 +483,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .review-box textarea { margin-bottom: 8px; }
 .review-box .actions { flex-wrap: wrap; }
 .intray-row { display: flex; flex-direction: column; gap: 3px; }
+.digest-group { margin: 2px 0; }
+.digest-group-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.digest-group .digest-decisions { margin: 2px 0 0; }
 .intray-who { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .intray-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .intray-who b { color: var(--text); }
@@ -498,6 +501,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .confirm .actions { margin: 6px 0 0; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .check input { width: auto; }
+.walk-fold { margin: 10px 0; }
+.walk-fold > summary { cursor: pointer; font-size: 13px; color: #c4c7dc; }
+.walk-fold > .walk-links { margin-top: 8px; }
 .walk-links { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .walk-link { flex: 1; min-width: 150px; display: flex; align-items: center; gap: 8px; background: #1f2230; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; text-align: left; }
 .walk-link:hover { border-color: var(--accent); }
@@ -824,6 +830,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .queue-col { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 4px; background: var(--panel-2); min-height: 40px; min-width: 0; }
 .queue-col.full .queue-col-head { color: var(--warn); }
 .queue-col-head { font-weight: 600; font-size: 11px; }
+.queue-done-fold > summary { cursor: pointer; }
+.queue-done-fold[open] > summary { margin-bottom: 6px; }
 .queue-card { padding: 4px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); overflow-wrap: anywhere; }
 .queue-card.cancelled { opacity: 0.6; }
 .queue-card-title { line-height: 1.25; }
@@ -999,3 +1007,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .spend-selected .spend-over { color: var(--bad); }
 .spend-sessions { font-size: 12px; }
 .bank-health { margin: 10px 0; }
+/* Spending: lane × token kind (gr_lwgus14rd2 step 1) */
+.lane-kind { margin-top: 10px; }
+.lane-kind-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lane-kind-table td, .lane-kind-table th { white-space: nowrap; }
+.lane-kind-scroll { overflow-x: auto; max-width: 100%; }

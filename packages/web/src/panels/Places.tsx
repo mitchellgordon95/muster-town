@@ -191,7 +191,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
 function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
-  const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} /> : null;
+  const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} onDecided={onDecided} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
@@ -275,14 +275,25 @@ function TownHallIntray({ digest, mode, onFocus, reports, grants, goalProposals,
  * The Secretary's digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray: what needs a yes or no (read
  * live), what shipped since the last card, and the rollups it covers, collapsed (the ones it archived left the list).
  */
-export function DigestCardView({ card: c, onOpen }: { card: DigestCard; onOpen: (id: string) => void }) {
+export function DigestCardView({ card: c, onOpen, onDecided }: { card: DigestCard; onOpen: (id: string) => void; onDecided?: () => void }) {
+  // "Already overtaken": one Approve-all archives the rollups whose asks the town has since decided (1:1 mt_i50xwu4z2t)
+  const approveAll = async (ids: string[]) => {
+    const done = await Promise.all(ids.map((id) => api().archive(id)));
+    store.putDocs(done.map((r) => r.doc));
+    store.toast(`Approved ${ids.length} overtaken rollup${ids.length === 1 ? "" : "s"}.`, "ok");
+    onDecided?.();
+  };
   return (
     <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
       <div className="doc-row intray-row digest-card">
         <div className="intray-who"><button className="link" onClick={() => onOpen(c.doc.id)}>{c.doc.title}</button><span>{timeAgo(c.doc.createdAt)}</span><TalkToSecretary /></div>
         <b>Decisions needed</b>
-        {c.decisions.length ? <ul className="digest-decisions">{c.decisions.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul> : <div className="muted">Nothing waits on a yes or no.</div>}
-        {c.askedOfYou ? <div className="muted"><DocText text={c.askedOfYou} /></div> : null}
+        {c.decisions.length ? c.decisions.map((g) => (
+          <div className="digest-group" key={g.heading}>
+            <div className="digest-group-head"><b>{g.heading}</b>{g.note ? <span className="muted"> {g.note}</span> : null}{g.docIds?.length ? <Act tone="ok" small run={() => approveAll(g.docIds!)} title="Archive these rollups: what they asked has since been decided">Approve all {g.docIds.length}</Act> : null}</div>
+            <ul className="digest-decisions">{g.lines.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul>
+          </div>
+        )) : <div className="muted">Nothing waits on a yes or no.</div>}
         <b>Shipped since last digest</b>
         {c.shipped ? <Markdown text={c.shipped} /> : <div className="muted">Nothing shipped.</div>}
         {c.covered.length ? (
@@ -725,12 +736,12 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
 /**
  * What a checkpoint shipped (Mitchell 1:1 mt_7b4zc7yja3): one line per key result "✓ shipped / ✗ not shipped / ~ partly:
  * <the manager's note>", spent vs granted, what a top-up buys, and the checkpoint report's Shipped titles. On a proposal
- * (`earlier`) it is the same building's earlier grant on the goal that stopped at its checkpoint.
+ * (`earlier`) it is the earlier grant the proposal names in `continues` (1:1 mt_z1b38bwg98); none named, no block.
  */
 function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvidence; onOpenDoc: (id: string) => void; earlier?: boolean }) {
   return (
     <div className="checkpoint-evidence">
-      {earlier ? <div className="muted">Asks again for work an earlier grant stopped at its checkpoint: <GrantLink id={e.grantId} /> {e.objective}</div> : null}
+      {earlier ? <div className="muted">Continues the earlier grant <GrantLink id={e.grantId} /> {e.objective}</div> : null}
       <ol className="evidence-krs">
         {e.keyResults.map((k) => <li key={k.id} className={`evidence-${k.verdict}`} title={k.text}>{evidenceKrLine(k)}</li>)}
       </ol>
