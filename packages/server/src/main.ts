@@ -3,6 +3,7 @@
  * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
+import { markBoot } from "./capacity.ts";
 import { World } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
@@ -65,6 +66,8 @@ async function main() {
     console.log(`[server] desk settings from MUSTER_TOWN_DESKS: ${Object.keys(desksOverride).join(", ")}`);
   }
   world.start(10);
+  // one marker per start, before buildApp reads the last day's: GET /api/health capacity.restarts24h (capacity.ts)
+  markBoot(world);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env

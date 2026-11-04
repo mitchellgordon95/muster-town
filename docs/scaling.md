@@ -59,14 +59,16 @@ Nothing here is built in grant gr_n0p3ast5pp. Prices: Fly.io `iad`, per Machine-
 
 ## How to check headroom live
 
-Step 3 of gr_n0p3ast5pp (kr_mbuhs8agz7) adds a `capacity` block to `GET https://muster.town/api/health`. These are the
-numbers it must carry, matching the triggers above:
+`GET https://muster.town/api/health` carries a `capacity` block (gr_n0p3ast5pp step 3, kr_mbuhs8agz7; packages/server/src/capacity.ts),
+recomputed every 5 s with the other cached figures (`capacity.at` says when). These are its numbers, matching the triggers above:
 
 | capacity field | value | ceiling | trigger |
 |---|---|---|---|
-| `wsClients` | live WebSocket count | 1,200 viewers (row 2) | ≥ 600 |
-| `tickP95Ms` | p95 of the last 100 tick `ms` | 500 ms (`SLOW_TICK_MS`) | ≥ 350 ms |
-| `dbMb` / `volumeGb` | town.db size in MB / the data volume size in GB | 10 GB volume | db ≥ 1,000 MB or volume free < 50 % |
-| `restarts24h` | server starts in the last 24 h | — | > 10 |
+| `wsClients.now` / `wsClients.ceiling` | live WebSocket count (root app) | 1,200 viewers (row 2) | ≥ 600 |
+| `tick.p95Ms` / `tick.slowMs` / `tick.samples` | p95 of the main world's last 100 distinct tick `ms` (hosted worlds not included) | 500 ms (`SLOW_TICK_MS`) | ≥ 350 ms |
+| `db.mb` / `db.volumeGb` | town.db + -wal size in MB / the data volume size in GB | 10 GB volume | db ≥ 1,000 MB or volume free < 50 % |
+| `restarts24h` | server starts in the last 24 h (one `system` event with `payload.boot` per start) | — | > 10 |
 
-Until step 3 lands: `curl -s https://muster.town/api/health | jq '{ws: .load.wsClients, tick: .load.tick, backup, desks}'`.
+`curl -s https://muster.town/api/health | jq .capacity`. The tick ring and the restart count start fresh at each boot from
+memory and the events table: `tick.samples` is below 100 for the first ~17 min after a restart.
+
