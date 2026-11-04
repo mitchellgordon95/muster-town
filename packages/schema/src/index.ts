@@ -1157,6 +1157,9 @@ export const GrantHistoryEntry = z.object({
   action: GrantAction,
   tokens: z.number().int().nullable().default(null),
   note: z.string().default(""),
+  /** decided by the human in a 1:1 through its agent (act_in_1on1): that agent and meeting; byId stays the human */
+  viaAgentId: Id.optional(),
+  viaMeetingId: Id.optional(),
 });
 export type GrantHistoryEntry = z.infer<typeof GrantHistoryEntry>;
 /** One line of a grant's testing plan (grants from before key results merged into grants, migration 069; read-only now). */
@@ -1787,7 +1790,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
-  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
+  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
@@ -1942,6 +1945,14 @@ export const VerbInputs = {
     note: z.string().trim().min(1).max(2000).describe("the evidence that the work is done: what a human can check in the live town; it becomes its key results' claimed note"),
     reportId: Id.optional().describe("an already filed report with the evidence; leave it out when you close first and then submit_report with rollup: true in this session (that report links itself as the close report)"),
   }),
+  act_in_1on1: z.object({
+    meetingId: Id.describe("the 1:1 you are in (you its agent, the human the one who said it)"),
+    utteranceAt: Iso.describe("the exact `at` of the human's own line that says the decision, as `meeting` status or listen shows it; from the last 30 min"),
+    action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut", "approve", "stop"]).describe("grant (gr_…): fund / counter / reject a proposal, continue / adjust / cut a checkpoint; retainer (sc_…): approve / counter / reject. stop is refused: it stays the human's button"),
+    targetId: Id.describe("the grant (gr_…) or the schedule whose retainer is asked (sc_…)"),
+    tokens: z.number().int().positive().optional().describe("fund / adjust: the grant's tokens; counter: the tokens to ask instead (a retainer: per run)"),
+    note: z.string().max(1500).default("").describe("optional: your own line added after the human's quoted words"),
+  }),
   withdraw_grant: z.object({
     grantId: Id.describe("a proposed or countered grant of my building"),
     note: z.string().trim().min(1).max(2000).describe("why you withdraw it: kept on the grant and sent to the humans who saw the proposal"),
@@ -2012,6 +2023,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (close_grant marks them met; only a human marks missed), with a note on the evidence (what shipped or did not), and once per checkpoint whatTopUpBuys + topUpTokens (what the next tokens would deliver); then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
+  act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer. Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The grant's history records it as theirs, via you, quoting them. Never stop a grant (a button only) or touch Bank inputs; one call per grant.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
