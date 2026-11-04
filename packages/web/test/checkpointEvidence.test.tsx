@@ -50,13 +50,21 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
     expect(html).toContain("spent (109%)");
   });
 
-  it("a proposal asking again for that work shows the earlier grant's evidence above its own key results", () => {
+  it("a proposal naming the grant it continues shows that grant's evidence above its own key results", () => {
     store.state = { ...store.state, ...STATE };
     const proposal = { ...grants.find((g) => g.status === "proposed")!, history: [] };
     const html = row({ ...proposal, evidence: hud.evidence });
-    expect(html).toContain("Asks again for work an earlier grant stopped at its checkpoint");
+    expect(html).toContain("Continues the earlier grant");
     expect(html).toContain("Spent 2M of 2M adj. tokens granted.");
     expect(html.indexOf("checkpoint-evidence")).toBeLessThan(html.indexOf("How to check"));
     expect(html).not.toContain('class="grant-plan"'); // the plan is not folded on a proposal (only each key result's how-to-check is)
+  });
+
+  it("a proposal that names no earlier grant shows no other grant's evidence (1:1 mt_z1b38bwg98)", () => {
+    store.state = { ...store.state, ...STATE };
+    const proposal = { ...grants.find((g) => g.status === "proposed")!, history: [], evidence: null };
+    const html = row(proposal);
+    expect(html).not.toContain("checkpoint-evidence");
+    expect(html).not.toContain("Continues the earlier grant");
   });
 });
