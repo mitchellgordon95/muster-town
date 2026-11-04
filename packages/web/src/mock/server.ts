@@ -212,7 +212,7 @@ export class MockApi implements Api {
     await wait();
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
-    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [] };
+    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
   }
   async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
     await wait();
