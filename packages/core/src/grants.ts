@@ -40,6 +40,8 @@ export interface ExplorationBudget { spentTodayTokens: number; freeTokens: numbe
 /** A goal key result as the API returns it: the live grant on it, and the names of who wrote / last edited it (null = unknown or never). */
 export type GoalKeyResult = KeyResult & { createdByName: string | null; editedByName: string | null };
 /** Today's (UTC) spend on directed work (a human asked for it): metered in its own bucket, never held by the allowance. */
+/** A decision a human said in a 1:1 and its agent did for them (act_in_1on1): recorded on the history entry. */
+interface DecidedVia { agentId: string; meetingId: string }
 export interface DirectedBudget { spentTodayTokens: number }
 /** An objective as the API returns it: the KPI it moves (key and name) and its key results in order. */
 export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName: string | null; editedByName: string | null };
@@ -442,8 +444,9 @@ export class Grants {
    * back to the manager) / reject. Checkpoint: continue / adjust (tokens, stop condition) / cut.
    * Member funding: `fund` with `fundWith` (one of the funder's own Bank inputs) needs no `building.fund`, only a human
    * whose active input can still pay the grant's tokens; its sessions are then paid from that input first.
+   * `via`: the human said it in a 1:1 and its agent did it for them (act_in_1on1); the history entry records both.
    */
-  decide(actor: Actor, id: string, input: DecideGrantInput): GrantView {
+  decide(actor: Actor, id: string, input: DecideGrantInput, via?: DecidedVia): GrantView {
     const inp = DecideGrantInput.parse(input);
     const g = this.world.grants.require(id, "grant");
     if (inp.fundWith && inp.action !== "fund") throw badRequest("fundWith goes with action \"fund\" only.");
@@ -462,7 +465,7 @@ export class Grants {
         const fundedWith = inp.fundWith ?? null;
         // no Bank gate (Mitchell, 1:1 mt_fgsticyyhr, 2026-11-02): a human may fund whatever they choose; what the usable
         // balance can't cover today is overdrawn and the grant's work waits its turn in the overdraft walk (free-tokens.ts)
-        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note);
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note, via);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
         this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
         this.decisionAssignment(next, actor, "funded", inp.note);
@@ -471,7 +474,7 @@ export class Grants {
       case "counter": {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
-        next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note);
+        next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note, via);
         this.event("grant.countered", next, actor, `Countered: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
         this.decisionAssignment(next, actor, "countered", inp.note);
@@ -479,7 +482,7 @@ export class Grants {
       }
       case "reject":
         this.requireStatus(g, ["proposed"], "rejected");
-        next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note);
+        next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note, via);
         // a rejected proposal's key results archive with it (goals keep no open ones)
         for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} rejected`, updatedAt: nowIso() });
         this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`, deck);
@@ -489,7 +492,7 @@ export class Grants {
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
-        next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note);
+        next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note, via);
         this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
         break;
       case "adjust": {
@@ -497,13 +500,13 @@ export class Grants {
         const tokens = inp.tokens ?? g.grantTokens ?? 0;
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
-        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note);
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note, via);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
         break;
       }
       case "cut":
         this.requireStatus(g, ["checkpoint"], "cut");
-        next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note);
+        next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note, via);
         this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });
         this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
         break;
@@ -981,13 +984,13 @@ ${krs}
     if (!ok.includes(g.status)) throw new AppError("conflict", `A ${g.status} grant can't be ${verb} (needs ${ok.join(" or ")}).`);
   }
 
-  private entry(actor: Actor, action: GrantHistoryEntry["action"], tokens: number | null, note: string): GrantHistoryEntry {
+  private entry(actor: Actor, action: GrantHistoryEntry["action"], tokens: number | null, note: string, via?: DecidedVia): GrantHistoryEntry {
     const by = actor ? holderOf(actor) : { kind: "user" as const, id: "system" };
-    return { at: nowIso(), byId: by.id, byKind: by.kind === "user" ? "user" : "agent", action, tokens, note };
+    return { at: nowIso(), byId: by.id, byKind: by.kind === "user" ? "user" : "agent", action, tokens, note, ...(via && { viaAgentId: via.agentId, viaMeetingId: via.meetingId }) };
   }
 
-  private save(g: Grant, actor: Actor, patch: Partial<Grant>, action: GrantHistoryEntry["action"], tokens: number | null, note: string): Grant {
-    return this.world.grants.upsert({ ...g, ...patch, history: [...g.history, this.entry(actor, action, tokens, note)], updatedAt: nowIso() });
+  private save(g: Grant, actor: Actor, patch: Partial<Grant>, action: GrantHistoryEntry["action"], tokens: number | null, note: string, via?: DecidedVia): Grant {
+    return this.world.grants.upsert({ ...g, ...patch, history: [...g.history, this.entry(actor, action, tokens, note, via)], updatedAt: nowIso() });
   }
 
   private event(type: EventType, g: Grant, actor: Actor, text: string, extra: Record<string, unknown> = {}): void {
