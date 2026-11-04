@@ -403,6 +403,13 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(sources.body).toMatchObject({ creditedTokens: 2000, totalReceived: finance.body.total, financeTotal: finance.body.total, matchesFinance: true, sumCheck: { ok: true, diff: 0 } });
     expect(sources.body.inputs.find((r: any) => r.label === "Key")).toMatchObject({ source: "api-key", tokens: 2000, credits: [{ tokens: 2000, expiresAt: null }] });
     expect(sources.body.donations.some((d: any) => d.buildingId === "carbon-cycle" && d.sizeTokens === 1000)).toBe(true);
+    // the lane × token-kind table (gr_lwgus14rd2 step 1): today by default, 7d on ask, a bad window refused
+    const spendToday = await json(app, "GET", "/api/finance/spend");
+    expect(spendToday.body.byLaneKind).toMatchObject({ window: "today", check: { ok: true }, notCounted: { sessions: 0 } });
+    const spend7d = await json(app, "GET", "/api/finance/spend?window=7d");
+    expect(spend7d.body.byLaneKind).toMatchObject({ window: "7d", windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
+    expect(spend7d.body.rows).toEqual(spendToday.body.rows);
+    expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);
     const fly = await json(app, "GET", "/api/finance/fly?days=7");
