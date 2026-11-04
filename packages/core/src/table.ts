@@ -163,6 +163,11 @@ export class Table<T extends object, W extends object = T> {
     return (this.stmt(`SELECT COALESCE(SUM("${col}"), 0) AS n FROM "${this.name}" WHERE ${where}`).get(...params) as { n: number }).n;
   }
 
+  /** Raw rows of a few columns or SQL expressions (`COUNT(*) AS n`), not parsed through the schema: hot paths that need only some fields (JSON columns stay text). */
+  columns<R extends object>(cols: string[], where = "1=1", params: unknown[] = [], tail = ""): R[] {
+    return this.stmt(`SELECT ${cols.join(", ")} FROM "${this.name}" WHERE ${where || "1=1"} ${tail}`).all(...params) as R[];
+  }
+
   /** Arbitrary SELECT returning this table's rows (e.g. FTS joins). */
   query(sql: string, params: unknown[] = []): T[] {
     return (this.stmt(sql).all(...params) as Row[]).map((r) => this.fromRow(r));
