@@ -23,7 +23,7 @@ export const authStore = {
   set(p: Partial<AuthState>) { state = { ...state, ...p }; subs.forEach((f) => f()); },
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
 };
-export const useAuth = () => useSyncExternalStore(authStore.subscribe, authStore.get);
+export const useAuth = () => useSyncExternalStore(authStore.subscribe, authStore.get, authStore.get);
 
 /** `GET /api/auth/config` (the mock pretends GitHub is configured so the button shows). */
 export async function loadAuthConfig(): Promise<AuthConfig | null> {

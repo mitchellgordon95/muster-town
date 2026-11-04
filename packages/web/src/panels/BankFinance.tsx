@@ -421,7 +421,7 @@ export function FlyAbout({ fly }: { fly: FinanceFly }) {
 export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
-    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (what one is made of is under Tokens & sources, updated daily).
+    one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (what one is made of is on the Inputs tab, updated daily).
     {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
   </p>
 );
@@ -480,7 +480,7 @@ export function TokensAbout({ f }: { f: Finance }) {
   );
 }
 
-/** Next N days (on the Overview): used and left so far, the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate; used, left, burn and inflow with their "≈ $" twins and one footnote. */
+/** Next N days (on Balance): used and left so far, the trailing burn, the expected inflow, the net per day, the projection and the runway at the net rate; used, left, burn and inflow with their "≈ $" twins and one footnote. */
 export function ProjectionView({ f }: { f: Finance }) {
   const p = f.projection;
   return (
@@ -524,12 +524,12 @@ export const FinanceFooter = ({ f, spend, sources, fly }: FinanceData) => (
 
 /** Every term the Bank page uses, in plain words (kr_zjawesqcyp): one list a stranger can read, at the foot of every tab. */
 export const FINANCE_TERMS: [term: string, meaning: string][] = [
-  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens & sources."],
+  ["Adjusted token (adj. token)", "The unit every amount is in, except Hosting (US dollars): one output token counts 1, and input and cached tokens count at their lower price. What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is on the Inputs tab."],
   ["Expiring and permanent", "Subscription tokens are credited each day and expire at the next renewal if nobody used them. API-key tokens are permanent: kept until used."],
   ["Overdrawn", "Tokens spent past what was received. Its parts: sessions that ran past the permanent tokens the Bank had (a debt, paid back from later API-key credits); subscription credits drawn past their size when the Bank switched to adjusted tokens on 2026-10-27; draws on credits since deleted; and donations a building spent past their size."],
   ["Held", "The unspent part of donations made straight to a building: only that building can spend them."],
   ["Claimed", "Tokens already promised: funded grants' remaining tokens, open grant proposals' asks and open exploration reservations. Claimed tokens are still in the Bank but no new work may count on them."],
-  ["Free tokens", "What exploration (work no grant covers and no human asked for) may still claim: the general balance plus any earmarks at or above a goal, less funded grants' remaining tokens, open proposals' asks and open reservations. Never below zero; at zero nothing new is explored there."],
+  ["Free tokens", "What exploration (work no grant covers and no human asked for) may still claim: the general balance plus any earmarks at or above a goal, less funded grants' remaining tokens, open proposals' asks and open reservations. Never below zero; at zero nothing new is explored there. The Balance tab shows the town's as \"Free for exploration\"; each goal's is in the goal editor (Funding)."],
   ["Earmark", "A Bank input given for one goal: it pays only for work under that goal, nearest earmark first."],
   ["Exploration cap", "An optional limit on what exploration under a goal may spend per UTC day, inherited down the tree; on the top goal it is town-wide. None set: uncapped."],
   ["Not funded", "Work sessions the Bank never charged: tokens a session used that no Bank credit or donation paid for."],

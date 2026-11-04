@@ -4,7 +4,8 @@ import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } fro
 import { approxUsd, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
-import { BankFreeTokens, freeBreakdown } from "../src/panels/FreeTokens";
+import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
+import type { Bank } from "../src/api";
 import { claimedTokens } from "../src/format";
 
 // the live shape: 1,000 received, 1,100 used (200 overdrawn), 50 expired, 50 left
@@ -35,7 +36,7 @@ describe("finance page", () => {
     expect([netPerDay(covered), runwayText(covered)]).toEqual(["+10 / day surplus", "covered by the daily inflow"]);
     const idle = { ...p, trailingDailyBurn: 0, netDailyBurn: -5, runwayDays: null, runway: "no-usage" as const };
     expect(runwayText(idle)).toBe("nothing used lately");
-    const ov = tabOf("Overview", { f: { ...f, projection: covered } });
+    const ov = tabOf("Balance", { f: { ...f, projection: covered } });
     for (const s of ["Coming in (expected from recurring inputs)", "30 / day", "+10 / day surplus", "covered by the daily inflow", "one-off donations"]) expect(ov).toContain(s);
     expect(ov).not.toContain(">0 days<");
   });
@@ -53,10 +54,10 @@ describe("finance page", () => {
     expect(page({ f: { ...f, sumCheck: { ...f.sumCheck, ok: false, diff: 5 } } })).toContain("✗ Does not add up (off by 5)");
   });
   it("splits the page into tabs, each a thing in the Bank's room, each ending with its sources (1:1 mt_ew2d0mm7h9)", () => {
-    expect([...BANK_TABS]).toEqual(["Overview", "Tokens & sources", "Free tokens", "Spending", "Hosting"]);
+    expect([...BANK_TABS]).toEqual(["Donate", "Balance", "Inputs", "Spending", "Hosting"]);
     const all = { spend: sp, sources: src, fly };
     const has: Record<string, string[]> = {
-      Overview: ["Balance", "Next 30 days"], "Tokens & sources": ["Tokens", "Sources"], "Free tokens": ["Free tokens by goal"], Spending: ["Spending"], Hosting: ["Hosting (Fly.io)"],
+      Donate: ["Donate", "Funding the town now"], Balance: ["Balance", "Next 30 days"], Inputs: ["Tokens", "Sources"], Spending: ["Spending"], Hosting: ["Hosting (Fly.io)"],
     };
     for (const t of BANK_TABS) {
       const html = tabOf(t, all);
@@ -64,7 +65,7 @@ describe("finance page", () => {
       for (const [o, ss] of Object.entries(has)) if (o !== t) for (const s of ss) expect(html, `${t} lacks ${s}`).not.toContain(`>${s}<`);
       expect(html, t).toContain("As of 2026-10-27");
     }
-    const ov = tabOf("Overview", all);
+    const ov = tabOf("Balance", all);
     expect(ov.indexOf(">Balance<")).toBeLessThan(ov.indexOf(">Next 30 days<"));
   });
   it("ends every tab with the Terms block, above the footer, defining each term the page uses (kr_zjawesqcyp)", () => {
@@ -76,9 +77,9 @@ describe("finance page", () => {
       for (const [term] of FINANCE_TERMS) expect(html, `${t}: ${term}`).toContain(`<dt><b>${term}</b></dt>`);
       expect(html.indexOf("Terms used on this page"), t).toBeLessThan(html.indexOf("As of 2026-10-27"));
     }
-    expect(tabOf("Overview", {})).toContain("What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is under Tokens &amp; sources.");
+    expect(tabOf("Balance", {})).toContain("What one is made of (the share of input, cache read, cache write and output over the last 7 days, updated daily) is on the Inputs tab.");
   });
-  it("Tokens & sources says what 1 adj. token is made of, from the stored mix, with the formula (1:1 mt_rbc3exb393)", () => {
+  it("Inputs says what 1 adj. token is made of, from the stored mix, with the formula (1:1 mt_rbc3exb393)", () => {
     const mix: TokenMix = {
       unitModel: "claude-opus-5-5", weights: { input: 0.2, output: 1, cacheRead: 0.01, cacheWrite5m: 0.25, cacheWrite1h: 0.4 },
       formula: "adj. tokens = output + 0.2 × input + 0.01 × cache read + 0.25 × cache write (5 min) + 0.4 × cache write (1 h)",
@@ -91,9 +92,9 @@ describe("finance page", () => {
     expect(m.line).toBe("1 adj. token ≈ 23.0 raw tokens: 8.7% input, 87.0% cache read, 3.5% cache write, 0.87% output (from the last 7 days of usage, 412 sessions, updated daily; last 2026-11-01 00:00 UTC).");
     expect(m.formula).toContain("adj. tokens = output + 0.2 × input + 0.01 × cache read");
     expect(m.formula).toContain("Of what those tokens cost: 40.0% input, 20.0% cache read, 20.0% cache write, 20.0% output.");
-    const html = renderToStaticMarkup(<BankView tab="Tokens & sources" bank={null} fin={{ f: { ...f, mix }, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
+    const html = renderToStaticMarkup(<BankView tab="Inputs" bank={null} fin={{ f: { ...f, mix }, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
     expect(html).toContain("1 adj. token ≈ 23.0 raw tokens: 8.7% input");
-    expect(tabOf("Tokens & sources", {})).not.toContain("1 adj. token ≈");
+    expect(tabOf("Inputs", {})).not.toContain("1 adj. token ≈");
     expect(mixLine({ ...mix, source: "calibration", sessions: 0 }).line).toContain("no usage in the last 7 days yet, so the first calibration");
   });
   it("uses no internal names anywhere on the page", () => {
@@ -259,11 +260,11 @@ describe("finance page: dollars at API list price (gr_gmzli3f96j)", () => {
     expect([dollars(1234.5), dollars(-0.4), approxUsd(0.1)]).toEqual(["$1,234.50", "−$0.40", "≈ $0.10"]);
   });
   it("shows ≈ $ next to used, left, burn and coming in on the Overview, with one footnote", () => {
-    const ov = tabOf("Overview", { f: { ...f, usd } });
+    const ov = tabOf("Balance", { f: { ...f, usd } });
     for (const s of ["Used so far", "≈ $1,234.50", "≈ $1.00", "≈ $0.40", "≈ $0.10", USD_NOTE]) expect(ov).toContain(s);
     expect(ov.split(USD_NOTE).length - 1).toBe(1);
     // a server without dollars: no ≈ $ and no footnote
-    const old = tabOf("Overview", {});
+    const old = tabOf("Balance", {});
     expect(old).not.toMatch(/≈ \$\d/);
     expect(old).not.toContain(USD_NOTE);
   });
@@ -315,10 +316,24 @@ describe("finance page: free tokens", () => {
     expect(freeBreakdown(free)).toBe("general balance 900 + earmarks at or above 100 − funded grants' remaining 500 − open proposals' asks 200 − reservations 50");
     expect(freeBreakdown({ ...free, earmarkTokens: 0, reservedTokens: 0 })).toBe("general balance 900 − funded grants' remaining 500 − open proposals' asks 200");
   });
-  it("shows the town-wide free tokens with each term", () => {
-    const html = renderToStaticMarkup(<BankFreeTokens free={free} />);
+  it("shows the town-wide free tokens' sum with each term", () => {
+    const html = renderToStaticMarkup(<FreeTokensSum free={free} />);
     expect(claimedTokens(free)).toBe(750);
-    for (const s of [">Free tokens<", "general balance", "earmarks at or above", "less funded grants&#x27; remaining", "−500", "less reservations", "<b>250</b>"]) expect(html).toContain(s);
+    for (const s of [">Free for exploration: the sum<", "general balance", "earmarks at or above", "less funded grants&#x27; remaining", "−500", "less reservations", "<b>250</b>"]) expect(html).toContain(s);
+  });
+  it("Balance shows one line 'Free for exploration: N' with its sum in the sidebar; no tab lists free tokens by goal (gr_567tikzitl step 2, kr_lq1qmywinq)", () => {
+    const bank = {
+      balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, heldTokens: 300, townTokens: 2300, creditedTokens: 5000, adjustedCreditedTokens: 5000, dailyInflowTokens: 0,
+      creditedCounts: { input: 0, output: 5000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, inputs: [], buildings: [], contributors: [], free,
+    } as unknown as Bank;
+    const html = renderToStaticMarkup(<BankView tab="Balance" bank={bank} fin={{ f, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
+    const side = html.indexOf('<aside class="bank-side"');
+    const centre = html.slice(0, side), sidebar = html.slice(side);
+    expect(centre).toContain("<td>Free for exploration</td><td><b>250</b></td>");
+    expect(centre).not.toContain("general balance");
+    expect(sidebar).toContain(">Free for exploration: the sum<");
+    expect(sidebar).toContain("less funded grants&#x27; remaining");
+    for (const t of BANK_TABS) expect(tabOf(t, {})).not.toContain("Free tokens by goal");
   });
 });
 

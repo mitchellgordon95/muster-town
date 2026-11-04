@@ -1,17 +1,18 @@
 /**
  * The Bank's tab bodies (BankSheet.tsx is the sheet over the map that shows them; the HUD's "$", `#/bank`, the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
- * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Overview (the vault):
- * Balance (with the town-wide free tokens), Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens,
- * Bank inputs, Sources. Free tokens (fountain): every goal's free tokens and exploration cap. Spending (spending board): building funding, Spending, Spend by goal (a
+ * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Donate (the chest; the
+ * tab the sheet opens on): the Donate form, then what funds the town now. Balance (the vault): the balance with one "Free for
+ * exploration" line (its sum in the sidebar; per-goal free tokens are in the goal editor), Next 30 days, top contributors.
+ * Inputs (ledger desk): Tokens, Bank inputs, Streams, Sources. Spending (spending board): building funding, Spending, Spend by goal (a
  * goal's subtree from session rows; 1:1 mt_n25udpflus decision 5), drift, out-of-tokens deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
 import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
 import { useTown } from "../state";
-import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
+import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, BuildingFunding, Donate, DonateAbout, FundingNow } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, SpendingView, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
-import { BankFreeTokens, FreeTokensTree, FreeTokensTreeAbout } from "./FreeTokens";
+import { FreeTokensSum } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
 import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
@@ -43,8 +44,8 @@ export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactN
 
 /** The tab's prose (the sidebar's "About this tab"), in the order its sections sit in the centre. */
 function BankAbout({ tab, bank, fin }: ViewProps) {
-  if (tab === "Tokens & sources") return <>{fin ? <TokensAbout f={fin.f} /> : null}{bank ? <BankInputsAbout /> : null}{fin?.sources ? <SourcesAbout /> : null}</>;
-  if (tab === "Free tokens") return <FreeTokensTreeAbout />;
+  if (tab === "Donate") return <DonateAbout />;
+  if (tab === "Inputs") return <>{fin ? <TokensAbout f={fin.f} /> : null}{bank ? <BankInputsAbout /> : null}{fin?.sources ? <SourcesAbout /> : null}</>;
   if (tab === "Spending") return (
     <>
       {fin?.spend ? <SpendingAbout sp={fin.spend} /> : null}
@@ -52,11 +53,17 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
     </>
   );
   if (tab === "Hosting") return fin?.fly ? <FlyAbout fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
-  return <><FinanceIntro hosting={!!fin?.fly} />{fin ? <ProjectionAbout f={fin.f} /> : null}</>;
+  return <><FinanceIntro hosting={!!fin?.fly} />{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}</>;
 }
 
 function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
-  if (tab === "Tokens & sources") return (
+  if (tab === "Donate") return (
+    <>
+      <Donate onChange={onChange} />
+      <FundingNow bank={bank} rev={rev} />
+    </>
+  );
+  if (tab === "Inputs") return (
     <>
       {fin ? <TokensView f={fin.f} /> : null}
       {bank ? <BankInputs bank={bank} onChange={onReload} /> : null}
@@ -64,7 +71,6 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
       {fin?.sources ? <SourcesView s={fin.sources} /> : null}
     </>
   );
-  if (tab === "Free tokens") return <FreeTokensTree />;
   if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
   if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : null;
   return (
@@ -78,19 +84,16 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
               <tr><td>In the Bank (one balance every building draws on)</td><td>{bank.balanceTokens.toLocaleString("en-US")}</td></tr>
               <tr><td>Claimed (open reservations + open proposals&apos; asks + funded grants&apos; remaining)</td><td>{bank.free ? claimedTokens(bank.free).toLocaleString("en-US") : "…"}</td></tr>
               {bank.reserveTokens !== undefined ? <OperatingReserveRow bank={bank} onChange={onReload} /> : null}
-              <tr><td>Free (what exploration or a new grant may still claim)</td><td>{bank.free ? bank.free.freeTokens.toLocaleString("en-US") : "…"}</td></tr>
+              <tr title="What exploration (work no grant covers and no human asked for) or a new grant may still claim; the sum is in the sidebar"><td>Free for exploration</td><td><b>{bank.free ? bank.free.freeTokens.toLocaleString("en-US") : "…"}</b></td></tr>
+              {bank.free?.overdraftTokens ? <tr title="Approved claims the usable balance doesn't cover; the sidebar lists them"><td style={{ color: "#c0392b" }}>Overdraft: claimed, not backed by anything usable</td><td style={{ color: "#c0392b" }}>{bank.free.overdraftTokens.toLocaleString("en-US")}</td></tr> : null}
               <tr><td>Expected inflow per day</td><td>{fmtTokens(bank.dailyInflowTokens)}</td></tr>
               <tr className="sub-row" title={breakdownTitle(bank.creditedCounts)}><td>Credited so far: input · output · cache read · cache write 5m · 1h (raw)</td><td>{[bank.creditedCounts.input, bank.creditedCounts.output, bank.creditedCounts.cacheRead, bank.creditedCounts.cacheWrite5m, bank.creditedCounts.cacheWrite1h].map(fmtTokens).join(" · ")}</td></tr>
             </tbody>
           </table>
         )}
       </Section>
-      {bank?.free ? <BankFreeTokens free={bank.free} /> : null}
       {fin ? <ProjectionView f={fin.f} /> : null}
-      {bank && <>
-        <BankContributors bank={bank} />
-        <Donate onChange={onChange} />
-      </>}
+      {bank ? <BankContributors bank={bank} /> : null}
     </>
   );
 }
