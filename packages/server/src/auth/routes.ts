@@ -1,4 +1,4 @@
-import { AppError, upsertGithubUser } from "@muster-town/core";
+import { AppError, countFunnel, isAutomatedClient, upsertGithubUser } from "@muster-town/core";
 import { GithubDeviceInput, type AuthConfig } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { parse, WEB_BASE } from "../context.ts";
@@ -27,8 +27,14 @@ export function authRoutes(settings: AuthSettings) {
 
     app.get("/auth/github", async (req, reply) => {
       configured();
+      // the join funnel's `signInStarted` (gr_zoo2cf2zpp): Sign in pressed by a browser with no session, counted in the collective it came from
+      // (a hosted one counts here and hands off; the root counts only its own, not a hand-off); scripts and headless checks never count
+      const back = returnTo((req.query as { return_to?: unknown }).return_to);
+      const slug = back ? /^\/([a-z0-9-]+)\//.exec(back)?.[1] : undefined;
+      const handOff = !!slug && `/${slug}/` !== WEB_BASE;
+      if (!isAutomatedClient(req.headers["user-agent"]) && !sessionAuth(world, s, req) && (s.hosted || !handOff)) countFunnel(world, "signInStarted");
       if (s.hosted) return reply.redirect(`/auth/github?return_to=${encodeURIComponent(`/${s.hosted.slug}/`)}`);
-      const { state, setCookie } = newState(s, returnTo((req.query as { return_to?: unknown }).return_to));
+      const { state, setCookie } = newState(s, back);
       return reply.header("set-cookie", setCookie).redirect(authorizeUrl(s, state));
     });
 

@@ -1,4 +1,4 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -492,7 +492,12 @@ export async function townRoutes(app: FastifyInstance) {
   // `free`: the town-wide free tokens (docs/how-work-gets-done.md §7; core free-tokens.ts), the one number exploration reads
   app.get("/api/finance", async () => ({ ...world.bank.finance(), free: world.bank.freeTokens?.() ?? null }));
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
-  app.get("/api/finance/spend", async () => world.bank.spend());
+  // ?window=today|7d (default today) picks the window of `byLaneKind`, the lane × token-kind table (gr_lwgus14rd2 step 1); every other field is all-time
+  app.get<{ Querystring: { window?: string } }>("/api/finance/spend", async (req) => {
+    const window = req.query.window ?? "today";
+    if (!(LANE_KIND_WINDOWS as readonly string[]).includes(window)) throw badRequest(`window must be one of ${LANE_KIND_WINDOWS.join(", ")}`);
+    return world.bank.spend(new Date(), window as LaneKindWindow);
+  });
   app.get("/api/finance/sources", async () => world.bank.sources());
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it

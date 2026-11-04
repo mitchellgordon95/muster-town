@@ -10,7 +10,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID } from "@muster-town/schema";
-import { api, type Bank, type FinanceSpend, type SpendNode } from "../api";
+import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
 import { useTown } from "../state";
 import { BuildingFunding, pickRow } from "./BankFunding";
 import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine } from "./BankFinance";
@@ -110,6 +110,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
         {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
         {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
       </> : null}
+      {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
     </Section>
   );
 }
@@ -178,7 +179,7 @@ function AssignmentSessions({ grantId, assignmentId }: { grantId: string; assign
 
 /**
  * The Spending sidebar's "Health": drift (adjusted vs SDK-reported cost, 24 h) and out-of-tokens deaths and the cap. The
- * lane × token-kind table (gr_lwgus14rd2, proposed) goes after it when funded.
+ * lane × token-kind table (gr_lwgus14rd2) sits under the drill-down instead (`LaneKind`): it is too wide for the sidebar.
  */
 export function SpendingHealth({ bank }: { bank: Bank | null }) {
   const drift = bank?.drift && bank.drift.models.length ? bank.drift : null;
@@ -213,5 +214,63 @@ export function SpendingHealth({ bank }: { bank: Bank | null }) {
         </table>
       ) : null}
     </section>
+  );
+}
+
+const LANE_LABEL: Record<LaneKindRow["lane"], string> = {
+  grant: "Grant", exploration: "Exploration", directed: "Directed", retainer: "Retainer", manager: "Manager wakes", other: "Other", total: "Total",
+};
+const LANE_HINT: Partial<Record<LaneKindRow["lane"], string>> = {
+  manager: "A manager's team-lead sessions (purpose manage)",
+  other: "Reviews, meetings, summaries, naming, estimates, and work with no lane recorded",
+};
+const KIND_COLS: [TokenKind, string][] = [["input", "Input"], ["output", "Output"], ["cacheRead", "Cache read"], ["cacheWrite5m", "Cache write 5 min"], ["cacheWrite1h", "Cache write 1 h"]];
+
+/**
+ * Spend by lane × token kind (gr_lwgus14rd2 step 1, kr_pzr1fkgas8): GET /api/finance/spend's `byLaneKind`, the town's
+ * at the top level and one building's (its `buildings` entry) in that building's level. One summary line (total, $, the
+ * cache-write share of cost) with a today / 7 d toggle; the table folds under "Show the table" so each level stays about
+ * one screen. Today comes with the tab's spend; 7 d is fetched when picked.
+ */
+export function LaneKind({ today, buildingId, name, initialOpen = false }: { today?: SpendByLaneKind; buildingId?: string; name?: string; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const [win, setWin] = useState<"today" | "7d">("today");
+  const week = useLoad(() => (win === "7d" ? api().financeSpend("7d") : Promise.resolve(null)), [win]);
+  if (!today) return null;
+  const lk = win === "today" ? today : week.data?.byLaneKind;
+  const t: LaneKindTable | undefined = lk && (buildingId ? lk.buildings[buildingId] ?? { rows: [], total: { ...lk.total, sessions: 0, tokens: 0, usd: 0, cacheWriteShare: 0 }, notCounted: { sessions: 0, tokens: 0, usd: 0 } } : lk);
+  const winBtn = (w: "today" | "7d", label: string) => <button type="button" className="btn sm bank-toggle" aria-pressed={win === w} onClick={() => setWin(w)}>{label}</button>;
+  return (
+    <section className="lane-kind" aria-label="Spend by lane and token kind">
+      <div className="lane-kind-head">
+        <span><b>By lane × token kind</b>{name ? ` · ${name}` : ""}{lk ? <span className="muted"> · {lk.windowNote}</span> : null}{t ? <>: {n(t.total.tokens)} {ADJ} · {dollars(t.total.usd)} · cache writes {pct(t.total.cacheWriteShare)} of cost</> : week.loading ? <Loading /> : null}</span>
+        <span className="bank-section-right">{winBtn("today", "Today")}{winBtn("7d", "7 d")}<button type="button" className="btn sm bank-toggle" aria-expanded={open} onClick={() => setOpen((x) => !x)}>{open ? "Hide the table" : "Show the table"}</button></span>
+      </div>
+      {open && t ? (
+        <table className="table spend-table lane-kind-table">
+          <thead><tr>
+            <th>Lane</th><th>Sessions</th>{KIND_COLS.map(([k, label]) => <th key={k} title={`${label}, ${ADJ} (≈ $ on hover)`}>{label}</th>)}
+            <th>{ADJ}</th><th title="At API list price">$</th><th title="Cache write 5 min + 1 h, share of the row's cost">Cache-write share</th>
+          </tr></thead>
+          <tbody>{t.rows.length ? t.rows.map((r) => <LaneKindLine key={r.lane} r={r} />) : <tr><td colSpan={10} className="muted">No sessions in this window.</td></tr>}</tbody>
+          {t.rows.length > 1 ? <tfoot><LaneKindLine r={t.total} /></tfoot> : null}
+        </table>
+      ) : null}
+      {open && t?.notCounted.sessions ? <p className="muted">Not counted: {n(t.notCounted.sessions)} back-filled session{t.notCounted.sessions === 1 ? "" : "s"} with no real split by kind, {n(t.notCounted.tokens)} {ADJ} ({dollars(t.notCounted.usd)}).</p> : null}
+      {open && lk && !buildingId ? <div className={lk.check.ok ? "finance-check ok" : "error-line"} role="status">{lk.check.ok ? "✓ " : "✗ "}{lk.check.identity}: {n(lk.total.tokens + lk.notCounted.tokens)} vs {n(lk.sessionsTokens)}</div> : null}
+    </section>
+  );
+}
+
+function LaneKindLine({ r }: { r: LaneKindRow }) {
+  return (
+    <tr className={`lane-kind-${r.lane}`} title={LANE_HINT[r.lane]}>
+      <td>{r.lane === "total" ? <b>{LANE_LABEL[r.lane]}</b> : LANE_LABEL[r.lane]}</td>
+      <td>{n(r.sessions)}</td>
+      {KIND_COLS.map(([k]) => <td key={k} title={dollars(r.kinds[k].usd)}>{fmtTokens(r.kinds[k].tokens)}</td>)}
+      <td className="spend-tokens">{fmtTokens(r.tokens)}</td>
+      <td className="spend-usd muted">{dollars(r.usd)}</td>
+      <td style={r.cacheWriteShare > 0.2 ? { color: "#c0392b" } : undefined}>{pct(r.cacheWriteShare)}</td>
+    </tr>
   );
 }

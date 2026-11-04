@@ -31,6 +31,7 @@ export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts"
 export { linkPostmortem, postmortemBuilding, postmortemNote, postmortemTag, queuePostmortem } from "./postmortems.ts";
 export { intrayRoutes } from "./intray-routes.ts";
 export { bankConvertedAt, countersSince, financeSpend, grantTitle, spendGrants, spendOutcome, GRANTS_IDENTITY, ledgerBookedBeforeConversion, notFundedUsage, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, NOT_FUNDED_MATCH_MS, NOT_FUNDED_SPLIT_REASON, NOT_FUNDED_UNATTRIBUTED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type NotFundedBuilding, type SpendInputs, type SpendKind, type SpendNode, type SpendGrants, type SpendOutcome, type KrCounts } from "./finance-spend.ts";
+export { spendByLaneKind, laneKindRow, LANE_KIND_WINDOWS, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type FinanceSources, type SourceCredit, type SourceDonation, type SourceInput, type SourcesInputs } from "./finance-sources.ts";
 export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_NOT_COUNTED, FLY_PRICES, TOWN_MACHINE, type FinanceFly, type FlyBuilding, type FlyDay, type FlyDayBuilding, type FlyInputs, type FlyOptions, type FlyRate } from "./finance-fly.ts";
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
@@ -46,7 +47,7 @@ export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.t
 export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, describeRepeat, editSchedule, endSchedule, fireSchedules, nextOccurrence, scheduleTaker, townSchedules, DEFAULT_SCHEDULE_DAYS, MAX_SCHEDULE_DAYS } from "./schedules.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
-export { countFunnel, countFunnelDecision, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";
