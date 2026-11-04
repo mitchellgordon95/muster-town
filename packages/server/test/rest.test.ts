@@ -415,6 +415,11 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.free).toMatchObject({ goalId: "gl_town" });
     expect(typeof finance.body.free.freeTokens).toBe("number");
     expect(finance.body).not.toHaveProperty("pools");
+    // Paid in cash, last 30 days (gr_qggxximtru step 2): no plan recorded; hosting is the Fly estimate over the same 30 days
+    expect(finance.body.cash).toMatchObject({ windowDays: 30, plans: 0, pricedAt: "cash" });
+    expect(finance.body.cash.hosting).toBeGreaterThanOrEqual(0);
+    expect(finance.body.cashCheck).toMatchObject({ ok: true });
+    expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);
     expect(sources.body).toMatchObject({ creditedTokens: 2000, totalReceived: finance.body.total, financeTotal: finance.body.total, matchesFinance: true, sumCheck: { ok: true, diff: 0 } });

@@ -64,7 +64,7 @@ Goal-directed buildings plan in public, and you decide.
 - The digest card on top of the in-tray is the Secretary's daily summary; **Daily digest** runs it now. **Talk to Secretary** opens a 1:1 where a decision you say (e.g. "fund gr_x at 600k") is recorded as yours.
 - A **retainer** funds a repeating scheduled job (tokens per run × runs left); approve it in the in-tray.
 - When a funded grant's tokens are spent, new work on it pauses and the manager files a **checkpoint**: its key results' status and the evidence. You press **Continue**, **Adjust** (more tokens, a new stop condition) or **Cut**. Only a human marks a key result **missed**; the manager at most marks it **claimed**. A manager who finishes early closes the grant as done: unspent tokens return to the Bank and its key results go **met** (a human can flip one to **missed**).
-- **Rollups** are the manager's summaries: what shipped, what was decided, the key results and what it needs from you. The in-tray lists one line each (click to open; **Cards** shows all). **Review as deck** shows the in-tray as slides, most blocking first.
+- **Rollups** are the manager's summaries: what shipped, what was decided, the key results and what it needs from you. The in-tray lists one line each (click to open). **Review as deck** shows the in-tray as slides, most blocking first.
 - A funder or captain can **Stop grant…** a funded grant with a reason: forks wind down, queued work is cancelled, open key results go missed, and the unspent rest returns to whoever funded it.
 - A building's **stoplight** is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.
 

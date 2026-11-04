@@ -818,7 +818,24 @@ export class MockApi implements Api {
       },
       // the toy's sessions are all Opus-booked: every token at $20 per million
       usd: { used: toyUsd(used), left: toyUsd(left), burnPerDay: toyUsd(burn), inflowPerDay: toyUsd(b.dailyInflowTokens), pricedAt: "api-list" },
+      ...this.toyCash(toyUsd(burn * 30)),
       at: now(),
+    };
+  }
+  // Paid in cash, last 30 days (gr_qggxximtru step 2) as core finance-cash.ts counts it: the toy fees prorated over the
+  // 30 days, no API-key sessions (the toy has no sessions table) and $0 hosting (financeFly: the toy runs on no Fly Machine)
+  private toyCash(listUsd: number): Pick<Finance, "cash" | "cashCheck"> {
+    const DAY = 86_400_000, to = Date.now(), from = to - 30 * DAY;
+    const r2 = (x: number) => Math.round(x * 100) / 100;
+    const planRows = this.bankFeeRows.flatMap((f) => {
+      const start = Date.parse(`${f.fromDate}T00:00:00.000Z`), end = f.toDate ? Date.parse(`${f.toDate}T00:00:00.000Z`) + DAY : Infinity;
+      const ms = Math.max(0, Math.min(end, to) - Math.max(start, from));
+      return ms > 0 ? [{ id: f.id, label: f.label, usdPerMonth: f.usdPerMonth, activeDays: r2(ms / DAY), usd: r2((f.usdPerMonth * ms) / (30 * DAY)) }] : [];
+    });
+    const plans = r2(planRows.reduce((s2, r) => s2 + (r.usdPerMonth * r.activeDays) / 30, 0)), total = plans;
+    return {
+      cash: { windowDays: 30, from: new Date(from).toISOString(), to: new Date(to).toISOString(), plans, apiKeys: 0, hosting: 0, total, listUsd, perDollar: total > 0 ? r2(listUsd / total) : null, planRows, apiKeySessions: 0, pricedAt: "cash" },
+      cashCheck: { ok: true, diff: 0, text: `plans + API keys + hosting = total: $${total.toFixed(2)}` },
     };
   }
   // the toy has no sessions table: all of `used` (and a toy unpaid part) is one building row

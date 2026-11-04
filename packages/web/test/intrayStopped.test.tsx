@@ -1,7 +1,7 @@
 /**
  * The Town Hall in-tray's "Stopped: for the record" section (gr_8i952perny) and the Secretary's digest card
  * (gr_kdlogzzo5s) read `stopped` and `digest` from GET /api/buildings/town-hall/intray: the client keeps both, and the
- * section renders in List and Cards without reading `list` before it is declared.
+ * section renders without reading `list` before it is declared.
  */
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -25,9 +25,9 @@ describe("the Town Hall in-tray's stopped grants and digest", () => {
     expect(r.digest).toMatchObject({ doc: { id: "dc_d" } });
     expect(intrayOf({ reports: [], grants: [] })).toMatchObject({ stopped: [], digest: null });
   });
-  for (const mode of ["list", "cards"] as const) it(`renders "Stopped: for the record" in ${mode}`, () => {
+  it('renders "Stopped: for the record"', () => {
     store.state = { ...store.state, me: { isAdmin: true, roles: [], user: { id: "us_m", name: "Mitchell" } } as never };
-    const html = renderToStaticMarkup(<TownHallIntray mode={mode} onFocus={() => undefined} reports={[]} grants={[]} goalProposals={[]} routes={{}} access={[]} captains={[]} retainers={[]} blocked={[]} stopped={[stopped]} onOpen={() => undefined} onDecided={() => undefined} />);
+    const html = renderToStaticMarkup(<TownHallIntray onFocus={() => undefined} reports={[]} grants={[]} goalProposals={[]} access={[]} captains={[]} retainers={[]} blocked={[]} stopped={[stopped]} onOpen={() => undefined} onDecided={() => undefined} />);
     expect(html).toContain("Stopped: for the record");
     expect(html).toContain("Throwaway grant");
   });
