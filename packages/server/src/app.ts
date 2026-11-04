@@ -1,3 +1,4 @@
+import { CapacityProbe } from "./capacity.ts";
 import { AppError, canInteract, countFunnel, isAppError, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
@@ -85,6 +86,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
   app.decorate("healthRefreshMs", opts.healthRefreshMs ?? 0);
+  // GET /api/health `capacity` (gr_n0p3ast5pp step 3): the root app only, hosted collectives share the process
+  app.decorate("capacity", !opts.prefix ? new CapacityProbe(opts.world, { ws: () => load.snapshot().wsClients, tick: () => app.runtime?.tickStats?.().last }) : null);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
   const prefix = opts.prefix ?? "";

@@ -5,6 +5,7 @@ import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import type { Hub } from "./hub.ts";
+import type { CapacityProbe } from "./capacity.ts";
 import type { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
 
@@ -68,6 +69,8 @@ declare module "fastify" {
     exportDir: string | null;
     /** `GET /api/health`: refresh period of its database-backed figures (0 = per request) */
     healthRefreshMs: number;
+    /** GET /api/health `capacity` (capacity.ts; root app only, null in a hosted collective's app) */
+    capacity: CapacityProbe | null;
   }
   interface FastifyRequest {
     auth: Auth | null;

@@ -41,7 +41,8 @@ export async function townRoutes(app: FastifyInstance) {
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
    * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
-   * cached and `figuresAt` is when they were computed; the route itself never touches SQLite (503 post-mortem follow-up A).
+   * cached and `figuresAt` is when they were computed; so is `capacity` (root app, capacity.ts): `{at, wsClients: {now, ceiling},
+   * tick: {p95Ms, slowMs, samples}, db: {mb, volumeGb}, restarts24h}` against docs/scaling.md "How to check headroom live"; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
   // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
@@ -51,6 +52,8 @@ export async function townRoutes(app: FastifyInstance) {
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
+    // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
+    ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
     ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress() } : {}),
   }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
