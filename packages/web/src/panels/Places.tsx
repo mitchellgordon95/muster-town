@@ -17,6 +17,7 @@ import { grantUrl } from "../route";
 import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { clipText } from "./showMore";
@@ -178,6 +179,7 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) { e.preventDefault(); void plant().catch((err) => store.toast(String((err as Error).message ?? err), "bad")); } }} />
       <div className="actions">
         <span className="muted">{manager ? `★ ${manager.name} gets it in the ${target.name} in-tray and a fork runs it.` : `${target.name} has no manager agent: whoever works its in-tray assigns it.`}</span>
+        <AttachButton small media={media} />
         <button className="btn sm" onClick={onClose}>Cancel</button>
         <Act small tone="primary" disabled={!text.trim() || media.uploading > 0} run={plant}>Plant</Act>
       </div>
@@ -873,6 +875,7 @@ export function TownNoteForm({ buildingId, onPosted }: { buildingId: string; onP
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" aria-label="Title" />
         <textarea {...media.props} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What everyone in every building needs to know. Markdown; paste or drop a screenshot." aria-label="Body" />
         <div className="actions">
+          <AttachButton media={media} />
           <Act tone="primary" disabled={!title.trim() || !body.trim()} run={async () => {
             const d = await api().writeDoc({ type: "fyi", state: "building", buildingId, title: title.trim(), body: body.trim() });
             store.putDocs([d]);
@@ -991,6 +994,7 @@ export function BoardNoteRow({ doc: d, onOpen, onUnpublished, onEdited }: { doc:
         <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Title" aria-label="Title" autoFocus />
         <textarea {...media.props} rows={6} value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} placeholder="Markdown; paste or drop a screenshot." aria-label="Body" />
         <div className="actions">
+          <AttachButton media={media} />
           <Act tone="primary" disabled={!draft.title.trim() || !draft.body.trim()} run={async () => {
             const r = await api().editBoardNote(d.id, { title: draft.title.trim(), body: draft.body.trim() });
             store.putDocs([r]);

@@ -1,5 +1,6 @@
 /** Meetings: summaries while collecting (SUMMARY_MODEL, no tools), @-replies as short read/search sessions, then a facilitated discussion over MCP. */
 import { isGone } from "@muster-town/schema";
+import { meetingImages } from "./meetingImages.ts";
 import { NoCredential, TOWN_HALL_ID, walkHome, type Funding } from "@muster-town/core";
 import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
@@ -104,11 +105,14 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
   const model = agent.model ?? (home ? world.buildings.get(home)?.model : undefined) ?? "claude-opus-5-5";
   const assignment = agent.currentAssignmentId ? world.assignments.get(agent.currentAssignmentId) : undefined;
   const prompt = meetingReplyPrompt(m, (id) => world.nameOf(id), { assignment, lastReport: latestReport(ctx, agentId), events: world.events.recent({ agentId, limit: 20 }), recentWork: recentWorkBlock(world, agentId, { short: true, readHint: false }) });
+  // the pictures in the human lines since this agent last spoke (meetingImages.ts)
+  const lastMine = m.transcript.map((u) => u.speakerId).lastIndexOf(agentId);
+  const { images, note } = meetingImages(world, m.transcript.slice(lastMine + 1).filter((u) => u.speakerKind === "user"));
   const spoken = () => world.meetings.get(meetingId)?.transcript.length ?? 0;
   const before = spoken();
   await runAgentSession(ctx, {
     agentId, purpose: "meeting-reply", model, maxTurns: MEETING_REPLY_MAX_TURNS, web: false, meetingId, verbs: MEETING_REPLY_VERBS,
-    system: meetingReplySystemPrompt(agent), prompt,
+    system: meetingReplySystemPrompt(agent), prompt: note ? `${prompt}\n\n${note}` : prompt, images,
     // the session's own end: speak the final text if the model didn't `speak` itself, then record and charge
     finish: async (out, allocationId) => {
       let error = out.error;
