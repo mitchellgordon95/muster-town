@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TownPublish } from "@muster-town/schema";
 import { store } from "../src/state";
-import { PublishToGitHub, publishLine, tokenPlaceholder } from "../src/panels/BuildingPanel";
+import { PublishToGitHub, publishLine, tokenPlaceholder, tokenSourceLine } from "../src/panels/BuildingPanel";
 
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
 
@@ -18,16 +18,24 @@ describe("Publish to GitHub block (gr_30f8obzab8)", () => {
   });
 
   it("the token is write-only: the field says set or not set, never the value", () => {
-    expect(tokenPlaceholder(undefined)).toBe("not set");
-    expect(tokenPlaceholder(P({ tokenSet: false }))).toBe("not set");
+    expect(tokenPlaceholder(undefined)).toContain("GH_TOKEN");
+    expect(tokenPlaceholder(P({ tokenSet: false }))).toContain("GH_TOKEN");
     expect(tokenPlaceholder(P())).toContain("set (leave blank");
+  });
+
+  it("says which token the push uses: its own, the collective's GH_TOKEN, or none", () => {
+    expect(tokenSourceLine(undefined)).toBeNull();
+    expect(tokenSourceLine(P({ tokenSource: "own" }))?.text).toContain("own token");
+    expect(tokenSourceLine(P({ tokenSet: false, tokenSource: "collective" }))).toMatchObject({ bad: false, text: expect.stringContaining("GH_TOKEN") });
+    expect(tokenSourceLine(P({ tokenSet: false, tokenSource: "none" }))?.bad).toBe(true);
   });
 
   it("renders unset (no Clear) and set (repo, Clear, line)", () => {
     withTown();
     const empty = renderToStaticMarkup(<PublishToGitHub />);
     expect(empty).toContain("Publish to GitHub");
-    expect(empty).toContain('placeholder="not set"');
+    expect(empty).toContain("blank: use the collective");
+    expect(empty).toContain("personal-access-tokens/new");
     expect(empty).not.toContain("Clear");
     expect(empty).not.toContain("No push yet");
     withTown(P({ lastPushAt: new Date().toISOString(), lastPushCommit: "0123456789" }));
