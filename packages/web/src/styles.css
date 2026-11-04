@@ -565,6 +565,24 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .hud.guest .here-row span { display: none; }
 .hud.guest .here-more { padding-left: 2px; }
 .hud.guest .guest-text { margin-bottom: 6px; }
+/* a guest on a phone (hud.tsx GuestView): "compact" on landing is the title, the goal on one line, who is working and
+   Sign in; "strip" after Watch first is the title and Sign in on one line; chips and the long text are behind "more ▾".
+   Under 15% of a 390x844 screen either way, so the town is what a stranger sees (kr_c3c7651d18). */
+.hud.g-compact, .hud.g-strip { max-height: none; overflow: visible; }
+.hud.g-compact .goal { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 6px 0; }
+.hud.g-compact .guest-card { margin-top: 0; }
+.hud.g-compact .guest-card, .hud.g-full .guest-card { margin-bottom: 0; }
+.hud.g-compact .guest-card { display: flex; align-items: center; gap: 8px; }
+.hud.g-compact .here-line { flex: 1; min-width: 0; margin: 0; }
+.hud.g-compact .signin .btn, .hud.g-strip .signin .btn { padding: 4px 9px; font-size: 12.5px; white-space: nowrap; }
+.hud.g-strip { padding: 7px 10px; }
+.hud.g-strip .hud-top { align-items: center; }
+.hud.g-strip .hud-top > div:first-child { min-width: 0; }
+.hud.g-strip h1 { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud.g-strip .signin { flex-wrap: nowrap; }
+.hud.g-strip .conn { margin-top: 0; }
+.hud.g-strip .dash-btn, .hud.g-strip .help-btn { display: none; }
+.guest-more { margin-left: 6px; font-size: 12px; white-space: nowrap; }
 /* Bank: top-contributors leaderboard (gold for the podium) */
 .leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .lb-row { display: grid; grid-template-columns: 28px minmax(0, 9em) 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); background: #1d1f28; font-size: 13px; }

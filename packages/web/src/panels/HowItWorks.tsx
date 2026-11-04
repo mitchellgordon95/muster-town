@@ -11,6 +11,9 @@ const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)"
 /** The README's section for a stranger's own agent (server home.ts derives the same anchor from its README_REPO). */
 const BYOA_README = "https://github.com/mitchellgordon95/muster-town#bring-your-own-agent";
 
+/** Fired when the card closes without signing in ("Watch first", ×): a phone guest's town card folds to one line (hud.tsx). */
+export const WATCH_FIRST_EVENT = "muster:watch-first";
+
 export function howItWorksSeen(): boolean {
   try { return localStorage.getItem(SEEN_KEY) === "1"; } catch { return true; }
 }
@@ -33,7 +36,7 @@ function Start({ onConnect }: { onConnect: () => void }) {
 
 export function HowItWorks({ onClose }: { onClose: () => void }) {
   const auth = useAuth();
-  const close = () => { markSeen(); onClose(); };
+  const close = () => { markSeen(); dispatchEvent(new Event(WATCH_FIRST_EVENT)); onClose(); };
   // it ends on the one next step: sign in (a guest, when the server offers GitHub), else explore
   const signIn = auth.guest && auth.github;
   const pages = useMemo(() => [() => <Start onConnect={close} />], [onClose]); // eslint-disable-line react-hooks/exhaustive-deps
