@@ -17,6 +17,7 @@ import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
+import { WATCH_FIRST_EVENT } from "./panels/HowItWorks";
 import "./panels/hiw.css";
 
 /** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
@@ -33,6 +34,13 @@ interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; to
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
 let guestCardCounted = false;
+
+/**
+ * A guest's card on a phone (kr_c3c7651d18: the town is what a stranger sees): "compact" on landing (title, the goal on
+ * one line, who is working, Sign in), "strip" after Watch first (title and Sign in on one line), "full" behind "more ▾".
+ * Sign in is on the card in every view: it is the join funnel (gr_fibsfwr4tz).
+ */
+type GuestView = "compact" | "strip" | "full";
 
 /** An admin's pending join requests, refetched when the Town Hall in-tray count moves (an ask or a decision). */
 function usePendingAccess(admin: boolean, townHallCount: number | undefined): { rows: AccessRequestView[]; reload: () => void } {
@@ -59,10 +67,20 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
   const access = usePendingAccess(!!me?.isAdmin, buildings.find((b) => b.kind === "town-hall")?.intray);
-  // a guest keeps the card open: it holds Sign in (it is already kept short on a phone, styles.css .hud.guest)
+  // a guest keeps the card open: it holds Sign in (on a phone it is compact, then one line after Watch first: GuestView)
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
-  const collapsed = toggled ?? (PHONE && !auth.guest);
+  const phoneGuest = PHONE && auth.guest;
+  const [guestView, setGuestView] = useState<GuestView>("compact");
+  useEffect(() => {
+    if (!phoneGuest) return;
+    const fold = () => setGuestView("strip");
+    addEventListener(WATCH_FIRST_EVENT, fold);
+    return () => removeEventListener(WATCH_FIRST_EVENT, fold);
+  }, [phoneGuest]);
+  // a phone guest's card never collapses away: its views (compact, strip, full) all keep Sign in
+  const collapsed = phoneGuest ? false : toggled ?? (PHONE && !auth.guest);
+  const view: GuestView | null = phoneGuest ? guestView : null;
   // the join funnel (gr_fibsfwr4tz step 3): count the guest card once per page load, the first time it is on screen
   const cardShown = !!town && !collapsed && (auth.guest || me?.canInteract === false);
   useEffect(() => { if (cardShown && !guestCardCounted) { guestCardCounted = true; api().countGuestCardView().catch(() => {}); } }, [cardShown]);
@@ -191,20 +209,23 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   }, [buildings, meetings, me, events, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
-    <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>
+    <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""} ${view ? `g-${view}` : ""}`}>
       <div className="hud-top">
         <div>
-          {HOMEPAGE ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
+          {HOMEPAGE && view !== "strip" && view !== "compact" ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
           <h1>{town.name}</h1>
         </div>
+        {view === "strip" ? <SignInButtons onPasteToken={onPasteToken} compact /> : null}
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
         <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "bank" })} title="The Bank: tokens received, used and left, where they came from and went, and hosting in dollars" aria-label="The Bank">$</button>
         {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="Operating manual" aria-label="Operating manual">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
-        <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
+        {view
+          ? <button className="icon-btn" onClick={() => setGuestView(view === "strip" ? "compact" : "strip")} title={view === "strip" ? "Expand" : "Fold to one line"} aria-label={view === "strip" ? "Expand" : "Fold to one line"}>{view === "strip" ? "▾" : "▴"}</button>
+          : <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>}
       </div>
       {!auth.guest && me ? <YoureIn me={me} collective={town.name} /> : null}
-      {collapsed ? null : (
+      {collapsed || view === "strip" ? null : (
         <>
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
           {auth.guest || me?.canInteract === false ? (
@@ -212,10 +233,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
               <div className="hud-label">Who is here now</div>
               <div className="here-line">
                 {here.working.length ? <><b>{here.working.length} AI agent{here.working.length === 1 ? "" : "s"}</b> working</> : <>No AI agent working right now</>}
-                {here.resting ? <> · {here.resting} resting</> : null}
-                {here.humans ? <> · <b>{here.humans} human{here.humans === 1 ? "" : "s"}</b> around</> : null}
+                {here.resting && view !== "compact" ? <> · {here.resting} resting</> : null}
+                {here.humans && view !== "compact" ? <> · <b>{here.humans} human{here.humans === 1 ? "" : "s"}</b> around</> : null}
+                {view ? <button className="link guest-more" onClick={() => setGuestView(view === "full" ? "compact" : "full")} aria-expanded={view === "full"}>{view === "full" ? "less ▴" : "more ▾"}</button> : null}
               </div>
-              {here.working.length ? (
+              {here.working.length && view !== "compact" ? (
                 <div className="here-list">
                   {here.working.slice(0, 3).map((a) => (
                     <button key={a.id} className="here-row" title={a.activity || `What ${a.name} is doing`} onClick={() => { mapRenderer()?.teleportTo(a.id); store.open({ kind: "agent", id: a.id }); }}>
@@ -226,7 +248,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>
+                {view === "compact" ? null : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
                 <SignInButtons onPasteToken={onPasteToken} compact />
               </> : <AskToJoin me={me} />}
             </div>
