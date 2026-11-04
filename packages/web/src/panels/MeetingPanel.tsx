@@ -8,6 +8,7 @@ import { Act, Empty, Pill, Section, clock, nameOf, timeAgo, useLoad } from "./ui
 import { portraitUrl } from "../map/sprites";
 import { buildingMeetings, phaseTone, roomMeetings } from "./room";
 import { CallMeetingForm } from "./CallMeetingForm";
+import { meetingSubtitle } from "./meetingSubtitle";
 import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
@@ -114,7 +115,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
   return (
-    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : `${m.kind} · ${bName ?? ""} · facilitated by ${nameOf(m.facilitatorId)}`}>
+    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
       {oneOnOne ? null : (
         <ol className="phases">
           {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
