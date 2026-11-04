@@ -36,6 +36,10 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 9. **Nothing in the runtime touches the world after `stop()` resolves.** `runtime.stop()` stops the waker, aborts live sessions and awaits the redeployer's `stop()`: an in-flight redeploy ends at its next step, drain poll or lock wait, never exits the process, and writes no event after stop, so a caller can close the DB right after (the stale-state drain flake of main run 40454959781).
    - Test: `packages/runtime/test/redeploy.test.ts` › `stop() ends an in-flight drain without exiting and writes no event after it`
    - Test: `packages/runtime/test/redeploy.test.ts` › `runtime.stop() resolves only after an in-flight redeploy step has finished, and nothing touches the world after it`
+10. **Main's CI state is read from GitHub and kept across restarts (gr_7op2v8fjcl).** Each poll (about once a minute with the repo token, at most every 5 min without one) `packages/runtime/src/pr-checks.ts` reads main's head and its checks: `green`, `red` (with `failedStep`, the failed check runs) or `pending`; `since` is the first read that saw the state and is kept in meta `mainCi`, so a restart doesn't reset it; a finished commit's checks are cached and never re-read. `GET /api/health` serves it as `main` from memory.
+   - Test: `packages/runtime/test/pr-checks.test.ts` › `main green: every check on main's head passed, read once a minute with a token, a finished sha is not re-read`
+   - Test: `packages/runtime/test/pr-checks.test.ts` › `main red names the failed step; pending while the fix runs; a restart keeps since`
+   - Test: `packages/runtime/test/pr-checks.test.ts` › `without a repo token main is read at most every 5 minutes (GitHub allows 60 anonymous calls/h)`
 
 ## How it connects
 

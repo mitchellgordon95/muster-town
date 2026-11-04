@@ -1,4 +1,4 @@
-import { ROOT_GOAL_ID, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
+import { ROOT_GOAL_ID, isGone, type AgentStatus, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { funderWeights } from "./funders.ts";
 import type { World } from "./world.ts";
@@ -17,7 +17,8 @@ export interface GoalSpendInputs {
   subtree: Set<string>;
   sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "startedAt" | "endedAt">[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "keyResultId" | "lane">[];
-  agents: { id: string; buildingId: string | null; homeBuildingId?: string | null }[];
+  /** `kind` and `status` only count the visitors at desks in the subtree (`visitors`): a visitor's spend is unknown to the town */
+  agents: { id: string; buildingId: string | null; homeBuildingId?: string | null; kind?: string; status?: string }[];
   buildings: Pick<Building, "id" | "name" | "goalId">[];
   grants: Pick<Grant, "id" | "keyResultId" | "buildingId">[];
   keyResults: Pick<KeyResult, "id" | "text" | "goalId" | "status" | "updatedAt">[];
@@ -44,7 +45,13 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
   const krs = new Map(inp.keyResults.map((k) => [k.id, k]));
   const byBuilding = new Map<string, GoalSpend["byBuilding"][number]>();
   const byKr = new Map<string, GoalSpend["byKeyResult"][number]>();
-  const out: GoalSpend = { goalId, days, from: new Date(from).toISOString(), to: now.toISOString(), total: 0, sessions: 0, byLane: lanes(), series, seriesUnit: unit, byBuilding: [], byKeyResult: [], results: [] };
+  const out: GoalSpend = { goalId, days, from: new Date(from).toISOString(), to: now.toISOString(), total: 0, sessions: 0, byLane: lanes(), series, seriesUnit: unit, byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
+  // visitors at desks under the goal: their sessions run outside the town, so nothing below books them; the view says so instead of guessing
+  const attachmentOf = (b: Pick<Building, "goalId">) => b.goalId ?? inp.rootId;
+  for (const a of inp.agents) {
+    const b = a.kind === "visitor" && !isGone(a.status as AgentStatus | undefined) && a.status !== "offline" ? buildings.get(a.homeBuildingId ?? a.buildingId ?? "") : undefined;
+    if (b && inp.subtree.has(attachmentOf(b))) out.visitors++;
+  }
 
   for (const s of inp.sessions) {
     const at = Date.parse(s.endedAt ?? s.startedAt);
