@@ -1,4 +1,4 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
@@ -458,6 +458,36 @@ export class Bank {
     if (inp?.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can clear its limit.");
     if (l.clearedAt) return l;
     return this.availability.clear(l, new Date(), `${this.repos.users.get(userId)?.name ?? userId} cleared it by hand`);
+  }
+
+  // ---- Plans paid for (gr_qggxximtru step 1; docs/bank.md "Plans paid for") ----
+
+  /** Every plan fee the town recorded, newest first by its first day. Public. */
+  fees(): BankFee[] {
+    return this.repos.bankFees.all("ORDER BY fromDate DESC, createdAt DESC");
+  }
+
+  /** An admin records what the town pays in cash for a subscription plan. A hosted collective has no plans. */
+  addFee(userId: string, input: AddBankFee): BankFee {
+    if (this.permissions.isHosted()) throw badRequest(HOSTED_KEY_ONLY_HOLD);
+    this.requireAdmin(userId, "record a plan fee");
+    const f = AddBankFee.parse(input);
+    if (f.to && f.to < f.from) throw badRequest("A plan can't end before it starts.");
+    const user = this.repos.users.require(userId, "user");
+    const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: userId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+    this.events.append({ type: "bank.fee", text: `${user.name} recorded a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate } });
+    return fee;
+  }
+
+  /** An admin sets a plan fee's last paid day (an ended plan can be moved). */
+  endFee(userId: string, feeId: string, to: string): BankFee {
+    this.requireAdmin(userId, "end a plan fee");
+    const fee = this.repos.bankFees.require(feeId, "plan fee");
+    const day = EndBankFee.parse({ to }).to;
+    if (day < fee.fromDate) throw badRequest("A plan can't end before it starts.");
+    const row = this.repos.bankFees.patch(feeId, { toDate: day });
+    this.events.append({ type: "bank.fee", text: `Plan paid for ended: ${fee.label}, last day ${day}`, payload: { feeId, toDate: day } });
+    return row;
   }
 
   /**

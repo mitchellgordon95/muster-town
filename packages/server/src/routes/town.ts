@@ -1,5 +1,5 @@
 import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -523,6 +523,19 @@ export async function townRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
     const user = requireUser(req);
     return { input: world.bank.cancelInput(user.id, req.params.id) };
+  });
+
+  // Plans paid for (gr_qggxximtru step 1; docs/bank.md "Plans paid for"): what the town pays in cash for a subscription plan.
+  // GET is public and read-only; an admin records or ends one. A hosted collective has no plans (core refuses there).
+  app.get("/api/bank/fees", async () => ({ fees: world.bank.fees() }));
+  app.post("/api/bank/fees", async (req, reply) => {
+    const user = requireUser(req);
+    const fee = world.bank.addFee(user.id, parse(AddBankFee, req.body));
+    return reply.code(201).send({ fee });
+  });
+  app.post<{ Params: Params }>("/api/bank/fees/:id/end", async (req) => {
+    const user = requireUser(req);
+    return { fee: world.bank.endFee(user.id, req.params.id, parse(EndBankFee, req.body).to) };
   });
 
   // "Try now": clear an observed credential limit (core availability.ts) so the next session may try the input again

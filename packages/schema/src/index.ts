@@ -81,7 +81,7 @@ export const OPERATING_RESERVE_TOKENS = 500_000;
 /**
  * Publish to GitHub (gr_30f8obzab8): the collective's own GitHub repo the hourly export pushes its mirror to, per World.
  * The token is never here: it is the runtime-owned secret MUSTER_TOWN_PUBLISH_TOKEN (docs/secrets.md); `tokenSet` says
- * whether one is stored. `lastPushAt`/`lastPushCommit`: the last push that landed; `lastPushError`: the last push's failure
+ * whether one is stored; without one the push uses the collective's GH_TOKEN secret (`tokenSource`). `lastPushAt`/`lastPushCommit`: the last push that landed; `lastPushError`: the last push's failure
  * (null once a push lands). PUT /api/town/publish sets it, DELETE clears it (an admin).
  */
 export const TownPublish = z.object({
@@ -90,8 +90,11 @@ export const TownPublish = z.object({
   lastPushAt: z.string().nullable().default(null),
   lastPushCommit: z.string().nullable().default(null),
   lastPushError: z.string().nullable().default(null),
+  /** which token the next push uses, read live (never stored): "own" (MUSTER_TOWN_PUBLISH_TOKEN), "collective" (the GH_TOKEN secret, the fallback) or "none" */
+  tokenSource: z.enum(["own", "collective", "none"]).optional(),
 });
 export type TownPublish = z.infer<typeof TownPublish>;
+export type PublishTokenSource = NonNullable<TownPublish["tokenSource"]>;
 /** A GitHub repo over https: `https://github.com/<owner>/<repo>` with an optional `.git`. */
 export const PublishRepoUrl = z.string().trim().regex(/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "must be https://github.com/<owner>/<repo>");
 /** PUT /api/town/publish: the repo, and a token (a fine-grained token with Contents read/write); leave `token` out to keep the stored one. */
@@ -398,6 +401,20 @@ export type BankInput = z.infer<typeof BankInput>;
 /** One credit from an input into the Bank. A subscription's credit expires a day later (no rollover); an API key's is durable (`expiresAt` null). */
 export const BankCredit = z.object({ id: Id, inputId: Id, ...TOKEN_COUNTS_SHAPE, rawTokens: z.number().int().nonnegative().default(0), tokens: z.number().int().nonnegative().default(0), createdAt: Iso, expiresAt: Iso.nullable().default(null) });
 export type BankCredit = z.infer<typeof BankCredit>;
+/** A UTC day, 'YYYY-MM-DD', that is a real calendar date. */
+const DayDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD").refine((d) => { const t = new Date(`${d}T00:00:00Z`); return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d; }, "not a calendar date");
+/**
+ * What the town pays in cash for a subscription plan (gr_qggxximtru, migration 092; docs/bank.md "Plans paid for"):
+ * $ per month from `fromDate` to `toDate` (UTC days, inclusive; null = ongoing). Its own record because one plan is
+ * split across many bank inputs over time. An admin records it; anyone may read it (GET /api/bank/fees).
+ */
+export const BankFee = z.object({ id: Id, label: z.string(), paidBy: Id, usdPerMonth: z.number().positive(), fromDate: DayDate, toDate: DayDate.nullable().default(null), createdAt: Iso });
+export type BankFee = z.infer<typeof BankFee>;
+/** POST /api/bank/fees (admin): a plan's label, $ per month, first day and optional last day. */
+export const AddBankFee = z.object({ label: z.string().trim().min(1).max(80), usdPerMonth: z.number().positive().max(1_000_000), from: DayDate, to: DayDate.nullable().optional() });
+export type AddBankFee = z.input<typeof AddBankFee>;
+/** POST /api/bank/fees/:id/end (admin): the plan's last paid day. */
+export const EndBankFee = z.object({ to: DayDate });
 /**
  * Tokens a building's session drew from the Bank: from an expiring credit (`creditId`), else from the durable credits.
  * `buildingId` is who spent it. `inputId` / `grantId`: set when a stream paid by name (a grant's own input, an earmark),
@@ -1857,7 +1874,7 @@ export const EventType = z.enum([
   "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
-  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
+  "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2148,7 +2165,9 @@ export const LookResult = z.object({
   nearby: z.array(NearbyAgent),
   notices: z.object({ unread: z.number().int(), mentions: z.number().int(), pendingAssignments: z.number().int(), currentAssignment: z.string().nullable(), nextMeeting: z.object({ id: Id, title: z.string(), at: Iso, phase: MeetingPhase }).nullable(),
     /** visitors only, on the first look after coming back from offline */
-    digest: z.lazy(() => MailboxDigest).optional() }),
+    digest: z.lazy(() => MailboxDigest).optional(),
+    /** only while main's CI is red (gr_7op2v8fjcl): what failed and who holds its one fix assignment */
+    mainRed: z.string().optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
   /** one line pointing at `town` (presence, 1:1 mt_3jtclcoxl2) */
   town: z.string(),

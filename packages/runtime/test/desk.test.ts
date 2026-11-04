@@ -125,7 +125,7 @@ describe("desk work sessions", () => {
     const tok = ex.env.MUSTER_TOWN_TOKEN;
     expect(world.tokens.resolve(tok)).toMatchObject({ kind: "agent", id: noor.id, sessionId: s.id });
     // both env spellings for one release (rename P3): the desk image may predate the rename
-    expect(ex.env).toMatchObject({ MUSTER_TOWN_URL: "http://host.docker.internal:4321", MUSTER_TOWN_TOKEN: tok, AGENT_TOWN_URL: "http://host.docker.internal:4321", AGENT_TOWN_TOKEN: tok, DESK_MODEL: lab.model, DESK_MAX_TURNS: String(lab.maxTurnsPerSession) });
+    expect(ex.env).toMatchObject({ MUSTER_TOWN_URL: "http://host.docker.internal:4321", MUSTER_TOWN_TOKEN: tok, AGENT_TOWN_URL: "http://host.docker.internal:4321", AGENT_TOWN_TOKEN: tok, DESK_MODEL: noor.model ?? lab.model, DESK_MAX_TURNS: String(lab.maxTurnsPerSession) });
     expect(ex.env.GH_TOKEN).toBeUndefined(); // no workspace
     expect(world.agents.require(noor.id).status).toBe("working");
     expect(runtime.isWorking(noor.id)).toBe(true);
@@ -146,8 +146,8 @@ describe("desk work sessions", () => {
     const ended = await runtime.finishWorkSession(s.id, { tokens: 900, costUsd: 0.3, turns: 5, sdkSessionId: "sdk-1", reportSubmitted: true, finalText: "done" });
     expect(ended).toMatchObject({ status: "done", tokens: 900, sdkSessionId: "sdk-1" });
     expect(ended.reportId).toBeTruthy();
-    expect(world.agents.require(noor.id)).toMatchObject({ status: "idle", spentTokensToday: 30 });
-    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(30);
+    expect(world.agents.require(noor.id)).toMatchObject({ status: "idle", spentTokensToday: 93 }); // a new resident is on Fable: 900 tokens book at Fable rates
+    expect(world.allocations.first("buildingId = ?", [lab.id])!.spentTokens).toBe(93);
     ex.exit(0);
     await runtime.whenIdle();
     expect(world.sessions.require(s.id).status).toBe("done"); // not finished twice
@@ -303,8 +303,9 @@ describe("desk funding and failover charging", () => {
   });
 
   test("the Bank books what it handed out, not the desk's word: a desk claiming api-key (or an old image's in-session failover) is an alert, the session stays subscription", async () => {
-    const { world, runtime, desk, by, sub, buffer } = funded();
+    const { world, runtime, desk, by, lab, sub, buffer } = funded();
     const noor = by("Noor");
+    world.agents.patch(noor.id, { model: lab.model }); // price the session at the lab's Opus, as these figures assume
     const asg = world.ops.createWork(null, noor.id, {});
     const running = runtime.runWorkSession(noor.id, asg.id);
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
@@ -322,8 +323,9 @@ describe("desk funding and failover charging", () => {
   });
 
   test("a desk echoing the funding it was handed is no alert; the subscription allocation is charged", async () => {
-    const { world, runtime, desk, by, sub, buffer } = funded();
+    const { world, runtime, desk, by, lab, sub, buffer } = funded();
     const noor = by("Noor");
+    world.agents.patch(noor.id, { model: lab.model }); // price the session at the lab's Opus, as these figures assume
     const asg = world.ops.createWork(null, noor.id, {});
     const running = runtime.runWorkSession(noor.id, asg.id);
     await vi.waitFor(() => expect(desk.execs).toHaveLength(1));

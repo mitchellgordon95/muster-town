@@ -373,6 +373,23 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(world.allocations.require(done.body.allocations[0].id).retired).toBe(true);
   });
 
+  it("plans paid for: GET /api/bank/fees is public; only an admin records or ends one (gr_qggxximtru step 1)", async () => {
+    const { app, auth, world } = await setup();
+    expect((await json(app, "GET", "/api/bank/fees")).body).toEqual({ fees: [] });
+    const body = { label: "Max 20x", usdPerMonth: 200, from: "2026-10-20" };
+    expect((await json(app, "POST", "/api/bank/fees", { body })).status).toBe(401);
+    const { token } = world.ops.createUser("Guest");
+    expect((await json(app, "POST", "/api/bank/fees", { headers: { authorization: `Bearer ${token}` }, body })).status).toBe(403);
+    expect((await json(app, "POST", "/api/bank/fees", { headers: auth, body: { ...body, usdPerMonth: 0 } })).status).toBe(400);
+    const added = await json(app, "POST", "/api/bank/fees", { headers: auth, body });
+    expect(added.status).toBe(201);
+    expect(added.body.fee).toMatchObject({ label: "Max 20x", usdPerMonth: 200, fromDate: "2026-10-20", toDate: null });
+    const listed = await json(app, "GET", "/api/bank/fees");
+    expect(listed.body.fees.map((f: any) => f.id)).toEqual([added.body.fee.id]);
+    const ended = await json(app, "POST", `/api/bank/fees/${added.body.fee.id}/end`, { headers: auth, body: { to: "2026-11-30" } });
+    expect(ended.body.fee.toDate).toBe("2026-11-30");
+  });
+
   it("roles, budget, events", async () => {
     const { app, auth, by, world } = await setup();
     const roles = await json(app, "GET", "/api/roles?buildingId=carbon-cycle");

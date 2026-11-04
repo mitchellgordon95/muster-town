@@ -41,7 +41,7 @@ export interface RuntimeHooks {
 }
 
 /** One runtime tick's timings (runtime `TickTiming`): total ms of its synchronous phases, the slowest phase, each phase's ms. */
-export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number> }
+export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number>; sub?: Record<string, number> }
 
 /** Who made the request. */
 export type Auth =

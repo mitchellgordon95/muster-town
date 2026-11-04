@@ -14,6 +14,7 @@ import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl, grantUrl } from "../route";
 import type { PanelRef } from "../state";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MeetingSlide } from "./MeetingSlide";
 import { GoalProposalItem } from "./GoalTreePanel";
@@ -177,6 +178,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
           <textarea {...media.props} rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
+          <AttachButton media={media} disabled={!discussing} />
           <button className="btn primary" disabled={!discussing || !text.trim() || media.uploading > 0}>Say</button>
           {canRun ? <Act tone="bad" run={async () => { const ask = endMeetingConfirm(m); if (ask && !confirm(ask)) return; store.putMeeting(await api().endMeeting(m.id)); }}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />

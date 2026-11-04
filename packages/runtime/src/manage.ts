@@ -9,6 +9,8 @@ import { alongsideWorkBlock, buildingsLine, endMeeting, humanDecisionsBlock, hum
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
+import { meetingImages } from "./meetingImages.ts";
+import type { ImageBlock } from "./sdk.ts";
 import { claudeDirOf, findSdkTranscript, homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
 
 /** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
@@ -140,8 +142,8 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== talker.sessionId) {
-        const prompt = oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined));
-        if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt)) {
+        const [prompt, images] = seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined)), humanLines(m));
+        if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt, images)) {
           st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
           if (busy) {
             if (st.busyNoticed.get(m.id) !== talker.sessionId) { st.busyNoticed.set(m.id, talker.sessionId); meetingNotice(world, m.id, `${agent.name} is in a team-lead session; it answers between steps.`); }
@@ -151,7 +153,11 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
         continue;
       }
       let said = false;
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") said = talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at) + (busy ? `\n\n${RESUME_IN_TRAY}` : "")) || said;
+      for (const u of m.transcript.slice(f.idx)) {
+        if (u.speakerId === agent.id || u.speakerKind === "system") continue;
+        const [line, images] = seeing(world, oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at), [u]);
+        said = talker.input.push(line + (busy ? `\n\n${RESUME_IN_TRAY}` : ""), images) || said;
+      }
       f.idx = m.transcript.length;
       if (said && busy) cutIn(ctx, talker, `a line in 1:1 ${m.id}`);
     }
@@ -171,6 +177,15 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   const offer = gate.draining() ? [] : fresh;
   for (const d of offer) st.offered.add(d.id);
   return runManageSession(ctx, st, agent.id, offer, talks, undefined, resume);
+}
+
+/** A human's lines in a meeting (the pictures an agent is shown come from these). */
+const humanLines = (m: Meeting) => m.transcript.filter((u) => u.speakerKind === "user");
+
+/** `text` with the pictures in `lines` (meetingImages.ts): the note on what is attached appended, and the image blocks. */
+function seeing(world: World, text: string, lines: Meeting["transcript"]): [string, ImageBlock[]] {
+  const { images, note } = meetingImages(world, lines);
+  return [note ? `${text}\n\n${note}` : text, images];
 }
 
 /** What a team-lead session cut short by a 1:1 is told before the 1:1's prompt. */
@@ -248,6 +263,9 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   // live state (clock, in-tray, team, grants, board, wiki index, the code snapshot's commit) opens the first message
   // (docs/prompt-caching.md). No Claude Code preset: a manager decides and talks, it edits no code.
   const state = [managerStateBlock(world, agent, building), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n");
+  const [prompt, images] = first
+    ? seeing(world, `${state}\n\n${oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work))}`, humanLines(first))
+    : [`${state}\n\n${resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf)}`, []];
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
@@ -256,7 +274,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
     bare: true,
     // main's code, read-only (Read, Grep, Glob): the manager reads before it answers how something works
     ...(code ? { code } : {}),
-    prompt: `${state}\n\n${first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf)}`,
+    prompt, images,
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
     ...(resume && !first ? { resume: resume.sdkSessionId } : {}),
   });
@@ -264,7 +282,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   const live = work ? ctx.talking.get(agentId) : ctx.live.get(agentId);
   if (live && first) {
     for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
-    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)));
+    for (const m of more) live.input.push(...seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)), humanLines(m)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   } else if (live && resume) {
     // the resumed conversation already knows its in-tray as it was; reports undecided now follow its first message

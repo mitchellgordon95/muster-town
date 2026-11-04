@@ -7,6 +7,7 @@ import { BankView } from "../src/panels/BankPanel";
 import { LaneKind, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
 import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
+import { PlansPaidForView } from "../src/panels/BankFees";
 import type { Bank } from "../src/api";
 import { claimedTokens } from "../src/format";
 
@@ -507,5 +508,29 @@ describe("finance page: hosting (Fly.io)", () => {
   });
   it("leaves the section out when the endpoint can't be loaded", () => {
     expect(page({})).not.toContain("Hosting (Fly.io)");
+  });
+});
+
+// gr_qggxximtru step 1 (kr_au6pcldl3c): "Plans paid for" on the Inputs tab
+describe("Plans paid for", () => {
+  const fees = [
+    { id: "bf_a", label: "Max 20x", paidBy: "us_m", usdPerMonth: 200, fromDate: "2026-10-20", toDate: null, createdAt: "2026-10-20T00:00:00.000Z" },
+    { id: "bf_b", label: "Max 5x", paidBy: "us_m", usdPerMonth: 100, fromDate: "2026-09-01", toDate: "2026-10-19", createdAt: "2026-09-01T00:00:00.000Z" },
+  ];
+  it("lists each plan (label, $/month, from, to or ongoing); signed out sees no form and no End", () => {
+    const html = renderToStaticMarkup(<PlansPaidForView fees={fees} admin={false} onChange={noop} />);
+    expect(html).toContain("Plans paid for");
+    for (const s of ["Max 20x", "$200", "2026-10-20", "ongoing", "Max 5x", "$100", "2026-10-19"]) expect(html).toContain(s);
+    expect(html).not.toContain("Add plan");
+    expect(html).not.toContain(">End<");
+  });
+  it("an admin sees the add form and End on an ongoing plan only", () => {
+    const html = renderToStaticMarkup(<PlansPaidForView fees={fees} admin onChange={noop} />);
+    expect(html).toContain("Add plan");
+    expect(html.match(/>End</g)).toHaveLength(1);
+  });
+  it("says so when none is recorded; the Inputs tab carries the section", () => {
+    expect(renderToStaticMarkup(<PlansPaidForView fees={[]} admin={false} onChange={noop} />)).toContain("None recorded yet.");
+    expect(tabOf("Inputs", {})).toContain("Plans paid for");
   });
 });

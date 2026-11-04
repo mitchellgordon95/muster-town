@@ -123,16 +123,20 @@ function watchExplorers(world: World): void {
   }
 }
 
+/** Times one named step of a tick (ms, summed per name): the runtime passes one so health `load.tick` can split a phase. */
+export type SubTimer = <T>(name: string, fn: () => T) => T;
+const untimed: SubTimer = (_name, fn) => fn();
+
 /** The runtime tick's explore step: close finished reservations, watch running explorers, then start at most one explorer per building. */
-export function exploreTick(world: World, now = new Date()): { started: Assignment[]; closed: BankReservation[] } {
-  const closed = closeReservations(world, now);
-  watchExplorers(world);
+export function exploreTick(world: World, now = new Date(), time: SubTimer = untimed): { started: Assignment[]; closed: BankReservation[] } {
+  const closed = time("explore.close", () => closeReservations(world, now));
+  time("explore.watch", () => watchExplorers(world));
   const started: Assignment[] = [];
-  let free = freeTokensAll(world, now);
+  let free = time("explore.freeTokensAll", () => freeTokensAll(world, now));
   for (const b of world.buildings.all()) {
-    if (exploreBlock(world, b, now, free) !== null) continue;
-    started.push(startExplorer(world, b, now));
-    free = freeTokensAll(world, now); // the new reservation claims its chunk
+    if (time("explore.block", () => exploreBlock(world, b, now, free)) !== null) continue;
+    started.push(time("explore.start", () => startExplorer(world, b, now)));
+    free = time("explore.freeTokensAll", () => freeTokensAll(world, now)); // the new reservation claims its chunk
   }
   return { started, closed };
 }

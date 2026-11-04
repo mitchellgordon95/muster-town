@@ -3,7 +3,7 @@
  * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Donate (the chest; the
  * tab the sheet opens on): the Donate form, then what funds the town now. Balance (the vault): the balance with one "Free for
  * exploration" line (its sum in the sidebar; per-goal free tokens are in the goal editor), Next 30 days, top contributors.
- * Inputs (ledger desk): Tokens, Bank inputs, Streams, Sources. Spending (spending board): a drill-down, buildings → grants →
+ * Inputs (ledger desk): Tokens, Bank inputs, Plans paid for (BankFees.tsx), Streams, Sources. Spending (spending board): a drill-down, buildings → grants →
  * assignments, the clicked row's detail (a building's own funding among it) in the sidebar with drift, out-of-tokens deaths and the
  * cap (BankSpending.tsx); Spend by goal (1:1 mt_n25udpflus decision 5) behind its "By goal" toggle. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
@@ -14,6 +14,7 @@ import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { FreeTokensSum } from "./FreeTokens";
+import { PlansPaidFor } from "./BankFees";
 import { BankSpendingTab, SPEND_PICK, SpendSelected, SpendingHealth } from "./BankSpending";
 import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
@@ -69,7 +70,7 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
 }
 
 /** How to read the Inputs tab's lists (gr_567tikzitl step 3, kr_y7derda40x). */
-const InputsAbout = () => <p className="muted">Each list shows the active inputs only; &ldquo;Show N cancelled&rdquo; beside its title brings back the cancelled ones (and on Sources, &ldquo;Show N retired&rdquo; the retired donations). The totals count them all. Click an input for its dated credits here.</p>;
+const InputsAbout = () => <p className="muted">Each list shows the active inputs only; &ldquo;Show N cancelled&rdquo; beside its title brings back the cancelled ones (and on Sources, &ldquo;Show N retired&rdquo; the retired donations). The totals count them all. Click an input for its dated credits here. &ldquo;Plans paid for&rdquo; is what the town pays in cash for its subscription plans ($ per month, from, to), as an admin recorded it; the token figures elsewhere are at API list price.</p>;
 
 function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: ViewProps & PickProps) {
   if (tab === "Donate") return (
@@ -82,6 +83,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: Vi
     <>
       {fin ? <TokensView f={fin.f} /> : null}
       {bank ? <BankInputs bank={bank} onChange={onReload} selected={picked} onSelect={onPick} /> : null}
+      <PlansPaidFor />
       {bank ? <BankStreamsSection rev={bank.inputs.length} /> : null}
       {fin?.sources ? <SourcesView s={fin.sources} selected={picked} onSelect={onPick} /> : null}
     </>
