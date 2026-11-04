@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } from "../src/api";
-import { approxUsd, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
+import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
 import type { Bank } from "../src/api";
 import { claimedTokens } from "../src/format";
@@ -291,18 +292,48 @@ describe("finance page: sources", () => {
     const off = sourcesCheckLine({ ...src, financeTotal: 990, matchesFinance: false });
     expect(off).toEqual({ ok: false, text: "Does not match the Tokens total (off by 10): credited 800 + donated 200 comes to 1,000, but the Tokens total is 990." });
   });
-  it("renders each input with its dated credits behind a toggle, each donation, the subtotals and the checked total, above Spending", () => {
+  it("renders the active inputs and donations, the subtotals and the checked total, above Spending; cancelled and retired rows behind their toggles (kr_y7derda40x)", () => {
     const html = page({ spend: sp, sources: src });
     for (const s of ["Sources", "What the town received and from whom", "Mitchell&#x27;s Max plan", "subscription · daily", '<span class="day">2026-10-20 →</span> <span class="day">2026-10-27</span>', "600",
-      "API key from Kelly", "cancelled", "Cancelled 2026-10-25", "permanent", "expires 2026-10-21 00:00", "50 expired undrawn",
-      "For the map", "to Town Workshop", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "2026-10-23",
-      "Credited through the Bank", "800", "Donated to buildings", "Total received", "✓ The server checked that credited 800 + donated 200 equals total received 1,000", "/api/finance/sources"]) expect(html).toContain(s);
-    // the credits sit inside the input's <details>, after its <summary>
-    const at = html.indexOf("<details", html.indexOf(">Sources<")), first = html.slice(at, html.indexOf("</details>", at));
-    expect(first).toContain("<summary>");
-    expect(first.slice(first.indexOf("</summary>"))).toContain("expires 2026-10-21 00:00");
+      "For the map", "to Town Workshop", "Credited through the Bank", "800", "Donated to buildings", "Total received",
+      "Show 1 cancelled", "Show 1 retired", "cancelled inputs included", "retired donations included",
+      "✓ The server checked that credited 800 + donated 200 equals total received 1,000", "/api/finance/sources"]) expect(html).toContain(s);
+    // the cancelled input and the retired donation are hidden until their toggle is clicked; credits are no longer inline
+    for (const s of ["API key from Kelly", "Cancelled 2026-10-25", "from Ravi", "to Bank Transparency", "counted at what it spent (size 90)", "expires 2026-10-21 00:00"]) expect(html).not.toContain(s);
     expect(html.indexOf("Sources")).toBeLessThan(html.indexOf("Spending"));
     expect(page({ sources: { ...src, financeTotal: 990, matchesFinance: false } })).toContain("✗ Does not match the Tokens total (off by 10)");
+  });
+  it("a picked input shows its dated credits in the sidebar's Selected row, none in the centre (kr_y7derda40x)", () => {
+    const html = renderToStaticMarkup(<BankView tab="Inputs" bank={null} fin={{ f, spend: null, sources: src, fly: null }} rev={0} onChange={noop} onReload={noop} picked="in_a" />);
+    const side = html.slice(html.indexOf('<aside class="bank-side"')), centre = html.slice(0, html.indexOf('<aside class="bank-side"'));
+    expect(side.indexOf("<h4>Selected row")).toBeLessThan(side.indexOf("<h4>About this tab"));
+    for (const s of ["Mitchell&#x27;s Max plan", "subscription · daily · from Mitchell", "Credited on", "2026-10-20", "2026-10-21 00:00", "50 expired undrawn", "2026-10-27", "2 credits"]) expect(side).toContain(s);
+    expect(centre).toContain('class="spend-row bank-pick on"');
+    expect(centre).not.toContain("Credited on");
+    // nothing picked: no Selected row; a picked input that is gone says so; on another tab the pick shows nothing
+    expect(tabOf("Inputs", { sources: src })).not.toContain("Selected row");
+    expect(renderToStaticMarkup(<InputCredits id="in_x" sources={src} bank={null} />)).toContain("no longer listed");
+    expect(renderToStaticMarkup(<InputCredits id="in_b" sources={src} bank={null} />)).toContain("cancelled 2026-10-25");
+    expect(renderToStaticMarkup(<BankView tab="Balance" bank={null} fin={{ f, spend: null, sources: src, fly: null }} rev={0} onChange={noop} onReload={noop} picked="in_a" />)).not.toContain("Selected row");
+  });
+  it("the toggle says how many rows it hides and flips; a row picks on click or Enter and clears on a second pick, not from its buttons", () => {
+    let flips = 0;
+    const off = HiddenToggle({ count: 3, shown: false, onToggle: () => flips++ })!, on = HiddenToggle({ count: 3, shown: true, onToggle: noop, word: "retired" })!;
+    expect(renderToStaticMarkup(off)).toContain("Show 3 cancelled");
+    expect(renderToStaticMarkup(on)).toContain("Hide retired");
+    expect(HiddenToggle({ count: 0, shown: false, onToggle: noop })).toBeNull();
+    off.props.onClick();
+    expect(flips).toBe(1);
+    const picks: (string | null)[] = [];
+    const cell = { closest: () => null } as unknown as EventTarget, button = { closest: () => ({}) } as unknown as EventTarget;
+    pickRow("in_a", null, (id) => picks.push(id)).onClick!({ target: cell });
+    pickRow("in_a", "in_a", (id) => picks.push(id)).onClick!({ target: cell });
+    pickRow("in_a", null, (id) => picks.push(id)).onClick!({ target: button });
+    const row = pickRow("in_b", "in_a", (id) => picks.push(id));
+    row.onKeyDown!({ key: "Enter", target: cell, currentTarget: cell, preventDefault: noop });
+    expect(picks).toEqual(["in_a", null, "in_b"]);
+    expect(row.className).toBe("bank-pick");
+    expect(pickRow("in_a", null, undefined)).toEqual({});
   });
   it("leaves the section out when the sources can't be loaded", () => {
     expect(page({})).not.toContain("Credited through the Bank");

@@ -12,11 +12,12 @@
  * cost in dollars, today and over the window, per building, estimated from desk sessions' wall time at Fly's list prices; the
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
-import { api, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
+import { useState } from "react";
+import { api, type Bank, type Finance, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
-import { creditsLeftLine } from "./BankFunding";
+import { HiddenToggle, creditsLeftLine, pickRow } from "./BankFunding";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -265,43 +266,77 @@ export function sourcesCheckLine(s: FinanceSources): { ok: boolean; text: string
   return { ok: true, text: `The server checked that ${sum} equals total received ${n(s.totalReceived)}, the same as the Tokens total.` };
 }
 
-function SourceInputLine({ i }: { i: SourceInputRow }) {
+type RowPick = { selected?: string | null; onSelect?: (id: string | null) => void };
+
+/** One Bank input on Sources: name, kind, first → last credit, tokens credited. Picking it puts its dated credits in the sidebar (InputCredits). */
+function SourceInputLine({ i, selected, onSelect }: { i: SourceInputRow } & RowPick) {
   const meta = [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, creditsLeftLine(i), i.who && i.label ? `from ${i.who}` : null, i.cancelledAt ? "cancelled" : null].filter(Boolean).join(" · ");
   const title = i.cancelledAt ? `Cancelled ${day(i.cancelledAt)}` : (i.id ?? undefined);
-  const line = (
-    <span className="spend-line" title={title}>
-      <span className="spend-name">{inputName(i)}{meta ? <span className="muted"> · {meta}</span> : null}</span>
-      <span className="spend-share spend-date muted">{i.firstAt ? (i.firstAt.slice(0, 10) === i.lastAt?.slice(0, 10) ? <span className="day">{day(i.firstAt)}</span> : <><span className="day">{day(i.firstAt)} →</span> <span className="day">{day(i.lastAt)}</span></>) : "never credited"}</span>
-      <span className="spend-tokens">{n(i.tokens)}</span>
-    </span>
-  );
-  const cls = `spend-row${i.cancelledAt ? " muted" : ""}`;
-  if (!i.credits.length) return <div className={cls}>{line}</div>;
+  const pick = i.id ? pickRow(i.id, selected, onSelect) : {};
   return (
-    <details className={cls}>
-      <summary>{line}</summary>
-      <div className="spend-children">
-        {i.credits.map((c) => (
-          <div key={c.id} className="spend-row">
-            <span className="spend-line">
-              <span className="spend-name">{day(c.createdAt)}<span className="muted"> · {c.expiresAt ? `expires ${c.expiresAt.slice(0, 16).replace("T", " ")}` : "permanent"}{c.expiredTokens > 0 ? ` · ${n(c.expiredTokens)} expired undrawn` : ""}</span></span>
-              <span className="spend-tokens">{n(c.tokens)}</span>
-            </span>
-          </div>
-        ))}
-      </div>
-    </details>
+    <div {...pick} className={["spend-row", pick.className, i.cancelledAt ? "muted" : ""].filter(Boolean).join(" ")}>
+      <span className="spend-line" title={title}>
+        <span className="spend-name">{inputName(i)}{meta ? <span className="muted"> · {meta}</span> : null}</span>
+        <span className="spend-share spend-date muted">{i.firstAt ? (i.firstAt.slice(0, 10) === i.lastAt?.slice(0, 10) ? <span className="day">{day(i.firstAt)}</span> : <><span className="day">{day(i.firstAt)} →</span> <span className="day">{day(i.lastAt)}</span></>) : "never credited"}</span>
+        <span className="spend-tokens">{n(i.tokens)}</span>
+      </span>
+    </div>
   );
 }
 
-export function SourcesView({ s }: { s: FinanceSources }) {
-  const check = sourcesCheckLine(s);
+/**
+ * The sidebar's "Selected row" for a picked Bank input (gr_567tikzitl step 3, kr_y7derda40x): its name and kind, then each
+ * credit it made to the Bank, dated, with its amount and whether it expires. From GET /api/finance/sources (the credits),
+ * falling back to GET /api/bank's input (its total only) while the sources load.
+ */
+export function InputCredits({ id, sources, bank }: { id: string; sources: FinanceSources | null; bank: Bank | null }) {
+  const i = sources?.inputs.find((x) => x.id === id);
+  const b = bank?.inputs.find((x) => x.id === id);
+  if (!i && !b) return <p className="muted">That input is no longer listed.</p>;
+  const name = i ? inputName(i) : b!.label;
+  const meta = i
+    ? [i.source ? SOURCE_NAME[i.source] : null, i.recurrence, creditsLeftLine(i), i.who ? `from ${i.who}` : null, i.cancelledAt ? `cancelled ${day(i.cancelledAt)}` : null]
+    : [b!.source ? SOURCE_NAME[b!.source] : null, b!.recurrence, b!.userName ? `from ${b!.userName}` : null, b!.cancelledAt ? `cancelled ${day(b!.cancelledAt)}` : null];
   return (
-    <Section title="Sources">
+    <div className="input-credits">
+      <p><b>{name}</b><br /><span className="muted">{meta.filter(Boolean).join(" · ")}</span></p>
+      {!i ? <p className="muted">Credited {n(b!.creditedTokens)} {ADJ}; the dated credits are loading.</p> : !i.credits.length ? <p className="muted">No credits yet.</p> : (
+        <table className="table">
+          <thead><tr><th>Credited on</th><th title={ADJ_HINT}>{ADJ}</th><th>Expires</th></tr></thead>
+          <tbody>
+            {i.credits.map((c) => (
+              <tr key={c.id} title={c.id}>
+                <td>{day(c.createdAt)}</td>
+                <td>{n(c.tokens)}</td>
+                <td>{c.expiresAt ? c.expiresAt.slice(0, 16).replace("T", " ") : "permanent"}{c.expiredTokens > 0 ? <div><small className="muted">{n(c.expiredTokens)} expired undrawn</small></div> : null}</td>
+              </tr>
+            ))}
+            <tr><td><b>{i.credits.length} credit{i.credits.length === 1 ? "" : "s"}</b></td><td><b>{n(i.tokens)}</b></td><td /></tr>
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/** Sources: the active Bank inputs and the donations still counting, the cancelled and retired ones behind their toggles; the subtotals and Total received count them all. */
+export function SourcesView({ s, selected, onSelect }: { s: FinanceSources } & RowPick) {
+  const check = sourcesCheckLine(s);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [showRetired, setShowRetired] = useState(false);
+  const cancelled = s.inputs.filter((i) => i.cancelledAt).length;
+  const retired = s.donations.filter((d) => d.retired).length;
+  const inputs = showCancelled ? s.inputs : s.inputs.filter((i) => !i.cancelledAt);
+  const donations = showRetired ? s.donations : s.donations.filter((d) => !d.retired);
+  return (
+    <Section title="Sources" right={<span className="bank-section-right">
+      <HiddenToggle count={cancelled} shown={showCancelled} onToggle={() => setShowCancelled((x) => !x)} />
+      <HiddenToggle count={retired} shown={showRetired} onToggle={() => setShowRetired((x) => !x)} word="retired" />
+    </span>}>
       <div className="spend-tree">
-        {s.inputs.map((i) => <SourceInputLine key={i.id ?? "deleted"} i={i} />)}
-        <div className="spend-row spend-building"><span className="spend-line"><span className="spend-name"><b>Credited through the Bank</b></span><span className="spend-tokens"><b>{n(s.creditedTokens)}</b></span></span></div>
-        {s.donations.map((d) => {
+        {inputs.map((i) => <SourceInputLine key={i.id ?? "deleted"} i={i} selected={selected} onSelect={onSelect} />)}
+        <div className="spend-row spend-building"><span className="spend-line"><span className="spend-name"><b>Credited through the Bank</b>{cancelled && !showCancelled ? <span className="muted"> · cancelled inputs included</span> : null}</span><span className="spend-tokens"><b>{n(s.creditedTokens)}</b></span></span></div>
+        {donations.map((d) => {
           const note = donationNote(d);
           return (
             <div key={d.id} className="spend-row" title={note ?? d.id}>
@@ -313,7 +348,7 @@ export function SourcesView({ s }: { s: FinanceSources }) {
             </div>
           );
         })}
-        <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Donated to buildings</b></span><span className="spend-tokens"><b>{n(s.donatedTokens)}</b></span></span></div>
+        <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Donated to buildings</b>{retired && !showRetired ? <span className="muted"> · retired donations included</span> : null}</span><span className="spend-tokens"><b>{n(s.donatedTokens)}</b></span></span></div>
         <div className="spend-row"><span className="spend-line"><span className="spend-name"><b>Total received</b></span><span className="spend-tokens"><b>{n(s.totalReceived)}</b></span></span></div>
       </div>
       <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
@@ -322,7 +357,7 @@ export function SourcesView({ s }: { s: FinanceSources }) {
 }
 
 /** The Sources section's prose for the sidebar. */
-export const SourcesAbout = () => <p className="muted">What the town received and from whom: each Bank input (subscriptions and API keys; open one for its dated credits) and each donation straight to a building ({ADJ}).</p>;
+export const SourcesAbout = () => <p className="muted">What the town received and from whom: each Bank input (subscriptions and API keys; click one for its dated credits) and each donation straight to a building ({ADJ}).</p>;
 
 const Check = ({ c }: { c: { ok: boolean; text: string } }) => <div className={c.ok ? "finance-check ok" : "error-line"} role="status">{c.ok ? "✓ " : "✗ "}{c.text}</div>;
 

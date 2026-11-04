@@ -11,25 +11,31 @@ import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
 import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, BuildingFunding, Donate, DonateAbout, FundingNow } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, SpendingView, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, SpendingView, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { FreeTokensSum } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
 import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
 
 type ViewProps = { tab: string; bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void };
+/** The row picked in the centre (a Bank input's id on Inputs), shown in the sidebar's "Selected row"; null = none. */
+type PickProps = { picked: string | null; onPick: (id: string | null) => void };
 
 /**
  * One tab of the Bank sheet given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null
  * until loaded). The centre column (`.bank-main`) holds the tab's tables only; every explanation sits in the sidebar
  * (`.bank-side`): "About this tab" (`BankAbout`, the tab's prose), the Terms and where the numbers come from, then the
- * selected row (`selected`, steps 3-4). `divider` (the sheet's drag handle) goes between the two columns.
+ * selected row: a row picked in the centre (on Inputs a Bank input: its dated credits, InputCredits; gr_567tikzitl step 3), or
+ * `selected` when the caller gives one. `picked` is the row picked at first (tests). `divider` (the sheet's drag handle)
+ * goes between the two columns.
  */
-export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactNode; selected?: ReactNode }) {
-  const { divider, selected, head, ...view } = props;
+export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactNode; selected?: ReactNode; picked?: string | null }) {
+  const { divider, head, picked: first, ...view } = props;
+  const [picked, onPick] = useState<string | null>(first ?? null);
+  const selected = props.selected ?? (picked && view.tab === "Inputs" ? <InputCredits id={picked} sources={view.fin?.sources ?? null} bank={view.bank} /> : null);
   return (
     <>
-      <div className="bank-main" aria-label="The tab's tables">{head}<BankTab {...view} /></div>
+      <div className="bank-main" aria-label="The tab's tables">{head}<BankTab {...view} picked={picked} onPick={onPick} /></div>
       {divider}
       <aside className="bank-side" aria-label="About this tab">
         {selected ? <section className="bank-selected"><h4>Selected row</h4>{selected}</section> : null}
@@ -45,7 +51,7 @@ export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactN
 /** The tab's prose (the sidebar's "About this tab"), in the order its sections sit in the centre. */
 function BankAbout({ tab, bank, fin }: ViewProps) {
   if (tab === "Donate") return <DonateAbout />;
-  if (tab === "Inputs") return <>{fin ? <TokensAbout f={fin.f} /> : null}{bank ? <BankInputsAbout /> : null}{fin?.sources ? <SourcesAbout /> : null}</>;
+  if (tab === "Inputs") return <>{bank || fin?.sources ? <InputsAbout /> : null}{fin ? <TokensAbout f={fin.f} /> : null}{bank ? <BankInputsAbout /> : null}{fin?.sources ? <SourcesAbout /> : null}</>;
   if (tab === "Spending") return (
     <>
       {fin?.spend ? <SpendingAbout sp={fin.spend} /> : null}
@@ -56,7 +62,10 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
   return <><FinanceIntro hosting={!!fin?.fly} />{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}</>;
 }
 
-function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
+/** How to read the Inputs tab's lists (gr_567tikzitl step 3, kr_y7derda40x). */
+const InputsAbout = () => <p className="muted">Each list shows the active inputs only; &ldquo;Show N cancelled&rdquo; beside its title brings back the cancelled ones (and on Sources, &ldquo;Show N retired&rdquo; the retired donations). The totals count them all. Click an input for its dated credits here.</p>;
+
+function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: ViewProps & PickProps) {
   if (tab === "Donate") return (
     <>
       <Donate onChange={onChange} />
@@ -66,9 +75,9 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
   if (tab === "Inputs") return (
     <>
       {fin ? <TokensView f={fin.f} /> : null}
-      {bank ? <BankInputs bank={bank} onChange={onReload} /> : null}
+      {bank ? <BankInputs bank={bank} onChange={onReload} selected={picked} onSelect={onPick} /> : null}
       {bank ? <BankStreamsSection rev={bank.inputs.length} /> : null}
-      {fin?.sources ? <SourcesView s={fin.sources} /> : null}
+      {fin?.sources ? <SourcesView s={fin.sources} selected={picked} onSelect={onPick} /> : null}
     </>
   );
   if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
