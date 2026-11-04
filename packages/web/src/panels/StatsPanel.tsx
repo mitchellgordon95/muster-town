@@ -16,7 +16,10 @@ import { Act, Empty, ErrorLine, Loading, Section, timeAgo, useLoad } from "./ui"
 
 /** The steps in funnel order: short column label and what the number is. */
 export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string }[] = [
-  { key: "guestCardViews", label: "Saw card", what: "page loads that showed the signed-out guest card. Rough: the page pings it without signing in, so our own checks and reloads count too" },
+  { key: "homeViews", label: "Home", what: "browsers that opened the homepage (muster.town), each counted once per day" },
+  { key: "guestCardViews", label: "Saw card", what: "page loads that showed the signed-out guest card: reloads count again" },
+  { key: "guestVisitors", label: "Visitors", what: "browsers that saw the guest card, each counted once per day: the number of strangers at the door" },
+  { key: "signInStarted", label: "Pressed Sign in", what: "times Sign in was pressed by a browser with no session, whether or not GitHub was finished" },
   { key: "signIns", label: "Signed in", what: "first sign-ins with GitHub (a GitHub account seen for the first time)" },
   { key: "asked", label: "Asked", what: "requests to join (Ask to join on the guest card)" },
   { key: "letIn", label: "Let in", what: "requests an admin granted: the account became a member" },
@@ -36,7 +39,7 @@ export function waitLabel(ms: number): string {
 export function byDay(f: JoinFunnelView): ({ day: string } & JoinFunnelCounts)[] {
   const m = new Map<string, { day: string } & JoinFunnelCounts>();
   for (const c of f.collectives) for (const d of c.daily) {
-    const row = m.get(d.day) ?? { day: d.day, guestCardViews: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const row = m.get(d.day) ?? { day: d.day, homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
     for (const col of COLUMNS) row[col.key] += d[col.key] ?? 0;
     m.set(d.day, row);
   }
@@ -95,7 +98,7 @@ export function StatsView({ f }: { f: JoinFunnelView }) {
           {COLUMNS.map((c) => <div key={c.key}><dt>{c.label}</dt><dd>{c.what}.</dd></div>)}
           <div><dt>Typical wait</dt><dd>the median time from asking to join to an admin letting the account in or declining it.</dd></div>
         </dl>
-        <div className="muted">Counts only: no login or account id is kept for these numbers. Each day is a UTC day.</div>
+        <div className="muted">Counts only: no login or account id is kept for these numbers. Each day is a UTC day. A browser counts once per day by a random id it keeps itself; headless browsers and command-line tools (our own checks) are not counted.</div>
       </Section>
     </>
   );

@@ -126,7 +126,7 @@ describe("migration 032: key results move onto the building goal", () => {
     mkdirSync(migrations);
     const all = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
     for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 68)) copyFileSync(join(all, f), join(migrations, f));
-    const db = new Database(join(dir, "town.db"));
+    const db = new Database(":memory:"); // in memory: no synced write per migration (goals.test.ts migration 061 timed out on disk under CI load)
     migrate(db, migrations);
     const now = "2026-10-30T00:00:00.000Z";
     db.prepare("INSERT INTO buildings (id, name, kind, headcount, createdAt, goalId) VALUES ('bl_a', 'Lab A', 'lab', 3, ?, 'gl_town')").run(now);

@@ -99,6 +99,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
   const buildings = useTown((s) => s.buildings);
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
+  const hallMeeting = room?.kind === "town-hall";
   const oneOnOne = m.kind === "one-on-one";
   // a 1:1: the human who opened it ends it; only they and the manager speak
   const canRun = oneOnOne ? !!me && me.user.id === m.withUserId : store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
@@ -121,7 +122,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
   return (
-    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
+    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ${hallMeeting ? "" : "★ "}${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
       {oneOnOne ? null : (
         <ol className="phases">
           {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}

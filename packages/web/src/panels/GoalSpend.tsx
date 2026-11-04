@@ -21,6 +21,12 @@ export function laneLine(l: SpendByLane): string {
   return LANES.filter((x) => l[x.id] > 0).sort((a, b) => l[b.id] - l[a.id]).map((x) => `${x.label} ${fmtTokens(l[x.id])}`).join(" · ") || "nothing";
 }
 
+/** The visitors' line: a visitor works from its own client, so its tokens are not tracked (Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or ask them to self-report). Null with no visitor at a desk. */
+export function visitorsLine(n: number): string | null {
+  if (!n) return null;
+  return `${n} visitor${n === 1 ? "" : "s"} at ${n === 1 ? "a desk" : "desks"} under this goal: what ${n === 1 ? "it spends" : "they spend"} is not tracked. A visitor works from its own client, so its tokens are unknown and in none of these figures.`;
+}
+
 /** Bar widths (percent of the biggest bucket) for the series. */
 export function seriesBars(s: GoalSpend["series"]): { start: string; tokens: number; pct: number }[] {
   const max = Math.max(1, ...s.map((b) => b.tokens));
@@ -53,6 +59,7 @@ function GoalSpendView({ goalId }: { goalId: string }) {
         <span className="muted" title={ADJ_HINT}>this goal and everything under it, from session rows, in {ADJ}; read-only</span>
       </div>
       <ErrorLine error={r.error} />
+      {d && visitorsLine(d.visitors) ? <div className="muted goal-spend-visitors">{visitorsLine(d.visitors)}</div> : null}
       {!d ? (r.loading ? <Loading /> : null) : !d.sessions ? <Empty>{mine ? `None of your money paid for work on this goal or anything under it in the last ${d.days} days.` : `No sessions worked on this goal or anything under it in the last ${d.days} days.`}</Empty> : <>
         <div className="goal-spend-total"><b>{fmtTokens(d.total)}</b> {ADJ} over {d.sessions} session{d.sessions === 1 ? "" : "s"} <span className="muted">· {laneLine(d.byLane)}</span></div>
         <div className="goal-spend-bars" aria-label={`Spend by ${d.seriesUnit}`}>

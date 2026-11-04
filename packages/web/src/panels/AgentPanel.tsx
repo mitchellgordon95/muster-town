@@ -17,7 +17,7 @@ import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, bre
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
 import { slotsFull } from "../redeploy";
-import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canTalkAtTownHall, canTalkToManager, openOneOnOne, openPlanner, secretaryOf } from "./oneOnOne";
 import { fmtPerf, runsAtLabel } from "../format";
 import { isPlumbing, latestThought, nowLine } from "./nowLine";
 import { DismissButton, canDismiss } from "./Dismiss";
@@ -48,7 +48,7 @@ export function AgentPanel({ id, tab }: { id: string; tab?: string }) {
     <PanelShell
       key={id}
       icon={<img className="portrait" src={portraitUrl(agent.sprite)} alt="" />}
-      title={<>{agent.name} {building?.managerAgentId === agent.id ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
+      title={<>{agent.name} {building?.managerAgentId === agent.id && building.kind !== "town-hall" ? <Pill tone="warn" title={`Set as ${building.name}'s manager in its settings: facilitates its meetings`}>★ manager</Pill> : null} <StatusPill status={agent.status} /></>}
       subtitle={<>
         <NowLine agent={agent} forkTask={fork?.assignmentTitle ?? null} />
         {agent.kind === "visitor" ? <>{role}<Presence agent={agent} mailbox={mailbox} /></> : agent.forkOf ? <span title={forkTip(agent, nameOf, fork?.assignmentId, fork?.sessionId)}>a helper copy of {nameOf(agent.forkOf)}{building ? ` · ${building.name}` : ""}</span> : role}
@@ -263,7 +263,7 @@ function Presence({ agent, mailbox }: { agent: Agent; mailbox?: { unread: number
 function canControlAgent(agent: Agent): boolean {
   if (store.can("building.assign", agent.homeBuildingId) || (!!agent.ownerUserId && agent.ownerUserId === store.state.me?.user.id)) return true;
   const home = store.state.buildings.find((b) => b.id === agent.homeBuildingId);
-  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && (store.can("goals.edit") || canOneOnOne(home.id));
+  return home?.kind === "town-hall" && home.managerAgentId === agent.id && !!store.state.me && canTalkAtTownHall(home.id);
 }
 
 function TalkTab({ agent }: { agent: Agent }) {
@@ -278,7 +278,9 @@ function TalkTab({ agent }: { agent: Agent }) {
   const isManager = agent.kind === "resident" && manager?.id === agent.id;
   // the Town Hall's manager is the Planner: its 1:1 is "Plan with an agent" (an admin, or a goal's owner)
   const townHall = home?.kind === "town-hall";
-  const canTalk = townHall ? store.can("goals.edit") || canOneOnOne(home?.id) : canTalkToManager(home?.id);
+  const canTalk = townHall ? canTalkAtTownHall(home?.id) : canTalkToManager(home?.id);
+  // the Town Hall's Secretary (gr_kdlogzzo5s) takes 1:1s itself, unlike other residents (who work via their manager)
+  const isSecretary = useTown((s) => townHall && secretaryOf(s.agents, home?.id)?.id === agent.id);
   /** the tells between the agent and my avatar (an agent may `tell` me; nothing here sends one) */
   const threaded = (agent.kind === "resident" || isVisitor) && !!me;
   const working = agent.status === "working";
@@ -346,7 +348,15 @@ function TalkTab({ agent }: { agent: Agent }) {
         <div className="callout">{agent.name} is stopped. <Act small run={async () => { await api().resume(agent.id); store.toast(`${agent.name} is idle again`, "ok"); }}>Resume</Act> to let them take work again.</div>
       ) : null}
       <Timeline items={details ? timeline : plain} agentName={agent.name} empty={`${agent.name} hasn't done anything yet.`} />
-      {viaManager && manager ? (
+      {isSecretary ? (
+        !me ? <SignInNote to={`talk to ${agent.name}`} /> : (
+          <div className="callout via-manager">
+            <span>{agent.name} keeps your in-tray digestible: the daily digest card, and in a 1:1 can do a decision you say in your own words (fund, counter or reject; continue, adjust or cut; approve a retainer).</span>
+            {canTalk ? <Act small tone="primary" run={() => openOneOnOne(home!.id, { agentId: agent.id })}>Talk to {agent.name}</Act> : null}
+            {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
+          </div>
+        )
+      ) : viaManager && manager ? (
         <div className="callout via-manager">
           <span>{agent.forkOf ? `${agent.name} is a helper ${manager.name} started for one task; it doesn't take messages.` : `${agent.name} works from assignments and doesn't take messages. The Memory tab says what they know.`}</span>
           {canTalkToManager(home?.id) ? <Act small tone="primary" run={() => openOneOnOne(home!.id)}>Talk to ★ {manager.name}</Act>
@@ -355,8 +365,8 @@ function TalkTab({ agent }: { agent: Agent }) {
         </div>
       ) : isHuman ? null : !me ? <SignInNote to={`talk to ${agent.name}`} /> : isManager && canTalk ? (
         <div className="callout via-manager">
-          <span>{agent.name} is {home!.name}'s {townHall ? "manager, the planning agent" : "manager"}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
-          <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to ★ {agent.name}</Act>
+          <span>{agent.name} is {townHall ? "the Town Hall's planning agent" : `${home!.name}'s manager`}. Talk in a 1:1: they answer as you go and can {townHall ? "draft the goal-tree proposals you agree on" : "assign the work you agree on"}.</span>
+          <Act small tone="primary" run={() => townHall ? openPlanner() : openOneOnOne(home!.id)}>Talk to {townHall ? "" : "★ "}{agent.name}</Act>
           {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
         </div>
       ) : isManager && !townHall && me.canInteract ? (

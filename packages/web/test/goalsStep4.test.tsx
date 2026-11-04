@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { CaptainRequestView, GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
 import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
 import { SlideDecision, mineSlides } from "../src/panels/ReviewDeck";
-import { laneLine, seriesBars } from "../src/panels/GoalSpend";
+import { laneLine, seriesBars, visitorsLine } from "../src/panels/GoalSpend";
 
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span> }));
 
@@ -56,5 +56,11 @@ describe("the Bank's Spend by goal helpers", () => {
     expect(laneLine({ grant: 0, exploration: 0, directed: 0, none: 0 })).toBe("nothing");
     const series: GoalSpend["series"] = [{ start: "2026-10-29T00:00:00Z", tokens: 50, byLane: { grant: 50, exploration: 0, directed: 0, none: 0 } }, { start: "2026-10-30T00:00:00Z", tokens: 200, byLane: { grant: 0, exploration: 0, directed: 200, none: 0 } }];
     expect(seriesBars(series).map((b) => b.pct)).toEqual([25, 100]);
+  });
+  it("visitors' tokens are said to be not tracked, never guessed (1:1 mt_i50xwu4z2t)", () => {
+    expect(visitorsLine(0)).toBeNull();
+    expect(visitorsLine(1)).toMatch(/^1 visitor at a desk under this goal: what it spends is not tracked\./);
+    expect(visitorsLine(2)).toMatch(/^2 visitors at desks .* is not tracked\./);
+    expect(visitorsLine(2)).toMatch(/unknown and in none of these figures/);
   });
 });
