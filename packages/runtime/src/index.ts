@@ -19,6 +19,7 @@ import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
+import { cacheMissDue } from "./cache-miss.ts";
 export { reconcileDue } from "./reconcile.ts";
 import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
@@ -682,6 +683,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
       timed("reconcile", () => void track(reconcileDue(ctx, d)).catch(log("bank reconcile")), "bank reconcile");
+      // gr_lwgus14rd2 step 2: after a session ends, the day's 1 h cache-write share and first turns per purpose (`alert: cache-miss`)
+      timed("cacheMiss", () => void cacheMissDue(world, d), "cache-miss check");
       if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; timed("presence", () => void presenceTick()); }
       timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");
       timed("meetings", () => scheduleMeetings(t));
