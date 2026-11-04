@@ -57,7 +57,8 @@ export function helpCard(
   }
   const people = Object.values(agents).filter((a) => a.buildingId === b.id && (a.kind === "resident" || a.kind === "visitor") && a.status !== "retired" && a.status !== "stopped");
   const working = people.filter((a) => a.status === "working" || a.status === "in-meeting").sort((x, y) => x.name.localeCompare(y.name));
-  const manager = b.managerAgentId ? agents[b.managerAgentId] ?? null : null;
+  // the Town Hall's manager is the root goal's captain (a human), not the Planner: no ★ there (1:1 mt_1vs893enaw)
+  const manager = !hall && b.managerAgentId ? agents[b.managerAgentId] ?? null : null;
   const click = can.touch ? "Tap" : "Click";
   const read = hall ? "Read the board, the library and the goal tree" : "Read the board and the filing cabinet";
   const talk = can.talk && manager ? [`Talk to the manager: ${click.toLowerCase()} ★ ${manager.name}, then Talk.`] : [];
