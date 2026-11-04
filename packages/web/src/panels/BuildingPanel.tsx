@@ -157,7 +157,7 @@ export function TownHallStaff({ hallId, planner, secretary }: { hallId: string; 
 /** The collective defaults as this building runs them (read-only here; an admin sets them in the Town Hall's Settings). */
 function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNode {
   return <span title="Set for every building at once in the Town Hall's Settings (admins)">
-    {b.model} · cheap: {b.cheapModel} · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : " · no code access"}
+    {b.model} · cheap: {b.cheapModel} · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : repo ? " · no code access" : null}
   </span>;
 }
 
@@ -296,11 +296,12 @@ function CollectiveDefaults() {
         <div className="row2">
           <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
         </div>
-        <Field label="Code access" hint={repo
+        {/* no repo (every hosted collective): nothing to give code access to, so no row (1:1 mt_1vs893enaw) */}
+        {repo ? <Field label="Code access" hint={repo
           ? "Managers and their forks work on the collective's repo, each on its own branch. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
           : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
           <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
-        </Field>
+        </Field> : null}
         {differ.length ? <p className="direction">Saving changes {differ.map((x) => x.name).join(", ")} (they run on other values now).</p> : null}
         <div className="actions"><Act tone="primary" disabled={!f.model.trim() || !f.cheapModel.trim()} run={async () => {
           const r = await api().setTownDefaults(next);
