@@ -367,12 +367,11 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
 
 /**
  * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
- * grants, and grants the manager closed as done (`close_grant`) whose key result is still claimed: the human marks it met
- * or missed, and the row leaves.
+ * grants. A grant closed as done is not one: its key results are met on close (town hall mt_v09cn7a8yr decision 2).
  */
 export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
-    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
+    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`,
     [], "ORDER BY updatedAt, rowid",
   ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }

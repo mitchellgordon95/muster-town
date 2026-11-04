@@ -265,8 +265,8 @@ export class MockApi implements Api {
       ({ notes: "", pictures: [], since, waiters: 0, history: "", buildingId: null, ...x });
     const slides: ReviewSlide[] = [slide({ key: "town", kind: "town", itemId: null, group: 0, title: "State of the town", text: `# Review deck: the state of the town\n\n**${t.grants.length + t.reports.length} decisions below.**` })];
     for (const g of t.grants.filter((x) => x.status !== "countered")) {
-      const kind = g.status === "checkpoint" ? "checkpoint" : g.status === "closed" ? "close" : "proposal";
-      slides.push(slide({ key: `${kind}:${g.id}`, kind, itemId: g.id, grantId: g.id, group: kind === "checkpoint" ? 1 : kind === "proposal" ? 4 : 6, title: g.objective, text: `## ${g.objective}\n\n**What it is:** ${g.objective}\n\n**Your call:** fund, counter or reject` }, g.updatedAt));
+      const kind = g.status === "checkpoint" ? "checkpoint" : "proposal";
+      slides.push(slide({ key: `${kind}:${g.id}`, kind, itemId: g.id, grantId: g.id, group: kind === "checkpoint" ? 1 : 4, title: g.objective, text: `## ${g.objective}\n\n**What it is:** ${g.objective}\n\n**Your call:** fund, counter or reject` }, g.updatedAt));
     }
     for (const d of t.reports) slides.push(slide({ key: `report:${d.id}`, kind: "report", itemId: d.id, docIds: [d.id], group: 5, title: d.title, text: `## ${d.title}\n\n${d.body}` }, d.createdAt));
     slides.sort((a, b) => a.group - b.group);

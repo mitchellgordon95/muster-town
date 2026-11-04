@@ -28,7 +28,7 @@ Three voices, kept apart:
  forks work the funded grant; checkpoints; the manager rolls up    │
         │                                                          │
         ▼                                                          │
- the human marks the grant's key results met or missed ────────────┘
+ closing it as done marks its key results met (the rollup says what shipped) ┘
 ```
 
 Two things run the loop: **humans** at its top and bottom (what matters, what to fund, what was achieved), and **the runtime tick** in its middle (when there is money and a free desk, someone goes looking). Managers sit in between: they decide their forks' reports, roll up, and answer 1:1s. What they no longer do is decide whether to explore.
@@ -93,7 +93,7 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 **Proposed.** **A grant is filed against a goal and carries its own key results.**
 
 - **A grant** = `goalId` + objective + approach + stop condition + ask + **key results**. Each key result has text, how to check, and a due date. A grant has 1–5 of them.
-- **A key result belongs to exactly one grant.** It is dated and checkable, as today ("a concrete thing in the live town by a date"). Its status runs not-started → on-track / at-risk → claimed, set by the manager (`checkpoint_grant`, with a note on what shipped that the checkpoint card shows on the key result's line; see §6). **A human marks it met or missed on the grant**, in the grant panel or on the deck slide. Today's `testingPlan` folds into these key results: a testing plan line *is* a key result without a date.
+- **A key result belongs to exactly one grant.** It is dated and checkable, as today ("a concrete thing in the live town by a date"). Its status runs not-started → on-track / at-risk → claimed, set by the manager (`checkpoint_grant`, with a note on what shipped that the checkpoint card shows on the key result's line; see §6). **Closing the grant as done marks it met** (`close_grant` or the Close grant button; town hall mt_v09cn7a8yr decision 2: no human met/missed step, what shipped goes in the rollup); a stop marks it missed with the reason. A human can still flip a met one to missed (why required, a postmortem is queued) and undo it, on the grant. Today's `testingPlan` folds into these key results: a testing plan line *is* a key result without a date.
 - **A goal keeps no key results of its own.** It holds standing direction, grants (live and archived), and the archived key results of its closed grants. A goal's "results" are what its grants achieved.
 - **A grant closes** as today: done (all key results claimed, then a human marks each), stopped, cut at a checkpoint, or rejected. A missed key result still triggers the postmortem (`docs/goals.md` "Postmortems"), now on the grant.
 
@@ -128,7 +128,7 @@ Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchang
 
 - **funds, counters or rejects** each grant proposal, judging it on the slide: the goal path, the key results with dates, the ask against the free tokens left under that goal;
 - **decides checkpoints** (continue, adjust, cut);
-- **marks key results met or missed** on grants whose key results are claimed;
+- **flips a key result to missed** (with why) on a grant closed as done when it did not ship; closing a grant as done marks its key results met (town hall mt_v09cn7a8yr decision 2), so there is no met/missed step in the in-tray;
 - **accepts or cuts** goal proposals (tree edits).
 
 **Counting open proposals' asks in free tokens** (§7) is what keeps the review from flooding: once the town has proposed as much as it can afford, exploration stops until the human decides. **Mitchell said** (mt_529jbnwvmi): "i think one change from #2 is that we count both funded and pending grants in that number". A rejected or countered proposal frees its ask.

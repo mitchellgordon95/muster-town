@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, newId, nowIso } from "../src/index.ts";
 import { GrantStatus, stoplightOf } from "@muster-town/schema";
@@ -116,7 +119,7 @@ describe("grants service", () => {
     expect(world.grantDesk.liveGrantOf(first.keyResultId!)).toBeUndefined();
   });
 
-  it("rejecting a proposal archives its key results; close_grant claims every open one", () => {
+  it("rejecting a proposal archives its key results; close_grant marks every open one met", () => {
     const { world, manager, admin, draft } = setup();
     const rejected = world.grantDesk.propose(manager, draft(KRS).id);
     world.grantDesk.decide(admin, rejected.id, { action: "reject", note: "not now" });
@@ -125,8 +128,21 @@ describe("grants service", () => {
     const [k0, k1] = g.keyResults;
     world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed", note: "not shipped" }); // already marked: not open, left alone
     world.grantDesk.closeDone(manager, g.id, { note: "the banner shows it" });
-    expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "claimed", statusNote: "the banner shows it" });
+    expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "met", statusNote: "the banner shows it" });
     expect(world.keyResults.require(k1!.id).status).toBe("missed");
+  });
+
+  it("migration 087 marks key results still claimed on a grant closed as done met and archives them; a live grant's claimed one stays", () => {
+    const { world, manager, admin, draft } = setup();
+    const done = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
+    world.grantDesk.closeDone(manager, done.id, { note: "shipped" });
+    const live = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft().id).id, { action: "fund" });
+    world.grantDesk.updateKeyResult(manager, live.keyResultId!, { status: "claimed", note: "see banner" });
+    // as before this change: the closed grant's key results left claimed and open
+    world.db.prepare("UPDATE key_results SET status = 'claimed', archivedAt = NULL WHERE grantId = ?").run(done.id);
+    world.db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "087_close_done_key_results_met.sql"), "utf8"));
+    for (const k of world.grantDesk.keyResultsOf(done.id)) expect([k.status, !!k.archivedAt, k.statusNote, k.statusBy]).toEqual(["met", true, "shipped", manager.id]);
+    expect(world.keyResults.require(live.keyResultId!)).toMatchObject({ status: "claimed", archivedAt: null });
   });
 
   it("refuses adjust to tokens at or below the grant's spend", () => {

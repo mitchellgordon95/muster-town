@@ -197,12 +197,12 @@ export const grants: GrantView[] = [
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
   },
-  // closed early as done by its manager (close_grant): waits in the Town Hall in-tray until a human marks its key result
+  // closed early as done by its manager (close_grant): its key results went to met (town hall mt_v09cn7a8yr decision 2)
   {
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
     objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
-    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "claimed")),
+    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "met"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "met")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
       { at: ago(15), byId: "ag_moss", byKind: "agent", action: "close", tokens: 550_000, note: "All 10 desks finished; 0 lost reports (spent 450,000 of 1,000,000; returned 550,000 unspent tokens to the Bank)" },

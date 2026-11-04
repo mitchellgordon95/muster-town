@@ -65,7 +65,7 @@ export async function close_grant(world: World, me: Agent, input: VerbIn<"close_
   return {
     grantId: g.id, status: g.status, outcome: g.outcome, spentTokens: g.spentTokens, grantTokens: g.grantTokens, unspentTokens,
     keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })), checkpointDocId: g.checkpointDocId,
-    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}A human marks each key result met or missed from the Town Hall in-tray.`,
+    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}Its open key results are marked met (a human can flip one to missed from the grant).`,
   };
 }
 

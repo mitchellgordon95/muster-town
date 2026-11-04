@@ -182,7 +182,6 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
 function TownHallIntray({ mode, onFocus, reports, grants, goalProposals, routes, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { mode: IntrayMode; onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; routes: Record<string, IntrayRoute>; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void }) {
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  const closes = grants.filter((g) => g.status === "closed" && g.outcome === "done");
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
@@ -254,11 +253,6 @@ function TownHallIntray({ mode, onFocus, reports, grants, goalProposals, routes,
         </Section>
       ) : null}
       {goalList}
-      {closes.length ? (
-        <Section title={<>Closed as done: mark the key result <Pill>{closes.length}</Pill></>}>
-          <div className="doc-list">{closes.map((g) => list ? grantLine(g) : <GrantRow key={g.id} grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onOpenDoc={onOpen} />)}</div>
-        </Section>
-      ) : null}
       {stoppedList}
     </>
   );
@@ -504,8 +498,8 @@ function EstimateLine({ g }: { g: GrantView }) {
 }
 
 /**
- * `onMarked` runs after one key result is marked met or missed (default `onDecided`): the in-tray and the deck pass a
- * reload that keeps this grant open, so a human with several key results to mark stays on it (Mitchell's flag dc_nm5lwzye7a).
+ * `onMarked` runs after one key result is flipped to missed or back to met (default `onDecided`): it reloads and keeps
+ * this grant open. A grant closed as done marks its key results met itself (town hall mt_v09cn7a8yr decision 2).
  */
 export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute }) {
   useTown((s) => s.me);
@@ -513,10 +507,9 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const author = useTown((s) => s.agents[g.proposedBy]);
   const signedInHuman = useTown((s) => !!s.me);
   const checkpoint = g.status === "checkpoint";
-  // the manager closed it early as done (close_grant): a human marks each of its claimed key results met or missed
+  // closed as done (close_grant or the Close grant button): its key results went to met; a human may flip one to missed
   const closedDone = g.status === "closed" && g.outcome === "done";
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
-  const toMark = closedDone && krs.some((k) => k.status === "claimed");
   const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
   const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
   const [tokens, setTokens] = useState(toMillions(ceiling));
@@ -580,10 +573,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
           <li key={k.id}>
             <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {k.text} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
             <div className="muted kr-check">How to check: {k.howToCheck}</div>
-            {toMark && canFund && k.status === "claimed" ? (
+            {closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
               <div className="actions">
-                <Act small tone="ok" run={mark(k.id, "met")}>Mark {krs.length > 1 ? "met" : "key result met"}</Act>
-                <Act small tone="bad" run={mark(k.id, "missed")}>Mark missed</Act>
+                {k.status === "met"
+                  ? <Act small tone="bad" disabled={!note.trim()} run={mark(k.id, "missed")} title={note.trim() ? "It did not ship: mark it missed (queues a postmortem)" : "Say why in the note first"}>Mark missed</Act>
+                  : <Act small run={mark(k.id, "met")} title="Undo: back to met">Back to met</Act>}
               </div>
             ) : null}
           </li>
@@ -592,12 +586,13 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       </ul>
       <div className="intray-proposal">Stop when: {g.stopCondition}</div>
   </>);
-  const decision = (toMark ? (canFund ? (
+  const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met") ? (<>
+        <div className="muted">Closed as done: its key results are met. If one did not ship, say why and mark it missed.</div>
         <div className="grant-decide">
-          <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional" onChange={(e) => setNote(e.target.value)} /></Field></div>
+          <div className="grant-inputs"><Field label="Why missed"><input value={note} placeholder="required to mark one missed" onChange={(e) => setNote(e.target.value)} /></Field></div>
           <div className="actions decide-footer">{talk}</div>
         </div>
-      ) : <><div className="muted">Closed as done: a human with building.fund marks each key result met or missed.</div>{footer}</>) : g.status === "funded" && canFund ? (<>
+      </>) : g.status === "funded" && canFund ? (<>
         <div className="muted">{grantSettledLine(g)}</div>
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Note"><input value={note} placeholder="optional: the evidence the work is done" onChange={(e) => setNote(e.target.value)} /></Field></div>
