@@ -13,6 +13,12 @@ const MAIN_ANON_POLL_MS = 5 * 60_000;
 
 /** A check suite or run conclusion that counts as passed; anything else (failure, cancelled, timed_out, …) failed. */
 const OK = new Set(["success", "neutral", "skipped"]);
+/**
+ * ci.yml's jobs that deploy a commit whose `check` passed (`promote`: fast-forward prod and ask for a redeploy; `image`:
+ * build the desk image). On main their failure is a failed deploy, not broken code: main stays green and no fix is
+ * queued (as_dh0rv1hv0f). The deploy itself shows on /api/health's `commit`.
+ */
+const DEPLOY_JOBS = new Set(["promote", "image"]);
 
 /** `owner/repo` of a GitHub clone URL (https, scp-style or ssh), else null. */
 export function githubRepoOf(url: string | undefined): { owner: string; repo: string } | null {
@@ -45,7 +51,21 @@ interface PrPoller {
 
 interface Suite { status: string; conclusion: string | null; latest_check_runs_count?: number; app?: { slug?: string } }
 interface Run { name: string; status: string; conclusion: string | null; html_url?: string }
-interface CommitChecks { suites: number; complete: boolean; bad: boolean; done: number; total: number; failed: string[]; failedUrls: string[] }
+interface CommitChecks { suites: number; complete: boolean; bad: boolean; done: number; total: number; failed: string[]; failedUrls: string[]; ended: { name: string; conclusion: string; url?: string }[] }
+
+/**
+ * Main's state from its head's checks: pending until every check finished; red only when a code check failed (a deploy
+ * job's failure is not red, see DEPLOY_JOBS); a cancelled code check (a newer push superseded the run, or a human
+ * cancelled it) leaves main pending, never red: nothing failed, so nobody is named or queued to fix it.
+ */
+function mainStateOf(c: Pick<CommitChecks, "complete" | "ended">): { state: "green" | "red" | "pending"; failedStep: string | null; failedUrls: string[] } {
+  if (!c.complete) return { state: "pending", failedStep: null, failedUrls: [] };
+  const code = c.ended.filter((r) => !DEPLOY_JOBS.has(r.name));
+  const failed = code.filter((r) => !OK.has(r.conclusion) && r.conclusion !== "cancelled");
+  if (failed.length) return { state: "red", failedStep: failed.map((r) => r.name).join(", "), failedUrls: failed.flatMap((r) => r.url ? [r.url] : []) };
+  if (code.some((r) => r.conclusion === "cancelled")) return { state: "pending", failedStep: null, failedUrls: [] };
+  return { state: "green", failedStep: null, failedUrls: [] };
+}
 
 export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
   const cache = new Map<number, PrChecks>();
@@ -80,7 +100,8 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     // a suite completes only when its whole workflow did (jobs that `need` another may not have a run yet)
     const complete = suites.length > 0 && suites.every((s) => s.status === "completed") && done === runs.length;
     const bad = failed.length > 0 || suites.some((s) => !OK.has(s.conclusion ?? ""));
-    const out = { suites: suites.length, complete, bad, done, total: runs.length, failed, failedUrls };
+    const ended = runs.filter((r) => r.status === "completed").map((r) => ({ name: r.name, conclusion: r.conclusion ?? "", ...(r.html_url ? { url: r.html_url } : {}) }));
+    const out = { suites: suites.length, complete, bad, done, total: runs.length, failed, failedUrls, ended };
     if (complete) finished.set(sha, out);
     return out;
   }
@@ -117,8 +138,8 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
   }
 
   /**
-   * Main's head and its checks (gr_7op2v8fjcl, kr_mvj61meiwx): green once every check finished and passed, red once one
-   * failed (failedStep names it), pending while they run. `since` is the first poll that saw this state; it is kept in the
+   * Main's head and its checks (gr_7op2v8fjcl, kr_mvj61meiwx): green once every check finished and passed, red once a
+   * code check failed (failedStep names it), pending while they run or when a run was cancelled (mainStateOf). `since` is the first poll that saw this state; it is kept in the
    * world (meta `mainCi`) so a restart keeps it. A red read queues the one fix assignment for its sha (step 2,
    * core/main-fix.ts); the fix fields last until main is green again, so a pending fix push doesn't drop its fixer.
    */
@@ -126,8 +147,7 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     const checkedAt = now().toISOString();
     const sha = (await gh<{ object: { sha: string } }>("/git/ref/heads/main")).object.sha;
     const c = await checksOf(sha);
-    const state = !c.complete ? "pending" as const : c.bad ? "red" as const : "green" as const;
-    const failedStep = state === "red" ? (c.failed.join(", ") || "a check suite failed") : null;
+    const { state, failedStep, failedUrls } = mainStateOf(c);
     const same = main && main.state === state;
     const fix = main && state !== "green" ? { fixer: main.fixer, fixSha: main.fixSha ?? null, fixAssignmentId: main.fixAssignmentId ?? null } : { fixer: null, fixSha: null, fixAssignmentId: null };
     const next: MainCi = { state, sha, failedStep, since: same ? main!.since : checkedAt, ...fix, checkedAt };
@@ -136,9 +156,9 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
     if (changed) world.town.setMainCi(next);
     if (state === "red" && next.fixSha !== sha) {
       let commit: RedCommit;
-      try { commit = await redCommit(sha, c.failedUrls); } catch (e) {
+      try { commit = await redCommit(sha, failedUrls); } catch (e) {
         deps.log?.(`main checks: who wrote ${sha.slice(0, 7)}: ${e instanceof Error ? e.message : String(e)}`);
-        commit = { slug: null, author: "author not read", runUrls: c.failedUrls };
+        commit = { slug: null, author: "author not read", runUrls: failedUrls };
       }
       main = queueMainFix(world, next, commit);
     }
