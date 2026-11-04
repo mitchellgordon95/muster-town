@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { waitKindsFor, verbToolFor } from "@muster-town/schema";
-import { createBuilding, createResident, managerIntrayBlock, repoKey, townRoleId, updateBuilding, validateWait } from "../src/index.ts";
+import { ROOT_GOAL_ID } from "@muster-town/schema";
+import { buildingRoleId, createBuilding, createResident, managerIntrayBlock, repoKey, townRoleId, updateBuilding, validateWait } from "../src/index.ts";
 import { managerSystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -116,5 +117,49 @@ describe("prompts follow the repo mode", () => {
     expect(managerIntrayBlock(world, b, pix.id)).toMatch(/Live: fa73e88/);
     expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/merge rights/);
     expect(workshopPrompt({ dir: "/w", branch: "x", base: "main" }, "agent-town")).toMatch(/If you call `redeploy`/);
+  });
+});
+
+describe("the captain the prompts and rollups address (1:1 mt_1vs893enaw decision 5)", () => {
+  function hosted() {
+    const l = lab("none");
+    const root = l.world.goalTree.get(ROOT_GOAL_ID)!;
+    const ada = l.world.users.require(root.ownerId!);
+    l.world.users.upsert({ ...ada, name: "Ada" });
+    return l;
+  }
+
+  it("a hosted collective's manager prompt names its root captain, not Mitchell", () => {
+    const { world, b, pix } = hosted();
+    expect(world.captainName()).toBe("Ada");
+    const mgr = managerSystemPrompt(pix, b, world.town.get(), { repo: world.repoMode(), captain: world.captainName() });
+    expect(mgr).toMatch(/## Needs from Ada`/);
+    expect(mgr).toMatch(/Rollups are how Ada hears from you/);
+    expect(mgr).not.toMatch(/Mitchell/);
+    expect(managerIntrayBlock(world, b, pix.id)).not.toMatch(/Mitchell/);
+    expect(managerIntrayBlock(world, b, pix.id)).toMatch(/you work it; Ada doesn't see these reports/);
+  });
+
+  it("a hosted rollup with \"## Needs from Ada\" files; a missing heading is named after Ada", async () => {
+    const { world, b, pix } = hosted();
+    world.permissions.grant({ kind: "agent", id: pix.id }, buildingRoleId(b.id, "manager"));
+    const res = createResident(world, { buildingId: b.id, name: "Res" });
+    const r = await world.verbs.submit_report(res, { title: "Done", body: "## What I did\nx", verdict: "stop" });
+    const prov = { sourceIds: [r.id], urls: [] };
+    await expect(world.verbs.submit_report(pix, { title: "x", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx", verdict: "stop", rollup: true, provenance: prov }))
+      .rejects.toThrow(/Missing: ## Needs from Ada\./);
+    const ok = await world.verbs.submit_report(pix, { title: "R", body: "## Shipped\nNothing.\n## Decided\n- x\n## Key results\nx\n## Needs from Ada\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
+    expect(world.docs.require(ok.id).tags).toContain("rollup");
+  });
+
+  it("muster.town keeps Mitchell, word for word", () => {
+    const { world, b, pix } = lab("muster");
+    world.users.upsert({ ...world.users.require(world.goalTree.get(ROOT_GOAL_ID)!.ownerId!), name: "Ada" });
+    expect(world.captainName()).toBe("Mitchell");
+    const mgr = managerSystemPrompt(pix, b, world.town.get(), { repo: "muster", captain: world.captainName() });
+    expect(mgr).toBe(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" }));
+    expect(mgr).toMatch(/## Needs from Mitchell`/);
+    expect(mgr).toMatch(/How he reads one/);
+    expect(mgr).toMatch(/reaches him on its own/);
   });
 });

@@ -473,6 +473,18 @@ export class World {
     return repoKey(ws.repoUrl) === repoKey(this.host.repoUrl) ? "muster" : "own";
   }
 
+  /**
+   * Who the collective's prompts and rollup heading address ("## Needs from <name>"; 1:1 mt_1vs893enaw decision 5): on
+   * muster.town "Mitchell", unchanged; a collective on another repo or none, the root goal's captain (its founder, else
+   * the first admin), or "your captain" while it has none.
+   */
+  captainName(): string {
+    if (this.repoMode() === "muster") return "Mitchell";
+    const root = this.goalTree.get(ROOT_GOAL_ID);
+    const id = root?.ownerId ?? this.goalTree.firstAdminId();
+    return (id ? this.users.get(id)?.name?.trim() : "") || "your captain";
+  }
+
   snapshot(): SnapshotMessage {
     return {
       type: "snapshot",
