@@ -401,7 +401,7 @@ export type BankCredit = z.infer<typeof BankCredit>;
 /** A UTC day, 'YYYY-MM-DD', that is a real calendar date. */
 const DayDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date YYYY-MM-DD").refine((d) => { const t = new Date(`${d}T00:00:00Z`); return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d; }, "not a calendar date");
 /**
- * What the town pays in cash for a subscription plan (gr_qggxximtru, migration 091; docs/bank.md "Plans paid for"):
+ * What the town pays in cash for a subscription plan (gr_qggxximtru, migration 092; docs/bank.md "Plans paid for"):
  * $ per month from `fromDate` to `toDate` (UTC days, inclusive; null = ongoing). Its own record because one plan is
  * split across many bank inputs over time. An admin records it; anyone may read it (GET /api/bank/fees).
  */
@@ -1291,6 +1291,11 @@ export const Grant = z.object({
   /** the proposal's picture (an uploaded mf_… media id) and "what you'd see" line: the review deck's proposal slide (gr_jh0lu0w6yj step 4) */
   picture: z.string().nullable().default(null),
   whatYoudSee: z.string().default(""),
+  /**
+   * The earlier grant of the same building this proposal continues (propose_grant `continues`, 1:1 mt_z1b38bwg98): its
+   * card and deck slide show that grant's checkpoint evidence. Null = none named: the card shows no other grant's evidence.
+   */
+  continues: Id.nullable().default(null),
   /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
@@ -1893,6 +1898,7 @@ export const CreateGrantInput = z.object({
   findingsDocIds: z.array(Id).default([]),
   picture: z.string().trim().regex(/^mf_[a-z0-9]+$/, "an uploaded media id (mf_…)").optional().describe("optional: an uploaded picture (mf_…) of what the work would show; the review deck's proposal slide shows it"),
   whatYoudSee: z.string().trim().max(300).optional().describe("optional: one line on where a human would see the result in the live town and what they'd see; the review deck's proposal slide shows it"),
+  continues: Id.optional().describe("optional: the earlier grant of your building (gr_...) this proposal continues, e.g. one cut or stopped at its checkpoint; its card and deck slide then show that grant's checkpoint evidence. Leave it out for new work"),
 });
 /** POST /api/buildings/:id/key-results: a key result on the building goal (humans with `building.manage`). */
 export const CreateKeyResultInput = z.object({

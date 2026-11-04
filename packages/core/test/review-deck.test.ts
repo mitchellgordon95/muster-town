@@ -17,7 +17,7 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const krs = KRS;
-  const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string; continues?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", stopCondition: "two failed tries", askTokens: 1_000_000,
     ...extra,
   }).id);
@@ -101,13 +101,21 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(slide.text).toMatch(/\*\*Shipped in the checkpoint report .*:\*\* .*Item 1/);
     // the plan (key results, stop condition) comes after the call
     expect(slide.text.indexOf("**Your call:**")).toBeLessThan(slide.text.indexOf("Stops when: two failed tries"));
-    // cut at the checkpoint; a new proposal on the same goal shows that evidence first
+    // cut at the checkpoint; a new proposal on the same goal that does not name it shows nothing of it (1:1 mt_z1b38bwg98)
     world.grantDesk.decide(admin, held.id, { action: "cut", note: "re-plan" });
-    const again = proposal(1);
+    const unrelated = proposal(1);
+    expect(world.grantDesk.get(unrelated.id).evidence).toBeNull();
+    const us = ours(reviewDeck(world)).find((s) => s.key === `proposal:${unrelated.id}`)!;
+    expect(us.text).not.toContain(held.id);
+    expect(us.text).not.toMatch(/Continues the earlier grant/);
+    // one that names it (`continues`) shows that evidence first
+    const again = proposal(1, { continues: held.id });
     const ps = ours(reviewDeck(world)).find((s) => s.key === `proposal:${again.id}`)!;
-    expect(ps.text).toMatch(new RegExp(`Asks again for work ${held.id} stopped at its checkpoint`));
+    expect(ps.text).toMatch(new RegExp(`Continues the earlier grant ${held.id}`));
     expect(ps.text).toContain("2. ~ partly: line drafted, not live");
     expect(world.grantDesk.get(again.id).evidence).toMatchObject({ grantId: held.id, topUpTokens: 300_000 });
+    // only a grant of the same building
+    expect(() => proposal(0, { continues: "gr_nope" })).toThrow(/not an earlier grant of your building/);
   });
 
   it("history lines: a grant's last human entry; the building's previous rollup decision; a 1:1 its provenance names; none when nothing applies", () => {

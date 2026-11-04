@@ -49,6 +49,12 @@ of thousands on every wake means the layout is broken again: something in the sy
 The Bank's `mix` (`GET /api/finance`, "1 adj. token ≈ N raw tokens") shows the town-wide shares by kind; cache writes
 above about a third of cost is the same symptom at the aggregate level.
 
+The runtime watches this itself (gr_lwgus14rd2 step 2, core `cache-miss.ts`, runtime `cache-miss.ts`): after a session
+ends, the next tick checks the UTC day per purpose × model and appends one `system` event `alert: cache-miss` per purpose
+per day (the HUD shows it for a day, `GET /api/events?kind=system` lists it with the session ids) when 1-hour cache
+writes pass 20% of that group's list-price cost, or a session's first turn (its stored transcript's first `assistant`
+usage) wrote more to the cache than it read.
+
 ## The measurement (2026-11-02)
 
 Session se_x01viep8at, Pix's team-lead wake at 18:37 UTC, Fable 5.1, 6 turns, 44.7K adjusted tokens ($0.89):
