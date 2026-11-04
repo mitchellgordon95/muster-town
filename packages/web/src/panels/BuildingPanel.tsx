@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
-import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { BuildingDefaults, isGone, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -112,7 +112,13 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       ) : null}
       {flagging ? <PlantFlag targets={[b]} onClose={() => setFlagging(false)} /> : null}
       {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
-        <div className="actions"><Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
+        <div className="actions">
+          <Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act>
+          {/* the Secretary (gr_kdlogzzo5s): keeps the in-tray digestible; the same people may talk to it */}
+          {Object.values(agents).filter((a) => a.homeBuildingId === b.id && a.title === "Secretary" && !a.forkOf && a.status !== "stopped" && !isGone(a)).slice(0, 1).map((a) => (
+            <Act key={a.id} run={() => openOneOnOne(b.id, { agentId: a.id })}>Talk to {a.name}</Act>
+          ))}
+        </div>
       ) : null}
       {store.can("building.manage", b.id) && !api().mock ? (
         <div className="walk-links">
