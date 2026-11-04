@@ -1,7 +1,7 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
-import { BuildingDefaults, isGone, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
+import { type Agent, BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -10,7 +10,7 @@ import { Meter } from "./AgentPanel";
 import { ADJ_HINT, Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
-import { canOneOnOne, canTalkToManager, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canTalkAtTownHall, canTalkToManager, openOneOnOne, openPlanner, secretaryOf } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
@@ -66,6 +66,9 @@ function repoLabel(ws: Workspace): string {
 function Overview({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
+  const secretary = b.kind === "town-hall" ? secretaryOf(agents, b.id) : null;
+  const goalRoot = useGoalTree();
+  const rootCaptain = b.kind === "town-hall" && goalRoot ? findGoal(goalRoot, ROOT_GOAL_ID)?.owner.name ?? null : null;
   const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind === "resident"), [agents, b.id]);
   const budget = useLoad(() => api().budget(), [b.id]);
   const row = budget.data?.buildings.find((x) => x.buildingId === b.id);
@@ -111,15 +114,6 @@ function Overview({ b }: { b: SnapshotBuilding }) {
         </div>
       ) : null}
       {flagging ? <PlantFlag targets={[b]} onClose={() => setFlagging(false)} /> : null}
-      {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
-        <div className="actions">
-          <Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act>
-          {/* the Secretary (gr_kdlogzzo5s): keeps the in-tray digestible; the same people may talk to it */}
-          {Object.values(agents).filter((a) => a.homeBuildingId === b.id && a.title === "Secretary" && !a.forkOf && a.status !== "stopped" && !isGone(a)).slice(0, 1).map((a) => (
-            <Act key={a.id} run={() => openOneOnOne(b.id, { agentId: a.id })}>Talk to {a.name}</Act>
-          ))}
-        </div>
-      ) : null}
       {store.can("building.manage", b.id) && !api().mock ? (
         <div className="walk-links">
           <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
@@ -138,10 +132,25 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Desks", `${members.length} / ${b.headcount}`],
           ["Reports", b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "The manager agent"} reads and decides them` : "people with review rights read and decide them (no manager agent)"],
         ] : [
-          ["Manager", b.managerAgentId && agents[b.managerAgentId] ? <>★ {agents[b.managerAgentId].name}: the planning agent. It answers 1:1s and facilitates reorg meetings; the in-tray is the humans'.</> : "the Planner, once someone plans with it"],
+          // the Town Hall is the humans' (1:1 mt_1vs893enaw decision 2): its manager is the root goal's captain; its agents are staff
+          ["Manager", <>the root goal's captain{rootCaptain ? <>: <b>{rootCaptain}</b></> : null}. The in-tray is the humans'.</>],
+          ["Staff", <TownHallStaff hallId={b.id} planner={b.managerAgentId ? agents[b.managerAgentId] : undefined} secretary={secretary} />],
         ]) as [string, ReactNode][],
       ]} />
     </>
+  );
+}
+
+/** The Town Hall's agents a human can talk to, a button each (no ★: the Town Hall's manager is the root goal's captain). */
+export function TownHallStaff({ hallId, planner, secretary }: { hallId: string; planner?: Agent; secretary: Agent | null }) {
+  const can = !!store.state.me && canTalkAtTownHall(hallId);
+  const live = planner && planner.status !== "stopped" ? planner : undefined;
+  if (!live && !secretary) return <>none yet</>;
+  return (
+    <span className="actions">
+      {live ? (can ? <Act small run={() => openPlanner()} title="Plan the goal tree with it: goal changes and reorgs">Talk to {live.name}</Act> : <span>{live.name} (plans the goal tree)</span>) : null}
+      {secretary ? (can ? <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title="The daily digest; in a 1:1 it does a decision you say in your own words">Talk to {secretary.name}</Act> : <span>{secretary.name} (the daily digest)</span>) : null}
+    </span>
   );
 }
 

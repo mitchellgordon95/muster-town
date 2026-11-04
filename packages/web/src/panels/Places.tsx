@@ -20,7 +20,7 @@ import { portraitUrl } from "../map/sprites";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { clipText } from "./showMore";
-import { canOneOnOne, grantTalkTarget, openOneOnOne } from "./oneOnOne";
+import { canOneOnOne, canTalkAtTownHall, grantTalkTarget, openOneOnOne, secretaryOf } from "./oneOnOne";
 import { decideJoin, letInGoal } from "./letIn";
 import { RollupCards, rollupCardsOf } from "./RollupCards";
 import { ReviewDeckView } from "./ReviewDeck";
@@ -115,11 +115,21 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   );
 }
 
+/** "Talk to Secretary" (gr_kdlogzzo5s): opens my 1:1 with the Town Hall's Secretary; nothing without a live Secretary or the Planner's permission. */
+export function TalkToSecretary() {
+  const hallId = useTown((s) => s.buildings.find((b) => b.kind === "town-hall")?.id);
+  const secretary = useTown((s) => secretaryOf(s.agents, hallId));
+  const me = useTown((s) => s.me);
+  if (!hallId || !secretary || !me || !canTalkAtTownHall(hallId)) return null;
+  return <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title={`A 1:1 with ${secretary.name}: say a decision in your own words and it is done as yours`}>Talk to {secretary.name}</Act>;
+}
+
 /** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */
 export function ReviewAsDeckButton({ count, onOpen, view, layout }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean }; layout?: ReactNode }) {
   return (
     <div className="intray-head actions">
       <button className="btn sm primary" onClick={onOpen} title="One slide per pending decision, blocking-most first, with the decision buttons on each slide (← → to move)">▶ Review as deck</button>
+      <TalkToSecretary />
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">
@@ -269,7 +279,7 @@ export function DigestCardView({ card: c, onOpen }: { card: DigestCard; onOpen: 
   return (
     <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
       <div className="doc-row intray-row digest-card">
-        <div className="intray-who"><button className="link" onClick={() => onOpen(c.doc.id)}>{c.doc.title}</button><span>{timeAgo(c.doc.createdAt)}</span></div>
+        <div className="intray-who"><button className="link" onClick={() => onOpen(c.doc.id)}>{c.doc.title}</button><span>{timeAgo(c.doc.createdAt)}</span><TalkToSecretary /></div>
         <b>Decisions needed</b>
         {c.decisions.length ? <ul className="digest-decisions">{c.decisions.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul> : <div className="muted">Nothing waits on a yes or no.</div>}
         {c.askedOfYou ? <div className="muted"><DocText text={c.askedOfYou} /></div> : null}
@@ -304,7 +314,7 @@ function focusRow(f: Focus, items: { grants: GrantView[]; retainers: ScheduleVie
 /** A report line's author: portrait and name (★ for the building's manager; a retired fork shows its manager's sprite). */
 function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   const a = useTown((s) => s.agents[doc.authorId] ?? (forkOf ? s.agents[forkOf] : undefined));
-  const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
+  const isManager = useTown((s) => !!doc.buildingId && s.buildings.some((b) => b.id === doc.buildingId && b.kind !== "town-hall" && b.managerAgentId === doc.authorId));
   const name = isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId);
   return a ? <img src={portraitUrl(a.sprite, 1)} alt={name} title={name} /> : null;
 }
@@ -741,7 +751,7 @@ export function askedOnOf(grants: GrantView[], retainers: ScheduleView[]): Map<s
 function IntrayRow({ doc, chain, onOpen, onOpenDoc, showBuilding, askedOn }: { doc: Doc; chain?: ReportChain; onOpen: () => void; onOpenDoc?: (id: string) => void; showBuilding?: boolean; askedOn?: string[] }) {
   // a retired fork isn't in the snapshot: its row shows its manager's sprite
   const a = useTown((s) => s.agents[doc.authorId] ?? (chain?.forkOf ? s.agents[chain.forkOf] : undefined));
-  const isManager = useTown((s) => !!doc.buildingId && s.buildings.find((b) => b.id === doc.buildingId)?.managerAgentId === doc.authorId);
+  const isManager = useTown((s) => !!doc.buildingId && s.buildings.some((b) => b.id === doc.buildingId && b.kind !== "town-hall" && b.managerAgentId === doc.authorId));
   const flag = doc.type === "flag";
   const need = flag ? null : needOf(doc.body);
   const preview = flag && doc.body.trim() !== doc.title ? doc.body.replace(/\s+/g, " ") : null;
