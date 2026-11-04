@@ -607,6 +607,7 @@ export const DocType = z.enum([
   "log",           // an agent's memory: one private append-only log of durable events (assignments, reports, decisions); its tail is injected
   "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
   "deck",          // slides: markdown split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only (deck.ts)
+  "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance
 ]);
 export type DocType = z.infer<typeof DocType>;
 
@@ -961,6 +962,8 @@ export const Schedule = z.object({
   /** retainer runs missed in a row (due with nothing usable to run on; migration 082) and when the streak began; a fired run resets both */
   missedRuns: z.number().int().nonnegative().default(0),
   missedSince: Iso.nullable().default(null),
+  /** who takes its runs (migration 088): a resident of the building, on its own queue; null = the building queue (a fork of the manager) */
+  takerId: Id.nullable().default(null),
   createdBy: Id,
   createdByKind: z.enum(["agent", "user"]),
   createdAt: Iso,
@@ -993,6 +996,8 @@ export const CreateScheduleInput = LaneFields.extend({
   runsAt: Iso.optional(), repeat: ScheduleRepeat.optional(),
   pages: z.array(Id).max(3).optional(), model: z.string().optional(),
   tokensPerRun: z.number().int().min(0).max(10_000_000).optional(),
+  /** a resident of the building who takes every run on its own queue (the Town Hall's Secretary); left out = the building queue */
+  takerId: Id.optional(),
 });
 export type CreateScheduleInput = z.infer<typeof CreateScheduleInput>;
 /** Edit a schedule (`schedule scheduleId`, POST /api/schedules/:id): what changes; a new repeat replaces the old one. */
@@ -1978,6 +1983,13 @@ export const VerbInputs = {
   adopt: z.object({ goalId: Id.describe("an active goal no building works on (none on it or on a goal above it)") }),
   ban: z.object({ agentId: Id, reason: z.string() }),
   redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
+  digest: z.object({
+    shipped: z.array(z.object({
+      rollupId: Id.describe("the rollup the item came from (as the read listed it)"),
+      line: z.string().trim().min(1).max(400).describe("one plain line, at most 20 words: what a human now sees or can do"),
+      picture: z.string().optional().describe("the item's picture src, as the read listed it"),
+    })).max(60).optional().describe("leave out to read the inputs; give one entry per Shipped item to file the card"),
+  }),
 } as const;
 export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
@@ -2016,6 +2028,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
+  digest: "(Secretary) The Town Hall's daily in-tray digest. With no arguments: the \"Decisions needed\" yes/no lines (built in code) and every Shipped item of the rollups filed since the last digest card, or why there is nothing to digest. With `shipped` (one line per item): files the card first in the Town Hall in-tray and archives the covered rollups that ask nothing under it.",
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 

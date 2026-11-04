@@ -5,6 +5,7 @@ import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
+import { Secretary } from "./secretary.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
@@ -103,6 +104,8 @@ export class World {
   readonly goalTree: Goals;
   /** "Change this goal" (the reorg) and the Planner (docs/goals.md, build step 5) */
   readonly reorgs: Reorgs;
+  /** the Town Hall's Secretary: the daily in-tray digest and its 1:1 (gr_kdlogzzo5s, secretary.ts) */
+  readonly secretary: Secretary;
   /** goal tree step 7: funding streams, earmarks and the draw order */
   readonly streams: Streams;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
@@ -188,6 +191,7 @@ export class World {
     this.grantDesk = new Grants(this);
     this.goalTree = new Goals(this);
     this.reorgs = new Reorgs(this);
+    this.secretary = new Secretary(this);
     this.streams = new Streams(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);

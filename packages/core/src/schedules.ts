@@ -4,7 +4,7 @@
  * the building queue (a fork of the manager runs it); a building with no manager agent has nobody to take it.
  * Each fire is ordinary work that ends in a report the manager decides; the schedule only saves re-typing the `assign`.
  */
-import { CreateScheduleInput, EditScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
+import { CreateScheduleInput, EditScheduleInput, isGone, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
 import { createAssignment, createDoc, forkableManagerOf, managerAgentOf, visitorManagerRefusal } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { checkForkModel } from "./forks.ts";
@@ -14,6 +14,7 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
+import { digestIdleReason } from "./secretary.ts";
 import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -91,8 +92,10 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   if (!parsed.success) throw badRequest(`Invalid schedule: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`);
   const input = parsed.data;
   const b = world.buildings.require(buildingId, "building");
-  if (b.kind === "town-hall") throw badRequest("The Town Hall has no workers to run a schedule; schedule work on a building.");
-  const visitor = visitorManagerRefusal(world, b);
+  const taker = input.takerId ? residentTaker(world, b, input.takerId) : null;
+  if (input.takerId && !taker) throw badRequest(`takerId ${input.takerId} isn't a resident of ${b.name} who can take work (not a fork, not stopped or gone).`);
+  if (b.kind === "town-hall" && !taker) throw badRequest("The Town Hall has no forks to run a schedule: name a resident as takerId (its Secretary), or schedule work on a building.");
+  const visitor = taker ? null : visitorManagerRefusal(world, b);
   if (visitor) throw visitor;
   const r = input.repeat;
   const rep = repeatOf(r);
@@ -108,7 +111,7 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   const s = world.schedules.upsert({
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
     ...rep, endsAt, paused: false, missedRuns: 0, missedSince: null, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
-    pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
+    pages, model, origin, takerId: taker?.id ?? null, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
     tokensPerRun, retainer: lane.lane === "retainer" ? "asked" : "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
   });
@@ -190,11 +193,22 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
   return e;
 }
 
+/** `takerId` when it names a resident of `b` who can take work (not a fork, not stopped or gone), else undefined. */
+function residentTaker(world: World, b: Building, takerId: string): Agent | undefined {
+  const a = world.agents.get(takerId);
+  return a && a.kind === "resident" && !a.forkOf && (a.homeBuildingId ?? a.buildingId) === b.id && a.status !== "stopped" && !isGone(a) ? a : undefined;
+}
+
 /**
- * Who takes a fired schedule's work: the building queue (held by the manager until a fork takes it); a building with no
- * manager agent: nobody (null). One named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1).
+ * Who takes a fired schedule's work: its `takerId` (a resident of the building, on its own queue: the Town Hall's
+ * Secretary, whose building has no forks; gr_kdlogzzo5s) when it names one who can still work; else the building queue
+ * (held by the manager until a fork takes it); a building with no manager agent: nobody (null).
  */
-export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
+export function scheduleTaker(world: World, b: Building, s?: Pick<Schedule, "takerId">): { agentId: string; queue: "agent" | "building" } | null {
+  if (s?.takerId) {
+    const r = residentTaker(world, b, s.takerId);
+    return r ? { agentId: r.id, queue: "agent" } : null;
+  }
   const manager = forkableManagerOf(world, b);
   return manager ? { agentId: manager.id, queue: "building" } : null;
 }
@@ -237,8 +251,15 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
         continue;
       }
     }
-    const taker = scheduleTaker(world, b);
-    if (!taker) { ended.push(endSchedule(world, s.id, `${b.name} has nobody to take it (no manager or residents)`, at)); continue; }
+    // a run with nothing to do ends here, before any session (the Secretary's digest: no new rollup, or one filed today)
+    const idle = scheduleIdleReason(world, s, at);
+    if (idle) {
+      world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: ${idle}`, payload: { scheduleId: s.id, reason: idle } });
+      advance({});
+      continue;
+    }
+    const taker = scheduleTaker(world, b, s);
+    if (!taker) { ended.push(endSchedule(world, s.id, s.takerId ? `${world.nameOf(s.takerId)} can no longer take it` : `${b.name} has nobody to take it (no manager or residents)`, at)); continue; }
     let a: Assignment;
     try {
       a = world.transaction(() => {
@@ -246,7 +267,8 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
           agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
-          origin: s.origin, queue: taker.queue, model: taker.queue === "building" ? s.model : null,
+          // a named taker runs on the schedule's model too (the Secretary's digest: the Town Hall's cheapModel)
+          origin: s.origin, queue: taker.queue, model: taker.queue === "building" || s.takerId ? s.model : null,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;
       });
@@ -270,6 +292,11 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
     fired.push(a);
   }
   return { fired, ended };
+}
+
+/** Why a due run has nothing to do (it is skipped, no session), or null: only the Secretary's digest knows one today. */
+function scheduleIdleReason(world: World, s: Schedule, at: Date): string | null {
+  return s.takerId && s.takerId === world.secretary.agent()?.id ? digestIdleReason(world, at) : null;
 }
 
 /** A building's schedules, active first (soonest run first), then the 20 most recently ended. */
