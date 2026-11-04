@@ -11,21 +11,55 @@
  * Two guards (grant gr_z2v838adk9): a town that has never made a copy refuses to upload while the bucket holds copies (an
  * empty town on a new volume would otherwise become the newest copy and, 48 h later, prune every good one: restore first,
  * restore.ts), and a run never replaces an object that is already in the bucket.
+ *
+ * After town.db, the same run copies the hosted collectives' databases (hub.db as `hosted/hub/`, each `<slug>/data/town.db`
+ * as `hosted/<slug>/`, same naming, checks, guard and retention per prefix) and uploads every town's new transcripts
+ * (`transcripts/<town>/<date>/<sessionId>.jsonl.br.enc`, encrypted only, once each, deleted past retention): `backupSources`.
+ * The empty-boot guard covers them too (one volume: a fresh town.db refuses the whole run).
  */
 import type { DB } from "@muster-town/core";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { backupKeyFrom } from "./crypto.ts";
-import { OBJECT_PREFIX, objectKey, parseObjectKey } from "./retention.ts";
+import { OBJECT_PREFIX, objectKey, parseObjectKey, TRANSCRIPT_PREFIX } from "./retention.ts";
 import { S3, type S3Target } from "./s3.ts";
-import type { WorkerInput, WorkerMessage, WorkerResult } from "./worker.ts";
+import type { TranscriptsResult, WorkerInput, WorkerMessage, WorkerResult } from "./worker.ts";
 
 export { backupKeyFrom, decryptBackup, encryptBackup } from "./crypto.ts";
 export { keysToDelete, objectKey, parseObjectKey } from "./retention.ts";
 export { S3 } from "./s3.ts";
 export { signV4 } from "./sigv4.ts";
 
-/** What `GET /api/health` shows: never the key or the bucket credentials. */
-export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null; mode: "hourly" | "restore-only" }
+/** What the last run copied besides town.db: each other database's newest key and size, and the transcript counts. */
+export interface BackupDetail { copies: { prefix: string; key: string; bytes: number }[]; transcripts: TranscriptsResult | null }
+
+/** What `GET /api/health` shows: never the key or the bucket credentials. `copies`/`transcripts`: the last successful run's
+ * other databases and transcript upload (null before the first one). A failed hosted copy or transcript upload sets `error`. */
+export interface BackupView { lastAt: string | null; verifiedAt: string | null; bytes: number | null; dest: string; error: string | null; mode: "hourly" | "restore-only"; copies?: BackupDetail["copies"] | null; transcripts?: TranscriptsResult | null }
+
+/** One database or transcript dir to back up besides town.db (main.ts: `backupSources`). */
+interface BackupSources { dbs: { prefix: string; path: string }[]; transcripts: { prefix: string; dir: string }[] }
+
+/**
+ * What each run copies besides the Workshop's town.db: its transcripts (`transcripts/workshop/`), and under `hostedDir`
+ * (docs/hosted-collectives.md) hub.db (`hosted/hub/`), each `<slug>/data/town.db` (`hosted/<slug>/`) and its transcripts
+ * (`transcripts/<slug>/`). Read from disk at every run, so a new collective is in the next one.
+ */
+export function backupSources(dataDir: string, hostedDir: string | null): BackupSources {
+  const out: BackupSources = { dbs: [], transcripts: [{ prefix: `${TRANSCRIPT_PREFIX}workshop/`, dir: join(dataDir, "transcripts") }] };
+  if (!hostedDir || !existsSync(hostedDir)) return out;
+  if (existsSync(join(hostedDir, "hub.db"))) out.dbs.push({ prefix: "hosted/hub/", path: join(hostedDir, "hub.db") });
+  for (const slug of readdirSync(hostedDir).sort()) {
+    // a slug is lowercase letters, digits and dashes; "hub" and "workshop" are never hosted slugs
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(slug) || slug === "hub" || slug === "workshop") continue;
+    const db = join(hostedDir, slug, "data", "town.db");
+    if (!existsSync(db)) continue;
+    out.dbs.push({ prefix: `hosted/${slug}/`, path: db });
+    out.transcripts.push({ prefix: `${TRANSCRIPT_PREFIX}${slug}/`, dir: join(hostedDir, slug, "data", "transcripts") });
+  }
+  return out;
+}
 
 const BACKUP_ENV = ["BUCKET_NAME", "AWS_ENDPOINT_URL_S3", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "MUSTER_TOWN_BACKUP_KEY"] as const;
 /** the error a fresh town's run stores (health backup.error; the monitor's backup metric is red on it) */
@@ -48,9 +82,13 @@ interface BackupJobOptions {
   log?: Pick<Console, "log" | "warn">;
   /** a throwaway drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): never runs, uploads or prunes; the first-boot restore is separate */
   restoreOnly?: boolean;
+  /** the hosted collectives' databases and every town's transcripts, read at each run (main.ts: backupSources); none when unset */
+  sources?: () => BackupSources;
+  /** transcript objects older than this many days (+1) are deleted (the Workshop's desks.transcriptDays; default 90) */
+  transcriptDays?: () => number;
 }
 
-interface StateRow { lastAt: string | null; verifiedAt: string | null; bytes: number | null; key: string | null; error: string | null; errorAt: string | null }
+interface StateRow { lastAt: string | null; verifiedAt: string | null; bytes: number | null; key: string | null; error: string | null; errorAt: string | null; detail: string | null }
 
 type BackupRunResult = WorkerResult & { deepCheck: boolean };
 
@@ -97,14 +135,16 @@ export class BackupJob {
   get configured(): boolean { return !!this.s3 && !!this.key; }
 
   private state(): StateRow {
-    return this.opts.db.prepare("SELECT lastAt, verifiedAt, bytes, key, error, errorAt FROM backup_state WHERE id = 1").get() as StateRow;
+    return this.opts.db.prepare("SELECT lastAt, verifiedAt, bytes, key, error, errorAt, detail FROM backup_state WHERE id = 1").get() as StateRow;
   }
 
   /** `GET /api/health` `backup` (null when not configured) */
   snapshot(): BackupView | null {
     if (!this.s3) return null;
     const s = this.state();
-    return { lastAt: s.lastAt, verifiedAt: s.verifiedAt, bytes: s.bytes, dest: this.s3.dest + OBJECT_PREFIX, error: s.error, mode: this.opts.restoreOnly ? "restore-only" : "hourly" };
+    let detail: BackupDetail | null = null;
+    try { detail = s.detail ? JSON.parse(s.detail) as BackupDetail : null; } catch { /* a malformed row reads as none */ }
+    return { lastAt: s.lastAt, verifiedAt: s.verifiedAt, bytes: s.bytes, dest: this.s3.dest + OBJECT_PREFIX, error: s.error, mode: this.opts.restoreOnly ? "restore-only" : "hourly", copies: detail?.copies ?? null, transcripts: detail?.transcripts ?? null };
   }
 
   /**
@@ -149,8 +189,15 @@ export class BackupJob {
     if (this.running) return this.running;
     this.running = this.runOnce().then((r) => {
       const at = this.now().toISOString();
-      this.opts.db.prepare("UPDATE backup_state SET lastAt = ?, verifiedAt = ?, bytes = ?, key = ?, error = NULL, errorAt = NULL WHERE id = 1").run(at, at, r.bytes, r.key);
+      const detail: BackupDetail = { copies: (r.copies ?? []).map((c) => ({ prefix: c.prefix, key: c.key, bytes: c.bytes })), transcripts: r.transcripts ?? null };
+      // town.db's copy is verified (lastAt == verifiedAt); a failed hosted copy or transcript upload still shows as the error
+      const problem = r.problems?.length ? r.problems.join("; ").slice(0, 500) : null;
+      this.opts.db.prepare("UPDATE backup_state SET lastAt = ?, verifiedAt = ?, bytes = ?, key = ?, error = ?, errorAt = ?, detail = ? WHERE id = 1")
+        .run(at, at, r.bytes, r.key, problem, problem ? at : null, JSON.stringify(detail));
       this.log.log(`[backup] ${r.key}: ${r.bytes} bytes uploaded and verified${r.deepCheck ? " (download integrity_checked)" : ""} (${r.rawBytes} raw)${r.deleted.length ? `, ${r.deleted.length} old object(s) deleted` : ""}`);
+      for (const c of r.copies ?? []) this.log.log(`[backup] ${c.key}: ${c.bytes} bytes uploaded and verified (${c.rawBytes} raw)${c.deleted.length ? `, ${c.deleted.length} old object(s) deleted` : ""}`);
+      if (r.transcripts && (r.transcripts.uploaded || r.transcripts.deleted)) this.log.log(`[backup] transcripts: ${r.transcripts.uploaded} uploaded (${r.transcripts.uploadedBytes} bytes), ${r.transcripts.deleted} past retention deleted, ${r.transcripts.files} on disk`);
+      if (problem) this.log.warn(`[backup] partly failed: ${problem}`);
       return r;
     }, (e: unknown) => {
       const message = (e instanceof Error ? e.message : String(e)).slice(0, 500);
@@ -176,6 +223,7 @@ export class BackupJob {
     const input: WorkerInput = {
       dbPath: this.opts.db.name, dir: this.opts.dir, key, stamp: at.toISOString().slice(0, 13),
       cipherKey: new Uint8Array(this.key!), s3: this.target!, deepCheck,
+      ...this.opts.sources?.(), transcriptDays: this.opts.transcriptDays?.() ?? 90,
     };
     return new Promise<BackupRunResult>((resolve, reject) => {
       let settled = false;
