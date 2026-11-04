@@ -136,7 +136,22 @@ export interface Finance {
   mix?: TokenMix;
   /** dollars at API list price (display only): used = Σ sessions' list cost (each at its booking model's output price) + the rest at $20/M; left, burn and inflow at Opus 5.5's $20/M */
   usd?: { used: number; left: number; burnPerDay: number; inflowPerDay: number; pricedAt: "api-list" };
+  /**
+   * what the last 30 days cost in cash (gr_qggxximtru step 2; core finance-cash.ts): plan fees prorated, API-key sessions at
+   * list price, the Fly estimate; listUsd = the list-price value of the work in the same window, perDollar = listUsd / total
+   * (null when nothing was paid). Absent from an older server.
+   */
+  cash?: FinanceCash;
+  /** plans + apiKeys + hosting = total within $0.01 */
+  cashCheck?: { ok: boolean; diff: number; text: string };
   at: string;
+}
+export interface FinanceCash {
+  windowDays: number; from: string; to: string;
+  plans: number; apiKeys: number; hosting: number; total: number;
+  listUsd: number; perDollar: number | null;
+  planRows: { id: string; label: string; usdPerMonth: number; activeDays: number; usd: number }[];
+  apiKeySessions: number; pricedAt: "cash";
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
