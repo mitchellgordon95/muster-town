@@ -468,15 +468,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
   /* collapsed (the default for a member on a phone): one line, so the map stays usable */
   .hud.collapsed { width: auto; max-width: calc(100% - 24px); padding: 8px 10px; }
   /* a guest on a phone: the card stays under ~35% of the screen so the agent beside the ghost shows (KR 2, dc_el70fwhsar) */
-  .hud.guest { max-height: 35%; padding: 10px 12px; }
-  .hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }
-  .hud.guest .hud-block { margin-top: 6px; }
-  .hud.guest .hud-notices { display: none; }
-  .hud.guest .here-list { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
-  .hud.guest .here-row { width: auto; padding: 2px 7px; }
-  .hud.guest .here-row span { display: none; }
-  .hud.guest .here-more { padding-left: 2px; }
-  .hud.guest .guest-text { margin-bottom: 6px; }
+  .hud.guest { max-height: 35%; }
   /* the town map's and the room editor's toolbars sit at the bottom on a phone, clear of the HUD card at the top */
   .layout-bar { top: auto; bottom: 12px; left: 12px !important; right: 12px; transform: none; max-width: none !important; gap: 6px; }
   .layout-bar-title { flex-direction: column; gap: 2px; font-size: 12px; }
@@ -557,6 +549,20 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .here-row span { overflow-wrap: anywhere; }
 .here-more { font-size: 11.5px; color: var(--faint); padding-left: 8px; }
 .guest-card .guest-text b { color: var(--text); }
+/* a guest's card is kept short at every size: the town is what they see (kr_c3c7651d18, under 15% of a 1280x720 screen
+   with the minimap). Working agents are chips (their building is in the tooltip), and operator notices (redeploys,
+   in-trays) are for members, not strangers; the "who is here" line says what its label would. */
+.hud.guest { padding: 10px 12px; }
+.hud.guest .goal { margin: 6px 0 4px; padding: 5px 8px; }
+.hud.guest .goal span { display: inline; margin: 0 6px 0 0; }
+.hud.guest .hud-block { margin-top: 6px; }
+.hud.guest .hud-notices { display: none; }
+.hud.guest .guest-card > .hud-label { display: none; }
+.hud.guest .here-list { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 6px; }
+.hud.guest .here-row { width: auto; padding: 2px 7px; }
+.hud.guest .here-row span { display: none; }
+.hud.guest .here-more { padding-left: 2px; }
+.hud.guest .guest-text { margin-bottom: 6px; }
 /* Bank: top-contributors leaderboard (gold for the podium) */
 .leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .lb-row { display: grid; grid-template-columns: 28px minmax(0, 9em) 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); background: #1d1f28; font-size: 13px; }
