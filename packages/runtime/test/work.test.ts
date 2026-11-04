@@ -50,7 +50,8 @@ describe("work session", () => {
     expect(opts.allowedTools).toEqual(expect.arrayContaining(["mcp__town__look", "mcp__town__submit_report", "WebSearch", "WebFetch"]));
     expect(opts.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"]));
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
-    expect(opts.model).toBe(lab.model);
+    expect(opts.model).toBe("claude-fable-5-1"); // a resident's own session runs on its own model (new residents: Fable), not the lab's
+    expect(noor.model).toBe("claude-fable-5-1");
     expect(opts.permissionMode).toBeUndefined();
     // house allocation has no key of its own: the Bank's subscription token, and nothing from the host env (post-mortem 2026-10-30)
     expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(TEST_TOKEN);

@@ -14,7 +14,10 @@ const MAX_BYTES = 8 * 1024 * 1024;
 const mediaFiles = (list: FileList | null | undefined): File[] => [...(list ?? [])].filter((f) => MEDIA_MIME.includes(f.type));
 const altOf = (f: File) => f.name && f.name !== "image.png" ? f.name.replace(/\.[a-z0-9]+$/i, "").replace(/[[\]\n]/g, " ").slice(0, 80) : "";
 
-/** `{...media.props}` on a <textarea> whose value is `setText`'s state. `media.uploading` counts uploads in flight. */
+/**
+ * `{...media.props}` on a <textarea> whose value is `setText`'s state. `media.pick()` opens a file picker and uploads
+ * the chosen files the same way (the Attach button, AttachButton.tsx). `media.uploading` counts uploads in flight.
+ */
 export function useMediaPaste(setText: Dispatch<SetStateAction<string>>) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [uploading, setUploading] = useState(0);
@@ -39,6 +42,21 @@ export function useMediaPaste(setText: Dispatch<SetStateAction<string>>) {
         .catch((err) => { setText((t) => t.replace(`${mark}\n`, "").replace(mark, "")); store.toast(`Upload failed: ${String((err as Error).message ?? err)}`, "bad"); })
         .finally(() => setUploading((n) => n - 1));
     }
+  };
+
+  /** the Attach button: a file picker with the same types and limit as paste and drop (1:1 mt_z1b38bwg98) */
+  const pick = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = MEDIA_MIME.join(",");
+    input.multiple = true;
+    input.onchange = () => {
+      const all = [...(input.files ?? [])];
+      const files = mediaFiles(input.files);
+      if (files.length < all.length) store.toast("Only PNG, JPEG, GIF, WebP, WebM and MP4 files can be attached.", "bad");
+      if (files.length) upload(files);
+    };
+    input.click();
   };
 
   const props = {
@@ -66,5 +84,5 @@ export function useMediaPaste(setText: Dispatch<SetStateAction<string>>) {
     },
     "data-drop": over ? "over" : undefined,
   };
-  return { props, uploading };
+  return { props, uploading, pick };
 }

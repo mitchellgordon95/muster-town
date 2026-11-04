@@ -40,6 +40,11 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/runtime/test/pr-checks.test.ts` › `main green: every check on main's head passed, read once a minute with a token, a finished sha is not re-read`
    - Test: `packages/runtime/test/pr-checks.test.ts` › `main red names the failed step; pending while the fix runs; a restart keeps since`
    - Test: `packages/runtime/test/pr-checks.test.ts` › `without a repo token main is read at most every 5 minutes (GitHub allows 60 anonymous calls/h)`
+11. **A red main gets exactly one fixer, and everyone is told who (gr_7op2v8fjcl step 2, kr_hsfxuz8tnx).** The first red read of a sha calls core `queueMainFix` (`packages/core/src/main-fix.ts`): one fix assignment, on the building queue of the red commit's author's building (the author's `<slug>@muster-town.local`, a merge commit's `agent/<slug>/` branch, else the branch of the PR a squash merge came from, read once per red sha), else Code Legibility; lane grant on gr_7op2v8fjcl there while it is funded, else directed (created by the system). The sha and the assignment are kept on meta `mainCi` (`fixSha`, `fixAssignmentId`, `fixer`), so repeated polls and a restart never queue it twice, and a new red sha while that assignment is still open stays with the same fixer; the fields clear when main is green. While main is red, every desk brief (`composeWorkBrief`) and `look` (`notices.mainRed`) carry `mainRedLine`: the failed step, since when, and the fixer.
+   - Test: `packages/core/test/main-fix.test.ts` › `one fix assignment per red sha: repeated polls and a restart (the record re-read from the world) don't duplicate it`
+   - Test: `packages/core/test/main-fix.test.ts` › `routes to the red commit author's building, else to the fallback; lane grant there`
+   - Test: `packages/core/test/main-fix.test.ts` › `the brief and look name the fixer only while main is red`
+   - Test: `packages/runtime/test/pr-checks.test.ts` › `a red main queues one fix to the author's building: the author is read once per red sha, a restart doesn't re-queue (step 2)`
 
 ## How it connects
 

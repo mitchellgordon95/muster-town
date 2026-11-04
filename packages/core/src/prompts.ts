@@ -4,6 +4,7 @@
  */
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_NEEDS_RULE, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
+import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
@@ -717,9 +718,12 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const workspace = deskWorkspace(town, building, agent, assignment);
   const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl)) : "");
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
-  const prompt = assignment
+  const brief = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
       agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
     : `${clockLine()}\n\n${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+  // while main is red, every brief names its one fixer (gr_7op2v8fjcl step 2): live state, so the first message, not the system prompt
+  const red = mainRedLine(world);
+  const prompt = red ? `${brief}\n\n${red}` : brief;
   return { agent, building, town, assignment, session, system, prompt, ...(workspace ? { workspace } : {}) };
 }

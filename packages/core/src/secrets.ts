@@ -167,7 +167,7 @@ export class Secrets {
     return this.world.db.prepare("DELETE FROM secrets WHERE name = ?").run(name).changes > 0;
   }
 
-  /** Whether a runtime-owned secret has a stored value (`Town.publish.tokenSet` mirrors it). */
+  /** Whether a secret has a stored value (`Town.publish.tokenSet` mirrors the publish token; `tokenSource` reads GH_TOKEN too). */
   hasOwn(name: string): boolean {
     return !!this.row(name)?.ciphertext;
   }

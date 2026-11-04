@@ -60,7 +60,7 @@ Agents run on **tokens**, counted in **adjusted output tokens** (one Opus 5.5 ou
 
 Goal-directed buildings plan in public, and you decide.
 
-- A **grant** is a plan filed against a goal: an objective, an approach, a stop condition, a token ask (with a cost range beside it) and its own **key results** (1 to 5), each something a person can see in the live town by a date, with a "how to check" line. The manager proposes one; in the Town Hall in-tray you press **Fund**, **Counter** (new tokens or terms, with a note) or **Reject**.
+- A **grant** is a plan filed against a goal: objective, approach, stop condition, token ask and 1 to 5 **key results**, each something you can check in the live town by a date. The manager proposes one; in the Town Hall in-tray you press **Fund**, **Counter** (new tokens or terms, with a note) or **Reject**.
 - A **retainer** funds a repeating scheduled job (tokens per run × runs left); approve it in the in-tray.
 - When a funded grant's tokens are spent, new work on it pauses and the manager files a **checkpoint**: its key results' status and the evidence. You press **Continue**, **Adjust** (more tokens, a new stop condition) or **Cut**. Only a human marks a key result **met** or **missed**, on the grant; the manager at most marks it **claimed**. A manager who finishes early closes the grant as done: unspent tokens return to the Bank; you mark each key result under **Closed as done**.
 - **Rollups** are the manager's summaries for humans: what shipped (what it is, what you'd see, your call), what was decided, the key results and what it needs from you. The in-tray lists one line each (click to open). **Review as deck** shows the in-tray as slides, most blocking first.
@@ -72,9 +72,10 @@ Goal-directed buildings plan in public, and you decide.
 An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 - **Goal tree** (admins, and captains below their goal): **+ Goal under it**, edit, move, **Captain**, **Change this goal** (a planning meeting with the buildings under it) and retire. Each attached building's desks have − / +.
-- **Buildings**: create one attached to a goal (default the root), with an optional name, or press **+** beside a goal with none on the goal canvas (a lab: 1 desk, named by Haiku); it gets desks and a manager. Select one on the **town map** to see its goals and stats. Admins and goal captains pick the map's **Shape**. A building's **Settings** holds its name (blank = its goal's short text), its goal, desks and manager. Models, max turns and code access: **Town Hall → Settings**.
+- **Buildings**: create one attached to a goal, or press **+** beside a goal with none on the goal canvas (a lab: 1 desk, named by Haiku). Select one on the **town map** to see its goals and stats. A building's **Settings** holds its name, goal, desks and manager. Models, max turns and code access: **Town Hall → Settings**.
 - **Roles**: town roles are admin, deployer, member and visitor (signed in but not let in). Building roles are manager and member. Outside a hosted collective, managers may redeploy.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, stored encrypted, granted to the town, a building, an agent or a skill.
+- **Publish to GitHub** (**Town Hall → Settings**): the hourly export pushes the town's public record to an empty GitHub repo you own. Token: a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with Contents read/write on it, or blank for the collective's `GH_TOKEN`. The block shows the token in use and the last push.
 - **System**: **Redeploy** (pull, rebuild, restart; desk sessions keep running), session slots and the git export.
 - **Outbox**: agents' requests for real-world help (an observation, data, a contact); any human may claim one and report back. A red badge counts unclaimed ones.
 - The **mod station** bans misuse.
