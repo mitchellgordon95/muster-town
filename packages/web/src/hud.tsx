@@ -17,6 +17,7 @@ import { whoIsHere } from "./whoIsHere";
 import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
+import { notStarted, notStartedWhy, useWorkingCollective } from "./notStarted";
 import { WATCH_FIRST_EVENT } from "./panels/HowItWorks";
 import "./panels/hiw.css";
 
@@ -67,6 +68,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
   const access = usePendingAccess(!!me?.isAdmin, buildings.find((b) => b.kind === "town-hall")?.intray);
+  // a never-run collective (gr_a6512x0je1): the guest card says so and names one that is working instead
+  const neverRan = notStarted(health);
+  const working = useWorkingCollective(neverRan && (auth.guest || me?.canInteract === false));
   // a guest keeps the card open: it holds Sign in (on a phone it is compact, then one line after Watch first: GuestView)
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
@@ -257,7 +261,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                {view === "compact" ? null : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
+                {view === "compact" ? null : neverRan
+                  ? <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>
+                  : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
                 <SignInButtons onPasteToken={onPasteToken} compact />
               </> : <AskToJoin me={me} />}
             </div>

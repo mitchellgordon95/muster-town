@@ -6,6 +6,8 @@ export interface HomeCollective {
   goal?: string;
   url?: string;
   placeholder?: boolean;
+  /** false: a never-run collective (its tile says "Not started yet"; no "working now" pill) */
+  started?: boolean;
   /** this server's town snapshot (`/api/town`) for a live preview; absent for collectives served elsewhere */
   preview?: string;
 }

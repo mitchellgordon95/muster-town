@@ -16,14 +16,19 @@ export const PLACEHOLDER: Collective = {
 
 /**
  * The collectives on the homepage: this server's own (slug `self`, at WEB_BASE, name and goal from the live
- * town row), then the hub's active hosted collectives at `/<slug>/`; the placeholder tile while there are none.
+ * town row; it has run), then the hub's active hosted collectives at `/<slug>/`, the ones that have run before
+ * the never-run ones (`started`, hub.ts `started`; oldest first within each); the placeholder tile while there are none.
  */
-export function collectives(world: World, hosted: HubCollective[], self = "workshop"): Collective[] {
+export function collectives(world: World, hosted: (HubCollective & { started: boolean })[], self = "workshop"): Collective[] {
   const town = world.town.get();
-  const own: Collective = { slug: self, name: town.name, goal: town.goal ?? "", url: WEB_BASE };
-  const rest = hosted.map((h): Collective => ({ slug: h.slug, name: h.name, goal: h.goal, url: `/${h.slug}/` }));
-  return [own, ...(rest.length ? rest : [PLACEHOLDER])];
+  const own: Collective = { slug: self, name: town.name, goal: town.goal ?? "", url: WEB_BASE, started: true };
+  const rest = hosted.map((h): Collective => ({ slug: h.slug, name: h.name, goal: h.goal, url: `/${h.slug}/`, started: h.started }));
+  const ran = rest.filter((c) => c.started), waiting = rest.filter((c) => !c.started);
+  return [own, ...ran, ...(rest.length ? waiting : [PLACEHOLDER])];
 }
+
+/** What a never-run collective's tile says under its name (the same words as the in-town guest card). */
+const NOT_STARTED = "Not started yet: waiting for its founder's key.";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
@@ -52,16 +57,19 @@ function previewOf(c: Collective): string | undefined {
   return /^\/[a-z0-9-]+\/$/.test(c.url) ? `${c.url}api/town` : undefined;
 }
 
-/** One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`), its goal under it: this server's town gets a live preview. */
+/**
+ * One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`), its goal under it: this server's town gets a live
+ * preview. A never-run collective (`started: false`) gets no "working now" pill: the line under its name says it hasn't started.
+ */
 function tile(c: Collective): string {
-  const tag = c.goal ? `\n  <p class="tile-tag">${esc(c.goal)}</p>` : "";
+  const tag = (c.started === false ? `\n  <p class="tile-tag tile-wait">${NOT_STARTED}</p>` : "") + (c.goal ? `\n  <p class="tile-tag">${esc(c.goal)}</p>` : "");
   if (c.placeholder || !c.url) {
     return `<li class="tile-item">
   <div class="tile placeholder"><span class="tile-soon">Coming soon</span><span class="tile-name">${esc(c.name)}</span></div>${tag}
 </li>`;
   }
   const src = previewOf(c);
-  const preview = src ? `<canvas class="tile-map" data-preview="${esc(src)}" aria-hidden="true"></canvas><span class="tile-live"></span>` : "";
+  const preview = src ? `<canvas class="tile-map" data-preview="${esc(src)}" aria-hidden="true"></canvas>${c.started === false ? "" : '<span class="tile-live"></span>'}` : "";
   return `<li class="tile-item">
   <a class="tile" href="${esc(c.url)}">${preview}<span class="tile-name">${esc(c.name)}</span></a>${tag}
 </li>`;
@@ -73,7 +81,7 @@ function tile(c: Collective): string {
  */
 export function renderHome(list: Collective[], dist: string | null = null): string {
   // what the bundle needs: the list, and which tile previews this server's town
-  const data = list.map((c) => ({ slug: c.slug, name: c.name, goal: c.goal, url: c.url, placeholder: c.placeholder, preview: previewOf(c) }));
+  const data = list.map((c) => ({ slug: c.slug, name: c.name, goal: c.goal, url: c.url, placeholder: c.placeholder, started: c.started, preview: previewOf(c) }));
   return `<!doctype html>
 <html lang="en">
 <head>

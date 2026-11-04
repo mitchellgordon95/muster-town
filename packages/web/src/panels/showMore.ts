@@ -1,6 +1,6 @@
 /**
  * The web client never drops text it has (Mitchell, 1:1 mt_rt8rbn4ban). A long text may open collapsed to its first
- * `max` characters, cut at a word boundary, but always with a "Show more" that reveals all of it in place (ui.tsx ShowMore).
+ * `max` characters, cut at a word boundary, but always with the whole text one click away (a fold, or the page it names).
  * `head` is the collapsed text, `cut` whether anything is hidden.
  */
 export function clipText(text: string, max: number): { head: string; cut: boolean } {
