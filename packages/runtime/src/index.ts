@@ -851,6 +851,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   world.host.isLive = hostIsLive;
   const hostPrChecks = (pr: number) => prPoller.get(pr);
   world.host.prChecks = hostPrChecks;
+  const hostMainCi = () => prPoller.main();
+  world.host.mainCi = hostMainCi;
 
   return {
     async stop() {
@@ -864,6 +866,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (world.host.startedAt === bootIso) delete world.host.startedAt;
       if (world.host.isLive === hostIsLive) delete world.host.isLive;
       if (world.host.prChecks === hostPrChecks) delete world.host.prChecks;
+      if (world.host.mainCi === hostMainCi) delete world.host.mainCi;
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);

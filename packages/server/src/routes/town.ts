@@ -62,7 +62,7 @@ export async function townRoutes(app: FastifyInstance) {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
     return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
-      budgets, backup, monitor: app.monitor?.view() ?? null, desks,
+      budgets, backup, monitor: app.monitor?.view() ?? null, desks, main: mainHealth(world),
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
       // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
@@ -588,6 +588,15 @@ export async function townRoutes(app: FastifyInstance) {
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
   return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
+}
+
+/**
+ * GET /api/health `main` (gr_7op2v8fjcl, kr_mvj61meiwx): main's CI as the runtime last read it from GitHub, from memory (no
+ * database read): `{state green|red|pending, sha, failedStep, since, fixer, checkedAt}`; null without a runtime or before its first read.
+ */
+function mainHealth(world: World) {
+  const m = world.host.mainCi?.();
+  return m ? { state: m.state, sha: m.sha, failedStep: m.failedStep, since: m.since, fixer: m.fixer, checkedAt: m.checkedAt } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */
