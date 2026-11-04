@@ -826,6 +826,18 @@ export const WaitFor = z.union([
   z.object({ pr: z.number().int().positive().describe("that pull request's CI checks finished on its head commit (passed or failed), or it was merged or closed") }).strict(),
 ]);
 export type WaitFor = z.infer<typeof WaitFor>;
+/**
+ * What code a collective works on (core `World.repoMode`): `none` = no repo (`Town.workspace` unset: every hosted collective
+ * today), `own` = a repo that is not the one this server runs from, `muster` = this server's own repo (muster.town's
+ * Workshop). Without a repo there is no PR poller and no redeploy of its own, so `{deploy}` and `{pr}` waits are refused;
+ * with its own repo `{pr}` waits work but `{deploy}` (this server's redeploys) does not.
+ */
+export const RepoMode = z.enum(["none", "own", "muster"]);
+export type RepoMode = z.infer<typeof RepoMode>;
+/** The wait kinds a collective in `mode` may set (`validateWait` refuses the others). */
+export function waitKindsFor(mode: RepoMode): ("deploy" | "assignment" | "decision" | "after" | "pr")[] {
+  return mode === "muster" ? ["deploy", "assignment", "decision", "after", "pr"] : mode === "own" ? ["assignment", "decision", "after", "pr"] : ["assignment", "decision", "after"];
+}
 /** How long a wait may stay unmet before the assignment is cancelled into the in-tray. */
 export const WAIT_TTL_MS = 24 * 60 * 60_000;
 /**
@@ -2107,6 +2119,44 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
+/** The wait union narrowed to the kinds a collective in `mode` may set (`waitKindsFor`). */
+function waitForIn(mode: RepoMode) {
+  const kinds: string[] = waitKindsFor(mode);
+  const [a, b, ...rest] = WaitFor.options.filter((o) => kinds.includes(Object.keys(o.shape)[0]));
+  return z.union([a, b, ...rest]);
+}
+
+/** Text edits that take the deploy (and, without a repo, the PR) wait out of a muster.town tool text. */
+const NO_DEPLOY: [string, string][] = [
+  ["a redeploy with your commit, ", ""], ["a redeploy, ", ""], ["{deploy: sha|\"next\"} (live after a redeploy), ", ""],
+  ["e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id}", "e.g. {assignment: id}"],
+  ["(e.g. for the next redeploy, or another assignment to finish)", "(e.g. for another assignment to finish)"],
+];
+const NO_PR: [string, string][] = [
+  [", your PR's CI checks finishing", ""], [" Waiting on CI: {pr: N} (the town watches the PR's checks and resumes you when they pass or fail), never an {after} guess.", ""],
+  [", your PR's CI checks ({pr: N}, never an {after} guess)", ""], [", {pr: N} (that PR's CI checks finished, passed or failed)", ""],
+];
+function withoutWaits(text: string, mode: RepoMode): string {
+  if (mode === "muster") return text;
+  let t = text;
+  for (const [a, b] of mode === "own" ? NO_DEPLOY : [...NO_DEPLOY, ...NO_PR]) t = t.split(a).join(b);
+  return t;
+}
+const WAIT_FIELDS: Partial<Record<VerbName, "resumeWhen" | "waitFor">> = { submit_report: "resumeWhen", assign: "waitFor", review: "waitFor" };
+
+/**
+ * A verb as an MCP tool for a collective in `mode`: muster.town's own text as is; without this server's repo the
+ * `{deploy}` wait (and, with no repo at all, the `{pr}` wait) is out of the description and of the wait field's schema.
+ */
+export function verbToolFor(name: VerbName, mode: RepoMode): { description: string; input: z.ZodObject<z.ZodRawShape> } {
+  const input = VerbInputs[name] as unknown as z.ZodObject<z.ZodRawShape>;
+  const description = withoutWaits(VERB_DESCRIPTIONS[name], mode);
+  const field = WAIT_FIELDS[name];
+  if (mode === "muster" || !field) return { description, input };
+  const was = input.shape[field] as z.ZodOptional<z.ZodTypeAny>;
+  return { description, input: input.extend({ [field]: waitForIn(mode).optional().describe(withoutWaits(was.description ?? "", mode)) }) };
+}
+
 // ---------- verb results (what the LLM sees) ----------
 export const NearbyAgent = z.object({ id: Id, name: z.string(), kind: AgentKind, status: AgentStatus, activity: z.string(), distance: z.number() });
 export const LookResult = z.object({
@@ -2194,7 +2244,7 @@ export function mapFlagOf(d: Doc): MapFlag | null {
 }
 
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional() }).optional(),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional(), repoMode: RepoMode.optional() }).optional(),
     /** outbox requests nobody has claimed yet (requestStatus open): the badge on the map's outbox */
     outbox: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("event"), event: Event }),
@@ -2499,6 +2549,8 @@ export type FounderProgress = z.infer<typeof FounderProgress>;
  * `slots` = work-session slots (absent without a runtime).
  */
 export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
+  /** what code this collective works on (core `World.repoMode`): the web hides the build and code rows without a repo */
+  repoMode: RepoMode.optional(),
   /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
   funding: z.enum(["api-key", "none"]).optional(),
   /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
@@ -2560,6 +2612,8 @@ export const CaptainDecisionInput = z.object({ action: z.enum(["accept", "declin
 
 export const AuthMe = z.object({
   user: User, roles: z.array(Role), avatarAgentId: Id.nullable(), isAdmin: z.boolean(),
+  /** holds `town.redeploy` (core `Permissions.can`): false for everyone in a hosted collective, admins included; the web's `store.can` reads it */
+  canRedeploy: z.boolean().optional(),
   /** holds `town.interact`: may move, talk and write; false = read-only until an admin lets them in */
   canInteract: z.boolean().default(true),
   /** the latest access request, if any */

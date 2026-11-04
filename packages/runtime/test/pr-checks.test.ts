@@ -27,6 +27,8 @@ function fakeGitHub() {
 function worldWithWait() {
   const world = World.open(":memory:");
   const seed = world.seedDefaults({ adminName: "T", importDir: new URL("../../../buildings/carbon-cycle", import.meta.url).pathname });
+  // a collective with a repo: `{pr}` waits are refused without one (repoMode none)
+  world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/mitchellgordon95/agent-town.git" } });
   const agent = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [seed.lab!.id])!;
   const a = world.ops.createWork(world.ops.ensureAvatar(seed.admin.id), agent.id, { title: "Merge #179", waitFor: { pr: 179 } });
   return { world, a };
