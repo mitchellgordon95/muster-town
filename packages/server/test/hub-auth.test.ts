@@ -114,9 +114,14 @@ describe("one sign-in across the hub", () => {
   it("a sign-in started at /demo/ goes through the root's flow and lands back on /demo/", async () => {
     const { app, hub } = await setup();
     await hub.create(demo);
-    const hand = await app.inject({ method: "GET", url: "/demo/auth/github" });
+    const browser = { "user-agent": "Mozilla/5.0 Chrome/131.0" };
+    const hand = await app.inject({ method: "GET", url: "/demo/auth/github", headers: browser });
     expect(hand.statusCode).toBe(302);
     expect(hand.headers.location).toBe("/auth/github?return_to=%2Fdemo%2F");
+    // signInStarted (gr_zoo2cf2zpp) is counted once, in the collective the press came from: the hand-off at the root adds nothing
+    expect((await app.inject({ method: "GET", url: hand.headers.location as string, headers: browser })).statusCode).toBe(302);
+    expect(hub.world("demo")!.db.prepare("SELECT signInStarted FROM join_funnel").all()).toEqual([{ signInStarted: 1 }]);
+    expect(app.world.db.prepare("SELECT COALESCE(SUM(signInStarted), 0) AS n FROM join_funnel").get()).toEqual({ n: 0 });
     const { landed, cookie } = await signIn(app, "code_octo", "/demo/auth/github");
     expect(landed).toBe("/demo/");
     expect((await me(app, "/demo/api/me", cookie)).body).toMatchObject({ isAdmin: false, canInteract: false });
