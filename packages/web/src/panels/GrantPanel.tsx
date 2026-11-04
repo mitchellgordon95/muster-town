@@ -3,7 +3,7 @@
  * shareable `/#/grant/<id>`). The same row as the Town Hall in-tray, with its decision controls when a human has to
  * decide, plus what the row leaves out: the approach, the findings it draws on and the negotiation history.
  * It opens on a summary (gr_zak30564zh, kr_obykl8yydh): the row's status, spent / granted and one line per key result;
- * the plan, the sessions and the earlier history are each one click away.
+ * the plan, the sessions and the history are each one folded line, one click away.
  */
 import { historyActor, historyNote, type GrantView } from "@muster-town/schema";
 import { api, type GrantSessions } from "../api";
@@ -11,7 +11,7 @@ import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
 import { GrantRow } from "./Places";
 import { Glyph, PanelShell } from "./PanelShell";
-import { ADJ, Empty, ErrorLine, Loading, Section, clock, dayClock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
+import { ADJ, Empty, ErrorLine, Loading, clock, dayClock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 
 export function GrantPanel({ id }: { id: string }) {
   const rev = useTown((s) => s.rev);
@@ -31,8 +31,8 @@ export function GrantPanel({ id }: { id: string }) {
             <Plan grant={g} />
             <Sessions grant={g} />
             <History grant={g} />
+            {/* the building is the header link; its board is one click inside it */}
             <div className="actions">
-              {building ? <button className="btn" onClick={() => store.open({ kind: "board", id: building.id })}>Building board</button> : null}
               {hall ? <button className="btn" onClick={() => store.open({ kind: "intray", id: hall.id })}>Town Hall in-tray</button> : null}
             </div>
           </>
@@ -62,47 +62,29 @@ function Plan({ grant: g }: { grant: GrantView }) {
   );
 }
 
-/** A long note folds to its first words; the full note (with its links) is one click away. */
-const FOLD_AT = 160;
-function HistoryNote({ text, fold }: { text: string; fold?: boolean }) {
-  if (!fold || text.length <= FOLD_AT) return <div className="muted"><DocText text={text} /></div>;
-  const plain = text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`#>]/g, "").replace(/\s+/g, " ");
-  return (
-    <details className="grant-history-note muted">
-      <summary>{plain.slice(0, plain.lastIndexOf(" ", FOLD_AT) > 0 ? plain.lastIndexOf(" ", FOLD_AT) : FOLD_AT)}… <span className="more">more</span></summary>
-      <DocText text={text} />
-    </details>
-  );
-}
-
-/** One propose / counter / fund / checkpoint decision / close, as the grant records it; `fold`: a long note folds. */
-function HistoryEntry({ h, fold }: { h: GrantView["history"][number]; fold?: boolean }) {
+/** One propose / counter / fund / checkpoint decision / close, as the grant records it, with its note whole. */
+function HistoryEntry({ h }: { h: GrantView["history"][number] }) {
   return (
     <li>
       <time title={h.at}>{clock(h.at)}</time>
       <span>
         <b>{historyActor(h, nameOf)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action === "withdraw" ? "withdrew the proposal" : h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
-        {historyNote(h) ? <HistoryNote text={historyNote(h)} fold={fold} /> : null}
+        {historyNote(h) ? <div className="muted"><DocText text={historyNote(h)} /></div> : null}
       </span>
     </li>
   );
 }
 
-/** The latest entry, with the earlier ones (oldest first) folded above it. */
+/** Folded to one line (how many entries, the latest one's actor, action and age); open: every entry, oldest first, each note whole. */
 function History({ grant: g }: { grant: GrantView }) {
   if (!g.history.length) return null;
-  const earlier = g.history.slice(0, -1);
   const latest = g.history[g.history.length - 1]!;
+  const verb = latest.action === "close" ? "closed" : latest.action === "withdraw" ? "withdrew" : latest.action;
   return (
-    <Section title="History">
-      {earlier.length ? (
-        <details className="grant-history-earlier">
-          <summary>Show all {g.history.length}</summary>
-          <ul className="grant-history">{earlier.map((h, i) => <HistoryEntry key={i} h={h} />)}</ul>
-        </details>
-      ) : null}
-      <ul className="grant-history"><HistoryEntry h={latest} fold /></ul>
-    </Section>
+    <details className="grant-fold grant-history-fold">
+      <summary><b>History</b>{g.history.length} entr{g.history.length === 1 ? "y" : "ies"} · latest: {historyActor(latest, nameOf)} {verb} · {timeAgo(latest.at)}</summary>
+      <ul className="grant-history">{g.history.map((h, i) => <HistoryEntry key={i} h={h} />)}</ul>
+    </details>
   );
 }
 
