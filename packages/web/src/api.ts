@@ -8,7 +8,7 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { visitorId } from "./visitor";
@@ -602,6 +602,10 @@ export interface Api {
   cancelBankInput(id: string): Promise<BankInput>;
   /** "Try now": clear an observed limit on a Bank input */
   clearBankLimit(id: string): Promise<void>;
+  /** Plans paid for (gr_qggxximtru step 1): GET is public; add and end are admin-only */
+  bankFees(): Promise<{ fees: BankFee[] }>;
+  addBankFee(f: In<typeof AddBankFee>): Promise<BankFee>;
+  endBankFee(id: string, to: string): Promise<BankFee>;
   exportNow(): Promise<string | null>;
   /** v1.3: pull main, rebuild, restart (needs town.redeploy); progress arrives as `system` events */
   redeploy(image: boolean): Promise<{ started?: boolean; queued?: boolean; running?: boolean }>;
@@ -858,6 +862,9 @@ class HttpApi implements Api {
   async addBankInput(i: In<typeof AddBankInput>) { return unwrap<BankInput>(await this.post("/api/bank/inputs", i), "input"); }
   async cancelBankInput(id: string) { return unwrap<BankInput>(await this.call("DELETE", `/api/bank/inputs/${id}`), "input"); }
   async clearBankLimit(id: string) { await this.post(`/api/bank/limits/${id}/clear`); }
+  async bankFees() { return this.get<{ fees: BankFee[] }>("/api/bank/fees"); }
+  async addBankFee(f: In<typeof AddBankFee>) { return unwrap<BankFee>(await this.post("/api/bank/fees", f), "fee"); }
+  async endBankFee(id: string, to: string) { return unwrap<BankFee>(await this.post(`/api/bank/fees/${id}/end`, { to }), "fee"); }
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }

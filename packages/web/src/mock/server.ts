@@ -5,7 +5,7 @@ import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { explorationSpentToday, memoryDocs } from "./fixture";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -953,6 +953,25 @@ export class MockApi implements Api {
     return clone(i);
   }
   async clearBankLimit(_id: string) { await wait(); }
+  // Plans paid for (gr_qggxximtru step 1): two toy fees so the mock Bank's Inputs tab shows the section
+  private bankFeeRows: BankFee[] = [
+    { id: "bf_max20", label: "Max 20x", paidBy: "us_mitchell", usdPerMonth: 200, fromDate: "2026-10-20", toDate: null, createdAt: "2026-10-20T00:00:00.000Z" },
+    { id: "bf_max5", label: "Max 5x", paidBy: "us_mitchell", usdPerMonth: 100, fromDate: "2026-09-01", toDate: "2026-10-19", createdAt: "2026-09-01T00:00:00.000Z" },
+  ];
+  async bankFees() { await wait(); return clone({ fees: this.bankFeeRows }); }
+  async addBankFee(f: In<typeof AddBankFee>) {
+    await wait();
+    const fee: BankFee = { id: `bf_${Date.now().toString(36)}`, label: f.label, paidBy: "us_mitchell", usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: now() };
+    this.bankFeeRows = [fee, ...this.bankFeeRows].sort((a, b) => b.fromDate.localeCompare(a.fromDate));
+    return clone(fee);
+  }
+  async endBankFee(id: string, to: string) {
+    await wait();
+    const f = this.bankFeeRows.find((x) => x.id === id);
+    if (!f) throw new ApiError("No such plan fee", "not_found", 404);
+    f.toDate = to;
+    return clone(f);
+  }
   async exportNow() { await wait(400); this.sim.event("export.done", null, "Exported town to git", {}, null); return "a1b2c3d"; }
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
