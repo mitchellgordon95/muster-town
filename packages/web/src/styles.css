@@ -913,6 +913,10 @@ div.spend-row > .muted { font-size: 11.5px; }
 .ge-funding select { width: auto; min-width: 160px; display: inline-block; font-size: 12.5px; padding: 2px 6px; }
 .ge-funding input { width: 80px; font-size: 12.5px; padding: 2px 6px; }
 .ge-funding .unit-input { display: inline-flex; align-items: center; gap: 4px; width: auto; }
+.ge-settings > summary { cursor: pointer; padding: 2px 0; color: #c4c7dc; }
+.ge-settings > summary b { font-weight: 600; margin-right: 8px; }
+.ge-settings[open] > summary { margin-bottom: 4px; }
+.ge-settings[open] { display: grid; gap: 4px; }
 .pool-line { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ge-tag.warn { background: #3d3418; color: var(--warn); }
 .ge-tag.bad { background: #3d1f22; color: var(--bad); }
