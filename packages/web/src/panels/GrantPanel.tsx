@@ -5,7 +5,7 @@
  * It opens on a summary (gr_zak30564zh, kr_obykl8yydh): the row's status, spent / granted and one line per key result;
  * the plan, the sessions and the earlier history are each one click away.
  */
-import type { GrantView } from "@muster-town/schema";
+import { historyActor, historyNote, type GrantView } from "@muster-town/schema";
 import { api, type GrantSessions } from "../api";
 import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
@@ -81,8 +81,8 @@ function HistoryEntry({ h, fold }: { h: GrantView["history"][number]; fold?: boo
     <li>
       <time title={h.at}>{clock(h.at)}</time>
       <span>
-        <b>{nameOf(h.byId)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action === "withdraw" ? "withdrew the proposal" : h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
-        {h.note ? <HistoryNote text={h.note} fold={fold} /> : null}
+        <b>{historyActor(h, nameOf)}</b> {h.action === "close" && h.tokens != null ? `closed, returned ${fmtTokens(h.tokens)} ${ADJ} unspent to the Bank` : `${h.action === "withdraw" ? "withdrew the proposal" : h.action}${h.tokens != null ? ` ${fmtTokens(h.tokens)} ${ADJ}` : ""}`} <span className="muted">· {timeAgo(h.at)}</span>
+        {historyNote(h) ? <HistoryNote text={historyNote(h)} fold={fold} /> : null}
       </span>
     </li>
   );
