@@ -85,15 +85,22 @@ export class Grants {
 
   /**
    * What a checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): a checkpoint grant's own evidence; on a proposal, the
-   * evidence of the same building's latest grant on the same goal that a checkpoint stopped (cut, or closed after its
-   * hold): the work the proposal asks money for again. Null otherwise.
+   * evidence of the earlier grant it names in `continues` (1:1 mt_z1b38bwg98: never guessed from the goal, which put an
+   * unrelated grant's checkpoint on a card). Null otherwise.
    */
   private evidenceFor(g: Grant): CheckpointEvidence | null {
     if (g.status === "checkpoint") return this.evidence(g);
     if (g.status !== "proposed" && g.status !== "countered") return null;
-    const prior = this.world.grants.where("buildingId = ? AND status = 'closed' AND id != ? AND (goalId = ? OR (goalId IS NULL AND ? IS NULL))", [g.buildingId, g.id, g.goalId, g.goalId], "ORDER BY closedAt DESC, rowid DESC")
-      .find((p) => p.history.some((h) => h.action === "checkpoint") && p.outcome !== "done" && p.outcome !== "met");
-    return prior ? this.evidence(prior) : null;
+    const prior = g.continues ? this.world.grants.get(g.continues) : undefined;
+    return prior && prior.buildingId === g.buildingId ? this.evidence(prior) : null;
+  }
+
+  /** A proposal's `continues`: an earlier grant of the same building, not itself. */
+  private requireContinues(buildingId: string, id: string | null | undefined, self?: string): string | null {
+    if (!id) return null;
+    const p = this.world.grants.get(id);
+    if (!p || p.buildingId !== buildingId || p.id === self) throw badRequest(`continues: ${id} is not an earlier grant of your building.`);
+    return p.id;
   }
 
   /** One grant's checkpoint evidence: per key result its verdict and the manager's note, spend, the top-up line, the report's Shipped titles. */
@@ -372,7 +379,7 @@ export class Grants {
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
       id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [],
-      stopCondition: inp.stopCondition, askTokens: inp.askTokens,
+      stopCondition: inp.stopCondition, askTokens: inp.askTokens, continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, createdAt: now, updatedAt: now,
     }), inp.keyResults));
@@ -387,6 +394,7 @@ export class Grants {
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "edited");
     const goal = goalId ? this.requireGoal(g.buildingId, goalId) : g.goalId;
+    if (fields.continues !== undefined) fields.continues = this.requireContinues(g.buildingId, fields.continues, g.id) ?? undefined;
     const next = this.world.transaction(() => {
       const history = g.status === "countered" ? [...g.history, this.entry(actor, "edit", fields.askTokens ?? null, note ?? "")] : g.history;
       const saved = this.world.grants.upsert({ ...g, ...fields, goalId: goal, history, updatedAt: nowIso() });
