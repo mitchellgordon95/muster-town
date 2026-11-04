@@ -69,11 +69,11 @@ describe("the Bank sheet", () => {
     expect(centre).not.toContain("the unit the town pays for AI model work in");
     expect(prose(centre)).toEqual([]);
   });
-  it("puts Spending's reading guide and the synthetic rows' notes in the sidebar, the tree in the centre", () => {
+  it("puts Spending's reading guide and the synthetic rows' notes in the sidebar, the drill-down's top level in the centre (kr_trhi5frg4k)", () => {
     const { centre, sidebar } = columns(sheet("Spending"));
     expect(centre).toContain("Town Workshop");
     expect(centre).toContain("Not funded: work sessions the Bank never charged");
-    for (const s of ["Open a row for its parts", "The difference is pricing, not spend", "Usage the Bank never debited"]) {
+    for (const s of ["Click a building for its grants", "The difference is pricing, not spend", "Usage the Bank never debited"]) {
       expect(sidebar).toContain(s);
       expect(centre).not.toContain(s);
     }

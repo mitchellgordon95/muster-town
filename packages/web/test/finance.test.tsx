@@ -4,6 +4,7 @@ import type { Finance, FinanceFly, FinanceSources, FinanceSpend, SpendNode } fro
 import { approxUsd, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
+import { spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
 import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
 import type { Bank } from "../src/api";
@@ -20,6 +21,11 @@ const noop = () => undefined;
 const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<BankView tab={tab} bank={null} fin={{ f, spend: null, sources: null, fly: null, ...fin }} rev={0} onChange={noop} onReload={noop} />);
 /** Every tab of the Bank page, in order. */
 const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).join("");
+/** The Spending tab with this row picked (`spend:` + its path; null = none): the drill-down's level and the sidebar's Selected row. */
+const spendAt = (picked: string | null, spend: FinanceSpend) => renderToStaticMarkup(<BankView tab="Spending" bank={null} fin={{ f, spend, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} picked={picked} />);
+/** The sheet's centre column (`.bank-main`) and its sidebar (`aside.bank-side`) of one rendered tab. */
+const centreOf = (html: string) => html.slice(0, html.indexOf('<aside class="bank-side"'));
+const sideOf = (html: string) => html.slice(html.indexOf('<aside class="bank-side"'));
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
@@ -139,16 +145,58 @@ describe("finance page: spending", () => {
     expect(pct(0.8182)).toBe("81.8%");
     expect(pct(-0.0455)).toBe("-4.5%");
   });
-  it("renders building → grant → assignment with the synthetic rows, collapsible", () => {
-    const html = page({ spend: sp });
-    for (const s of ["Spending", "Town Workshop", "900", "81.8%", "Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "The manager&#x27;s own sessions", "Priced differently before the switch to adjusted tokens", "-30", "12 sessions", "The difference is pricing, not spend", "Not funded", "-20", "Usage the Bank never debited", "Written off: not charged to any building", "✓ The server checked that the building rows", "/api/finance/spend"]) expect(html).toContain(s);
-    expect(html).toContain("<details");
-    // a grant row links to its grant page, with the full objective on hover
-    expect(html).toContain(`<a class="spend-grant" href="#/grant/gr_a" title="Refactor the Bank: one ledger for every debit">Refactor the Bank…</a>`);
-    // no lane names in the section itself (the Terms block names exploration: free tokens are what it may claim)
-    const section = html.slice(html.indexOf("<h3>Spending</h3>"), html.indexOf("</section>", html.indexOf("<h3>Spending</h3>")));
-    for (const s of ["Weight mismatch", "Opus weights", "exploration", "directed", "migration"]) expect(section).not.toContain(s);
+  it("drills down: buildings, then a building's grants, then a grant's assignments, one table at a time (gr_567tikzitl step 4, kr_trhi5frg4k)", () => {
+    // level 1: the buildings and the synthetic rows, no nested rows, no <details>
+    const top = centreOf(spendAt(null, sp));
+    for (const s of ["Spending", "All buildings", "Town Workshop", "900", "81.8%", "Bank Transparency", "Priced differently before the switch to adjusted tokens", "-30", "12", "Not funded", "-20", "✓ The server checked that the building rows"]) expect(top).toContain(s);
+    for (const s of ["Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "<details"]) expect(top).not.toContain(s);
+    expect(top.match(/<tbody>.*?<\/tbody>/s)![0].match(/<tr /g)).toHaveLength(4);
+    // level 2: a building's grants (and its no-grant and manager rows) with the breadcrumb back
+    const lvl2 = centreOf(spendAt("spend:workshop", sp));
+    for (const s of ["All buildings</button>", "<b>Town Workshop</b>", "<th>Grant</th>", "Refactor the Bank…", "Not under a grant", "The manager&#x27;s own sessions", "Total"]) expect(lvl2).toContain(s);
+    for (const s of ["Bank Transparency", "Step 1: the ledger", "Explore the map"]) expect(lvl2).not.toContain(s);
+    // level 3: a grant's assignments; the crumbs lead back to the building and the top
+    const lvl3 = centreOf(spendAt("spend:workshop/gr_a", sp));
+    for (const s of ["All buildings</button>", "Town Workshop</button>", "<b>Refactor the Bank…</b>", "<th>Assignment</th>", "Step 1: the ledger"]) expect(lvl3).toContain(s);
+    expect(lvl3).not.toContain("Explore the map");
+    // a picked leaf stays in its parent's table, highlighted
+    const leaf = centreOf(spendAt("spend:workshop/gr_a/as_a", sp));
+    expect(leaf).toContain("<th>Assignment</th>");
+    expect(leaf).toMatch(/class="bank-pick on spend-assignment"/);
+    // a path the tree no longer has falls back to the deepest row it still has
+    expect(centreOf(spendAt("spend:workshop/gr_gone", sp))).toContain("<th>Grant</th>");
     expect(page({ spend: { ...sp, check: { ...sp.check, ok: false, diff: 3 } } })).toContain("✗ Does not add up (off by 3)");
+  });
+  it("walks the tree by picked path: the trail, the level shown and the crumbs", () => {
+    expect(spendTrail(sp.rows, null)).toEqual([]);
+    expect(spendTrail(sp.rows, "in_a")).toEqual([]);
+    expect(spendTrail(sp.rows, "spend:workshop/no-grant/as_b").map((r) => r.name)).toEqual(["Town Workshop", sp.rows[0].children![1].name, "Explore the map"]);
+    const lv = spendLevel(sp.rows, spendTrail(sp.rows, "spend:workshop/no-assignment"));
+    expect(lv.crumbs.map((r) => r.id)).toEqual(["workshop"]);
+    expect(lv.rows).toHaveLength(3);
+    expect(spendPick(["workshop", "gr_a"])).toBe("spend:workshop/gr_a");
+  });
+  it("puts the picked row's detail in the sidebar, none in the centre: a building, a grant, an assignment, a synthetic row", () => {
+    const b = sideOf(spendAt("spend:workshop", sp));
+    for (const s of ["Selected row", "<b>Town Workshop</b>", "Spent, all time", "900", "81.8%", "Sessions", "Grants and other rows", "Building funding"]) expect(b).toContain(s);
+    const g = sideOf(spendAt("spend:workshop/gr_a", spG));
+    for (const s of ["<b>Refactor the Bank…</b>", "Granted", "400", "spent 500 of 400 funded · cut", "over by 100", "key results 0 of 3 met", "Refactor the Bank: one ledger for every debit", `href="#/grant/gr_a"`]) expect(g).toContain(s);
+    const a = sideOf(spendAt("spend:workshop/gr_a/as_a", sp));
+    expect(a).toContain("<b>Step 1: the ledger</b>");
+    const nf = sideOf(spendAt("spend:not-funded", sp));
+    for (const s of ["<b>Not funded: work sessions the Bank never charged</b>", "Written off: not charged to any building"]) expect(nf).toContain(s);
+    expect(sideOf(spendAt("spend:gone", sp))).toContain("That row is no longer listed.");
+    expect(sideOf(spendAt(null, sp))).not.toContain("Selected row");
+    // the centre keeps no explanation: only the ✓ lines under the table
+    expect(centreOf(spendAt("spend:workshop/gr_a", spG))).not.toContain("Refactor the Bank: one ledger");
+  });
+  it("keeps drift and out-of-tokens deaths in the sidebar's Health, and Spend by goal behind its toggle, never below the table", () => {
+    const bank = { drift: { day: "2026-11-03", ranAt: "", models: [{ model: "claude-opus-5-5", ratio: 1.02, adjustedUsd: 10, costUsd: 9.8, sessions: 4, backfilled: 0 }], buildings: [] },
+      deaths: { total: 0, capDeaths: 0, exhausted: 0, events: [] }, cap: { spentToday: 1000, cappedAt: null, resetsAt: "" }, buildings: [] } as unknown as Bank;
+    const html = renderToStaticMarkup(<BankView tab="Spending" bank={bank} fin={{ f, spend: sp, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
+    for (const s of ["Health", "drift: 1.02", "Unexpected out-of-tokens deaths"]) expect(sideOf(html)).toContain(s);
+    for (const s of ["drift:", "out-of-tokens", "Spend by goal"]) expect(centreOf(html)).not.toContain(s);
+    expect(centreOf(html)).toContain(">By goal</button>");
   });
   it("explains the Not funded row from the live fields: cause, stop date, split by building, write-off", () => {
     // the live shape on 2026-10-31: the split by the 2-second rule does not sum to notFunded
@@ -216,12 +264,10 @@ describe("finance page: what each grant bought (gr_dt1l35tydx)", () => {
     expect(grantsSentence({ ...many, grants: { ...many.grants, overFunding: { count: 0, tokens: 0 } } })).toMatch(/No grant spent more than it was funded\.$/);
     expect(grantsCheckLine(spG)).toEqual({ ok: true, text: "The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens." });
     expect(grantsCheckLine({ ...spG, grantsCheck: { ...spG.grantsCheck!, ok: false, diff: 7 } })).toEqual({ ok: false, text: "Does not add up (off by 7): done, cut and still-open grants come to 500, but the grant rows come to 493." });
-    const html = page({ spend: spG });
-    const section = html.slice(html.indexOf("<h3>Spending</h3>"));
-    expect(section.indexOf("Grants: 500 tokens spent on 1 grant")).toBeGreaterThan(-1);
-    expect(section.indexOf("Grants: 500 tokens")).toBeLessThan(section.indexOf("Town Workshop"));
-    expect(section).toContain("✓ The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens.");
-    expect(section).toContain(`<span class="spend-grant-line muted">spent 500 of 400 funded · cut · <span class="spend-over">over by 100</span> · key results 0 of 3 met (2 claimed, waiting for a human)</span>`);
+    const html = tabOf("Spending", { spend: spG });
+    expect(sideOf(html)).toContain("Grants: 500 tokens spent on 1 grant");
+    expect(centreOf(html)).toContain("✓ The server checked that spend on done, cut and still-open grants adds up to the grant rows, 500 tokens.");
+    expect(centreOf(spendAt("spend:workshop", spG))).toContain(`<span class="spend-grant-line muted">spent 500 of 400 funded · cut · <span class="spend-over">over by 100</span> · key results 0 of 3 met (2 claimed, waiting for a human)</span>`);
   });
   it("shows nothing new when the server sends no grant fields or block (an older server)", () => {
     const html = page({ spend: sp });
