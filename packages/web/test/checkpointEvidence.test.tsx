@@ -57,6 +57,6 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
     expect(html).toContain("Asks again for work an earlier grant stopped at its checkpoint");
     expect(html).toContain("Spent 2M of 2M adj. tokens granted.");
     expect(html.indexOf("checkpoint-evidence")).toBeLessThan(html.indexOf("How to check"));
-    expect(html).not.toContain("<details");
+    expect(html).not.toContain('class="grant-plan"'); // the plan is not folded on a proposal (only each key result's how-to-check is)
   });
 });
