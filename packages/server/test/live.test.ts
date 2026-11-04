@@ -92,6 +92,26 @@ describe("WebSocket", () => {
     ws.close();
   });
 
+  it("a change reaching N sockets is stringified once, not once per socket (gr_n0p3ast5pp step 4, kr_vc8rkafulk)", async () => {
+    const N = 5;
+    const sockets = Array.from({ length: N }, () => new WebSocket(`${base.replace("http", "ws")}/ws`));
+    const got = sockets.map((ws) => new Promise<void>((resolve) => ws.on("message", (d) => { if (String(d).startsWith('{"type":"snapshot"')) resolve(); })));
+    await Promise.all(got);
+    const change = { type: "agents.pos" as const, positions: [{ id: "ag_stringify_once", x: 1, y: 2, status: "idle" as const }] };
+    const delivered = Promise.all(sockets.map((ws) => new Promise<void>((resolve) => ws.on("message", (d) => { if (String(d).includes("ag_stringify_once")) resolve(); }))));
+    const original = JSON.stringify;
+    let stringified = 0;
+    JSON.stringify = ((value: unknown, ...rest: unknown[]) => { if (value === change) stringified++; return (original as (...a: unknown[]) => string)(value, ...rest); }) as typeof JSON.stringify;
+    try {
+      ctx.world.changes.emit(change);
+      await delivered;
+    } finally {
+      JSON.stringify = original;
+    }
+    expect(stringified).toBe(1);
+    for (const ws of sockets) ws.close();
+  });
+
   it("GET /api/health says the Bank counts adjusted output tokens (Bank grant step 3, kr_vyrhhiyotb)", async () => {
     expect(await (await fetch(`${base}/api/health`)).json()).toMatchObject({ ok: true, accounting: "adjusted", accountingModel: "claude-opus-5-5" });
   });
