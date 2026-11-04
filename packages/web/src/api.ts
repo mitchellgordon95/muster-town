@@ -161,6 +161,29 @@ export interface SpendNode {
   krCounts?: { met: number; missed: number; claimed: number; open: number };
   children?: SpendNode[];
 }
+/** The token kinds of a lane × kind table, in column order. */
+export type TokenKind = "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h";
+/** One row of `byLaneKind`: a lane (manager = purpose manage, other = every other purpose and lane-less work) or the total. */
+export interface LaneKindRow {
+  lane: "grant" | "exploration" | "directed" | "retainer" | "manager" | "other" | "total";
+  sessions: number;
+  /** per kind: adjusted tokens and dollars at API list price */
+  kinds: Record<TokenKind, { tokens: number; usd: number }>;
+  tokens: number; usd: number;
+  /** (cache write 5 min + 1 h dollars) / the row's dollars */
+  cacheWriteShare: number;
+}
+export interface LaneKindTable { rows: LaneKindRow[]; total: LaneKindRow; notCounted: { sessions: number; tokens: number; usd: number } }
+/**
+ * `byLaneKind` of `GET /api/finance/spend?window=today|7d` (gr_lwgus14rd2 step 1): the window's sessions by lane × token
+ * kind; back-filled sessions (no real breakdown) are in `notCounted`. `buildings` holds the same table per building id
+ * ("none" = no building). rows + notCounted = sessionsTokens within rounding (`check`).
+ */
+export interface SpendByLaneKind extends LaneKindTable {
+  window: "today" | "7d"; from: string; to: string; windowNote: string; sessionsTokens: number;
+  check: { ok: boolean; diff: number; identity: string };
+  buildings: Record<string, LaneKindTable>;
+}
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
 export interface FinanceSpend {
   used: number; sessionsTotal: number; unattributed: number;
@@ -186,6 +209,8 @@ export interface FinanceSpend {
   /** byOutcome's tokens vs Σ the grant rows' tokens */
   grantsCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
+  /** the window's lane × token-kind table (optional here: an older server sends none) */
+  byLaneKind?: SpendByLaneKind;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
 export interface SourceCredit { id: string; createdAt: string; expiresAt: string | null; tokens: number; expiredTokens: number }
@@ -561,7 +586,8 @@ export interface Api {
   /** public: the town's finance summary (used, expired, left, a 30-day projection) */
   finance(): Promise<Finance>;
   /** public: where `used` went, by building → grant → assignment */
-  financeSpend(): Promise<FinanceSpend>;
+  /** `window` picks byLaneKind's window (default today); every other field is all-time */
+  financeSpend(window?: "today" | "7d"): Promise<FinanceSpend>;
   /** public: where the tokens came from, per input (dated credits) and per donation; sums to /api/finance total */
   financeSources(): Promise<FinanceSources>;
   /** public: the Fly.io hosting estimate per day and per building (desk sessions' wall time at list price + the town Machine) */
@@ -815,7 +841,7 @@ class HttpApi implements Api {
     return { ...r, inputs: r.inputs ?? [], buildings: r.buildings ?? [], contributors: r.contributors ?? [] };
   }
   async finance() { return this.get<Finance>("/api/finance"); }
-  async financeSpend() { return this.get<FinanceSpend>("/api/finance/spend"); }
+  async financeSpend(window?: "today" | "7d") { return this.get<FinanceSpend>(`/api/finance/spend${window ? `?window=${window}` : ""}`); }
   async financeSources() { return this.get<FinanceSources>("/api/finance/sources"); }
   async financeFly() { return this.get<FinanceFly>("/api/finance/fly"); }
   async bankStreams() { return this.get<BankStreams>("/api/bank/streams"); }

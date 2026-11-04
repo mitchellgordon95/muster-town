@@ -117,6 +117,26 @@ async function grantSessionChecks(s: Json): Promise<Check[]> {
 }
 
 const KINDS = ["input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"] as const;
+/**
+ * The lane × token-kind table of one window (gr_lwgus14rd2 step 1): its rows' adj. tokens + the back-filled sessions not
+ * counted = Σ the window's sessions (within half a token per session: each session is rounded once there), and the
+ * buildings' tables add up to the town's.
+ */
+function laneKindChecks(window: string, lk: Json | undefined): Check[] {
+  if (!lk) return [flag(`lane × kind ${window}`, false, `GET /api/finance/spend?window=${window} has no byLaneKind`)];
+  const rows = (lk.rows ?? []) as Json[];
+  const n = sum(rows.map((r) => Number(r.sessions))) + Number(lk.notCounted?.sessions);
+  const tol = Math.max(1, n / 2);
+  const counted = sum(rows.map((r) => Number(r.tokens))) + Number(lk.notCounted?.tokens);
+  const blds = Object.values(lk.buildings ?? {}) as Json[];
+  const bldSum = sum(blds.map((b) => sum(((b.rows ?? []) as Json[]).map((r) => Number(r.tokens))) + Number(b.notCounted?.tokens)));
+  const kindsOk = rows.every((r) => Math.abs(sum(KINDS.map((k) => Number(r.kinds?.[k]?.tokens))) - Number(r.tokens)) <= 3);
+  return [
+    flag(`lane × kind ${window} rows sum to window sessions`, lk.window === window && Math.abs(counted - Number(lk.sessionsTokens)) <= tol,
+      `Σ rows ${fmt(counted - Number(lk.notCounted?.tokens))} + not counted ${fmt(lk.notCounted?.tokens)} = sessions ${fmt(lk.sessionsTokens)} (±${fmt(tol)}, ${n} sessions, ${lk.from?.slice(0, 10)} to ${lk.to?.slice(0, 16)})`),
+    flag(`lane × kind ${window} buildings`, Math.abs(bldSum - counted) <= tol && kindsOk, `Σ ${blds.length} buildings' tables ${fmt(bldSum)} = town ${fmt(counted)}; each row's kinds sum to its tokens (±3)`),
+  ];
+}
 function mixChecks(m: Json | undefined, bm: Json | undefined): Check[] {
   if (!m) return [flag("mix present", false, "GET /api/finance has no mix")];
   const counts = KINDS.map((k) => Number(m.counts?.[k]));
@@ -151,12 +171,14 @@ async function main(): Promise<number> {
   const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
   if (s.grants) result.push(...await grantSampleChecks(s));
   if (s.grants) result.push(...await grantSessionChecks(s));
+  result.push(...laneKindChecks("today", s.byLaneKind), ...laneKindChecks("7d", (await get("/api/finance/spend?window=7d").catch(() => ({}))).byLaneKind));
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);
   console.log(`fly today ${fly.today?.day}: desks $${Number(fly.today?.deskUsd).toFixed(2)} + town $${Number(fly.today?.townUsd).toFixed(2)} = $${Number(fly.today?.totalUsd).toFixed(2)}; last ${fly.windowDays} days $${Number(fly.totals?.totalUsd).toFixed(2)} (desk time ${(Number(fly.totals?.deskMs) / 3_600_000).toFixed(1)} h, ${fly.totals?.sessions} sessions)`);
   if (s.grants) console.log(`grants: ${fmt(s.grants.spent)} spent on ${s.grants.count} (funded ${fmt(s.grants.funded)}): done ${fmt(s.grants.byOutcome.done.tokens)} on ${s.grants.byOutcome.done.count}, cut ${fmt(s.grants.byOutcome.cut.tokens)} on ${s.grants.byOutcome.cut.count}, open ${fmt(s.grants.byOutcome.open.tokens)} on ${s.grants.byOutcome.open.count}; ${s.grants.overFunding.count} over funding by ${fmt(s.grants.overFunding.tokens)}`);
   if (f.mix) console.log(`mix: 1 adj. token ≈ ${Number(f.mix.rawPerAdjusted).toFixed(1)} raw tokens, ${KINDS.map((k) => `${k} ${(f.mix.rawShare[k] * 100).toFixed(1)}%`).join(", ")} (${f.mix.formula})`);
+  if (s.byLaneKind) console.log(`lane × kind today: ${(s.byLaneKind.rows as Json[]).map((r) => `${r.lane} ${fmt(r.tokens)} (cache writes ${(r.cacheWriteShare * 100).toFixed(1)}%)`).join(", ")}; not counted ${fmt(s.byLaneKind.notCounted.tokens)}`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);
