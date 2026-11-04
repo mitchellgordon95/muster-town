@@ -85,7 +85,7 @@ export function laneKindRow(s: Pick<Session, "purpose" | "lane">, assignmentLane
 }
 
 /** A session's dollars per token kind at list price (per model with `byModel`, else at its model). */
-function sessionKindUsd(s: Pick<Session, "model" | "byModel"> & Partial<TokenCounts>): Record<TokenCountKind, number> {
+export function sessionKindUsd(s: Pick<Session, "model" | "byModel"> & Partial<TokenCounts>): Record<TokenCountKind, number> {
   const out = { input: 0, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 };
   const parts = s.byModel && Object.keys(s.byModel).length ? Object.entries(s.byModel) : [[s.model, countsOf(s)] as const];
   for (const [m, c] of parts) {
