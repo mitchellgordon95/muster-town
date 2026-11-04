@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -93,7 +93,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         <>
           {!canReview && !hall ? <div className="callout">You can read the in-tray. Decisions are for the building's manager.</div> : null}
           {manager && !hall ? <div className="callout">★ {manager.name}, the building's manager, works this in-tray and rolls up to the Town Hall in-tray. You can still decide here.</div> : null}
-          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} /> : null}
+          {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} digestRun={list.data?.digestRun ?? null} onDigestStarted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
             <TownHallIntray digest={list.data?.digest ?? null} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} onDecided={list.reload} />
@@ -117,12 +117,29 @@ export function TalkToSecretary() {
   return <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title={`A 1:1 with ${secretary.name}: say a decision in your own words and it is done as yours`}>Talk to {secretary.name}</Act>;
 }
 
+/**
+ * "Daily digest" (Mitchell, 1:1 mt_i50xwu4z2t: "let's make the 'daily digest' also a button on the intray that just
+ * does the same"): runs the Secretary's digest now (core pressDigest); only for a human who may decide its retainer.
+ * Disabled, with why, while a run is under way or there is nothing new to digest.
+ */
+function DailyDigestButton({ run, onStarted }: { run: DigestRunView | null; onStarted?: () => void }) {
+  if (!run) return null;
+  const go = async () => {
+    await api().runDigest();
+    store.toast("The Secretary is writing the digest: its card lands at the top of this in-tray in a few minutes.", "ok");
+    onStarted?.();
+  };
+  const label = run.runningId ? "Digest running…" : "Daily digest";
+  return <Act small run={go} disabled={!!run.refused} title={run.refused ? `Not now: ${run.refused}` : "Run the Secretary's daily digest now: a new card of what needs your yes or no and what shipped since the last one"}>{label}</Act>;
+}
+
 /** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */
-export function ReviewAsDeckButton({ count, onOpen, view }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean } }) {
+export function ReviewAsDeckButton({ count, onOpen, view, digestRun, onDigestStarted }: { count: number; onOpen: () => void; view?: { view: IntrayView; hidden: number; set: (v: IntrayView) => void; funder?: boolean }; digestRun?: DigestRunView | null; onDigestStarted?: () => void }) {
   return (
     <div className="intray-head actions">
       <button className="btn sm primary" onClick={onOpen} title="One slide per pending decision, blocking-most first, with the decision buttons on each slide (← → to move)">▶ Review as deck</button>
       <TalkToSecretary />
+      <DailyDigestButton run={digestRun ?? null} onStarted={onDigestStarted} />
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
         <span className="intray-view" role="group" aria-label="Show">

@@ -6,7 +6,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedule, digestCard, fireSchedules, grantHistoryLine, nowIso, reviewDeck, townHallIntray } from "../src/index.ts";
-import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, fileDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
+import { decideRetainer } from "../src/retainers.ts";
+import { laneBlock } from "../src/lanes.ts";
+import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, digestRunView, fileDigest, pressDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -90,6 +92,33 @@ describe("the Secretary", () => {
     expect(digestIdleReason(world, new Date("2030-01-01T09:00:00.000Z"))).toBeNull();
     fileDigest(world, sec, [], new Date("2030-01-01T09:00:00.000Z"));
     expect(digestIdleReason(world, new Date("2030-01-01T10:00:00.000Z"))).toMatch(/already filed today/);
+  });
+
+  it("the in-tray's Daily digest button: a human who can decide the retainer runs one digest now, booked on the retainer; the once-a-day rule doesn't hold it, a live run or nothing new does", () => {
+    const { world, sec, th, admin, manager, rollup } = setup();
+    const s = world.secretary.ensureDigestSchedule(new Date())!;
+    expect(digestRunView(world, manager)).toBeNull(); // an agent never sees the button
+    expect(() => pressDigest(world, manager)).toThrow(/Only a human/);
+    expect(() => pressDigest(world, admin)).toThrow(/retainer is asked, not approved/);
+    expect(digestRunView(world, admin)).toMatchObject({ scheduleId: s.id, runningId: null, refused: expect.stringMatching(/not approved/) });
+    decideRetainer(world, admin, s.id, { action: "approve", note: "" });
+    expect(() => pressDigest(world, admin)).toThrow(/Nothing to digest: no new rollup/);
+    // today's card was filed: the schedule would skip, a press still runs once a new rollup arrived
+    rollup(["None"], new Date(Date.now() - 60_000).toISOString());
+    fileDigest(world, sec, []);
+    rollup(["None"]);
+    expect(digestIdleReason(world)).toMatch(/already filed today/);
+    expect(digestRunView(world, admin)!.refused).toBeNull();
+    const nextRun = world.schedules.require(s.id).nextRunAt;
+    const a = pressDigest(world, admin);
+    expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: th.cheapModel, description: s.description, origin: { userId: world.holderOf(admin).id } });
+    expect(laneBlock(world, a)).toBeNull(); // the approved retainer pays for it
+    expect(world.schedules.require(s.id)).toMatchObject({ nextRunAt: nextRun, lastAssignmentId: a.id, runs: 0 });
+    expect(digestRunView(world, admin)).toMatchObject({ runningId: a.id, refused: expect.stringMatching(/under way/) });
+    expect(() => pressDigest(world, admin)).toThrow(/already under way/);
+    // the pressed run files a second card today, which supersedes the first
+    const second = fileDigest(world, sec, []);
+    expect(digestCard(world)!.doc.id).toBe(second.id);
   });
 
   it("Decisions needed, grouped by kind: Money (checkpoint with top-up, proposal at its ask, retainer ask, a rollup call about one of them), Questions in words (a rollup call), Errands (outbox)", () => {

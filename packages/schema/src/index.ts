@@ -1500,6 +1500,11 @@ export interface DigestCard {
   shipped: string;
   covered: { id: string; title: string; buildingId: string | null; buildingName: string; pending: boolean }[];
 }
+/**
+ * The in-tray's "Daily digest" button for this viewer (core digestRunView; Mitchell, 1:1 mt_i50xwu4z2t): the digest
+ * schedule, the run under way (null when none), and why a press would be refused now (null = it would start a run).
+ */
+export interface DigestRunView { scheduleId: string; runningId: string | null; refused: string | null }
 /** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
 export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
 
