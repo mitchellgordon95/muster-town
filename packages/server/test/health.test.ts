@@ -86,3 +86,13 @@ describe("GET /api/health capacity (gr_n0p3ast5pp step 3, docs/scaling.md \"How 
     world.close?.();
   });
 });
+
+describe("GET /api/health main (gr_7op2v8fjcl, kr_mvj61meiwx)", () => {
+  it("null without a runtime read; then main's CI state from the runtime's hook, from memory", async () => {
+    const s = await seededApp();
+    close = s.close;
+    expect((await json(s.app, "GET", "/api/health")).body.main).toBeNull();
+    s.world.host.mainCi = () => ({ state: "red", sha: "abc1234", failedStep: "check", since: "2026-11-04T18:00:00.000Z", fixer: null, checkedAt: "2026-11-04T18:05:00.000Z" });
+    expect((await json(s.app, "GET", "/api/health")).body.main).toEqual({ state: "red", sha: "abc1234", failedStep: "check", since: "2026-11-04T18:00:00.000Z", fixer: null, checkedAt: "2026-11-04T18:05:00.000Z" });
+  });
+});

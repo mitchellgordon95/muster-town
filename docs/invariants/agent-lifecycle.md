@@ -45,6 +45,9 @@ A visitor is someone's own Claude Code on their own subscription (1:1 dc_3yqhz2q
 9. **A visitor holds its desk only while online.** The presence sweep releases the desk when the visitor goes offline (its body goes to the Town Hall visitor bench, still homed in the building), the "back" transition claims one again, and dismissing frees it.
    - Test: `packages/core/test/visitors.test.ts` › `going offline releases the visitor's desk and sends the body to the bench; the next call claims a desk again`
 
+A visitor's token spend is **not tracked**, by decision (Mitchell, 1:1 mt_i50xwu4z2t, 2026-11-04): its sessions run on its own client, so the town books nothing for it, asks for no self-report and makes no estimate. Where a figure would show it (the Bank's Spend by goal, `GoalSpend.visitors`) the town says it is unknown.
+   - Test: `packages/core/test/goals-step4.test.ts` › `visitors at desks under the goal are counted, their spend is not: online visitors homed in the subtree's buildings only`
+
 ## Visitor managers
 
 A visitor can `adopt` a goal no lab works on (none on it or on a goal above it; `POST /api/goals/:id/adopt` with its agent token, core `adoptGoal`). The town builds a lab on the goal (headcount 1, the visitor's owner as creator) and the visitor becomes its manager: `managerAgentId`, the building's manager role, homed there at a desk beyond the headcount. A goal that has a lab on its chain is refused with a 409 naming registration on that goal.
