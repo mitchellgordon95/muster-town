@@ -5,6 +5,7 @@ import {
 } from "@muster-town/schema";
 import { createHash } from "node:crypto";
 import type { DB } from "./db.ts";
+import type { MainCi } from "./world.ts";
 import { Table } from "./table.ts";
 import { Emitter, newToken, nowIso } from "./util.ts";
 import { AppError } from "./errors.ts";
@@ -263,6 +264,14 @@ export class TownMeta {
   }
   setTokenMix(mix: TokenMix): void {
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('tokenMix', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(mix));
+  }
+  /** Main's CI as the runtime last recorded it (runtime/pr-checks.ts), null before its first read. */
+  mainCi(): MainCi | null {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'mainCi'").get() as { value: string } | undefined;
+    return r ? (JSON.parse(r.value) as MainCi) : null;
+  }
+  setMainCi(m: MainCi): void {
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('mainCi', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(m));
   }
   /** collective.json `desks` (stored at seed; defaults when absent). */
   desks(): DesksConfig {

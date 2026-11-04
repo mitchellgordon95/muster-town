@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { PLACEHOLDER } from "../src/home.ts";
+import { collectives, PLACEHOLDER, renderHome } from "../src/home.ts";
+const NOT_STARTED = "Not started yet: waiting for its founder's key.";
 
 describe("web client under /workshop/", () => {
   let app: Awaited<ReturnType<typeof buildApp>>;
@@ -73,7 +74,7 @@ describe("collectives homepage and /api/collectives", () => {
     const app = await buildApp({ world, webDist: false });
     const { collectives } = (await app.inject("/api/collectives")).json();
     expect(collectives).toEqual([
-      { slug: "workshop", name: "Live Name", goal: "Live <goal>", url: "/workshop/" },
+      { slug: "workshop", name: "Live Name", goal: "Live <goal>", url: "/workshop/", started: true },
       { ...PLACEHOLDER },
     ]);
     const html = (await app.inject("/")).body;
@@ -88,6 +89,25 @@ describe("collectives homepage and /api/collectives", () => {
     // no web build: a bare page, no bundle tags
     expect(html).not.toContain('<script type="module"');
     await app.close();
+  });
+
+  // gr_a6512x0je1: a hosted collective that never ran a session says so and sorts after the ones that have
+  it("a never-run hosted collective is listed after the ones that have run, with 'Not started yet' and no working-now pill", () => {
+    const row = (slug: string, started: boolean) => ({ slug, name: slug, tagline: "", goal: `${slug} goal`, ownerGithubId: null, createdAt: "2026-11-01T00:00:00.000Z", state: "active" as const, started });
+    const list = collectives(world, [row("quiet", false), row("busy", true)]);
+    expect(list.map((c) => [c.slug, c.started])).toEqual([["workshop", true], ["busy", true], ["quiet", false]]);
+    const html = renderHome(list);
+    const tiles = html.split('<li class="tile-item">').slice(1);
+    expect(tiles).toHaveLength(3);
+    expect(tiles[1]).toContain('<span class="tile-live"></span>');
+    expect(tiles[1]).not.toContain(NOT_STARTED);
+    expect(tiles[2]).toContain('data-preview="/quiet/api/town"');
+    expect(tiles[2]).not.toContain("tile-live");
+    expect(tiles[2]).toContain(`<p class="tile-tag tile-wait">${NOT_STARTED}</p>`);
+    expect(tiles[2]).toContain('<p class="tile-tag">quiet goal</p>');
+    expect(html).toContain('"slug":"quiet","name":"quiet","goal":"quiet goal","url":"/quiet/","started":false');
+    // with only never-run hosted collectives, they still replace the placeholder
+    expect(collectives(world, [row("quiet", false)]).map((c) => c.slug)).toEqual(["workshop", "quiet"]);
   });
 
   it("another collective dir lists itself by its own slug, opening here", async () => {

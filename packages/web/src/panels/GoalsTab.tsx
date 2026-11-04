@@ -3,6 +3,7 @@
  * one word on its grant state; humans mark met / missed and delete in place, and "Edit" opens the editor that used to sit
  * in Settings) and Grants (every grant of the building, decided in the Town Hall in-tray). The board is notes only.
  */
+import { clipText } from "./showMore";
 import { useEffect, useState, type ReactNode } from "react";
 import { MAX_OBJECTIVES, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type ObjectiveView, type SpendNode } from "../api";
@@ -71,7 +72,7 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   );
 }
 
-/** One key result, read-only: status, text, how to check, its grant word; met / missed (building.fund) and delete (building.manage) in place. */
+/** One key result, read-only: status, text and its grant word; how to check, met / missed (building.fund) and delete (building.manage) one click away in its fold. */
 function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; word: KrGrantWord; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
   const judged = kr.status === "met" || kr.status === "missed";
   const mark = (status: KeyResultStatus) => async () => {
@@ -90,20 +91,24 @@ function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr
         <b>{kr.text}</b>
         <span className={`kr-word ${WORD_TONE[word]}`} title={WORD_TITLE[word]}>{word}</span>
       </div>
-      <div className="muted kr-check">How to check: {kr.howToCheck}</div>
-      {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
-      {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
-      {(canFund && !judged) || canDelete ? (
-        <div className="actions">
-          {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}
-          {canDelete ? <Act small tone="bad" title="Refused while a grant names it" run={async () => {
-            if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
-            await api().deleteKeyResult(kr.id);
-            store.toast(`Key result ${n} deleted`, "ok");
-            onChanged();
-          }}>Delete</Act> : null}
-        </div>
-      ) : null}
+      {/* how to check, the status note and the marks fold under the line (gr_zak30564zh step 4: first screen keeps the summary) */}
+      <details className="kr-more">
+        <summary>How to check{kr.statusNote ? " · note" : ""}{(canFund && !judged) || canDelete ? " · mark" : ""}</summary>
+        <div className="muted kr-check">How to check: {kr.howToCheck}</div>
+        {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
+        {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
+        {(canFund && !judged) || canDelete ? (
+          <div className="actions">
+            {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}
+            {canDelete ? <Act small tone="bad" title="Refused while a grant names it" run={async () => {
+              if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
+              await api().deleteKeyResult(kr.id);
+              store.toast(`Key result ${n} deleted`, "ok");
+              onChanged();
+            }}>Delete</Act> : null}
+          </div>
+        ) : null}
+      </details>
     </li>
   );
 }
@@ -113,6 +118,7 @@ export function GrantsTab({ b }: { b: SnapshotBuilding }) {
   const { grants } = useGoalData(b.id);
   const spend = useLoad(() => api().financeSpend(), [b.id]);
   const { proposals, funded, settled } = grantGroups(grants.data ?? []);
+  const held = settled.filter((g) => g.status === "checkpoint"), closed = settled.filter((g) => g.status !== "checkpoint");
   const rows = (list: GrantView[]) => <div className="doc-list">{list.map((g) => <GrantTabRow key={g.id} g={g} steps={grantSteps(spend.data, b.id, g.id)} />)}</div>;
   return (
     <>
@@ -121,7 +127,9 @@ export function GrantsTab({ b }: { b: SnapshotBuilding }) {
       {grants.data && !grants.data.length ? <Empty>No grants or proposals yet. The manager proposes one per key result; humans fund it in the Town Hall in-tray.</Empty> : null}
       {proposals.length ? <Section title={<>Open proposals <Pill>{proposals.length}</Pill></>}>{rows(proposals)}</Section> : null}
       {funded.length ? <Section title={<>Funded <Pill>{funded.length}</Pill></>}>{rows(funded)}</Section> : null}
-      {settled.length ? <Section title={<>Checkpoint and closed <Pill>{settled.length}</Pill></>}>{rows(settled)}</Section> : null}
+      {held.length ? <Section title={<>At checkpoint <Pill>{held.length}</Pill></>}>{rows(held)}</Section> : null}
+      {/* closed grants are history: folded to their count, one click away (gr_zak30564zh step 4) */}
+      {closed.length ? <details className="grant-fold settled-fold"><summary><b>Closed</b>{closed.length} grant{closed.length === 1 ? "" : "s"}</summary>{rows(closed)}</details> : null}
     </>
   );
 }
@@ -137,14 +145,14 @@ function grantStatusLine(g: GrantView): ReactNode {
   }
 }
 
-/** One grant: objective (opens the grant), status, spend, its key result, its step assignments; links to the in-tray. */
+/** One grant: objective (opens the grant), status, spend, its key result, its steps as one line; a link to the in-tray when a human must decide. */
 function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
   const hall = useTown((s) => s.buildings.find((x) => x.kind === "town-hall"));
   const live = g.status === "funded" || g.status === "checkpoint";
   return (
     <div className="doc-row grant-tab-row">
       <div className="kr-grant-head">
-        <button className="link doc-row-title" title={`Open grant ${g.id}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{g.objective}</button>
+        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(g.objective, 120).head}</button>
         <Pill tone={g.status === "checkpoint" || g.status === "proposed" ? "warn" : g.status === "funded" ? "ok" : g.status === "rejected" ? "bad" : ""}>{g.status}</Pill>
       </div>
       {live ? (
@@ -153,14 +161,12 @@ function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
           <span className="muted">{grantSpendLine(g)}</span>
         </div>
       ) : <div className="muted">{grantStatusLine(g)}</div>}
-      <div className="muted">{g.keyResult ? <>Key result: {g.keyResult.text} · {krStatusLabel(g.keyResult.status)}</> : "Names no key result"}</div>
-      {steps.length ? (
-        <ol className="grant-steps">{steps.map((s) => <li key={s.id ?? s.name}>{s.name} <span className="muted">· {fmtTokens(s.tokens)} {ADJ}, {s.sessions} session{s.sessions === 1 ? "" : "s"}</span></li>)}</ol>
-      ) : live ? <div className="muted">No step sessions yet.</div> : null}
-      <div className="doc-row-meta">
-        <button className="link" onClick={() => store.open({ kind: "grant", id: g.id })}>Open grant {g.id}</button>
-        {hall ? <button className="link" onClick={() => store.open({ kind: "intray", id: hall.id })}>{g.status === "proposed" || g.status === "checkpoint" ? "Decide in the Town Hall in-tray →" : "Town Hall in-tray →"}</button> : null}
-      </div>
+      <div className="muted">{g.keyResult ? <>Key result: {clipText(g.keyResult.text, 60).head} · {krStatusLabel(g.keyResult.status)}</> : "Names no key result"}</div>
+      {/* the steps as one line; each session is listed on the grant's page (gr_zak30564zh step 4: one control per row) */}
+      {steps.length ? <div className="muted" title={steps.map((s) => `${s.name} · ${fmtTokens(s.tokens)} ${ADJ}`).join("\n")}>{steps.length} step{steps.length === 1 ? "" : "s"} · {fmtTokens(steps.reduce((t, s) => t + s.tokens, 0))} {ADJ} · {steps.reduce((t, s) => t + s.sessions, 0)} sessions</div>
+        : live ? <div className="muted">No step sessions yet.</div> : null}
+      {/* only a grant waiting on a human links to the in-tray; the title opens every grant's page */}
+      {hall && (g.status === "proposed" || g.status === "checkpoint") ? <div className="doc-row-meta"><button className="link" onClick={() => store.open({ kind: "intray", id: hall.id })}>Decide in the Town Hall in-tray →</button></div> : null}
     </div>
   );
 }

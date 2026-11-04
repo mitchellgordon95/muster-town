@@ -244,7 +244,7 @@ export class MockApi implements Api {
     await wait();
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
-    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [] };
+    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
   }
   async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
     await wait();
@@ -505,6 +505,22 @@ export class MockApi implements Api {
     const buildings = this.sim.buildings.filter((b) => b.kind === "lab").map((b) => Object.assign(b, defaults));
     for (const b of buildings) this.sim.emit({ type: "building", building: b });
     return clone({ defaults, buildings });
+  }
+
+  async publishSettings(patch: { repoUrl: string; token?: string }) {
+    await wait();
+    const prev = this.sim.town.publish;
+    const same = prev?.repoUrl === patch.repoUrl && !patch.token;
+    const publish = { repoUrl: patch.repoUrl, tokenSet: !!patch.token || !!prev?.tokenSet, lastPushAt: same ? prev!.lastPushAt : null, lastPushCommit: same ? prev!.lastPushCommit : null, lastPushError: same ? prev!.lastPushError : null };
+    this.sim.town.publish = publish;
+    return clone({ publish });
+  }
+
+  async clearPublish() {
+    await wait();
+    const cleared = !!this.sim.town.publish;
+    delete this.sim.town.publish;
+    return { cleared };
   }
 
   async setMaxRunning(maxRunning: number) {
