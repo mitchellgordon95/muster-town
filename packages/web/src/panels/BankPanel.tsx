@@ -1,48 +1,58 @@
 /**
- * The Bank (south of the road; also the HUD's "$", `#/bank` and the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
+ * The Bank's tab bodies (BankSheet.tsx is the sheet over the map that shows them; the HUD's "$", `#/bank`, the old `#/finance`): the town's tokens (1:1 mt_ew2d0mm7h9),
  * public, in tabs, each a thing in the Bank's room (BANK_FIXTURES: walk up or tap it to open its tab). Overview (the vault):
  * Balance (with the town-wide free tokens), Next 30 days, top contributors, Donate. Tokens & sources (ledger desk): Tokens,
  * Bank inputs, Sources. Free tokens (fountain): every goal's free tokens and exploration cap. Spending (spending board): building funding, Spending, Spend by goal (a
  * goal's subtree from session rows; 1:1 mt_n25udpflus decision 5), drift, out-of-tokens deaths and the cap. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
-import { useState } from "react";
-import { BANK_TABS } from "@muster-town/schema";
+import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
-import { store, useTown } from "../state";
-import { Glyph, PanelShell } from "./PanelShell";
-import { BankContributors, BankInputs, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, FinanceTerms, FlyView, ProjectionView, SourcesView, SpendingView, TokensView, useFinance, type FinanceData } from "./BankFinance";
-import { BankFreeTokens, FreeTokensTree } from "./FreeTokens";
+import { useTown } from "../state";
+import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, BuildingFunding, Donate } from "./BankFunding";
+import { FinanceFooter, FinanceIntro, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, SpendingView, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { BankFreeTokens, FreeTokensTree, FreeTokensTreeAbout } from "./FreeTokens";
 import { SpendByGoal } from "./GoalSpend";
-import { ADJ, Act, ErrorLine, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
+import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
 import { claimedTokens } from "../format";
-
-/** Refetch the summary the sign and these sections read. */
-const reload = () => { api().bank().then((bank) => store.set({ bank }), () => undefined); };
-
-export function BankPanel({ tab }: { tab?: string }) {
-  const bank = useTown((s) => s.bank);
-  const fin = useFinance();
-  const [rev, setRev] = useState(0);
-  const changed = () => { reload(); setRev((r) => r + 1); };
-  return (
-    <PanelShell icon={<Glyph kind="bank" />} title="The Bank" subtitle="The town's tokens: what came in, where they went and what is left; hosting in dollars"
-      tabs={[...BANK_TABS]} initialTab={tab && (BANK_TABS as readonly string[]).includes(tab) ? tab : "Overview"}>
-      {(t) => <>
-        {fin.loading && !fin.data ? <Loading /> : null}
-        <ErrorLine error={fin.error} />
-        <BankView tab={t} bank={bank} fin={fin.data} rev={rev} onChange={changed} onReload={reload} />
-      </>}
-    </PanelShell>
-  );
-}
 
 type ViewProps = { tab: string; bank: Bank | null; fin: FinanceData | null; rev: number; onChange: () => void; onReload: () => void };
 
-/** One tab of the page given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null until loaded); each tab ends with the Terms block and where its numbers come from. */
-export function BankView(props: ViewProps) {
-  return <><BankTab {...props} /><FinanceTerms />{props.fin ? <FinanceFooter {...props.fin} /> : null}</>;
+/**
+ * One tab of the Bank sheet given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null
+ * until loaded). The centre column (`.bank-main`) holds the tab's tables only; every explanation sits in the sidebar
+ * (`.bank-side`): "About this tab" (`BankAbout`, the tab's prose), the Terms and where the numbers come from, then the
+ * selected row (`selected`, steps 3-4). `divider` (the sheet's drag handle) goes between the two columns.
+ */
+export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactNode; selected?: ReactNode }) {
+  const { divider, selected, head, ...view } = props;
+  return (
+    <>
+      <div className="bank-main" aria-label="The tab's tables">{head}<BankTab {...view} /></div>
+      {divider}
+      <aside className="bank-side" aria-label="About this tab">
+        {selected ? <section className="bank-selected"><h4>Selected row</h4>{selected}</section> : null}
+        <h4>About this tab</h4>
+        <BankAbout {...view} />
+        <FinanceTerms />
+        {props.fin ? <FinanceFooter {...props.fin} /> : null}
+      </aside>
+    </>
+  );
+}
+
+/** The tab's prose (the sidebar's "About this tab"), in the order its sections sit in the centre. */
+function BankAbout({ tab, bank, fin }: ViewProps) {
+  if (tab === "Tokens & sources") return <>{fin ? <TokensAbout f={fin.f} /> : null}{bank ? <BankInputsAbout /> : null}{fin?.sources ? <SourcesAbout /> : null}</>;
+  if (tab === "Free tokens") return <FreeTokensTreeAbout />;
+  if (tab === "Spending") return (
+    <>
+      {fin?.spend ? <SpendingAbout sp={fin.spend} /> : null}
+      {bank?.drift && bank.drift.models.length ? <p className="muted">Drift: adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p> : null}
+    </>
+  );
+  if (tab === "Hosting") return fin?.fly ? <FlyAbout fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
+  return <><FinanceIntro hosting={!!fin?.fly} />{fin ? <ProjectionAbout f={fin.f} /> : null}</>;
 }
 
 function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
@@ -56,10 +66,9 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload }: ViewProps) {
   );
   if (tab === "Free tokens") return <FreeTokensTree />;
   if (tab === "Spending") return <BankSpending bank={bank} fin={fin} rev={rev} />;
-  if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
+  if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : null;
   return (
     <>
-      <FinanceIntro hosting={!!fin?.fly} />
       <Section title="Balance">
         {!bank ? <Loading /> : (
           <table className="table" title={breakdownTitle(bank.creditedCounts)}>
@@ -121,7 +130,6 @@ function BankSpending({ bank, fin, rev }: { bank: Bank | null; fin: FinanceData 
       <SpendByGoal />
       {bank?.drift && bank.drift.models.length ? (
         <Section title={`Drift (${bank.drift.day}, 24 h)`}>
-          <p className="muted">Adjusted output tokens × output list price vs what the SDK says the sessions cost. Target 0.90–1.10.</p>
           <table className="table">
             <tbody>
               {bank.drift.models.map((r) => (
