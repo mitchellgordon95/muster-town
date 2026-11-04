@@ -498,6 +498,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent, #7aa2ff); outline
 .confirm .actions { margin: 6px 0 0; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .check input { width: auto; }
+.walk-fold { margin: 10px 0; }
+.walk-fold > summary { cursor: pointer; font-size: 13px; color: #c4c7dc; }
+.walk-fold > .walk-links { margin-top: 8px; }
 .walk-links { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
 .walk-link { flex: 1; min-width: 150px; display: flex; align-items: center; gap: 8px; background: #1f2230; border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; text-align: left; }
 .walk-link:hover { border-color: var(--accent); }
@@ -824,6 +827,8 @@ div.spend-row > .muted { font-size: 11.5px; }
 .queue-col { display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 4px; background: var(--panel-2); min-height: 40px; min-width: 0; }
 .queue-col.full .queue-col-head { color: var(--warn); }
 .queue-col-head { font-weight: 600; font-size: 11px; }
+.queue-done-fold > summary { cursor: pointer; }
+.queue-done-fold[open] > summary { margin-bottom: 6px; }
 .queue-card { padding: 4px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); overflow-wrap: anywhere; }
 .queue-card.cancelled { opacity: 0.6; }
 .queue-card-title { line-height: 1.25; }
@@ -1003,3 +1008,4 @@ div.spend-row > .muted { font-size: 11.5px; }
 .lane-kind { margin-top: 10px; }
 .lane-kind-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lane-kind-table td, .lane-kind-table th { white-space: nowrap; }
+.lane-kind-scroll { overflow-x: auto; max-width: 100%; }

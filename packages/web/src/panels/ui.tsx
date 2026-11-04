@@ -22,7 +22,6 @@ export function dayClock(iso: string): string {
   return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${clock(iso)}`;
 }
 import { ADJ, ADJ_HINT } from "../format";
-import { clipText } from "./showMore";
 export { ADJ, ADJ_HINT, breakdownTitle, fmtTokens, fromMillions,  } from "../format";
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
@@ -74,13 +73,6 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | n
   }, [...deps, n]);
   const reload = useCallback(() => setN((x) => x + 1), []);
   return { data, error, loading, reload };
-}
-
-/** A long text collapsed to its first `max` characters with a "Show more" that reveals all of it in place (never cut for good). */
-export function ShowMore({ text, max = 400, render }: { text: string; max?: number; render: (text: string) => ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const { head, cut } = clipText(text, max);
-  return <>{render(open || !cut ? text : head)}{cut ? <button type="button" className="link show-more" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{open ? "Show less" : "Show more"}</button> : null}</>;
 }
 
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div>; }

@@ -54,7 +54,7 @@ export async function townRoutes(app: FastifyInstance) {
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
     ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress() } : {}),
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress(), started: world.hasRun() } : {}),
   }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
