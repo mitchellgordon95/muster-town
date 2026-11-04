@@ -15,20 +15,26 @@ vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }
 
 const card: DigestCard = {
   doc: { id: "dc_dig", title: "Digest 2026-11-05: 1 decision, 2 rollups", createdAt: new Date().toISOString() } as never,
-  decisions: ["Fund gr_x (Workshop: \"A banner\") at its 300k ask?"],
-  askedOfYou: null,
-  shipped: "- A banner shows today's spend (dc_r1)",
+  decisions: [
+    { heading: "Money (1)", note: null, lines: ["Fund gr_x (Workshop: \"A banner\") at its 300k ask?"] },
+    { heading: "Already overtaken (2)", note: "Approve these 2 and they drop out; nothing to decide.", lines: ["Lab (dc_r2, \"Item 1\"): kr_a is already met.", "Lab (dc_r3, \"Item 1\"): gr_y is closed (done)."], docIds: ["dc_r2", "dc_r3"] },
+  ],
+  shipped: "**Bank and speed**\n\n- A banner shows today's spend (dc_r1)",
   covered: [{ id: "dc_r1", title: "Rollup 44", buildingId: "workshop", buildingName: "Workshop", pending: false }, { id: "dc_r2", title: "Rollup 9", buildingId: "lab", buildingName: "Lab", pending: true }],
 };
 
 describe("the digest card", () => {
-  it("Decisions needed first, then Shipped, then the covered rollups folded, archived or still asking", () => {
+  it("Decisions needed first, grouped by kind with one Approve-all on the overtaken group, then Shipped by theme, then the covered rollups folded, archived or still asking", () => {
     const html = renderToStaticMarkup(<DigestCardView card={card} onOpen={() => undefined} />);
     const dec = html.indexOf("Decisions needed"), ship = html.indexOf("Shipped since last digest"), fold = html.indexOf("<details");
     expect(dec).toBeGreaterThan(-1);
     expect(ship).toBeGreaterThan(dec);
     expect(fold).toBeGreaterThan(ship);
+    expect(html).toContain("<b>Money (1)</b>");
     expect(html).toContain("at its 300k ask?");
+    expect(html).toContain("<b>Already overtaken (2)</b><span class=\"muted\"> Approve these 2 and they drop out; nothing to decide.</span>");
+    expect(html).toMatch(/<button[^>]*>Approve all 2<\/button>/);
+    expect(html).toContain("**Bank and speed**");
     expect(html).toContain("Covered rollups (2)");
     expect(html).toContain("Workshop: Rollup 44</button> <span class=\"muted\">archived");
     expect(html).toContain("still asks a call");

@@ -7,7 +7,7 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
-import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
+import { cacheMissAlert, dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { decideJoin, letInGoal } from "./panels/letIn";
 import { Act, timeAgo } from "./panels/ui";
@@ -150,6 +150,15 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         key: `funding:${fo.id}`, icon: "planning", tone: "warn", cta: "Bank →",
         text: <><b>Funding alert</b>: {fo.text}</>,
         go: () => walkOrOpen("bank", { kind: "bank" }),
+      });
+    }
+    // a session purpose re-wrote its prompt prefix today (gr_lwgus14rd2 step 2): its 1 h cache-write share or first turns
+    const cm = cacheMissAlert(events);
+    if (cm) {
+      out.push({
+        key: `cache-miss:${cm.id}`, icon: "planning", tone: "warn", cta: "Bank →",
+        text: <><b>Cache alert</b>: {cm.text.replace(/^Cache miss: /, "")}</>,
+        go: () => walkOrOpen("bank:spending", { kind: "bank", tab: "Spending" }),
       });
     }
     // checked against the runtime's live view: a run killed by a restart shows as interrupted, not waiting forever

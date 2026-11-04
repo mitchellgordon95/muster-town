@@ -27,12 +27,12 @@ describe("the digest card in the Town Hall in-tray", () => {
     expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body.digest).toBeNull();
 
     const secAuth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", sec.id)}` };
-    const filed = await json(app, "POST", "/api/verbs/digest", { headers: secAuth, body: { shipped: [{ rollupId: quiet.id, line: "A banner shows today's spend" }] } });
+    const filed = await json(app, "POST", "/api/verbs/digest", { headers: secAuth, body: { shipped: [{ rollupId: quiet.id, line: "A banner shows today's spend", theme: "Bank and speed" }] } });
     expect(filed.status).toBe(200);
 
     const intray = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
-    expect(intray.digest).toMatchObject({ doc: { id: filed.body.result.digestId, type: "digest" }, shipped: `- A banner shows today's spend (${quiet.id})` });
-    expect(intray.digest.decisions.some((l: string) => l.includes("Merge PR #12?"))).toBe(true);
+    expect(intray.digest).toMatchObject({ doc: { id: filed.body.result.digestId, type: "digest" }, shipped: `**Bank and speed**\n\n- A banner shows today's spend (${quiet.id})` });
+    expect(intray.digest.decisions).toEqual([{ heading: "Questions in words (1)", note: null, lines: [expect.stringContaining("Merge PR #12?")] }]);
     expect(intray.digest.covered.map((r: { id: string; pending: boolean }) => [r.id, r.pending])).toEqual([[quiet.id, false], [asks.id, true]]);
     const ids = intray.reports.map((d: { id: string }) => d.id);
     expect(ids).not.toContain(quiet.id);

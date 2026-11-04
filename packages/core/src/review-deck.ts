@@ -19,7 +19,7 @@ import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
-import { digestCard } from "./secretary.ts";
+import { digestCard, groupsText } from "./secretary.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -334,7 +334,7 @@ function digestSlide(world: World, now: Date): ReviewSlide | null {
   const text = [
     `_Filed by the Secretary ${waitedFor(c.doc.createdAt, now)} ago (${c.doc.id})_`,
     `## ${title}`,
-    `### Decisions needed\n\n${c.decisions.map((l) => `- ${l}`).join("\n") || "Nothing waits on a yes or no."}${c.askedOfYou ? `\n\n${c.askedOfYou}` : ""}`,
+    `### Decisions needed\n\n${groupsText(c.decisions)}`,
     `### Shipped since last digest\n\n${c.shipped || "Nothing shipped."}`,
     `### Covered rollups\n\n${c.covered.map((r) => `- ${r.buildingName}: ${r.title} (${r.id})${r.pending ? " · still asks a call" : ""}`).join("\n") || "_none_"}`,
   ].join("\n\n");
