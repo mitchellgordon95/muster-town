@@ -502,6 +502,7 @@ export class Grants {
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
         next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note, via);
         this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
+        this.cancelCheckpointAssignment(next, actor, "continued");
         break;
       case "adjust": {
         this.requireStatus(g, ["checkpoint"], "adjusted");
@@ -510,6 +511,7 @@ export class Grants {
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note, via);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
+        this.cancelCheckpointAssignment(next, actor, "adjusted");
         break;
       }
       case "cut":
@@ -517,6 +519,7 @@ export class Grants {
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note, via);
         this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });
         this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
+        this.cancelCheckpointAssignment(next, actor, "cut");
         break;
     }
     return this.view(next);
@@ -758,6 +761,18 @@ export class Grants {
       released.push(next);
     }
     return released;
+  }
+
+  /**
+   * A human decided the checkpoint (continue, adjust or cut) before the manager's "Write the checkpoint for …" assignment ran:
+   * the still-pending one is cancelled so it doesn't run later, charged to the grant, to write a checkpoint nobody waits for
+   * (gr_kdlogzzo5s, 2026-11-04: adjusted 15 min after the hold, the assignment ran 35 min after that). One already running finishes.
+   */
+  private cancelCheckpointAssignment(g: Grant, actor: Actor, decision: "continued" | "adjusted" | "cut"): void {
+    const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
+    for (const a of this.world.assignments.where("grantId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint for %'", [g.id])) {
+      setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `${who} ${decision} the grant from the in-tray before this checkpoint was written: nothing to file.`.slice(0, 500) });
+    }
   }
 
   /** The manager's "Write the checkpoint for …" assignment (none when the building has no manager agent: humans decide from the in-tray). */
