@@ -41,4 +41,27 @@ describe("the digest card in the Town Hall in-tray", () => {
     const deck = (await json(app, "GET", "/api/review-deck", { headers: auth })).body;
     expect(deck.slides.slice(0, 2).map((x: { kind: string }) => x.kind)).toEqual(["town", "digest"]);
   });
+
+  it("POST /api/digest/run (the in-tray's Daily digest button): a human who can decide the retainer starts one run; refused for an agent, before approval, with nothing new, or while a run is live", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth, by } = s;
+    const mei = by("Mei");
+    const sec = world.secretary.ensure()!;
+    const sched = world.secretary.ensureDigestSchedule()!;
+    const meiAuth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", mei.id)}` };
+    expect((await json(app, "POST", "/api/digest/run", { headers: meiAuth })).status).toBe(403);
+    expect((await json(app, "POST", "/api/digest/run", { headers: auth })).body.error).toMatch(/not approved/);
+    expect((await json(app, "POST", `/api/schedules/${sched.id}/retainer`, { headers: auth, body: { action: "approve" } })).status).toBe(200);
+    const none = await json(app, "POST", "/api/digest/run", { headers: auth });
+    expect(none.status).toBe(409);
+    createDoc(world, { type: "report", title: "Rollup", body: body("None"), authorId: mei.id, authorKind: "agent", buildingId: LAB, state: "building", tags: ["rollup"], decision: "pending" });
+    expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body.digestRun).toEqual({ scheduleId: sched.id, runningId: null, refused: null });
+    const ran = await json(app, "POST", "/api/digest/run", { headers: auth });
+    expect(ran.status).toBe(200);
+    expect(ran.body.assignment).toMatchObject({ agentId: sec.id, lane: "retainer", sourceId: sched.id });
+    expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body.digestRun.runningId).toBe(ran.body.assignment.id);
+    expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: meiAuth })).body.digestRun).toBeNull();
+    expect((await json(app, "POST", "/api/digest/run", { headers: auth })).status).toBe(409);
+  });
 });

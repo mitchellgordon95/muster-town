@@ -1,4 +1,4 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, pressDigest, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, RetainerDecisionInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -126,6 +126,8 @@ export async function agentRoutes(app: FastifyInstance) {
    * A human decides a schedule's retainer ask (1:1 mt_cyd2t5ioob decision 2): approve (409 when it would dip into the
    * operating reserve), counter (note, tokensPerRun and/or until) or reject. building.fund on its building or its goal's captain.
    */
+  // the Town Hall in-tray's "Daily digest" button: one Secretary digest run now, booked on the digest's retainer (core pressDigest)
+  app.post("/api/digest/run", async (req) => ({ assignment: pressDigest(world, actorOf(world, req)) }));
   app.post<{ Params: Params }>("/api/schedules/:id/retainer", async (req) => ({ schedule: decideRetainer(world, actorOf(world, req), req.params.id, parse(RetainerDecisionInput, req.body)) }));
   /** Stop a schedule (building.assign on its building). → { schedule } */
   app.post<{ Params: Params }>("/api/schedules/:id/cancel", async (req) => ({ schedule: cancelSchedule(world, actorOf(world, req), req.params.id) }));
