@@ -10,10 +10,12 @@ on:
     branches: [main]
   pull_request:
 
-# a burst of pushes to main tests only the newest commit (keeps us inside the free Actions minutes)
+# PRs: a new push cancels the running check. main: pushes queue instead (GitHub keeps one running + the newest pending run
+# per group, so a burst still costs at most two full runs). With cancel-in-progress on main, a merge every 1-2 min cancelled
+# every run before promote could move `prod` (11-04: 12 merges in 17 min, 20 commits never deployed, 8 no-op redeploys).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
