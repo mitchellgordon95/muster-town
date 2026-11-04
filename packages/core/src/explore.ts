@@ -9,7 +9,7 @@
  */
 import { isGone } from "@muster-town/schema";
 import type { Assignment, BankReservation, Building } from "@muster-town/schema";
-import { buildingQueue, createAssignment, managerAgentOf } from "./domain.ts";
+import { buildingQueue, createAssignment, forkableManagerOf } from "./domain.ts";
 import { sessionView } from "./bank.ts";
 import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
@@ -40,7 +40,7 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   const goalId = world.goalTree.attachmentOf(b);
   const rule = exploreRuleAt(world.goals, goalId);
   if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
-  const manager = managerAgentOf(world, b);
+  const manager = forkableManagerOf(world, b);
   if (!manager || isGone(manager)) return "no manager to fork";
   if (world.budget.remaining(b.id) <= 0) return "the building's budget is spent";
   if (freeDesks(world, b) <= 0) return "no free desk";
@@ -63,7 +63,7 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
   const goalId = world.goalTree.attachmentOf(b);
   const goal = world.goals.get(goalId);
   const rule = exploreRuleAt(world.goals, goalId);
-  const manager = managerAgentOf(world, b)!;
+  const manager = forkableManagerOf(world, b)!;
   const goalText = truncate(goal?.text ?? b.name, 200);
   return world.transaction(() => {
     const r = world.bankReservations.upsert({ id: newId("rs"), goalId, buildingId: b.id, assignmentId: null, tokens: rule.chunkTokens, openedAt: now.toISOString(), closedAt: null, spentTokens: null });
