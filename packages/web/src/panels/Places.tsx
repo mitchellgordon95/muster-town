@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -662,6 +662,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         )) : <li className="muted">No key results yet</li>}
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
       </ul>
+      <GrantSteps grant={g} />
       {onPage ? null : <div className="intray-proposal">Stop when: {g.stopCondition}</div>}
   </>);
   const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met") ? (<>
@@ -746,6 +747,25 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       {decision}
       {stopForm}
       {folded ? <details className="grant-plan"><summary>The plan as funded: key results and stop condition</summary>{planList}</details> : null}
+    </div>
+  );
+}
+
+/**
+ * The plan's steps, numbered (grant B gr_b5fyqibfx2, kr_snardl39qh): funding queues step 1, each step's report the next.
+ * Once funded each step says where its latest assignment stands (queued, running, done, cancelled).
+ */
+export function GrantSteps({ grant: g }: { grant: Pick<GrantView, "steps" | "stepStates"> }) {
+  if (!g.steps?.length) return null;
+  return (
+    <div className="grant-plan-steps">
+      <b>Steps</b> <span className="muted">· funding queues step 1; each step's report queues the next</span>
+      <ol className="grant-steps">
+        {g.steps.map((st, i) => {
+          const word = grantStepWord(g.stepStates?.[i]);
+          return <li key={i} title={st.description}>{st.title}{word ? <> <span className={`grant-step-state ${word}`}>· {word}</span></> : null}</li>;
+        })}
+      </ol>
     </div>
   );
 }

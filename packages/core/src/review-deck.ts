@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -101,10 +101,12 @@ function proposalPicture(world: World, g: GrantView): { alt: string; src: string
 
 interface Draft { kind: ReviewSlideKind; group: number; itemId: string | null; buildingId: string | null; since: string | null; title: string; body: string; history: string; grantId?: string; docIds?: string[]; keySuffix?: string }
 
-function card(fields: { whatItIs: string; whatYoudSee: string; picture: { alt: string; src: string } | null; pictures?: { alt: string; src: string }[]; yourCall: string }): string {
+function card(fields: { whatItIs: string; steps?: string; whatYoudSee: string; picture: { alt: string; src: string } | null; pictures?: { alt: string; src: string }[]; yourCall: string }): string {
   const pics = fields.pictures ?? (fields.picture ? [fields.picture] : []);
   return [
     `**What it is:** ${fields.whatItIs || "_not given_"}`,
+    // a proposal's plan as numbered steps (grant B gr_b5fyqibfx2, kr_snardl39qh): funding queues step 1
+    ...(fields.steps ? [`**Steps** (funding queues step 1; each step's report queues the next):\n\n${fields.steps}`] : []),
     `**What you'd see:** ${fields.whatYoudSee || "_not given_"}`,
     pics.length ? pics.map((p) => `![${p.alt}](${p.src})`).join("\n") : "_no picture_",
     `**Your call:** ${fields.yourCall || "_not given_"}`,
@@ -155,6 +157,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const earlier = g.evidence ? `**Continues the earlier grant ${g.evidence.grantId}** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
   return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
+    steps: grantStepLines(g),
     whatYoudSee: g.whatYoudSee || testing,
     picture: proposalPicture(world, g),
     yourCall: `Fund ${fmt(g.askTokens)} adjusted tokens, counter or reject.${g.estimate?.model ? ` Model estimate: ${fmt(g.estimate.model.low)}–${fmt(g.estimate.model.high)}.` : ""}${g.estimate ? ` Likely cost: ${g.estimate.sentence}.` : ""} Stops when: ${g.stopCondition}`,

@@ -196,7 +196,10 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
     // member-funded (fundWith): paid from Mitchell's own Bank input, so the row reads "… by Mitchell from Mitchell's API key"
     fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: "bi_mitchell_key", fundedWithLabel: "Mitchell's API key", fundedAt: ago(300),
-    objective: "A stranger can find the How it works tour from the landing page", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
+    objective: "A stranger can find the How it works tour from the landing page",
+    // grant B (gr_b5fyqibfx2): its plan's steps and where each stands
+    steps: [{ title: "Link the tour from the landing page", description: "The PR" }, { title: "Check it live as a guest", description: "Open muster.town logged out" }, { title: "Close the grant", description: "Evidence and rollup" }],
+    stepStates: [{ assignmentId: "as_tour1", status: "done", reportId: null }, { assignmentId: "as_tour2", status: "active", reportId: null }, null], stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
     ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
