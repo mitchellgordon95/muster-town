@@ -131,18 +131,36 @@ describe("the Secretary", () => {
     rollup(["Merge PR #12?", "None", `Continue ${held.id} with the top-up: the web step is half built.`]);
     createDoc(world, { type: "request", title: "Photograph the sign", body: "x", authorId: manager.id, authorKind: "agent", state: "building", requestStatus: "open" });
     const { decisions, count } = digestDecisions(world);
-    expect(decisions.map((g) => g.heading)).toEqual(["Money (4)", "Questions in words (1)", "Errands (1)"]);
+    expect(decisions.map((g) => g.heading)).toEqual(["Money (3)", "Questions in words (1)", "Errands (1)"]);
     const money = decisions[0]!.lines;
-    expect(money[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\?$`));
+    // the rollup's call naming the checkpoint is not a line of its own: the checkpoint's line names the rollup
+    expect(money[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\? Also asked in dc_\\w+\\.$`));
     expect(money).toContain(`Fund ${p.id} (${world.buildings.require(LAB).name}: "Banner shows Usage") at its 350k ask?`);
     expect(money.some((l) => /^Approve Town Hall's retainer "Daily in-tray digest" \(sc_\w+\): 10k per run, \d+k in all\?$/.test(l))).toBe(true);
-    // a rollup's call naming an item that waits on its own row sits under Money with it
-    expect(money.some((l) => new RegExp(`asks \\(dc_\\w+, "Item 3"\\): Continue ${held.id} with the top-up`).test(l))).toBe(true);
+    expect(money.some((l) => /Item 3/.test(l))).toBe(false);
     expect(decisions[1]!.lines).toEqual([expect.stringMatching(/asks \(dc_\w+, "Item 1"\): Merge PR #12\?$/)]);
     expect(JSON.stringify(decisions)).not.toMatch(/Item 2/); // a None call is no decision
     expect(decisions[2]).toMatchObject({ note: "1 open outbox request: do or decline when you have time.", lines: [expect.stringMatching(/^"Photograph the sign" \(dc_\w+\)$/)] });
-    expect(count).toBe(5); // errands aside
-    expect(groupsText(decisions)).toMatch(/^\*\*Money \(4\)\*\*\n\n- Continue/);
+    expect(count).toBe(4); // errands aside
+    expect(groupsText(decisions)).toMatch(/^\*\*Money \(3\)\*\*\n\n- Continue/);
+  });
+
+  it("each in-tray row gives one line: a checkpoint's own rollup (a call and a Needs line both asking to continue) adds no Questions line, its other asks fold into one", () => {
+    const { world, admin, proposal, rollup } = setup();
+    const held = proposal("Stop a grant cleanly", 600_000);
+    world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 600_000 });
+    const cp = rollup(["Continue, adjust or cut (Needs below)."], nowIso(), "- Continue this checkpoint with the 200k top-up, or cut it.");
+    world.grants.patch(held.id, { status: "checkpoint", spentTokens: 610_000, topUpTokens: 200_000, whatTopUpBuys: "the web step", checkpointDocId: cp.id } as never);
+    const { decisions, count } = digestDecisions(world);
+    expect(decisions.map((g) => g.heading)).toEqual(["Money (1)"]);
+    expect(decisions[0]!.lines).toEqual([expect.stringMatching(new RegExp(`^Continue ${held.id} .*\\? Also asked in ${cp.id}\\.$`))]);
+    expect(count).toBe(1);
+    // a rollup with three questions in words gives one line, the rest counted on it
+    const many = rollup(["Merge PR #12?", "Keep the 1 h default?"], nowIso(), "- Should visitors see the Bank?");
+    const after = digestDecisions(world);
+    expect(after.decisions.map((g) => g.heading)).toEqual(["Money (1)", "Questions in words (1)"]);
+    expect(after.decisions[1]!.lines).toEqual([expect.stringMatching(new RegExp(`asks \\(${many.id}, "Item 1"\\): Merge PR #12\\? \\(and 2 more asks in ${many.id}\\)$`))]);
+    expect(after.count).toBe(2);
   });
 
   it("Already overtaken: a call naming a key result since met, a grant since closed or funded, or a retainer since approved; one Approve-all; filing archives such a rollup", () => {
