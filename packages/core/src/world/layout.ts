@@ -1,4 +1,4 @@
-import { BANK_FIXTURES, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { BANK_FIXTURES, BULLETIN_PLACE, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 import { deriveRoads, doorOf, type Side } from "./road.ts";
 import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
@@ -161,6 +161,13 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     );
     tables.set(`meeting-room:${b.id}`, cells("meeting"));
   }
+  // the humans' bulletin board in the town square (flag dc_52njv3shp8): where the shape put it, else on the grass nearest the Town Hall's door
+  const hallDoor = hall && doors.get(hall.id);
+  const board = tree.bulletin ?? (hallDoor ? bulletinSpot(tiles, w, h, hallDoor, places) : null);
+  if (board) {
+    set(board.x, board.y, TILE.BULLETIN);
+    places.push({ id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: board.x, y: board.y + 1 } });
+  }
   const grid = { w, h, tiles };
   const seats = new Map<string, Tile[]>();
   for (const [id, table] of tables) {
@@ -186,6 +193,25 @@ function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[
   const door = { x: x0 + F.door.x, y: y0 + F.door.y };
   set(door.x, door.y, TILE.DOOR);
   places.push(...bankPlaces(x0, y0));
+}
+
+/**
+ * Where the bulletin board goes when the shape didn't say (the "tree" and "radial" maps): the grass tile nearest the
+ * spot three tiles left of and one below the Town Hall's door whose tile below is walkable, two tiles clear of the door
+ * and on no place's tile. Pure: the same map gives the same spot.
+ */
+function bulletinSpot(tiles: number[], w: number, h: number, door: Tile, places: Place[]): Tile | null {
+  const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < w && y < h ? tiles[y * w + x] : -1);
+  const taken = new Set(places.map((p) => `${p.pos.x},${p.pos.y}`));
+  const aim = { x: door.x - 3, y: door.y + 1 };
+  let best: Tile | null = null, bestD = Infinity;
+  for (let y = Math.max(0, door.y - 2); y < Math.min(h - 1, door.y + 8); y++) for (let x = Math.max(0, door.x - 10); x < Math.min(w, door.x + 11); x++) {
+    if (at(x, y) !== TILE.GRASS || !WALKABLE.has(at(x, y + 1))) continue;
+    if (Math.abs(x - door.x) + Math.abs(y - door.y) < 3 || taken.has(`${x},${y}`) || taken.has(`${x},${y + 1}`)) continue;
+    const d = Math.abs(x - aim.x) + Math.abs(y - aim.y);
+    if (d < bestD) { best = { x, y }; bestD = d; }
+  }
+  return best;
 }
 
 /**

@@ -823,6 +823,74 @@ export function TownNoteForm({ buildingId, onPosted }: { buildingId: string; onP
   );
 }
 
+// ---------- the bulletin board in the town square ----------
+
+/**
+ * The bulletin board outside the Town Hall (Mitchell's flag dc_52njv3shp8): humans' notes to each other, newest first.
+ * Everyone reads it (guests and agents too); a signed-in human pins a note; its author or a town admin takes it down.
+ */
+export function BulletinPanel() {
+  const rev = useTown((s) => s.rev);
+  useTown((s) => s.me); // re-render on sign-in
+  const notes = useLoad(() => api().bulletin(50), [rev]);
+  const [open, setOpen] = useState<Doc | null>(null);
+  useEffect(() => { if (notes.data) store.putDocs(notes.data); }, [notes.data]);
+  if (open) return (
+    <PanelShell icon={<Glyph kind="bulletin" />} title="Bulletin board" subtitle="In the town square, outside the Town Hall">
+      <DocView doc={open} onBack={() => setOpen(null)} backLabel="Bulletin board" />
+    </PanelShell>
+  );
+  return (
+    <PanelShell icon={<Glyph kind="bulletin" />} title="Bulletin board" subtitle="In the town square: notes from the people who use this town, to each other. Anyone can read them; sign in to pin one.">
+      {canPostBulletin() ? <BulletinForm onPosted={notes.reload} /> : null}
+      <ErrorLine error={notes.error} />
+      {notes.loading && !notes.data ? <Loading /> : !notes.data?.length ? <Empty>No notes on the bulletin board yet.</Empty> : (
+        <div className="doc-list">{notes.data.map((d) => (
+          <div key={d.id} className="board-fyi">
+            <DocRow doc={d} onOpen={() => setOpen(d)} />
+            {canUnpublish(d) ? <Act small title="Back to its author's drafts" run={async () => {
+              const r = await api().takeDownBulletin(d.id);
+              store.putDocs([r]);
+              store.toast(`"${d.title}" is off the bulletin board`, "ok");
+              notes.reload();
+            }}>Take down</Act> : null}
+          </div>
+        ))}</div>
+      )}
+    </PanelShell>
+  );
+}
+
+/** = core postBulletin's rule: any signed-in human (guests read only). */
+export function canPostBulletin(): boolean {
+  return !!store.state.me;
+}
+
+export function BulletinForm({ onPosted }: { onPosted: () => void }) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const media = useMediaPaste(setBody);
+  return (
+    <div className="rules-card bulletin-form">
+      <div className="rules-head"><b>Post a note</b><span>pinned in the square for everyone who visits</span></div>
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" aria-label="Title" maxLength={200} />
+        <textarea {...media.props} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Your note. Markdown; paste or drop a picture." aria-label="Body" maxLength={4000} />
+        <div className="actions">
+          <AttachButton media={media} />
+          <Act tone="primary" disabled={!title.trim() || !body.trim()} run={async () => {
+            const d = await api().postBulletin({ title: title.trim(), body: body.trim() });
+            store.putDocs([d]);
+            setTitle(""); setBody("");
+            store.toast("Pinned on the bulletin board", "ok");
+            onPosted();
+          }}>Pin it</Act>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 // ---------- filing cabinet ----------
 
 export function CabinetPanel({ buildingId }: { buildingId: string }) {

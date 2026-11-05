@@ -8,7 +8,7 @@ import {
   drawDoor, drawVault, drawGold, drawPillar, drawBankServer, drawBankLedger, drawManagerDesk, drawBoard, drawCabinet,
 } from "../map/sprites";
 
-export type SceneKind = "bank" | "buildings" | "work" | "agent" | "connect" | "tasks" | "visit" | "read" | "talk";
+export type SceneKind = "bank" | "buildings" | "work" | "agent" | "connect" | "tasks" | "visit" | "read" | "talk" | "goals";
 
 const W = 7, H = 3;
 type G = CanvasRenderingContext2D;
@@ -146,6 +146,28 @@ const DRAW: Record<SceneKind, (g: G) => void> = {
     g.drawImage(tl.deskL, 4 * T, T + 6); g.drawImage(tl.deskR, 5 * T, T + 6);
     person(g, HUMAN_SPRITE, 2 * T, T + 6, 0);
     bubble(g, 2 * T + 6, T + 6, "dots"); bubble(g, 4 * T + 16, T - 2, "dots");
+  },
+  // one goal tree: a goal at the top, two branches under it, each with its desks
+  goals(g) {
+    const tl = tiles();
+    fill(g, tl.grass);
+    const box = (px: number, py: number, w: number, roof: string) => {
+      g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 1, py + 11, w, 2);
+      g.fillStyle = "#1a1a1a"; g.fillRect(px, py, w, 11);
+      g.fillStyle = "#f4f4f8"; g.fillRect(px + 1, py + 1, w - 2, 9);
+      g.fillStyle = roof; g.fillRect(px + 1, py + 1, w - 2, 2);
+      g.fillStyle = "#9aa0b4"; g.fillRect(px + 3, py + 5, w - 8, 1); g.fillRect(px + 3, py + 7, w - 12, 1);
+    };
+    // the branches: a stem down from the goal, a bar across, a drop to each child
+    g.fillStyle = "#3b2f12";
+    g.fillRect(55, 15, 2, 7); g.fillRect(25, 21, 62, 2); g.fillRect(25, 21, 2, 9); g.fillRect(85, 21, 2, 9);
+    box(42, 4, 28, "#2d6aa8");
+    box(12, 30, 28, "#5aa66b"); box(72, 30, 28, "#b26fd1");
+    for (const px of [42, 102]) { // a little desk with a glowing screen beside each branch
+      g.fillStyle = "#7a4f2a"; g.fillRect(px, 39, 8, 3); g.fillStyle = "#1a1d2a"; g.fillRect(px + 2, 34, 5, 5);
+      g.fillStyle = "#3fbfb0"; g.fillRect(px + 3, 35, 3, 3);
+    }
+    person(g, HUMAN_SPRITE, 76, 2, 0);
   },
 };
 

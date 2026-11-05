@@ -497,7 +497,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help";
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -522,6 +522,7 @@ export function iconUrl(kind: IconKind): string {
     case "goals": g.drawImage(tl.wallFace, 0, 0); drawGoalChart(g, 0, 0); break;
     case "stats": drawStats(g, 0, 0); break;
     case "help": drawHelpSign(g, 0, 0); break;
+    case "bulletin": drawBulletin(g, 0, 7); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {
       g.drawImage(tl.deskL, 0, 0);
@@ -565,6 +566,34 @@ export function drawLamp(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#ffe08a"; g.fillRect(px + 5, py - 7, 6, 5);
   g.fillStyle = "#fff6cf"; g.fillRect(px + 6, py - 6, 2, 2);
   g.fillStyle = "#3a3f58"; g.fillRect(px + 3, py - 9, 10, 2); g.fillRect(px + 6, py - 11, 4, 2);
+}
+/**
+ * The bulletin board in the town square (TILE.BULLETIN, place `bulletin:town`, flag dc_52njv3shp8): a cork board in a
+ * wooden frame on two posts under a little red roof, notes pinned on it. Stands outdoors and reaches up into the tile
+ * above, like a lamp.
+ */
+export function drawBulletin(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 1, py + 14, 14, 2);
+  // posts
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 2, py + 8, 2, 7); g.fillRect(px + 12, py + 8, 2, 7);
+  // frame and cork
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + 1, py - 3, 14, 12);
+  g.fillStyle = "#c9a26b"; g.fillRect(px + 2, py - 2, 12, 10);
+  // roof
+  g.fillStyle = "#8a3b2e"; g.fillRect(px, py - 6, 16, 3);
+  g.fillStyle = "#b5503d"; g.fillRect(px + 1, py - 7, 14, 2);
+  g.fillStyle = "#5e281f"; g.fillRect(px, py - 4, 16, 1);
+  // notes, each with a pin
+  const note = (x: number, y: number, w: number, h: number, c: string, pin: string) => {
+    g.fillStyle = c; g.fillRect(px + x, py + y, w, h);
+    g.fillStyle = "rgba(59,47,18,.45)"; g.fillRect(px + x + 1, py + y + 2, w - 2, 1);
+    g.fillStyle = pin; g.fillRect(px + x + Math.floor(w / 2), py + y, 1, 1);
+  };
+  note(3, -1, 4, 4, "#f2efe6", "#c94f4f");
+  note(8, -2, 3, 4, "#fbefc4", "#4f8fc9");
+  note(11, 0, 2, 3, "#cfe9ff", "#c94f4f");
+  note(4, 4, 4, 3, "#f6c6c6", "#5fb36a");
+  note(9, 3, 4, 4, "#f2efe6", "#e0b04a");
 }
 /** A flower bed: a low stone kerb round soil and mixed blooms. */
 export function drawFlowers(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
