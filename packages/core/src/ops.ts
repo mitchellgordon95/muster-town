@@ -10,7 +10,6 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
-import { isCheckpointAssignment } from "./lanes.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
@@ -333,13 +332,10 @@ export class Ops {
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
     if (isGone(agent) && !(agent.status === "retired" && agent.forkOf)) throw goneError(agent);
-    // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
-    // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
-    const system = { kind: "system" as const, id: "system" };
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      createdBy: isCheckpointAssignment(a) || !actor ? system : this.world.holderOf(actor),
+      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
   }
 

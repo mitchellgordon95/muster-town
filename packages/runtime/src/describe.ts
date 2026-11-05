@@ -71,7 +71,6 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "stop_fork": return `Asking ${i.forkId ? world.nameOf(String(i.forkId)) : "a fork"} to wrap up and stop`;
     case "schedule": return `Scheduling: ${clip(i.title, 60)}`;
     case "propose_grant": return `Proposing a grant: ${clip(i.objective, 60)}`;
-    case "checkpoint_grant": return "Filing a grant checkpoint";
     case "close_grant": return "Closing a grant as done";
     case "withdraw_grant": return "Withdrawing a grant proposal";
     case "act_in_1on1": return `Doing what the human said: ${i.action} ${i.targetId}`;

@@ -105,10 +105,11 @@ describe("review deck (GET /api/review-deck)", () => {
     let slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
     expect(slide.text).toMatch(/A top-up: not stated/);
     const [k1, k2] = world.grantDesk.get(held.id).keyResults;
-    world.grantDesk.fileCheckpoint(manager, held.id, { status: "claimed", note: "Usage is on the banner (PR #9)", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the banner line", topUpTokens: 300_000 });
-    world.grantDesk.fileCheckpoint(manager, held.id, { status: "at-risk", note: "line drafted, not live", keyResultId: k2!.id });
+    // (grant C step 2 moves this evidence onto the forks' submit_report; here it is set directly)
+    world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "Usage is on the banner (PR #9)" });
+    world.grantDesk.updateKeyResult(manager, k2!.id, { status: "at-risk", note: "line drafted, not live" });
     const r = rollup(["Continue?"], ago(1));
-    world.grantDesk.fileCheckpoint(manager, held.id, { reportId: r.id });
+    world.grants.patch(held.id, { topUpTokens: 300_000, whatTopUpBuys: "KR 2: the banner line", checkpointDocId: r.id });
     slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
     expect(slide.text).toContain("1. ✓ shipped: Usage is on the banner (PR #9)");
     expect(slide.text).toContain("2. ~ partly: line drafted, not live");
