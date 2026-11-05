@@ -110,7 +110,8 @@ export interface RedeployDeps {
   againDelayMs?: number;
 }
 
-export interface RedeployRequest { image: boolean; requestedBy: string }
+/** `restart`: a deliberate restart with nothing new (the reason, logged); without it or `image`, a run that pulls nothing past the live commit ends without restarting. */
+export interface RedeployRequest { image: boolean; restart?: string; requestedBy: string }
 
 export interface Redeployer {
   redeploy(o: RedeployRequest): RedeployResult;
@@ -207,7 +208,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [], ...(head ? { head } : {}) };
     const n = run_.commits;
     say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}${head ? ` at ${head.slice(0, 7)}` : ""}`, { phase: "done", head: head ?? null });
-    if (prev.again) carried = { image: !!prev.again.image, requestedBy: String(prev.again.requestedBy ?? "") };
+    if (prev.again) carried = { image: !!prev.again.image, ...(prev.again.restart ? { restart: String(prev.again.restart) } : {}), requestedBy: String(prev.again.requestedBy ?? "") };
   } catch { /* no restart pending */ }
 
   // A server restarted directly (not by the redeploy's exit 75) mid-run leaves its last event non-terminal, so the
@@ -238,7 +239,8 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   }
 
   async function go(o: RedeployRequest): Promise<void> {
-    say(`Redeploy requested by ${o.requestedBy}${o.image ? " (with the desk image)" : ""}`, { phase: "requested", requestedBy: o.requestedBy, image: o.image });
+    say(`Redeploy requested by ${o.requestedBy}${o.image ? " (with the desk image)" : ""}${o.restart ? ` (restart: ${o.restart})` : ""}`,
+      { phase: "requested", requestedBy: o.requestedBy, image: o.image, ...(o.restart ? { restart: o.restart } : {}) });
 
     // (a) pull the deploy branch; a dirty tree aborts
     setPhase("git status");
@@ -265,6 +267,21 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       return `${d.count} commit${d.count === 1 ? "" : "s"}`;
     });
     if (!pulled) return;
+
+    // (a2) nothing new: the checkout is at the commit this server runs (CI moves the deploy branch; a redeploy right after a
+    // merge, before CI has, found nothing and only restarted). End without a restart unless an image or a reason asks for one.
+    // Compared with the running commit, not the pre-pull HEAD: a checkout pulled ahead of the server earlier still restarts.
+    const liveCommit = deps.world.host.commit ?? null;
+    const now = liveCommit && !o.image && !o.restart ? await head() : null;
+    // re-read the request after the await: a request that joined meanwhile may have asked for the image or a restart
+    if (liveCommit && !o.image && !o.restart) {
+      if (now && now === liveCommit) {
+        run_ = { ...run_, state: "done", commits: 0, working: [], blocked: [], head: now };
+        say(`Redeploy: nothing new on ${branch} (live ${now.slice(0, 7)}); no restart. CI deploys a merge once main is green. Give restart: "<reason>" for a deliberate restart.`,
+          { step: "nothing new", phase: "end", ok: true, noop: true, head: now });
+        return;
+      }
+    }
 
     /** (b) reinstall only when the lockfile changed, (c) the web client, (d) the desk image when asked (and not built yet) */
     let imageBuilt = false;
@@ -492,10 +509,12 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
         // join the running one: its post-drain pull picks up anything pushed by now. Past that pull, run again after the restart.
         if (!finalPulled) {
           if (o.image) cur.image = true;
-          say(`Redeploy: ${o.requestedBy}'s request joins the running one`, { phase: "joined", requestedBy: o.requestedBy, image: o.image });
+          if (o.restart && !cur.restart) cur.restart = o.restart;
+          say(`Redeploy: ${o.requestedBy}'s request joins the running one`, { phase: "joined", requestedBy: o.requestedBy, image: o.image, ...(o.restart ? { restart: o.restart } : {}) });
         } else {
-          again = { image: !!(again?.image || o.image), requestedBy: o.requestedBy };
-          say(`Redeploy: ${o.requestedBy}'s request will run again after this restart`, { phase: "joined", requestedBy: o.requestedBy, image: o.image, again: true });
+          const restart = o.restart ?? again?.restart;
+          again = { image: !!(again?.image || o.image), ...(restart ? { restart } : {}), requestedBy: o.requestedBy };
+          say(`Redeploy: ${o.requestedBy}'s request will run again after this restart`, { phase: "joined", requestedBy: o.requestedBy, image: o.image, ...(o.restart ? { restart: o.restart } : {}), again: true });
         }
         return { queued: true };
       }

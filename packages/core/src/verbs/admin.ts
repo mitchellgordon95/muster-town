@@ -9,7 +9,7 @@ export async function redeploy(world: World, me: Agent, input: VerbIn<"redeploy"
   if (!world.permissions.can(me, "town.redeploy")) throw forbidden("town.redeploy");
   const run = world.host.redeploy;
   if (!run) throw new AppError("unreachable", "Redeploy is unavailable: the runtime is not running on the host.");
-  const r = run({ image: input.image, requestedBy: me.name });
+  const r = run({ image: input.image, ...(input.restart ? { restart: input.restart } : {}), requestedBy: me.name });
   // host sessions are drained (a working host agent that waits for the restart deadlocks it, Sage 2026-10-20); desk sessions are adopted across it (0559aba)
   if (world.host.isWorking?.(me.id)) return { ...r, note: REDEPLOY_NOTE };
   return r;

@@ -84,7 +84,7 @@ export interface MainCi {
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
-  redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
+  redeploy?(o: { image: boolean; restart?: string; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
   /** Whether the agent has a live (or starting) work session. Without it, a running work Session row counts. */
   isWorking?(agentId: string): boolean;
   /** Hand `text` to the agent's in-process session. False = not in-process (the caller queues it for a desk). */
