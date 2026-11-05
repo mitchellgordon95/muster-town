@@ -18,9 +18,12 @@ export function buildingMeetings(meetings: Meeting[], buildingId: string, isTown
   return { upcoming: all.filter((m) => !finished(m)), past: all.filter(finished) };
 }
 
-/** The building panel's Meetings tab is gone (Mitchell, 1:1 mt_auczm6f1j1): a link into it opens the building's meeting room. */
+/** The building panel's Meetings tab is gone (Mitchell, 1:1 mt_auczm6f1j1): a link into it opens the building's meeting room.
+ * The mod station's Requests tab is gone too: a link into it opens the Outbox. */
 export function redirectPanel(p: PanelRef | null): PanelRef | null {
   if (p?.kind === "admin") return { ...p, kind: "planning" };
+  // the mod station's Requests tab is gone (flag dc_r7u6bkaei4): outbox requests live at the Outbox
+  if (p?.kind === "mod" && p.tab === "Requests") return { kind: "outbox", tab: "Requests", ...(p.docId ? { docId: p.docId } : {}) };
   if (p?.kind === "building" && p.id && p.tab === "Meetings") return { kind: "meeting", id: `room:${p.id}` };
   return p;
 }
