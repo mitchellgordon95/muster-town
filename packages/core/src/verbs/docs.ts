@@ -2,7 +2,7 @@ import {
   BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
@@ -417,7 +417,8 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
-  return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
+  const a = res.assignment;
+  return { docId: doc.id, decision: input.decision, assignmentId: a?.id ?? null, ...(a?.queue === "building" ? { queue: "building" as const, to: queueLabel(world, a.buildingId, a.agentId) } : {}) };
 }
 
 export async function request_human(world: World, me: Agent, input: VerbIn<"request_human">) {

@@ -1133,6 +1133,8 @@ export const MeetingDecision = z.object({
   supersededBy: z.number().int().positive().optional(),
   /** the decision's assignment waits for this before it starts (e.g. {deploy: "next"} for "after the redeploy") */
   waitFor: WaitFor.optional(),
+  /** set when the decision named a manager whose building forks: its assignment went on this building's queue (a fork of the manager runs it) */
+  queueBuildingId: Id.optional(),
   /** goal-directed budgets: the decision's lane (as `assign`); left out = directed (its source is the meeting when a human took part) */
   ...LaneFields.shape,
 });

@@ -206,7 +206,9 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
       ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
     ].join("\n\n");
   }
-  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane });
+  // a manager's own report continued or redirected: the next step is a fork's, not the manager's own session
+  const toQueue = decisionQueue(world, author.id);
+  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane, ...(toQueue ? { queue: toQueue.queue } : {}) });
   if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
 }
@@ -320,6 +322,25 @@ export function managerAgentOf(world: World, building: Building | undefined): Ag
 export function forkableManagerOf(world: World, building: Building | undefined): Agent | undefined {
   const m = managerAgentOf(world, building);
   return m?.kind === "resident" ? m : undefined;
+}
+
+/**
+ * Where work a decider gives an agent goes (a meeting decision, a review's continue/redirect): a manager whose building
+ * forks has it on its building's queue, so a fork runs it and the manager's own session stays on the in-tray (1:1
+ * mt_peubjyoo0k). Anyone else (a visitor, a non-forking manager, a fork: createAssignment already moves that) keeps it.
+ * The town's own manager jobs (checkpoint, grant decided, explore, schedules) never come through here.
+ */
+export function decisionQueue(world: World, agentId: string): { queue: "building"; building: Building; manager: Agent } | null {
+  const agent = world.agents.get(agentId);
+  if (!agent || agent.forkOf) return null;
+  const building = world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? "");
+  const manager = forkableManagerOf(world, building);
+  return building && manager?.id === agent.id ? { queue: "building", building, manager } : null;
+}
+
+/** "Town Workshop queue (a fork of Pix)": how a decision line names building-queue work. */
+export function queueLabel(world: World, buildingId: string, managerId: string): string {
+  return `${world.buildings.get(buildingId)?.name ?? buildingId} queue (a fork of ${world.nameOf(managerId)})`;
 }
 
 /** The refusal for building-queue work in a visitor-managed building; null when its manager is not a visitor. */
