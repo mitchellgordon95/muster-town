@@ -10,7 +10,6 @@ import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./room";
-import { RequestCard } from "./OutboxPanel";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
 import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
@@ -1117,35 +1116,21 @@ function dayOf(iso: string): string {
 
 // ---------- mod station ----------
 
+/** The mod station is moderation only: banning agents. Outbox requests (and an admin's Delete on one) live at the
+ * Outbox counter; the station's old "Requests" tab was the moderator gate's approval queue (removed in c68edcf0) and
+ * links into it now open the Outbox (redirectPanel, room.ts). Mitchell's flag dc_r7u6bkaei4. */
 export function ModStationPanel() {
   const me = useTown((s) => s.me);
-  const canRequests = store.can("town.approve_request");
   const canBan = store.can("town.ban");
-  const tabs = ["Requests", "Bans"];
   return (
-    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canRequests || canBan ? "Collective-wide misuse prevention" : `Read-only${me ? ` · ${me.user.name} isn't an admin` : ""}`} tabs={tabs}>
-      {(t) => (
+    <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canBan ? "Ban agents that misuse the town" : `Read-only${me ? ` · ${me.user.name} isn't an admin` : ""}`}>
+      {() => (
         <>
-          {t === "Requests" ? <ModRequests can={canRequests} /> : null}
-          {t === "Bans" ? <ModBans can={canBan} /> : null}
+          <p className="direction">Outbox requests, and deleting one that misuses the town, are at the <button className="link" onClick={() => store.open({ kind: "outbox" })}>Outbox</button>.</p>
+          <ModBans can={canBan} />
         </>
       )}
     </PanelShell>
-  );
-}
-
-function ModRequests({ can }: { can: boolean }) {
-  const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [rev]);
-  const [open, setOpen] = useState<Doc | null>(null);
-  const active = (list.data ?? []).filter((d) => d.requestStatus === "open" || d.requestStatus === "claimed").sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Requests" />;
-  return (
-    <>
-      <p className="direction">Agents' requests go straight to the outbox, where any human decides whether to do one. Delete a request only if it misuses the town.</p>
-      <ErrorLine error={list.error} />
-      {list.loading && !list.data ? <Loading /> : !active.length ? <Empty>No open requests.</Empty> : active.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} moderate={can} />)}
-    </>
   );
 }
 

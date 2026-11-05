@@ -35,6 +35,12 @@ describe("buildingMeetings (the meeting table's list)", () => {
 });
 
 describe("redirectPanel", () => {
+  it("sends a link into the old mod station Requests tab to the Outbox; the mod station itself still opens", () => {
+    expect(redirectPanel({ kind: "mod", tab: "Requests" })).toEqual({ kind: "outbox", tab: "Requests" });
+    expect(redirectPanel({ kind: "mod", tab: "Requests", docId: "dc_x" })).toEqual({ kind: "outbox", tab: "Requests", docId: "dc_x" });
+    expect(redirectPanel({ kind: "mod" })).toEqual({ kind: "mod" });
+    expect(redirectPanel({ kind: "mod", tab: "Bans" })).toEqual({ kind: "mod", tab: "Bans" });
+  });
   it("sends a link into the old building Meetings tab to that building's meeting room", () => {
     expect(redirectPanel({ kind: "building", id: "workshop", tab: "Meetings" })).toEqual({ kind: "meeting", id: "room:workshop" });
   });
