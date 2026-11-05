@@ -2728,6 +2728,12 @@ export const CollectiveConfig = Town.extend({
   port: z.number().int().positive().optional(),
   desks: DesksConfig.optional(),
   buildings: z.array(CollectiveBuildingSpec).default([]),
+  /**
+   * The subscription plans the collective pays for in cash (gr_qggxximtru, 1:1 mt_pr3347g2w2): each is seeded into the
+   * Bank's "Plans paid for" (bank_fees) on every boot unless a row with its label and first day is there (docs/bank.md).
+   * The Workshop and self-hosted towns only: a hosted collective runs on API keys and is skipped.
+   */
+  plans: z.array(AddBankFee).default([]),
 });
 export type CollectiveConfig = z.infer<typeof CollectiveConfig>;
 export type CollectiveBuildingSpec = z.infer<typeof CollectiveBuildingSpec>;

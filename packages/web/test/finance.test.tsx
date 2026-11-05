@@ -533,6 +533,13 @@ describe("Plans paid for", () => {
     expect(renderToStaticMarkup(<PlansPaidForView fees={[]} admin={false} onChange={noop} />)).toContain("None recorded yet.");
     expect(tabOf("Inputs", {})).toContain("Plans paid for");
   });
+  // 1:1 mt_pr3347g2w2: a hosted collective runs on API keys, so no plans is its normal case, not a gap, and its admin gets no form
+  it("a hosted collective: says plans don't apply and shows no add form, even to an admin", () => {
+    const html = renderToStaticMarkup(<PlansPaidForView fees={[]} admin hosted onChange={noop} />);
+    expect(html).toContain("a hosted collective runs on API keys");
+    expect(html).not.toContain("None recorded yet.");
+    expect(html).not.toContain("Add plan");
+  });
 });
 
 // gr_qggxximtru step 2 (kr_ruh7apqptm): Paid in cash, last 30 days, on Balance
@@ -548,6 +555,14 @@ describe("finance page: paid in cash, last 30 days", () => {
     expect(cashLines({ ...cash, total: 260 }).check).toEqual({ ok: false, text: "Cash does not add up: the parts come to $250.00, but the total is $260.00." });
     const none = cashLines({ ...cash, plans: 0, apiKeys: 0, hosting: 0, total: 0, perDollar: null });
     expect(none.ratio).toContain("No plan recorded yet: add one on Inputs");
+  });
+  it("a hosted collective: plans $0 is by design, so the parts say so and nothing points at Inputs", () => {
+    const h = cashLines({ ...cash, hosted: true, plans: 0, total: 50, perDollar: 50 });
+    expect(h.parts).toBe("API keys $12.50 · hosting $37.50 (no plans: a hosted collective runs on API keys)");
+    expect(h.ratio).toContain("Each $1 paid bought ≈ $50.00");
+    const none = cashLines({ ...cash, hosted: true, plans: 0, apiKeys: 0, hosting: 0, total: 0, perDollar: null });
+    expect(none.ratio).toBe("Nothing paid in cash in these 30 days yet.");
+    expect(none.ratio).not.toContain("Inputs");
   });
   it("shows the cash row on Balance under the list-price figures, and nothing from an older server", () => {
     const html = tabOf("Balance", { f: { ...f, cash, cashCheck: { ok: true, diff: 0, text: "" } } });
