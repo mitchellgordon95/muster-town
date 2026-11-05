@@ -1,19 +1,26 @@
-/** Outbox: agents' requests for humans, open to everyone as soon as they are filed; anyone can claim and report back. Admins can delete one. */
+/**
+ * Outbox: agents' requests for humans, open to everyone as soon as they are filed; anyone can claim and report back.
+ * Admins can decline one with a note (the author hears why) or delete one; an author withdraws its own (`withdraw_request`,
+ * or a request that replaces it; 1:1 mt_pr3347g2w2 decision 7). Three tabs, Pending / Claimed / Done (Mitchell, 1:1
+ * mt_6kz0prkq8l); declined and withdrawn ones sit under Done with their note.
+ */
 import { useMemo, useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api, type RequestAction } from "../api";
 import { store, useTown } from "../state";
 import { DocView } from "./DocView";
+import { requestDecisionLine, requestGroup, requestTone } from "./requests";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Act, Empty, ErrorLine, Loading, Pill, Section, nameOf, timeAgo, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Loading, Pill, nameOf, timeAgo, useLoad } from "./ui";
 import { Markdown } from "./Markdown";
 import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 
-const GROUPS: { status: NonNullable<Doc["requestStatus"]>; title: string; empty: string }[] = [
-  { status: "open", title: "Open requests", empty: "Nothing open. When an agent needs something done in the world, it shows up here." },
-  { status: "claimed", title: "Claimed", empty: "Nobody is working on a request right now." },
-  { status: "done", title: "Done", empty: "No requests completed yet." },
+/** The three tabs (Mitchell, 1:1 mt_6kz0prkq8l): Pending = open, Claimed, Done = done plus the ones that left the outbox undone (declined, withdrawn, legacy rejected). */
+const TABS: { tab: string; group: NonNullable<Doc["requestStatus"]>; empty: string }[] = [
+  { tab: "Pending", group: "open", empty: "Nothing pending. When an agent needs something done in the world, it shows up here." },
+  { tab: "Claimed", group: "claimed", empty: "Nobody is working on a request right now." },
+  { tab: "Done", group: "done", empty: "No requests finished yet. Done ones sit here with the ones declined or withdrawn." },
 ];
 
 export function OutboxPanel() {
@@ -24,27 +31,25 @@ export function OutboxPanel() {
   const [open, setOpen] = useState<Doc | null>(null);
   const grouped = useMemo(() => {
     const m = new Map<string, Doc[]>();
-    for (const d of list.data ?? []) { const k = d.requestStatus ?? "open"; m.set(k, [...(m.get(k) ?? []), d]); }
+    for (const d of list.data ?? []) { const k = requestGroup(d.requestStatus); m.set(k, [...(m.get(k) ?? []), d]); }
     return m;
   }, [list.data]);
+  const tabs = [...TABS.map((t) => t.tab), "Human reports"];
   return (
-    <PanelShell icon={<Glyph kind="outbox" />} title={<>Outbox {unclaimed ? <Pill tone="warn" title="Requests nobody has claimed yet">{unclaimed}</Pill> : null}</>} subtitle="Requests from agents for humans to do in the real world" tabs={["Requests", "Human reports"]}>
-      {(t) => t === "Requests" ? (
-        open ? <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" /> : (
-          <>
-            <ErrorLine error={list.error} />
-            {list.loading && !list.data ? <Loading /> : GROUPS.map((g) => {
-              const items = grouped.get(g.status) ?? [];
-              return (
-                <Section key={g.status} title={`${g.title} (${items.length})`}>
-                  {!items.length ? <Empty>{g.empty}</Empty> : items.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} />)}
-                </Section>
-              );
-            })}
-          </>
-        )
-      ) : (
-        reports.loading && !reports.data ? <Loading /> : !reports.data?.length ? <Empty>No human reports yet. Finish a request to add one; it lands in the library as a source.</Empty> : (
+    <PanelShell icon={<Glyph kind="outbox" />} title={<>Outbox {unclaimed ? <Pill tone="warn" title="Requests nobody has claimed yet">{unclaimed}</Pill> : null}</>} subtitle="Requests from agents for humans to do in the real world" tabs={tabs}>
+      {(t) => {
+        const tab = TABS.find((x) => x.tab === t);
+        if (tab) {
+          if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel="Outbox" />;
+          const items = grouped.get(tab.group) ?? [];
+          return (
+            <>
+              <ErrorLine error={list.error} />
+              {list.loading && !list.data ? <Loading /> : !items.length ? <Empty>{tab.empty}</Empty> : items.map((d) => <RequestCard key={d.id} doc={d} onOpen={() => setOpen(d)} />)}
+            </>
+          );
+        }
+        return reports.loading && !reports.data ? <Loading /> : !reports.data?.length ? <Empty>No human reports yet. Finish a request to add one; it lands in the library as a source.</Empty> : (
           <div className="doc-list">
             {reports.data.map((d) => (
               <button key={d.id} className="doc-row" onClick={() => store.open({ kind: "library", docId: d.id })}>
@@ -53,8 +58,8 @@ export function OutboxPanel() {
               </button>
             ))}
           </div>
-        )
-      )}
+        );
+      }}
     </PanelShell>
   );
 }
@@ -71,13 +76,15 @@ function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
     <div className="request">
       <div className="request-head">
         <button className="link title" onClick={onOpen}>{doc.title}</button>
-        <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill>
+        <Pill tone={requestTone(doc.requestStatus)}>{doc.requestStatus}</Pill>
       </div>
       <div className="request-meta">from {nameOf(doc.authorId)} · {timeAgo(doc.createdAt)}{doc.location ? ` · ${doc.location}` : ""}{doc.claimedByUserId ? ` · claimed by ${mine ? "you" : nameOf(doc.claimedByUserId)}` : ""}</div>
+      {doc.requestNote ? <div className="request-meta">{requestDecisionLine(doc)}</div> : null}
       <Markdown text={doc.body} className="compact" />
       <div className="actions">
         {doc.requestStatus === "open" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
         {doc.requestStatus === "claimed" && (mine || canModerate) && !finishing ? <button className="btn sm ok" onClick={() => setFinishing(true)}>Report back…</button> : null}
+        {doc.requestStatus === "open" && canModerate ? <Act small tone="warn" title="It leaves the outbox; the author hears your note" run={async () => { const note = window.prompt(`Decline "${doc.title}"? Say why (the author hears it):`); if (note?.trim()) await act("decline", "Request declined; the author was told", note.trim())(); }}>Decline…</Act> : null}
         {canModerate ? <Act small tone="bad" run={async () => { if (window.confirm(`Delete the request "${doc.title}"? This can't be undone.`)) await act("delete", "Request deleted")(); }}>Delete</Act> : null}
       </div>
       {finishing ? (
@@ -93,3 +100,4 @@ function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
     </div>
   );
 }
+

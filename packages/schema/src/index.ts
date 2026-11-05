@@ -671,10 +671,16 @@ export type Decision = z.infer<typeof Decision>;
 export const ReviewDecision = z.enum(["approve", "continue", "redirect", "stop"]);
 export type ReviewDecision = z.infer<typeof ReviewDecision>;
 /**
- * Outbox request lifecycle: open (visible to every human at once, no approval step) → claimed → done.
- * "rejected" is legacy (the old moderator gate); "proposed"/"approved" from before migration 045 read as open.
+ * Outbox request lifecycle: open (visible to every human at once, no approval step) → claimed → done. An open one can
+ * also leave the outbox as withdrawn (its author, or the author's building manager, with a note; a request that replaces
+ * an older one withdraws it) or declined (a human with town.approve_request, on the button or through act_in_1on1 in a
+ * 1:1, with a note the author hears). "rejected" is legacy (the old moderator gate); "proposed"/"approved" from before
+ * migration 045 read as open.
  */
-export const RequestStatus = z.preprocess((v) => (v === "proposed" || v === "approved" ? "open" : v), z.enum(["open", "claimed", "done", "rejected"]));
+export const RequestStatus = z.preprocess((v) => (v === "proposed" || v === "approved" ? "open" : v), z.enum(["open", "claimed", "done", "rejected", "withdrawn", "declined"]));
+/** The outbox's own moves (POST /api/docs/:id/request, `withdraw_request`, act_in_1on1 decline). */
+export const RequestAction = z.enum(["claim", "done", "delete", "withdraw", "decline"]);
+export type RequestAction = z.infer<typeof RequestAction>;
 
 export const Provenance = z.object({
   /** ids of source docs this doc relies on */
@@ -711,6 +717,15 @@ export const Doc = z.object({
   requestStatus: RequestStatus.optional(),
   location: z.string().optional(),
   claimedByUserId: Id.optional(),
+  /** why it was withdrawn or declined (kept on the request; the author hears it) */
+  requestNote: z.string().optional(),
+  /** who withdrew or declined it (a user id for a decline, the agent for a withdrawal) */
+  requestDecidedById: Id.optional(),
+  /** declined by the human in a 1:1 through its agent (act_in_1on1): that agent and meeting; requestDecidedById stays the human */
+  requestViaAgentId: Id.optional(),
+  requestViaMeetingId: Id.optional(),
+  /** the older request this one replaced (withdrawn when this one was filed) */
+  requestReplaces: Id.optional(),
   // flag-specific: the tile it stands on, until the building's manager walks to it and picks it up (`go flag:<id>`)
   flagPos: Tile.optional(),
   pickedUpAt: Iso.optional(),
@@ -1984,7 +1999,14 @@ export const VerbInputs = {
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
     rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line. A rollup whose only ask is on an item with its own in-tray row (a proposal, checkpoint or retainer it names) is folded into that row on submit: the row shows your line about it, and the rollup is no card of its own."),
   }),
-  request_human: z.object({ title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation") }),
+  request_human: z.object({
+    title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation"),
+    replaces: Id.optional().describe("an older open request of yours (or your building's) this one replaces: it is withdrawn with a note pointing here. A body line \"replaces dc_…\" or \"supersedes dc_…\" does the same"),
+  }),
+  withdraw_request: z.object({
+    docId: Id.describe("an open outbox request of yours, or of your building (its manager and forks may withdraw a resident's)"),
+    note: z.string().trim().min(1).max(2000).describe("why you withdraw it: kept on the request and shown in the outbox under Declined or withdrawn"),
+  }),
   assignments: z.object({}),
   accept_assignment: z.object({ id: Id }),
   meeting: z.object({
@@ -2042,8 +2064,8 @@ export const VerbInputs = {
   act_in_1on1: z.object({
     meetingId: Id.describe("the 1:1 you are in (you its agent, the human the one who said it)"),
     utteranceAt: Iso.describe("the exact `at` of the human's own line that says the decision, as `meeting` status or listen shows it; from the last 30 min"),
-    action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut", "approve", "stop"]).describe("grant (gr_…): fund / counter / reject a proposal, continue / adjust / cut a checkpoint; retainer (sc_…): approve / counter / reject. stop is refused: it stays the human's button"),
-    targetId: Id.describe("the grant (gr_…) or the schedule whose retainer is asked (sc_…)"),
+    action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut", "approve", "decline", "stop"]).describe("grant (gr_…): fund / counter / reject a proposal, continue / adjust / cut a checkpoint; retainer (sc_…): approve / counter / reject; outbox request (dc_…): decline. stop is refused: it stays the human's button"),
+    targetId: Id.describe("the grant (gr_…), the schedule whose retainer is asked (sc_…), or the open outbox request to decline (dc_…)"),
     tokens: z.number().int().positive().optional().describe("fund / adjust: the grant's tokens; counter: the tokens to ask instead (a retainer: per run)"),
     note: z.string().max(1500).default("").describe("optional: your own line added after the human's quoted words"),
   }),
@@ -2076,7 +2098,10 @@ export const VerbInputs = {
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   adopt: z.object({ goalId: Id.describe("an active goal no building works on (none on it or on a goal above it)") }),
   ban: z.object({ agentId: Id, reason: z.string() }),
-  redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
+  redeploy: z.object({
+    image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers"),
+    restart: z.string().trim().min(1).max(500).optional().describe("a deliberate restart with nothing new on prod: say why; logged in the event (without it, or image, a redeploy with nothing new ends without restarting)"),
+  }),
   digest: z.object({
     shipped: z.array(z.object({
       rollupId: Id.describe("the rollup the item came from (as the read listed it)"),
@@ -2103,7 +2128,8 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
   pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, your PR's CI checks ({pr: N}, never an {after} guess), a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
-  request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it.",
+  request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it. If it replaces an older open request of yours, say so (`replaces`, or \"replaces dc_…\" in the body): the old one is withdrawn, so the outbox never lists both.",
+  withdraw_request: "Withdraw an open outbox request of yours (or, as a building's manager or its fork, one of that building's) with a note saying why: it leaves the outbox (listed under Declined or withdrawn, the note on it) and nobody waits on it. A claimed one stays: the human doing it reports back. Admins delete; this is the author's own move.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",
   meeting: "Participate in a meeting: 'summary' submits my short standup summary (did, next), 'speak' adds to the transcript once the discussion has started (attach presents a doc, a town page or an uploaded screenshot with it, shown inline to everyone), 'listen' returns new utterances since my last listen (set waitSeconds to wait for someone to speak), 'decide'/'end' are for the facilitator (to amend a decision, decide again with supersedes = its number in status's decisions list); a decision's waitFor holds its assignment until then, e.g. {deploy: \"next\"} for \"after the redeploy\" or {assignment: id} for \"once X lands\"; while humans are talking, leave 'end' to them.",
@@ -2118,13 +2144,13 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (close_grant marks them met; only a human marks missed), with a note on the evidence (what shipped or did not), and once per checkpoint whatTopUpBuys + topUpTokens (what the next tokens would deliver); then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
-  act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer. Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The grant's history records it as theirs, via you, quoting them. Never stop a grant (a button only) or touch Bank inputs; one call per grant.",
+  act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
   digest: "(Secretary) The Town Hall's daily in-tray digest. With no arguments: the \"Decisions needed\" yes/no lines (built in code) and every Shipped item of the rollups filed since the last digest card, or why there is nothing to digest. With `shipped` (one line per item): files the card first in the Town Hall in-tray and archives the covered rollups that ask nothing under it.",
-  redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
+  redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI already fast-forwards `prod` and redeploys muster.town after every green push to main, so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
 /** The wait union narrowed to the kinds a collective in `mode` may set (`waitKindsFor`). */
@@ -2506,7 +2532,7 @@ export const MeetingPresentInput = z.object({ docId: z.string().trim().min(1).nu
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
-export const RedeployInput = z.object({ image: z.boolean().default(false) });
+export const RedeployInput = z.object({ image: z.boolean().default(false), restart: z.string().trim().min(1).max(500).optional() });
 /**
  * `{ started: true }` (runs in the background, progress as `system` events) or `{ queued: true }` when one is in flight:
  * the request joins it (its post-drain pull takes the latest main; past that pull, it runs again after the restart).

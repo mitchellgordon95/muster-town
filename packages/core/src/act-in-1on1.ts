@@ -5,7 +5,10 @@
  * human as the actor, so the human's own gates (`canFund`, `canDecideRetainer`) decide: the agent can never do what the
  * human couldn't. The grant's history entry is the human's (`byId`), with `viaAgentId` / `viaMeetingId` and the note
  * `by <Human> via <Agent> in mt_…: "<their words>"`; an event `grant.decided-via` and a line in the 1:1 record it.
- * Stop stays a button (it cancels work) and Bank inputs are out of reach: both refused.
+ * An open outbox request (dc_…) is declined the same way (1:1 mt_pr3347g2w2 decision 7): `Ops.requestAction` as the
+ * human, who needs town.approve_request as on the button; the request records the human as the decider via the agent
+ * and meeting, and the author hears why. Stop stays a button (it cancels work), delete a request is the admin's own
+ * move, and Bank inputs are out of reach: all refused.
  */
 import type { Agent } from "@muster-town/schema";
 import { decideRetainer } from "./retainers.ts";
@@ -57,8 +60,16 @@ export function actForHuman(world: World, agent: Agent, input: VerbIn<"act_in_1o
     world.events.append({ type: "grant.decided-via", agentId: agent.id, buildingId: v.buildingId, text: `${agent.name} did "${action}" on the retainer ${v.id} for ${human.name} in ${m.id}: "${quote}"`, payload: { ...base, scheduleId: v.id, retainer: v.retainer } });
     result = { targetId: v.id, status: v.retainer };
     did = `${action} the retainer ${v.id} ("${oneLine(v.title, 80)}"), now ${v.retainer}`;
+  } else if (input.targetId.startsWith("dc_")) {
+    if (input.action !== "decline") throw badRequest(`"${input.action}" is not a move on an outbox request: decline (delete stays the admin's own button).`);
+    const d = world.docs.get(input.targetId);
+    if (!d || d.type !== "request") throw notFound("Request", input.targetId);
+    const { request } = world.ops.requestAction(human, d.id, "decline", note, { agentId: agent.id, meetingId: m.id });
+    world.events.append({ type: "grant.decided-via", agentId: agent.id, buildingId: d.buildingId, text: `${agent.name} declined the request ${d.id} for ${human.name} in ${m.id}: "${quote}"`, payload: { ...base, docId: d.id, requestStatus: request?.requestStatus } });
+    result = { targetId: d.id, status: request?.requestStatus ?? "declined" };
+    did = `decline the request ${d.id} ("${oneLine(d.title, 80)}"), now ${result.status}; its author was told`;
   } else {
-    throw badRequest(`${input.targetId} is neither a grant (gr_…) nor a schedule with a retainer ask (sc_…).`);
+    throw badRequest(`${input.targetId} is neither a grant (gr_…), a schedule with a retainer ask (sc_…) nor an outbox request (dc_…).`);
   }
   meetingNotice(world, m.id, `${agent.name} did this for ${human.name}: ${did}. Citing: "${quote}"`);
   return { ...result, recorded: note, note: `Done as ${human.name}; the record says it was you, in this 1:1, quoting them. Say in the 1:1 what you did.` };

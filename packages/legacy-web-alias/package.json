@@ -2,6 +2,7 @@
   "name": "@agent-town/web",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Temporary bridge: servers still running pre-rename code redeploy with `npm run build --workspace @agent-town/web`. Delete once the live towns run the renamed code.",
   "scripts": { "build": "npm run build --prefix ../web" }
 }

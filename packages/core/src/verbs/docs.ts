@@ -13,7 +13,7 @@ import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
 import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
-import { ftsQuery } from "../text.ts";
+import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { linkPostmortem } from "../postmortems.ts";
@@ -420,15 +420,50 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
 }
 
+/** The request ids a request's text says it replaces: every dc_… in a sentence with "replaces" or "supersedes". */
+function replacedRequestIds(text: string): string[] {
+  const ids = new Set<string>();
+  for (const m of text.matchAll(/\b(?:replaces|supersedes)\b([^.\n]*)/gi)) for (const id of m[1]!.matchAll(/\bdc_[a-z0-9]+\b/g)) ids.add(id[0]);
+  return [...ids];
+}
+
+/**
+ * `request_human`: an open outbox request at once. One that replaces an older open request (`replaces`, or "replaces
+ * dc_…" in the body; 1:1 mt_pr3347g2w2 decision 7) withdraws the old one with a note pointing here, if the caller may
+ * withdraw it (its author, or its building's manager or fork); an explicit `replaces` that can't be withdrawn refuses.
+ */
 export async function request_human(world: World, me: Agent, input: VerbIn<"request_human">) {
   const bid = homeOf(me);
   if (!world.permissions.can(me, "doc.request_human", bid)) throw forbidden("doc.request_human");
   const holder = world.holderOf(me);
+  if (input.replaces) {
+    const old = world.docs.get(input.replaces);
+    if (!old || old.type !== "request") throw badRequest(`${input.replaces} is not an outbox request.`);
+    if (old.requestStatus !== "open") throw badRequest(`${input.replaces} is ${old.requestStatus}, not open: only an open request is replaced.`);
+    if (!world.ops.canWithdrawRequest(me, old)) throw forbidden("building.manage", `${input.replaces} is not yours (nor your building's) to replace.`);
+  }
   const doc = createDoc(world, {
     type: "request", state: "building", title: input.title, body: input.body, location: input.location,
     requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
+    ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
-  return { id: doc.id, requestStatus: doc.requestStatus, note: "It is in the town outbox now; a human decides whether to do it and reports back." };
+  const withdrew: string[] = [];
+  for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
+    const old = world.docs.get(id);
+    if (!old || old.type !== "request" || old.requestStatus !== "open" || old.id === doc.id || !world.ops.canWithdrawRequest(me, old)) continue;
+    world.ops.requestAction(me, id, "withdraw", `Replaced by ${doc.id} ("${oneLine(doc.title, 80)}").`);
+    withdrew.push(id);
+  }
+  if (withdrew.length && !doc.requestReplaces) updateDoc(world, doc.id, { requestReplaces: withdrew[0] });
+  return { id: doc.id, requestStatus: doc.requestStatus, ...(withdrew.length ? { withdrew } : {}), note: `It is in the town outbox now; a human decides whether to do it and reports back.${withdrew.length ? ` Withdrew ${withdrew.join(", ")} (replaced by this one).` : ""}` };
+}
+
+/** `withdraw_request` (1:1 mt_pr3347g2w2 decision 7): the author (or its building's manager or fork) takes an open request back with a note. */
+export async function withdraw_request(world: World, me: Agent, input: VerbIn<"withdraw_request">) {
+  const d = world.docs.get(input.docId);
+  if (!d || d.type !== "request") throw badRequest(`${input.docId} is not an outbox request.`);
+  const { request } = world.ops.requestAction(me, input.docId, "withdraw", input.note);
+  return { id: input.docId, requestStatus: request?.requestStatus, note: "Withdrawn: it left the outbox (listed under Declined or withdrawn, your note on it). File a new request_human if something else is needed." };
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
