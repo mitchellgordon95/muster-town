@@ -104,11 +104,11 @@ export const GE_CANVAS_MIN = 360;
 export function geDetailWidth(pointerX: number, bodyLeft: number, bodyWidth: number): number {
   return Math.round(Math.max(GE_DETAIL_MIN, Math.min(bodyWidth - GE_CANVAS_MIN, bodyLeft + bodyWidth - pointerX)));
 }
-export function savedSideWidth(key: string, s: Store | null = storage()): number | null {
+function savedSideWidth(key: string, s: Store | null = storage()): number | null {
   if (!key) return null;
   try { const v = Number(s?.getItem(key)); return v > 0 ? v : null; } catch { return null; }
 }
-export function saveSideWidth(key: string, w: number | null, s: Store | null = storage()): void {
+function saveSideWidth(key: string, w: number | null, s: Store | null = storage()): void {
   if (!key) return;
   try { if (w === null) s?.removeItem(key); else s?.setItem(key, String(Math.round(w))); } catch { /* private window */ }
 }
