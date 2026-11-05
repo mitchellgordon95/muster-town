@@ -61,6 +61,16 @@ export function fmtTokens(n: number): string {
   return String(n);
 }
 
+/**
+ * A token figure that must not round (a grant's hold point, grant C gr_95svkzi4l6): the short form when it is exact
+ * ("1.35M", "20k"), else every digit ("66,667"). 1,350,000 read "1.4M" with `fmtTokens`.
+ */
+export function fmtTokensExact(n: number): string {
+  if (n >= 1e6 && n % 1e3 === 0) return `${Number((n / 1e6).toFixed(3))}M`;
+  if (n >= 1e3 && n < 1e6 && n % 1e3 === 0) return `${n / 1e3}k`;
+  return n.toLocaleString("en-US");
+}
+
 /** ms → "45s", "4.5m", "31m", "1.2h" (one decimal under 10 of a unit). */
 export function fmtMs(ms: number): string {
   const one = (v: number, u: string) => `${v < 10 ? Number(v.toFixed(1)) : Math.round(v)}${u}`;

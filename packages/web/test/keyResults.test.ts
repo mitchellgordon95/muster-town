@@ -9,6 +9,9 @@ describe("board key-results view", () => {
   it("grant bar: spend / grant with a percentage, clamped", () => {
     expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000 })).toBe("1M / 2M adj. tokens (52%)");
     expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000, holdAtTokens: 1_500_000 })).toBe("1M / 2M adj. tokens (52%) · holds at 1.5M");
+    expect(grantSpendLine({ spentTokens: 700_000, grantTokens: 1_500_000, holdAtTokens: 1_350_000 })).toBe("700k / 1.5M adj. tokens (47%) · holds at 1.35M");
+    expect(grantSpendLine({ spentTokens: 10_000, grantTokens: 100_000, holdAtTokens: 66_667 })).toBe("10k / 100k adj. tokens (10%) · holds at 66,667");
+    expect(grantSpendLine({ spentTokens: 10_000, grantTokens: 30_000, holdAtTokens: 20_000 })).toBe("10k / 30k adj. tokens (33%) · holds at 20k");
     expect(spentShare(3, 2)).toBe(1);
     expect(spentShare(5, 0)).toBe(0);
   });
