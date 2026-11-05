@@ -10,7 +10,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID } from "@muster-town/schema";
-import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
+import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type ManagerWakeLine, type ManagerWakes, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
 import { useTown } from "../state";
 import { BuildingFunding, pickRow } from "./BankFunding";
 import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine } from "./BankFinance";
@@ -110,6 +110,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
         {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
         {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
       </> : null}
+      {crumbs.length === 1 && crumbs[0].kind === "building" ? <ManagerWakesLines mw={sp.managerWakes} buildingId={crumbs[0].id ?? "none"} /> : null}
       {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
     </Section>
   );
@@ -177,17 +178,62 @@ function AssignmentSessions({ grantId, assignmentId }: { grantId: string; assign
   );
 }
 
+const perDecision = (l: ManagerWakeLine) => (l.perDecision === null ? "no decisions" : `${fmtTokens(l.perDecision)} per decision`);
+/** One manager-wakes line in words: "4 wakes · 160k adj. tokens · $3.20 · 40k per wake · 4 decided, 40k per decision". */
+export function wakeLine(l: ManagerWakeLine): string {
+  return `${n(l.wakes)} wake${l.wakes === 1 ? "" : "s"} · ${fmtTokens(l.tokens)} ${ADJ} · ${dollars(l.usd)} · ${fmtTokens(l.perWake)} per wake · ${n(l.decided)} decided, ${perDecision(l)}`;
+}
+const WAKE_FOLD = 7;
+
+/**
+ * Manager wakes per day in a building's level of the drill-down (gr_lwgus14rd2 step 3, kr_avafh64h02): GET
+ * /api/finance/spend's `managerWakes`, one line per UTC day (wakes, adj. tokens, $, per wake, decided, per decision),
+ * newest first, folded to the newest 7 days, then the window total (7 full days and today).
+ */
+export function ManagerWakesLines({ mw, buildingId, initialOpen = false }: { mw?: ManagerWakes; buildingId: string; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  if (!mw) return null;
+  const b = mw.buildings[buildingId];
+  const days = b ? (open ? b.days : b.days.slice(0, WAKE_FOLD)) : [];
+  return (
+    <section className="manager-wakes" aria-label="Manager wakes per day">
+      <b>Manager wakes</b> <span className="muted">· {mw.windowNote}; decided = reports and flags the manager decided inside a wake</span>
+      {b ? (
+        <table className="table spend-table manager-wakes-table">
+          <thead><tr><th>Day (UTC)</th><th>Wakes</th><th>{ADJ}</th><th title="At API list price">$</th><th>Per wake</th><th>Decided</th><th>Per decision</th></tr></thead>
+          <tbody>
+            {days.map((d) => <WakeRow key={d.day} label={d.day} l={d} />)}
+            {b.days.length > WAKE_FOLD ? <tr><td colSpan={7}><button type="button" className="link" aria-expanded={open} onClick={() => setOpen((x) => !x)}>{open ? "Show the newest 7 days" : `Show ${b.days.length - WAKE_FOLD} more day${b.days.length - WAKE_FOLD === 1 ? "" : "s"}`}</button></td></tr> : null}
+          </tbody>
+          <tfoot><WakeRow label="7 d total" l={b.total} bold /></tfoot>
+        </table>
+      ) : <p className="muted">No manager wakes in this window.</p>}
+    </section>
+  );
+}
+
+function WakeRow({ label, l, bold }: { label: string; l: ManagerWakeLine; bold?: boolean }) {
+  return (
+    <tr className="manager-wake-day">
+      <td>{bold ? <b>{label}</b> : label}</td><td>{n(l.wakes)}</td><td className="spend-tokens">{fmtTokens(l.tokens)}</td>
+      <td className="spend-usd muted">{dollars(l.usd)}</td><td>{fmtTokens(l.perWake)}</td><td>{n(l.decided)}</td>
+      <td>{l.perDecision === null ? "–" : fmtTokens(l.perDecision)}</td>
+    </tr>
+  );
+}
+
 /**
  * The Spending sidebar's "Health": drift (adjusted vs SDK-reported cost, 24 h) and out-of-tokens deaths and the cap. The
  * lane × token-kind table (gr_lwgus14rd2) sits under the drill-down instead (`LaneKind`): it is too wide for the sidebar.
  */
-export function SpendingHealth({ bank }: { bank: Bank | null }) {
+export function SpendingHealth({ bank, wakes }: { bank: Bank | null; wakes?: ManagerWakes }) {
   const drift = bank?.drift && bank.drift.models.length ? bank.drift : null;
   const deaths = bank?.deaths && bank.cap ? { d: bank.deaths, cap: bank.cap } : null;
-  if (!drift && !deaths) return null;
+  if (!drift && !deaths && !wakes) return null;
   return (
     <section className="bank-health">
       <h4>Health</h4>
+      {wakes ? <p className="manager-wakes-total" title={`${wakes.windowNote}; open a building for its days`}><b>Manager wakes, 7 d:</b> {wakeLine(wakes.total)}</p> : null}
       {drift ? (
         <table className="table" aria-label={`Drift (${drift.day}, 24 h)`}>
           <thead><tr><th>Drift ({drift.day}, 24 h)</th><th /></tr></thead>

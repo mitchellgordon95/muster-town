@@ -199,6 +199,18 @@ export interface SpendByLaneKind extends LaneKindTable {
   check: { ok: boolean; diff: number; identity: string };
   buildings: Record<string, LaneKindTable>;
 }
+/** One manager-wakes line: wakes (purpose manage sessions), their adjusted tokens and $, reports decided inside them, per wake, per decision (null when none). */
+export interface ManagerWakeLine { wakes: number; tokens: number; usd: number; decided: number; perWake: number; perDecision: number | null }
+/**
+ * `managerWakes` of `GET /api/finance/spend` (gr_lwgus14rd2 step 3): per building id, the manager's wakes per UTC day
+ * (newest first, days with a wake only) over the last 7 full days and today, whatever `?window=` is; town `total`.
+ */
+export interface ManagerWakes {
+  from: string; to: string; windowNote: string;
+  buildings: Record<string, { days: (ManagerWakeLine & { day: string })[]; total: ManagerWakeLine }>;
+  total: ManagerWakeLine; manageTokens: number;
+  check: { ok: boolean; diff: number; identity: string };
+}
 /** `GET /api/finance/spend` (public) — core's FinanceSpend: `used` by building → grant → assignment; the top-level rows sum to `used`. */
 export interface FinanceSpend {
   used: number; sessionsTotal: number; unattributed: number;
@@ -226,6 +238,8 @@ export interface FinanceSpend {
   at: string;
   /** the window's lane × token-kind table (optional here: an older server sends none) */
   byLaneKind?: SpendByLaneKind;
+  /** manager wakes per building per day, 8 days (optional here: an older server sends none) */
+  managerWakes?: ManagerWakes;
 }
 /** One dated credit of a Bank input in `GET /api/finance/sources`; `expiredTokens` is what expired undrawn (subscription credits only). */
 export interface SourceCredit { id: string; createdAt: string; expiresAt: string | null; tokens: number; expiredTokens: number }
