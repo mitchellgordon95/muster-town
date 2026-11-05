@@ -13,7 +13,7 @@ import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./room";
 import { DocText, Markdown } from "./Markdown";
 import { grantUrl } from "../route";
-import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, useLoad, useNameOf } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { portraitUrl } from "../map/sprites";
 import { AttachButton } from "./AttachButton";
@@ -343,7 +343,8 @@ function focusRow(f: Focus, items: { grants: GrantView[]; retainers: ScheduleVie
 function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   const a = useTown((s) => s.agents[doc.authorId] ?? (forkOf ? s.agents[forkOf] : undefined));
   const isManager = useTown((s) => !!doc.buildingId && s.buildings.some((b) => b.id === doc.buildingId && b.kind !== "town-hall" && b.managerAgentId === doc.authorId));
-  const name = isManager ? `★ ${nameOf(doc.authorId)}` : nameOf(doc.authorId);
+  const author = useNameOf(doc.authorId);
+  const name = isManager ? `★ ${author}` : author;
   return a ? <img src={portraitUrl(a.sprite, 1)} alt={name} title={name} /> : null;
 }
 

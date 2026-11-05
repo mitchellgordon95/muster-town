@@ -7,7 +7,7 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd, useNameOf } from "./ui";
 import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
@@ -125,13 +125,14 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   const sources = doc.provenance.sourceIds;
   const cost = docCost(doc);
   const cards = rollupCardsOf(doc);
+  const author = useNameOf(doc.authorId);
   return (
     <article className="doc">
       {onBack ? <button className="link back" onClick={onBack}>← {backLabel}</button> : null}
       {inSheet ? null : <h2 className="doc-title">{doc.title}</h2>}
       <DocMeta doc={doc} />
       <div className="doc-byline">
-        by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
+        by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{author}</b> · {timeAgo(doc.createdAt)}
         {cost ? <> · <span title={docCostTitle(doc)}>{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
         {" · "}<CopyLink id={doc.id} />
@@ -167,8 +168,9 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
  * `after`: more under the doc in the same scroll (the digest's "overtaken" line).
  */
 export function DocSheet({ doc, onClose, review, onDecided, after }: { doc: Doc; onClose: () => void; review?: boolean; onDecided?: () => void; after?: ReactNode }) {
+  const author = useNameOf(doc.authorId);
   return (
-    <Sheet label={doc.title} title={doc.title} sub={`${doc.type.replace(/-/g, " ")} · ${nameOf(doc.authorId)}`} onClose={onClose} escFirst maxWidth={980} className="doc-sheet">
+    <Sheet label={doc.title} title={doc.title} sub={`${doc.type.replace(/-/g, " ")} · ${author}`} onClose={onClose} escFirst maxWidth={980} className="doc-sheet">
       <DocView doc={doc} review={review} onDecided={onDecided} inSheet />
       {after}
     </Sheet>
@@ -200,6 +202,7 @@ function legacyCopy(text: string): boolean {
 /** `unread`: a red "new" mark first in the meta line (the bulletin board's notes the signed-in human hasn't opened, flag dc_04q4h8s229). */
 export function DocRow({ doc, onOpen, unread, selected }: { doc: Doc; onOpen: () => void; unread?: boolean; /** its doc is open (or was last open) in a sheet */ selected?: boolean }) {
   const cost = docCost(doc);
+  const author = useNameOf(doc.authorId);
   return (
     <button className={selected ? "doc-row on" : "doc-row"} aria-current={selected || undefined} onClick={onOpen}>
       <MediaThumb body={doc.body} />
@@ -209,7 +212,7 @@ export function DocRow({ doc, onOpen, unread, selected }: { doc: Doc; onOpen: ()
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
         {doc.requestStatus ? <Pill tone={requestTone(doc.requestStatus)}>{doc.requestStatus}</Pill> : null}
-        <span title={[forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId), cost ? docCostTitle(doc) : ""].filter(Boolean).join("\n") || undefined}>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
+        <span title={[forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId), cost ? docCostTitle(doc) : ""].filter(Boolean).join("\n") || undefined}>{author} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>
   );

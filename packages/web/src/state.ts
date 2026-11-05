@@ -10,6 +10,7 @@ import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
 import { founderStale } from "./founder";
+import { knownNames } from "./names";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -175,7 +176,7 @@ class Store {
   onBulletinChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
-  readonly names = new Map<string, string>();
+  readonly names = knownNames;
   private dropAgent(id: string) {
     if (!this.state.agents[id]) return;
     this.names.set(id, this.state.agents[id].name);
