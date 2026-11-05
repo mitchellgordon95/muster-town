@@ -650,6 +650,7 @@ export const DocType = z.enum([
   "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
   "deck",          // slides: markdown split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only (deck.ts)
   "bulletin",      // a human's note on the bulletin board in the town square (core bulletin.ts, flag dc_52njv3shp8): published in no building, newest first
+  "page",          // a full HTML page (scripts allowed): the web shows it in a sandboxed iframe (sandbox="allow-scripts", no same origin) inside a centred sheet, never in the Markdown sanitizer (PageView.tsx, grant gr_4csjpgh346)
   "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance
 ]);
 export type DocType = z.infer<typeof DocType>;
@@ -1977,7 +1978,7 @@ export const VerbInputs = {
   read: z.object({ id: Id, file: z.string().optional().describe("skills: the path of one bundled file to read (from the skill's file list)") }),
   write: z.object({
     id: Id.optional().describe("update an existing doc you authored (a wiki page can also be found by its title; ignored for type 'log')"),
-    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log; 'deck' is slides: split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only"),
+    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log; 'deck' is slides: split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only; 'page' is a full HTML page (inline <script> and <style> allowed): it opens in a sandboxed iframe with no network and no access to the town, the town's CSS colour/font variables (--bg, --ink, --accent, --font…) are set on its :root"),
     title: z.string(),
     body: z.string(),
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),

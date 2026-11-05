@@ -12,10 +12,17 @@ import { api, API_BASE } from "../api";
 import { store, useTown } from "../state";
 import { docUrl, grantUrl } from "../route";
 
-const ALLOWED = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "A", "EM", "STRONG", "CODE", "PRE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "HR", "BR", "DEL", "IMG", "INPUT", "SPAN", "DIV", "SUP", "SUB"]);
-const ATTRS = new Set(["href", "title", "src", "alt", "align", "type", "checked", "disabled"]);
+// Docs are rich HTML too (grant gr_4csjpgh346 kr_pm0fmsiaxs): style and class, folds, figures, inline video/audio (never
+// autoplay), keys and highlights. Scripts, event handlers and javascript: URLs never pass; a full page with scripts is a
+// doc of type "page" (PageView.tsx, a sandboxed iframe).
+const ALLOWED = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "LI", "A", "EM", "STRONG", "CODE", "PRE", "BLOCKQUOTE", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD", "HR", "BR", "DEL", "IMG", "INPUT", "SPAN", "DIV", "SUP", "SUB",
+  "DETAILS", "SUMMARY", "FIGURE", "FIGCAPTION", "VIDEO", "AUDIO", "SOURCE", "KBD", "MARK"]);
+const ATTRS = new Set(["href", "title", "src", "alt", "align", "type", "checked", "disabled", "style", "class", "width", "height", "open", "controls", "loop", "muted", "poster", "preload", "playsinline"]);
+const URL_ATTRS = new Set(["href", "src", "poster"]);
+/** A style that could run code (old IE expression(), XBL bindings, a javascript: url) or sit over the town (position: fixed) is dropped whole. */
+const BAD_STYLE = /expression\s*\(|javascript:|vbscript:|behavior\s*:|-moz-binding|@import|position\s*:\s*(fixed|sticky)/i;
 
-function sanitize(html: string): string {
+export function sanitize(html: string): string {
   const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
   const walk = (el: Element) => {
     for (const child of [...el.children]) {
@@ -25,10 +32,10 @@ function sanitize(html: string): string {
         continue;
       }
       for (const a of [...child.attributes]) {
-        const v = a.value.trim().toLowerCase();
-        if (!ATTRS.has(a.name) || ((a.name === "href" || a.name === "src") && /^(javascript|data|vbscript):/.test(v))) child.removeAttribute(a.name);
+        const v = a.value.trim().toLowerCase().replace(/[\s\u0000-\u001f]+/g, "");
+        if (!ATTRS.has(a.name) || (URL_ATTRS.has(a.name) && /^(javascript|data|vbscript):/.test(v)) || (a.name === "style" && BAD_STYLE.test(a.value))) child.removeAttribute(a.name);
         // media is cited as `/api/media/…`: in a hosted collective that is its own `/<slug>/api/media/…`
-        else if ((a.name === "href" || a.name === "src") && API_BASE && a.value.startsWith("/api/media/")) child.setAttribute(a.name, API_BASE + a.value);
+        else if (URL_ATTRS.has(a.name) && API_BASE && a.value.startsWith("/api/media/")) child.setAttribute(a.name, API_BASE + a.value);
       }
       walk(child);
     }
@@ -59,7 +66,7 @@ function inlineMedia(root: Element) {
       img.replaceWith(v);
     } else {
       img.setAttribute("loading", "lazy");
-      img.className = "md-media";
+      img.classList.add("md-media");
       if (!img.closest("a")) {
         const a = owner.createElement("a");
         a.setAttribute("href", src);
