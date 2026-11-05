@@ -59,12 +59,12 @@ export function OutboxPanel() {
   );
 }
 
-export function RequestCard({ doc, onOpen, moderate }: { doc: Doc; onOpen: () => void; moderate?: boolean }) {
+function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
   const me = useTown((s) => s.me);
   const [body, setBody] = useState("");
   const media = useMediaPaste(setBody);
   const [finishing, setFinishing] = useState(false);
-  const canModerate = moderate ?? store.can("town.approve_request");
+  const canModerate = store.can("town.approve_request");
   const mine = doc.claimedByUserId && doc.claimedByUserId === me?.user.id;
   const act = (a: RequestAction, msg: string, b?: string) => async () => { const d = await api().request(doc.id, a, b); if (d) store.putDocs([d]); else store.dropDoc(doc.id); store.toast(msg, "ok"); };
   return (
