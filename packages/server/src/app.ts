@@ -250,6 +250,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), owner);
       return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
     });
+    // A Workshop admin retires any hosted collective (Mitchell's flag dc_hz1nz88pkt: a test one someone else owns); the
+    // same retire as its own admins' (hub row kept as 'retired', slug never reused, its dir and data stay on disk)
+    app.post<{ Params: { slug: string } }>("/api/collectives/:slug/retire", async (req) => {
+      const user = requireUser(req);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of the Workshop can retire another collective.");
+      if (!opts.hub) throw new AppError("not_found", "This server hosts no other collectives (no hub).");
+      const row = opts.hub.retire(req.params.slug);
+      return { collective: row };
+    });
     // read per request, like the client: a pull shows without a restart
     app.get("/skill.md", async (_req, reply) => {
       if (!existsSync(SKILL_FILE)) return reply.code(404).send({ error: "Not found: GET /skill.md", code: "not_found" });

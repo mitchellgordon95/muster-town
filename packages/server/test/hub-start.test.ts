@@ -259,6 +259,26 @@ describe("Start a collective", () => {
     expect((await app.inject({ method: "GET", url: "/api/town" })).statusCode).toBe(200);
   });
 
+  it("a Workshop admin retires a collective someone else owns from the root; nobody else can", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    await start(app, octo, garden);
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire")).status).toBe(401);
+    // its own admin is no Workshop admin: the root route is not theirs (they have /garden-club/api/collective/retire)
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: octo } })).status).toBe(403);
+    expect(hub.get("garden-club")!.state).toBe("active");
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await json(app, "POST", "/api/collectives/nope/retire", { headers: { cookie: mitchell } })).status).toBe(404);
+    const done = await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } });
+    expect(done.status).toBe(200);
+    expect(done.body.collective).toMatchObject({ slug: "garden-club", state: "retired" });
+    expect(hub.get("garden-club")!.state).toBe("retired");
+    expect((await app.inject({ method: "GET", url: "/garden-club/" })).statusCode).toBe(410);
+    expect((await json(app, "GET", "/api/collectives")).body.collectives.map((c: { slug: string }) => c.slug)).not.toContain("garden-club");
+    // again: a no-op, still retired
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } })).body.collective.state).toBe("retired");
+  });
+
   it("sign-in from the Start form comes back to /#start", async () => {
     const { app } = await setup();
     const { landed } = await signIn(app, "code_octo", `/auth/github?return_to=${encodeURIComponent("/#start")}`);
