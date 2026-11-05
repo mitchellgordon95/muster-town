@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
+import { buildingRoleId, createAssignment, fixedParts, workStateBlock, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
 import { laneBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
 import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
@@ -467,8 +467,9 @@ describe("goal-directed budgets: the Key results block", () => {
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
     expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain("This session: exploration on gap: Visitors can't find the board");
     const b = world.buildings.require(LAB);
-    const sys = workSystemPrompt(noor, b, world.town.get(), sessionMemory(world, noor, b, a));
-    expect(sys).toMatch(/Building goal: .*\nGoals and grants \(this building is goal-directed/);
+    const parts = sessionMemory(world, noor, b, a);
+    expect(workSystemPrompt(noor, b, world.town.get(), fixedParts(parts))).not.toContain("Goals and grants");
+    expect(workStateBlock(noor, parts)).toMatch(/^Goals and grants \(this building is goal-directed/);
     // the manager gets the grants instructions
     expect(sessionMemory(world, mei, b).team).toContain("propose_grant");
     expect(keyResultsBlock(world, world.buildings.first("kind = 'town-hall'")!, a)).toBe("");
