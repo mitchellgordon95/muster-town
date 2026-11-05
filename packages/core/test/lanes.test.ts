@@ -181,7 +181,7 @@ describe("goal-directed budgets: the canStart gate", () => {
   });
 });
 
-describe("goal-directed budgets: the 100% checkpoint", () => {
+describe("goal-directed budgets: the hold point (grant − reserve, then 100%)", () => {
   it("a grant at 60% spend creates no checkpoint assignment and is not held", () => {
     const { world, admin, mei, noor, fund, spend } = setup();
     creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
@@ -189,74 +189,89 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     spend(noor.id, 2_400_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointsDone: [] });
+    expect(world.grantDesk.get(g.id).holdAtTokens).toBe(3_850_000);
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(0);
     expect(world.assignments.where("agentId = ? AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(0);
     const step = world.ops.createWork(admin, noor.id, { title: "next step", lane: "grant", grantId: g.id });
     expect(world.budget.canStart(noor.id, step)).toBe(true);
   });
 
-  it("a human deciding the checkpoint before the manager writes it cancels the pending checkpoint assignment", () => {
+  it("the hold fires at grant − min(150k, a third) and creates no assignment; running work is held, the funders are told (grant C gr_95svkzi4l6)", () => {
     const { world, admin, mei, noor, fund, spend } = setup();
-    const g = fund(4_000_000);
-    spend(noor.id, 4_100_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id).status).toBe("checkpoint");
-    const [cp] = world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id]);
-    expect(cp).toBeDefined();
-    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 6_000_000 });
-    expect(world.grants.require(g.id).status).toBe("funded");
-    expect(world.assignments.require(cp.id)).toMatchObject({ status: "cancelled" });
-    expect(world.assignments.require(cp.id).heldReason).toContain("adjusted the grant from the in-tray before this checkpoint was written");
-    // past the new 100%: a fresh checkpoint assignment, and a cut cancels it too
-    spend(noor.id, 2_000_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id).status).toBe("checkpoint");
-    const again = world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id]);
-    expect(again).toHaveLength(1);
-    world.grantDesk.decide(admin, g.id, { action: "cut" });
-    expect(world.assignments.require(again[0].id)).toMatchObject({ status: "cancelled" });
+    creditBank(world);
+    for (const [tokens, reserve] of [[100_000, 33_333], [450_000, 150_000], [1_000_000, 150_000]] as const) {
+      const g = fund(tokens);
+      expect(world.grantDesk.get(g.id).holdAtTokens).toBe(tokens - reserve);
+      spend(noor.id, tokens - reserve - 1, "grant", g.id);
+      world.budget.charge(noor.id, 0, 0);
+      expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointsDone: [] });
+      spend(noor.id, 1, "grant", g.id);
+      world.budget.charge(noor.id, 0, 0);
+      expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
+      expect(world.grantDesk.get(g.id).holdAtTokens).toBeNull(); // only a funded grant has a next hold point
+      expect(world.budget.canStart(noor.id, world.ops.createWork(admin, noor.id, { title: "next step", lane: "grant", grantId: g.id }))).toBe(false);
+    }
+    expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(3);
+    expect(world.assignments.where("title LIKE 'Write the checkpoint%'", [])).toHaveLength(0);
+    expect(world.assignments.where("agentId = ? AND status = 'pending' AND grantStep IS NULL", [mei.id])).toHaveLength(0);
+    expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("reached its hold point"))).toBe(true);
   });
 
-  it("a charge that reaches 100% holds the grant once and gives the manager the checkpoint assignment, which may run", () => {
-    const { world, admin, mei, noor, fund, spend } = setup();
-    const g = fund(4_000_000);
-    spend(noor.id, 3_900_000, "grant", g.id);
+  it("continue holds again at 100%; adjust recomputes the hold point; a grant already held is untouched by checkpoints()", () => {
+    const { world, admin, noor, fund, spend } = setup();
+    creditBank(world);
+    const g = fund(1_000_000);
+    spend(noor.id, 860_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id).status).toBe("funded");
-    spend(noor.id, 200_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
+    expect(world.grants.require(g.id).status).toBe("checkpoint");
+    // held: further charges change nothing (no second event, no sweep)
+    spend(noor.id, 50_000, "grant", g.id);
+    expect(world.grantDesk.checkpoints(LAB)).toEqual([]);
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(1);
-    const cps = world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id]);
-    expect(cps).toHaveLength(1);
-    expect(cps[0]).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: null, title: "Write the checkpoint for Visitors can tell what the lab is for" });
-    expect(cps[0].description).toContain("checkpoint_grant");
-    expect(world.budget.canStart(mei.id, cps[0])).toBe(true);
-    const step = world.ops.createWork(admin, noor.id, { title: "next step", lane: "grant", grantId: g.id });
-    expect(world.budget.canStart(noor.id, step)).toBe(false);
-    expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("crossed 100%"))).toBe(true);
-    // once: another charge doesn't repeat it
+    // continue: same tokens, the next hold is the full grant
+    world.grantDesk.decide(admin, g.id, { action: "continue" });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [0], holdAtTokens: 1_000_000 });
+    spend(noor.id, 80_000, "grant", g.id); // 990k
     world.budget.charge(noor.id, 0, 0);
-    expect(world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(1);
-    // topped up, then past the new 100%: checkpoint again
-    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 6_000_000 });
+    expect(world.grants.require(g.id).status).toBe("funded");
+    spend(noor.id, 10_000, "grant", g.id); // 1M
     world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointsDone: [] });
-    spend(noor.id, 2_000_000, "grant", g.id);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0, 1] });
+    expect(() => world.grantDesk.decide(admin, g.id, { action: "continue" })).toThrow(/fully spent/);
+    // adjust to 2M: hold at 2M − 150k again
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 2_000_000 });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [], holdAtTokens: 1_850_000 });
+    spend(noor.id, 850_000, "grant", g.id); // 1.85M
     world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
-    // the first checkpoint's assignment was cancelled by the adjust: only the new crossing's is pending
-    expect(world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(1);
-    expect(world.assignments.where("agentId = ? AND status = 'cancelled' AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(1);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
+    // adjust to a number whose hold point is already behind the spend: that hold counts as passed, the next is the full grant
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 1_900_000 });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [0], holdAtTokens: 1_900_000 });
+    expect(world.assignments.where("title LIKE 'Write the checkpoint%'", [])).toHaveLength(0);
   });
 
-  it("releaseHalfway frees a grant still held at the retired 50% checkpoint, once; a held 100% grant stays held", () => {
+  it("a funded grant already past its hold point when this lands holds at its next charge; a cut closes it", () => {
+    const { world, admin, noor, fund, spend } = setup();
+    creditBank(world);
+    const g = fund(4_000_000);
+    spend(noor.id, 3_900_000, "grant", g.id); // past 3.85M without a charge
+    expect(world.grants.require(g.id).status).toBe("funded");
+    world.budget.charge(noor.id, 0, 0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
+    world.grantDesk.decide(admin, g.id, { action: "cut" });
+    expect(world.grants.require(g.id)).toMatchObject({ status: "closed", outcome: "cut" });
+  });
+
+  it("releaseHalfway frees a grant still held at the retired 50% checkpoint, once; a grant held at its reserve or at 100% stays held", () => {
     const { world, admin, noor, fund, spend } = setup();
     creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const g = fund(4_000_000);
     spend(noor.id, 2_100_000, "grant", g.id);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
     const full = fund(1_000_000, [KRS[1]!]);
+    const reserved = fund(1_000_000, [KRS[1]!]);
+    spend(noor.id, 900_000, "grant", reserved.id);
+    world.grants.patch(reserved.id, { status: "checkpoint", checkpointsDone: [0] });
     expect(world.grantDesk.releaseHalfway().map((r) => r.id)).toEqual([g.id]);
     expect(world.grants.require(g.id).status).toBe("funded");
     expect(world.budget.canStart(noor.id, world.ops.createWork(admin, noor.id, { title: "step", lane: "grant", grantId: g.id }))).toBe(true);
@@ -264,72 +279,15 @@ describe("goal-directed budgets: the 100% checkpoint", () => {
     // a human continuing meanwhile is harmless: the grant is funded and left alone
     expect(() => world.grantDesk.decide(admin, g.id, { action: "continue" })).toThrow(/checkpoint/);
     spend(noor.id, 1_000_000, "grant", full.id);
-    world.grants.patch(full.id, { status: "checkpoint", checkpointsDone: [1] });
+    world.grants.patch(full.id, { status: "checkpoint", checkpointsDone: [0, 1] });
     expect(world.grantDesk.releaseHalfway()).toEqual([]);
     expect(world.grants.require(full.id).status).toBe("checkpoint");
+    expect(world.grants.require(reserved.id).status).toBe("checkpoint");
   });
 
-  it("checkpoint_grant sets the status of the grant's key results up to claimed; the checkpoint session's rollup links itself and lands in the Town Hall in-tray", async () => {
-    const { world, mei, noor, admin, fund, spend } = setup();
-    const g = fund(4_000_000, KRS);
-    const krs = g.keyResults;
-    spend(noor.id, 4_100_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    const cp = world.assignments.first("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])!;
-    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cp.id });
-    expect(cp.description).toContain(`Key results (the grant's own):\n- ${krs[0]!.id} [not-started] ${KRS[0]!.text}`);
-    expect(cp.description).toContain(`- ${krs[1]!.id} [not-started] ${KRS[1]!.text}`);
-    await expect(world.verbs.checkpoint_grant(noor, { grantId: g.id })).rejects.toThrow(/building.manage/);
-    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "met" as never })).rejects.toThrow();
-    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", keyResultId: "kr_nope" })).rejects.toThrow(/not an open key result of grant/);
-    // the top-up line is required once per checkpoint (mt_7b4zc7yja3), both halves together
-    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id })).rejects.toThrow(/whatTopUpBuys and topUpTokens are required/);
-    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, whatTopUpBuys: "the board" })).rejects.toThrow(/together/);
-    expect(world.keyResults.require(krs[1]!.id).status).toBe("not-started");
-    // one at a time with keyResultId
-    const first = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "at-risk", note: "board not yet", keyResultId: krs[1]!.id, whatTopUpBuys: "KR 2: the board ships", topUpTokens: 500_000 });
-    expect(first.topUp).toEqual({ tokens: 500_000, buys: "KR 2: the board ships" });
-    expect(world.keyResults.require(krs[1]!.id)).toMatchObject({ status: "at-risk", statusNote: "board not yet" });
-    expect(world.keyResults.require(krs[0]!.id).status).toBe("not-started");
-    // no keyResultId: every open key result of the grant
-    const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "claimed", note: "banner shows it" });
-    expect(r).toMatchObject({ status: "checkpoint", checkpointDocId: null, keyResults: krs.map((k) => ({ id: k.id, status: "claimed" })) });
-    for (const k of krs) expect(world.keyResults.require(k.id)).toMatchObject({ status: "claimed", statusNote: "banner shows it" });
-    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\n1. **The banner**\n**What it is:** x\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\ncontinue", verdict: "continue", rollup: true });
-    expect(up).toMatchObject({ intray: "town-hall" });
-    expect(world.docs.require(up.id).tags).toEqual(["rollup", "checkpoint"]);
-    expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
-    expect(world.assignments.require(cp.id).status).toBe("done");
-    // the checkpoint card's evidence (mt_7b4zc7yja3): per key result verdict + note, spend, the top-up line, the report's Shipped titles
-    const e = world.grantDesk.get(g.id).evidence!;
-    expect(e).toMatchObject({ grantId: g.id, grantTokens: 4_000_000, spentTokens: 4_100_000, topUpTokens: 500_000, whatTopUpBuys: "KR 2: the board ships", reportId: up.id });
-    expect(e.keyResults.map((k) => [k.verdict, k.note])).toEqual([["shipped", "banner shows it"], ["shipped", "banner shows it"]]);
-    expect(e.shipped.length).toBe(1);
-    expect(e.shipped[0]).toMatch(/The banner/);
-    // a human continues; the next hold clears the line, so the next checkpoint asks for it again
-    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 5_000_000 });
-    spend(noor.id, 1_000_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", topUpTokens: null, whatTopUpBuys: "" });
-    expect(world.grantDesk.get(g.id).evidence).toMatchObject({ topUpTokens: null, whatTopUpBuys: "" });
-  });
-
-  it("checkpoint_grant still files after a human topped up the grant before the manager's checkpoint session; a never-held funded grant refuses", async () => {
-    const { world, mei, noor, fund, spend, admin } = setup();
-    const g = fund(4_000_000);
-    await expect(world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track" })).rejects.toThrow(/funded grant can't be checkpointed/);
-    spend(noor.id, 4_100_000, "grant", g.id);
-    world.budget.charge(noor.id, 0, 0);
-    // the manager's checkpoint session is already running when Mitchell tops it up from the in-tray minutes after the hold
-    // (gr_jkorz4f49a, 2026-10-27 03:58Z), before the checkpoint report lands: the session still files (a pending one would be cancelled)
-    const cp = world.assignments.first("agentId = ? AND status = 'pending' AND title LIKE 'Write the checkpoint%'", [mei.id])!;
-    world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: cp.id });
-    expect(world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 6_000_000 }).status).toBe("funded");
-    expect(world.assignments.require(cp.id).status).not.toBe("cancelled");
-    const r = await world.verbs.checkpoint_grant(mei, { grantId: g.id, status: "on-track", note: "steps 1-2 live" });
-    expect(r).toMatchObject({ status: "funded", keyResults: [{ id: g.keyResultId, status: "on-track" }] });
-    const up = await world.verbs.submit_report(mei, { title: "Checkpoint", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nnothing", verdict: "continue", rollup: true });
-    expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointDocId: up.id });
+  it("the checkpoint_grant verb is gone: the manager has nothing to file at a hold", () => {
+    const { world } = setup();
+    expect("checkpoint_grant" in world.verbs).toBe(false);
   });
 
   it("withdraw_grant: the manager withdraws its own proposed grant with a note; out of the in-tray and deck, KRs archived, funded refused", async () => {

@@ -44,7 +44,7 @@ Drill-down is free if every rollup lists the reports it covers in its provenance
 
 ### 3.3 Proposals and checkpoints
 
-Unchanged in substance from the budgets design, moved in place: a `proposed` or `countered` grant and a grant at `checkpoint` are Town Hall in-tray rows with the same buttons the budgets design put on the board (Fund with a token field prefilled to the ask, Counter with a note, Reject; Continue, Adjust, Cut). `POST /api/grants/:id/decide` already exists. The manager proposes from a 1:1 or at the end of a review session ("if exploration findings are in and no proposal is open, draft one", as the budgets design says). The board keeps the read-only view for residents.
+Unchanged in substance from the budgets design, moved in place (since grant C gr_95svkzi4l6 a grant holds at grantTokens − min(150k, a third), then at 100% after a continue, and no manager session writes the checkpoint: the card assembles from the forks' key-result evidence): a `proposed` or `countered` grant and a grant at `checkpoint` are Town Hall in-tray rows with the same buttons the budgets design put on the board (Fund with a token field prefilled to the ask, Counter with a note, Reject; Continue, Adjust, Cut). `POST /api/grants/:id/decide` already exists. The manager proposes from a 1:1 or at the end of a review session ("if exploration findings are in and no proposal is open, draft one", as the budgets design says). The board keeps the read-only view for residents.
 
 ### 3.4 The manager's 1:1 (the channel)
 
