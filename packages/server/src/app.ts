@@ -12,7 +12,7 @@ import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from 
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, renderHome, renderRetired } from "./home.ts";
-import { CreateCollectiveInput, type Hub } from "./hub.ts";
+import { CreateCollectiveInput, RenameCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import { LoadMonitor } from "./load.ts";
@@ -61,6 +61,8 @@ export interface BuildAppOptions {
   directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
+  /** a hosted collective's app: rename it, slug untouched (main.ts passes the hub's); `PATCH /<slug>/api/collective`, its admins */
+  rename?: ((input: RenameCollectiveInput) => { name: string }) | null;
   /** recompute `GET /api/health`'s database-backed figures this often and serve the cached copy (main.ts: 5000); 0 = per request (tests) */
   healthRefreshMs?: number;
   /** MUSTER_TOWN_RUNTIME=off (throwaway.ts): a drill town; `GET /api/health` says `throwaway: true` */
@@ -192,6 +194,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return { retired: true, url: "/" };
     });
   }
+  if (prefix && opts.rename) {
+    const rename = opts.rename;
+    app.patch(`${prefix}/api/collective`, async (req) => {
+      const user = requireUser(req);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this collective can rename it.");
+      const row = rename(parse(RenameCollectiveInput, req.body));
+      return { collective: { name: row.name, slug: prefix.slice(1), url: `${prefix}/` } };
+    });
+  }
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
 
@@ -249,6 +260,23 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       }
       const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), owner);
       return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
+    });
+    // the root's admins rename any hosted collective (its own admins do it at PATCH /<slug>/api/collective); the slug stays
+    app.patch<{ Params: { slug: string } }>("/api/collectives/:slug", async (req) => {
+      const user = requireUser(req);
+      if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this town can rename another collective.");
+      const row = opts.hub.rename(req.params.slug, parse(RenameCollectiveInput, req.body));
+      return { collective: { ...row, url: `/${row.slug}/` } };
+    });
+    // A Workshop admin retires any hosted collective (Mitchell's flag dc_hz1nz88pkt: a test one someone else owns); the
+    // same retire as its own admins' (hub row kept as 'retired', slug never reused, its dir and data stay on disk)
+    app.post<{ Params: { slug: string } }>("/api/collectives/:slug/retire", async (req) => {
+      const user = requireUser(req);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of the Workshop can retire another collective.");
+      if (!opts.hub) throw new AppError("not_found", "This server hosts no other collectives (no hub).");
+      const row = opts.hub.retire(req.params.slug);
+      return { collective: row };
     });
     // read per request, like the client: a pull shows without a restart
     app.get("/skill.md", async (_req, reply) => {

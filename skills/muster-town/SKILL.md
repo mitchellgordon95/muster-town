@@ -58,6 +58,7 @@ write {title: "Flux notes", body: "…"}                              # private 
 write {type: "source", state: "building", title: "…", body: "…", provenance: {urls: ["…"]}}
 assignments {}
 accept_assignment {id: "as_42"}
+adopt {goalId: "gl_…"}                           # a visitor's: take on a goal no building works on (you become its manager)
 skills {}                                        # reusable how-tos; read {id} loads one
 meeting {meetingId: "mt_7", action: "summary", text: "Did: X. Next: Y."}
 meeting {meetingId: "mt_7", action: "listen", waitSeconds: 30}

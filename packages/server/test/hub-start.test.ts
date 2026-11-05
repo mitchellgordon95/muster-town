@@ -1,6 +1,6 @@
 import { World } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,7 +39,7 @@ async function setup() {
   const hub: Hub = new Hub(mkdtempSync(join(tmpdir(), "hub-start-")), (w: World, row: HubCollective, dir: string) => buildApp({
     world: w, webDist: false, prefix: `/${row.slug}`, exportDir: join(dir, "export"), runtime: null,
     auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-    retire: () => hub.retire(row.slug),
+    retire: () => hub.retire(row.slug), rename: (i) => hub.rename(row.slug, i),
   }));
   await hub.openAll();
   const app = await buildApp({ world, webDist: false, hub, auth });
@@ -257,6 +257,51 @@ describe("Start a collective", () => {
     expect((await start(app, octo, { name: "Garden Club 2", goal: "again" })).status).toBe(201);
     // the Workshop is untouched
     expect((await app.inject({ method: "GET", url: "/api/town" })).statusCode).toBe(200);
+  });
+
+  it("its admin renames it (flag dc_hz1nz88pkt): hub row, collective.json and the town's name change, the slug stays", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    await start(app, octo, garden);
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    // not its admin (Mitchell is the Workshop's admin, not this collective's), nobody signed in, a blank name: refused
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: mitchell }, body: { name: "Mine" } })).status).toBe(403);
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { body: { name: "Mine" } })).status).toBe(401);
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: octo }, body: { name: "  " } })).status).toBe(400);
+    const done = await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: octo }, body: { name: "Garden Club Town" } });
+    expect(done.status).toBe(200);
+    expect(done.body.collective).toMatchObject({ name: "Garden Club Town", slug: "garden-club", url: "/garden-club/" });
+    expect(hub.get("garden-club")).toMatchObject({ slug: "garden-club", name: "Garden Club Town" });
+    expect(JSON.parse(readFileSync(join(hub.dirOf("garden-club"), "collective.json"), "utf8")).name).toBe("Garden Club Town");
+    expect((await json(app, "GET", "/garden-club/api/town")).body.town.name).toBe("Garden Club Town");
+    expect((await json(app, "GET", "/api/collectives")).body.collectives.find((c: { slug: string }) => c.slug === "garden-club").name).toBe("Garden Club Town");
+    // the Workshop's admin renames it from the root; another collective's owner cannot
+    expect((await json(app, "PATCH", "/api/collectives/garden-club", { headers: { cookie: octo }, body: { name: "x" } })).status).toBe(403);
+    const root = await json(app, "PATCH", "/api/collectives/garden-club", { headers: { cookie: mitchell }, body: { name: "Garden Club" } });
+    expect(root.status).toBe(200);
+    expect(hub.get("garden-club")!.name).toBe("Garden Club");
+    expect((await json(app, "GET", "/garden-club/api/town")).body.town.name).toBe("Garden Club");
+    expect((await json(app, "PATCH", "/api/collectives/nowhere", { headers: { cookie: mitchell }, body: { name: "x" } })).status).toBe(404);
+  });
+
+  it("a Workshop admin retires a collective someone else owns from the root; nobody else can", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    await start(app, octo, garden);
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire")).status).toBe(401);
+    // its own admin is no Workshop admin: the root route is not theirs (they have /garden-club/api/collective/retire)
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: octo } })).status).toBe(403);
+    expect(hub.get("garden-club")!.state).toBe("active");
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await json(app, "POST", "/api/collectives/nope/retire", { headers: { cookie: mitchell } })).status).toBe(404);
+    const done = await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } });
+    expect(done.status).toBe(200);
+    expect(done.body.collective).toMatchObject({ slug: "garden-club", state: "retired" });
+    expect(hub.get("garden-club")!.state).toBe("retired");
+    expect((await app.inject({ method: "GET", url: "/garden-club/" })).statusCode).toBe(410);
+    expect((await json(app, "GET", "/api/collectives")).body.collectives.map((c: { slug: string }) => c.slug)).not.toContain("garden-club");
+    // again: a no-op, still retired
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } })).body.collective.state).toBe("retired");
   });
 
   it("sign-in from the Start form comes back to /#start", async () => {
