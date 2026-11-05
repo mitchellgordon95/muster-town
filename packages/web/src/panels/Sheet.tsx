@@ -57,21 +57,28 @@ export type SheetProps = {
   maxWidth?: number;
   /** extra class on the dialog, for content rules scoped to one sheet */
   className?: string;
+  /**
+   * The sheet belongs to the side panel beside it (an in-tray item, a filing-cabinet doc): Esc closes the sheet first
+   * and the panel stays, so you are back on its list. Without it, Esc goes to an open side panel first.
+   */
+  escFirst?: boolean;
 };
 
 /** The sheet in its backdrop, portalled to the body, closing on Esc and on a backdrop mousedown. */
 export function Sheet(props: SheetProps) {
-  const { onClose } = props;
-  // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first)
+  const { onClose, escFirst } = props;
+  // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first), unless the
+  // sheet is that panel's own (escFirst): then it closes the sheet and the app never sees the key
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
-      if (e.key !== "Escape" || store.state.panel || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
+      if (e.key !== "Escape" || (store.state.panel && !escFirst) || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
+      if (escFirst) e.stopPropagation();
       onClose();
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
-  }, [onClose]);
+  }, [onClose, escFirst]);
   return createPortal(
     <div className="sheet-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <SheetView {...props} />

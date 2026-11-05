@@ -7,7 +7,8 @@ import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView,
 import { api, type Board, type BulletinNote, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
-import { DocRow, DocView } from "./DocView";
+import { DocRow, DocSheet, DocView } from "./DocView";
+import { Sheet } from "./Sheet";
 import { Glyph, PanelShell } from "./PanelShell";
 import { phaseTone } from "./room";
 import { DocText, Markdown } from "./Markdown";
@@ -46,6 +47,9 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   // one line per item, the only view (Mitchell's flag dc_2hllscunfx; Cards removed in 1:1 mt_i50xwu4z2t: "basically impossible to read")
   // a line that isn't a report opens its full row, with its decision buttons
   const [focus, setFocus] = useState<Focus | null>(null);
+  // the line last opened: still marked in the list after its sheet closes
+  const [sel, setSel] = useState<string | null>(null);
+  const focusOn = (f: Focus) => { setFocus(f); setSel(f.id); };
   const signedIn = useTown((s) => !!s.me);
   const canReview = store.can("building.review", buildingId);
   const routes = list.data?.routes ?? {};
@@ -69,6 +73,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const open = openId ? reports.find((d) => d.id === openId) ?? stored ?? null : null;
   // covered reports and checkpoint reports may not be loaded yet
   const openDoc = (id: string) => { setOpenId(id); if (!store.state.docs[id]) void api().doc(id).then((d) => store.putDocs([d])).catch((e: Error) => store.toast(e.message, "bad")); };
+  // a line in the list: its sheet replaces whatever sheet is open, and the line stays marked after it closes
+  const openFromList = (id: string) => { setFocus(null); setSel(id); openDoc(id); };
   if (!b) return <PanelShell title="In-tray"><Empty>No building with id {buildingId}.</Empty></PanelShell>;
   const hall = b.kind === "town-hall";
   const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
@@ -76,15 +82,20 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const flags = reports.filter((d) => d.type === "flag").length;
   const access = list.data?.access ?? [];
   const focused = focus && !open ? focusRow(focus, { grants: [...grants, ...stopped], retainers, captains, access, goalProposals }, routes, { onDecided: () => { setFocus(null); list.reload(); }, onMarked: list.reload, onOpenDoc: openDoc }) : null;
+  // a report, a grant (proposal, checkpoint, closed) or a retainer is content: it opens in a centred sheet and the list
+  // stays here (grant gr_4csjpgh346); a join, captain or goal ask is a short detail and opens in place of the list
+  const sheetTitle = focus?.kind === "grant" ? [...grants, ...stopped].find((g) => g.id === focus.id)?.objective : focus?.kind === "retainer" ? retainers.find((x) => x.id === focus.id)?.title : undefined;
+  const sheet = open ? (
+    <DocSheet doc={open} review onClose={() => setOpenId(null)} onDecided={() => { setOpenId(null); list.reload(); }}
+      after={list.data?.digest && list.data.digest.doc.id === open.id ? <DigestOvertaken card={list.data.digest} onDecided={list.reload} /> : null} />
+  ) : focused && sheetTitle !== undefined && focus ? (
+    <Sheet label={sheetTitle} title={sheetTitle} sub={focus.kind === "grant" ? "Grant" : "Retainer"} onClose={() => setFocus(null)} escFirst maxWidth={980} className="item-sheet">{focused}</Sheet>
+  ) : null;
   const count = reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
-      {open ? (
-        <>
-          <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
-          {list.data?.digest && list.data.digest.doc.id === open.id ? <DigestOvertaken card={list.data.digest} onDecided={list.reload} /> : null}
-        </>
-      ) : focused ? (
+      {sheet}
+      {focused && !sheet ? (
         <div className="intray-focus">
           <button className="btn sm" onClick={() => setFocus(null)}>← In-tray</button>
           {focused}
@@ -98,10 +109,10 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} digestRun={list.data?.digestRun ?? null} onDigestStarted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray digest={list.data?.digest ?? null} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} />
+            <TownHallIntray digest={list.data?.digest ?? null} selected={sel} onFocus={focusOn} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openFromList} />
           ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
-              {reports.map((d) => <CompactLine key={d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => setOpenId(d.id)} />)}
+              {reports.map((d) => <CompactLine key={d.id} selected={sel === d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => openFromList(d.id)} />)}
             </div>
           )}
         </>
@@ -202,11 +213,11 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals, access, captains, retainers, blocked, stopped, onOpen }: { onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; digest?: DigestCard | null }) {
-  const digestCard = digest ? <DigestLine card={digest} onOpen={onOpen} /> : null;
+export function TownHallIntray({ digest, selected, onFocus, reports, grants, goalProposals, access, captains, retainers, blocked, stopped, onOpen }: { onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; digest?: DigestCard | null; /** the line last opened, marked in the list */ selected?: string | null }) {
+  const digestCard = digest ? <DigestLine card={digest} onOpen={onOpen} selected={selected === digest.doc.id} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
+  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} selected={selected === g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
@@ -230,23 +241,23 @@ export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals
   ) : null;
   const asking = access.length ? (
     <Section title={<>Asking to join <Pill>{access.length}</Pill></>}>
-      <div className="doc-list">{access.map((r) => <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={accessTitle(r)} at={r.createdAt} pill={<Pill tone="warn">join ask</Pill>} onOpen={() => onFocus({ kind: "access", id: r.id })} />)}</div>
+      <div className="doc-list">{access.map((r) => <CompactLine key={r.id} selected={selected === r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={accessTitle(r)} at={r.createdAt} pill={<Pill tone="warn">join ask</Pill>} onOpen={() => onFocus({ kind: "access", id: r.id })} />)}</div>
     </Section>
   ) : null;
   const captainList = captains.length ? (
     <Section title={<>Asking to captain a goal <Pill>{captains.length}</Pill></>}>
-      <div className="doc-list">{captains.map((r) => <CompactLine key={r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={captainTitle(r)} at={r.createdAt} pill={<Pill tone="warn">captain ask</Pill>} onOpen={() => onFocus({ kind: "captain", id: r.id })} />)}</div>
+      <div className="doc-list">{captains.map((r) => <CompactLine key={r.id} selected={selected === r.id} lead={r.avatarUrl ? <img className="intray-avatar" src={r.avatarUrl} alt="" /> : null} title={captainTitle(r)} at={r.createdAt} pill={<Pill tone="warn">captain ask</Pill>} onOpen={() => onFocus({ kind: "captain", id: r.id })} />)}</div>
     </Section>
   ) : null;
   // retainers: standing money for scheduled jobs (1:1 mt_cyd2t5ioob decision 2), kept apart from grant proposals
   const retainerList = retainers.length ? (
     <Section title={<>Retainers for scheduled jobs <Pill>{retainers.length}</Pill></>}>
-      <div className="doc-list">{retainers.map((x) => <CompactLine key={x.id} lead={<BuildingTag buildingId={x.buildingId} />} title={x.title} at={x.updatedAt} pill={retainerPill(x)} onOpen={() => onFocus({ kind: "retainer", id: x.id })} />)}</div>
+      <div className="doc-list">{retainers.map((x) => <CompactLine key={x.id} selected={selected === x.id} lead={<BuildingTag buildingId={x.buildingId} />} title={x.title} at={x.updatedAt} pill={retainerPill(x)} onOpen={() => onFocus({ kind: "retainer", id: x.id })} />)}</div>
     </Section>
   ) : null;
   const goalList = goalProposals.length ? (
     <Section title={<>Goal proposals <Pill>{goalProposals.length}</Pill></>}>
-      <div className="doc-list">{goalProposals.map((p) => <CompactLine key={p.id} lead={p.buildingId ? <BuildingTag buildingId={p.buildingId} /> : null} title={goalProposalTitle(p)} at={p.createdAt} pill={<Pill>{p.outsideScope ? "outside scope" : "goal"}</Pill>} onOpen={() => onFocus({ kind: "goal", id: p.id })} />)}</div>
+      <div className="doc-list">{goalProposals.map((p) => <CompactLine key={p.id} selected={selected === p.id} lead={p.buildingId ? <BuildingTag buildingId={p.buildingId} /> : null} title={goalProposalTitle(p)} at={p.createdAt} pill={<Pill>{p.outsideScope ? "outside scope" : "goal"}</Pill>} onOpen={() => onFocus({ kind: "goal", id: p.id })} />)}</div>
     </Section>
   ) : null;
   if (!reports.length && !grants.length && !goalProposals.length) return <>{digestCard}{asking}{captainList}{retainerList}{blockedList}{stoppedList}{digestCard || asking || captainList || retainerList || stoppedList ? null : <Empty>The Town Hall in-tray is empty. Managers' rollups, checkpoint reports, visitor reports and escalations land here, with the grant proposals and checkpoints waiting for a human, and people asking to join or to captain a goal.</Empty>}</>;
@@ -259,7 +270,7 @@ export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals
       {blockedList}
       {reports.length ? (
         <Section title={<>Manager reports <Pill>{reports.length}</Pill></>}>
-          <div className="doc-list">{reports.map((d) => <CompactLine key={d.id} lead={<><BuildingTag buildingId={d.buildingId} /><ReportLead doc={d} /></>} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => onOpen(d.id)} />)}</div>
+          <div className="doc-list">{reports.map((d) => <CompactLine key={d.id} selected={selected === d.id} lead={<><BuildingTag buildingId={d.buildingId} /><ReportLead doc={d} /></>} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => onOpen(d.id)} />)}</div>
         </Section>
       ) : null}
       {proposals.length ? (
@@ -283,10 +294,10 @@ export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals
  * (Mitchell, 1:1 mt_pr3347g2w2: "the digest should show up in the intray as a one line item you can click into, just
  * like any of the other items in the intray"): title and date; the click opens the full digest doc.
  */
-export function DigestLine({ card: c, onOpen }: { card: DigestCard; onOpen: (id: string) => void }) {
+export function DigestLine({ card: c, onOpen, selected }: { card: DigestCard; onOpen: (id: string) => void; selected?: boolean }) {
   return (
     <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
-      <div className="doc-list"><CompactLine lead={<ReportLead doc={c.doc} />} title={c.doc.title} at={c.doc.createdAt} pill={<Pill tone="ok">digest</Pill>} onOpen={() => onOpen(c.doc.id)} /></div>
+      <div className="doc-list"><CompactLine selected={selected} lead={<ReportLead doc={c.doc} />} title={c.doc.title} at={c.doc.createdAt} pill={<Pill tone="ok">digest</Pill>} onOpen={() => onOpen(c.doc.id)} /></div>
     </Section>
   );
 }
@@ -935,6 +946,8 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
   const [authorId, setAuthorId] = useState("");
   const [folder, setFolder] = useState<DocType | null>(null);
   const [open, setOpen] = useState<Doc | null>(null);
+  // the doc last opened: still marked in the folder after its sheet closes
+  const [sel, setSel] = useState<string | null>(null);
   const list = useLoad(() => api().cabinet(buildingId, folder ? { type: folder, authorId, limit: FOLDER_LIMIT } : { limit: 1 }), [buildingId, folder, authorId, rev]);
   useEffect(() => { if (list.data) store.putDocs(list.data.docs); }, [list.data]);
   const counts = list.data?.counts ?? [];
@@ -945,9 +958,10 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
   }, [counts]);
   const count = (t: DocType) => counts.filter((c) => c.type === t && (!authorId || c.authorId === authorId)).reduce((s, c) => s + c.n, 0);
   const folders = FOLDER_TYPES.map((t) => ({ type: t, n: count(t) })).filter((f) => f.n > 0);
-  if (open) return <DocView doc={open} onBack={() => setOpen(null)} backLabel={folder ? folderName(folder) : "Filing cabinet"} />;
   return (
     <>
+      {/* a doc is content: it opens in a centred sheet, the folder stays here (grant gr_4csjpgh346) */}
+      {open ? <DocSheet doc={open} onClose={() => setOpen(null)} /> : null}
       <div className="cabinet-bar">
         {folder ? <button className="link" onClick={() => setFolder(null)}>← Filing cabinet</button> : <b>Folders</b>}
         {folder ? <b>/ {folderName(folder)}</b> : null}
@@ -971,7 +985,7 @@ function CabinetBrowser({ buildingId }: { buildingId: string }) {
         )
       ) : !list.data?.docs.length ? <Empty>This folder is empty{authorId ? ` for ${nameOf(authorId)}` : ""}.</Empty> : (
         <>
-          <div className="doc-list">{list.data.docs.map((d) => <DocRow key={d.id} doc={d} onOpen={() => setOpen(d)} />)}</div>
+          <div className="doc-list">{list.data.docs.map((d) => <DocRow key={d.id} doc={d} selected={sel === d.id} onOpen={() => { setOpen(d); setSel(d.id); }} />)}</div>
           {count(folder) > list.data.docs.length ? <p className="muted">Showing the newest {list.data.docs.length} of {count(folder)}.</p> : null}
         </>
       )}
