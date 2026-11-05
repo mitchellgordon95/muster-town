@@ -205,16 +205,19 @@ export class Ops {
 
   // ---- reconcile (runtime startup) ----
   /**
-   * After a restart: running Session rows whose agent has no live child (not in `liveAgentIds`) end `interrupted` with
-   * `error: 'cut by restart'` (the restart cut them, they didn't fail: the `sessions` alert counts only `error`); `active` assignments whose agent then has no running session go back to `pending`.
+   * After a restart: running Session rows that are not live (their id not in `liveSessionIds`, e.g. the desk work sessions the
+   * runtime adopted) end `interrupted` with `error: 'cut by restart'` (the restart cut them, they didn't fail: the `sessions`
+   * alert counts only `error`). Per session, not per agent: an agent whose desk work session was adopted can still hold a host
+   * 1:1 manage row that died with the old process, and that row is cut. `active` assignments whose agent then has no running
+   * session go back to `pending`.
    */
-  reconcile(liveAgentIds: Iterable<string> = []): { orphanedSessions: string[]; requeuedAssignments: string[] } {
-    const live = new Set(liveAgentIds);
+  reconcile(liveSessionIds: Iterable<string> = []): { orphanedSessions: string[]; requeuedAssignments: string[] } {
+    const live = new Set(liveSessionIds);
     const orphanedSessions: string[] = [];
     const requeuedAssignments: string[] = [];
     this.world.transaction(() => {
       for (const s of this.world.sessions.where("status = 'running'")) {
-        if (live.has(s.agentId)) continue;
+        if (live.has(s.id)) continue;
         this.endSession(s.id, { status: "interrupted", error: "cut by restart" });
         orphanedSessions.push(s.id);
       }

@@ -271,7 +271,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
   try {
-    reconciled = world.ops.reconcile(ctx.live.keys());
+    reconciled = world.ops.reconcile([...ctx.live.values()].map((l) => l.sessionId));
     if (reconciled.orphanedSessions.length || reconciled.requeuedAssignments.length) {
       console.log(`[runtime] reconcile: ended ${reconciled.orphanedSessions.length} orphaned session(s), ${reconciled.requeuedAssignments.length} assignment(s) back to pending`);
     }
