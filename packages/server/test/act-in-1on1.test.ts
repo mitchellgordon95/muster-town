@@ -21,7 +21,7 @@ describe("act_in_1on1 route", () => {
     world.ops.updateBuilding(world.ops.ensureAvatar(s.seed.admin.id), LAB, { managerAgentId: mei.id });
     world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", mei.id)}` };
-    const created = await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: agent, body: { objective: "A banner", approach: "a", stopCondition: "s", askTokens: 400_000, keyResults: [{ text: "banner", howToCheck: "look" }] } });
+    const created = await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: agent, body: { objective: "A banner", approach: "a", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 400_000, keyResults: [{ text: "banner", howToCheck: "look" }] } });
     const id = created.body.grant.id as string;
     expect((await json(app, "POST", `/api/grants/${id}/propose`, { headers: agent })).status).toBe(200);
 

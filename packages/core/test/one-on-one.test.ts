@@ -109,7 +109,7 @@ describe("the manager's 1:1", () => {
     expect(() => world.ops.openOneOnOne(admin, "carbon-cycle", { agentId: human.id })).toThrow(/can't take a 1:1/);
     // a grant: its proposer (the manager) answers; the first line presents the grant and names its key result
     const notes = world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_notes1", type: "meeting-notes", state: "building", buildingId: "carbon-cycle", title: "1:1 notes", body: "KR" });
-    const { grantId } = await world.verbs.propose_grant(mei, { keyResults: [{ text: "Sink numbers on the banner", howToCheck: "Open the banner" }], objective: "Ship the sink banner", stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
+    const { grantId } = await world.verbs.propose_grant(mei, { keyResults: [{ text: "Sink numbers on the banner", howToCheck: "Open the banner" }], objective: "Ship the sink banner", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
     const kr = world.keyResults.require(world.grants.require(grantId).keyResultId!);
     const g = world.ops.openOneOnOne(admin, "carbon-cycle", { grantId });
     expect(g.facilitatorId).toBe(mei.id);

@@ -81,7 +81,7 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
     waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin, reservationId: a.reservationId ?? null,
     // the chain is the first assignment's id: a retry, a park continuation and a review follow-up continue `from`'s
-    chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null,
+    chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null, grantStep: null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
@@ -175,6 +175,10 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
   let assignment: Assignment | null = null;
   if (!author || decision === "approve") return { doc, assignment };
+  // grant B: the next plan step this report queued by itself (submit_report) waits on the review: stop and redirect cancel it
+  if (decision === "stop" || decision === "redirect") {
+    for (const a of world.assignments.where("fromReportId = ? AND status = 'pending' AND grantStep IS NOT NULL AND parked IS NULL", [docId])) setAssignmentStatus(world, a.id, "cancelled");
+  }
   if (decision === "stop") {
     for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [author.id])) setAssignmentStatus(world, a.id, "cancelled");
     if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });

@@ -1,11 +1,12 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
   StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
-  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
+  type Assignment, type Building, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
-import { interruptFork } from "./forks.ts";
+import { checkForkModel, interruptFork } from "./forks.ts";
+import { attachablePages } from "./schedules.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
@@ -376,9 +377,10 @@ export class Grants {
     this.world.buildings.require(buildingId, "building");
     if (actor) this.world.permissions.require(actor, "building.manage", buildingId);
     const goalId = this.requireGoal(buildingId, inp.goalId);
+    const steps = this.requireSteps(buildingId, inp.steps);
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
-      id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [],
+      id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
       stopCondition: inp.stopCondition, askTokens: inp.askTokens, continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, createdAt: now, updatedAt: now,
@@ -395,6 +397,7 @@ export class Grants {
     this.requireStatus(g, ["draft", "countered"], "edited");
     const goal = goalId ? this.requireGoal(g.buildingId, goalId) : g.goalId;
     if (fields.continues !== undefined) fields.continues = this.requireContinues(g.buildingId, fields.continues, g.id) ?? undefined;
+    if (fields.steps) fields.steps = this.requireSteps(g.buildingId, fields.steps);
     const next = this.world.transaction(() => {
       const history = g.status === "countered" ? [...g.history, this.entry(actor, "edit", fields.askTokens ?? null, note ?? "")] : g.history;
       const saved = this.world.grants.upsert({ ...g, ...fields, goalId: goal, history, updatedAt: nowIso() });
@@ -434,12 +437,68 @@ export class Grants {
     return goalId;
   }
 
+  /** A proposal's steps (1-5): each step's model is one the building's forks run on, its pages topic pages of the building. */
+  private requireSteps(buildingId: string, steps: GrantStep[]): GrantStep[] {
+    const b = this.world.buildings.require(buildingId, "building");
+    if (steps.length < 1 || steps.length > 5) throw badRequest("A grant carries 1-5 steps.");
+    return steps.map((s, i) => {
+      try {
+        const model = checkForkModel(b, s.model);
+        const pages = s.pages?.length ? attachablePages(this.world, buildingId, s.pages) : [];
+        return { title: s.title, description: s.description, ...(model ? { model } : {}), ...(pages.length ? { pages } : {}) };
+      } catch (e) {
+        throw badRequest(`Step ${i + 1}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+  }
+
+  /**
+   * Queue step `k` (0-based) of a funded grant (grant B gr_b5fyqibfx2): funding queues step 1, a step's report the next
+   * one (`queueNextStep`). It goes on the building queue (lane grant, charged to the grant; a fork of the manager runs
+   * it on the step's model with its pages); a visitor manager is offered it. Null when the grant has no step `k`, is not
+   * live, or the building has no manager agent (a human works its in-tray). No manager session in between.
+   */
+  queueStep(g: Grant, k: number, by: Actor, from?: { assignmentId: string; reportId: string }, note = ""): Assignment | null {
+    const step = g.steps[k];
+    if (!step || !LIVE.includes(g.status)) return null;
+    const building = this.world.buildings.require(g.buildingId, "building");
+    const manager = managerAgentOf(this.world, building);
+    if (!manager) return null;
+    const forkable = manager.kind === "resident";
+    // re-checked at queue time: a model the building no longer allows falls back to its default, a page gone is dropped
+    let model: string | null = null;
+    try { model = forkable ? checkForkModel(building, step.model) : null; } catch { model = null; }
+    const pages = (step.pages ?? []).filter((id) => { const d = this.world.docs.get(id); return d?.type === "wiki" && d.topicOf === g.buildingId; });
+    const n = g.steps.length;
+    const nextLine = g.steps[k + 1] ? `When you submit your report, step ${k + 2} ("${g.steps[k + 1]!.title}") is queued by itself unless your verdict is pivot (a pivot stops the chain for the manager's review).` : `This is the grant's last step: say in your report whether its key results can be claimed (the manager closes the grant with close_grant).`;
+    const a = createAssignment(this.world, {
+      agentId: manager.id, buildingId: g.buildingId, title: step.title.slice(0, 160),
+      createdBy: by && by.kind === "human" ? holderOf(by) : { kind: "system", id: "system" },
+      laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
+      ...(forkable ? { queue: "building" as const, model } : {}),
+      ...(from ? { fromAssignmentId: from.assignmentId, fromReportId: from.reportId } : {}),
+      description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
+    });
+    return this.world.assignments.patch(a.id, { grantStep: k, ...(pages.length ? { pages } : {}) });
+  }
+
+  /**
+   * A step's report was filed (submit_report, not parked): queue the grant's next step unless the verdict is pivot (the
+   * manager's review decides then). The manager's review stop / redirect of that report cancels it while it waits.
+   */
+  queueNextStep(done: Assignment, reportId: string, verdict: string): Assignment | null {
+    if (done.grantStep == null || !done.grantId || verdict === "pivot") return null;
+    const g = this.world.grants.get(done.grantId);
+    return g ? this.queueStep(g, done.grantStep + 1, null, { assignmentId: done.id, reportId }) : null;
+  }
+
   /** draft / countered → proposed (`building.manage`). Several can be open per building, each decided on its own. Tells the humans who can fund. */
   propose(actor: Actor, id: string, note = ""): GrantView {
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
     if (!this.keyResultsOf(g.id).length) throw badRequest("A grant carries 1-5 key results: give keyResults (text, howToCheck, due) first.");
+    if (!g.steps.length) throw badRequest("A grant carries 1-5 steps: give steps (title, description; one session each) first. Funding queues step 1.");
     // the estimate is recorded at (each) propose so the close can compare it with what the grant spent
     const next = this.save(g, actor, { status: "proposed", estimate: this.estimateFor(g) }, "propose", g.askTokens, note);
     this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens)`);
@@ -476,7 +535,8 @@ export class Grants {
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note, via);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
         this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
-        this.decisionAssignment(next, actor, "funded", inp.note);
+        // grant B (gr_b5fyqibfx2): funding runs the plan, step 1 straight onto the building queue; no manager kickoff session
+        this.queueStep(next, 0, actor, undefined, inp.note);
         break;
       }
       case "counter": {
@@ -802,11 +862,11 @@ Stop condition: ${g.stopCondition}
 
   /**
    * A human's decision on a proposal wakes the manager the way a reply to a report does (Mitchell, 1:1 mt_f45m8hbmct):
-   * one front-of-queue assignment, the same hook as the checkpoint one. Funded → lane grant on the grant ("assign its
-   * first step or take it yourself", the plan in the description); countered → directed ("Answer the counter", with the
-   * note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its in-tray.
+   * one front-of-queue assignment, the same hook as the checkpoint one. Countered → directed ("Answer the counter", with
+   * the note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its
+   * in-tray. Funding wakes no manager: it queues the plan's step 1 itself (`queueStep`, grant B gr_b5fyqibfx2).
    */
-  private decisionAssignment(g: Grant, actor: Actor, decision: "funded" | "countered" | "rejected", note: string): void {
+  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string): void {
     const building = this.world.buildings.require(g.buildingId, "building");
     const manager = managerAgentOf(this.world, building);
     if (!manager) return;
@@ -814,25 +874,7 @@ Stop condition: ${g.stopCondition}
     const krs = this.krLines(g);
     const said = note.trim() ? `\n\nThe note: ${note.trim()}` : "";
     const base = { agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system" as const, id: "system" } };
-    if (decision === "funded") {
-      createAssignment(this.world, {
-        ...base, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
-        title: `Grant ${g.id} funded: assign its first step or take it yourself`.slice(0, 160),
-        description: `${who} funded grant ${g.id} "${g.objective}" with ${fmt(g.grantTokens ?? 0)} tokens.${said}
-
-Nothing starts by itself: funding runs the plan only once its steps are assignments. This session is charged to the grant.
-
-The plan (the grant page ${g.id} has the history):
-Key results (the grant's own):
-${krs}
-Approach: ${g.approach || "(none written)"}
-Stop condition: ${g.stopCondition}${g.findingsDocIds.length ? `\nFindings it draws on: ${g.findingsDocIds.join(", ")}` : ""}
-
-1. Cut the plan into steps, each one session's worth with a check a human can make in the live town.
-2. \`assign\` the first step in lane grant with grantId ${g.id}: with no agentId (the building queue; a fork runs it), attaching the topic pages that cover it (pages, at most 3), or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 100% checkpoint.
-3. Say in your report who got what and what the next step is.`,
-      });
-    } else if (decision === "countered") {
+    if (decision === "countered") {
       createAssignment(this.world, {
         ...base, laneOverride: DIRECTED,
         title: `Answer the counter on ${g.objective}`.slice(0, 160),

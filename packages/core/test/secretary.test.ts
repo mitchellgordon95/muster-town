@@ -28,7 +28,7 @@ function setup() {
     tags: ["rollup"], decision: "pending", createdAt,
   });
   const proposal = (objective: string, askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", stopCondition: "two failed tries", askTokens,
+    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
   }).id);
   return { ...s, world, admin, manager, sec, th, rollup, proposal };
 }

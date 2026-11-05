@@ -138,9 +138,9 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null, grantStep: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "", continues: null as string | null };
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "", continues: null as string | null, steps: [] as GrantView["steps"] };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
@@ -150,7 +150,7 @@ const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, 
 export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_ocean", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 4_000_000, grantTokens: null,
-    objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
+    objective: "Settle the ocean-sink data/model gap in the Southern Ocean", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
     findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
     // what it is likely to cost, recorded at propose (core grant-estimate.ts)
@@ -168,7 +168,7 @@ export const grants: GrantView[] = [
   // a second open proposal from the same lab, for another key result: the in-tray lists both side by side
   {
     ...grantBase, id: "gr_land", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 1_500_000, grantTokens: null,
-    objective: "Put a number on the land sink's 2025 drop", stopCondition: "Stop when the drop is attributed to within 0.3 GtC/yr, or after 3 sessions.",
+    objective: "Put a number on the land sink's 2025 drop", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when the drop is attributed to within 0.3 GtC/yr, or after 3 sessions.",
     ...plan(kr("bl_carbon", 2, "A note on the 2025 land-sink anomaly with its drivers", "Read it in the Carbon Cycle Lab cabinet")),
     history: [{ at: ago(30), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 1_500_000, note: "Separate from the ocean work; one session per driver." }],
     createdAt: ago(30), updatedAt: ago(30),
@@ -176,7 +176,7 @@ export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_hud", buildingId: "bl_workshop", status: "checkpoint", proposedBy: "ag_keel", askTokens: 2_000_000, grantTokens: 2_000_000, spentTokens: 2_010_000,
     checkpointsDone: [1], checkpointDocId: "dc_keel_cp", fundedBy: "us_mitchell", fundedAt: ago(600),
-    objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
+    objective: "HUD works on narrow screens", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when both KRs are met.",
     ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 100%." }],
     topUpTokens: 400_000, whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.",
@@ -196,7 +196,7 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
     // member-funded (fundWith): paid from Mitchell's own Bank input, so the row reads "… by Mitchell from Mitchell's API key"
     fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: "bi_mitchell_key", fundedWithLabel: "Mitchell's API key", fundedAt: ago(300),
-    objective: "A stranger can find the How it works tour from the landing page", stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
+    objective: "A stranger can find the How it works tour from the landing page", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
     ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
@@ -205,7 +205,7 @@ export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
-    objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
+    objective: "Stress-test the lab's session runner at 10 parallel desks", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
     ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "met"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "met")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
