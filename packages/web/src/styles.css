@@ -859,22 +859,7 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .queue-card-meta { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; font-size: var(--fs-xs); }
 .queue-card-held { font-size: var(--fs-xs); font-style: italic; }
 .goal-postmortem { font-size: var(--fs-xs); margin-left: 4px; }
-/* the goal tree editor: a sheet over the map, left of any side panel; tree nodes on the left, the selected goal on the right */
-.ge-wrap { position: fixed; top: 0; bottom: 0; left: 0; right: var(--panel-w, 0px); z-index: 30; display: flex; align-items: stretch; justify-content: center; padding: 20px; background: color-mix(in srgb, color-mix(in srgb, var(--bg) 52%, var(--black)) 55%, transparent); }
-.ge { width: min(1280px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px color-mix(in srgb, var(--black) 55%, transparent); overflow: hidden; }
-.ge-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
-.ge-head .who { flex: 1; min-width: 0; }
-.ge-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 60%) 0 1fr; }
-/* a dragged divider (GeDivider, panelResize.tsx): the detail keeps 320 px, the canvas 360 px, whatever the sheet's width */
-.ge-body.sized { grid-template-columns: minmax(0, 1fr) 0 max(320px, min(var(--ge-detail), calc(100% - 360px))); }
-.ge-divider { position: relative; z-index: 5; width: 0; cursor: col-resize; touch-action: none; }
-.ge-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; }
-.ge-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
-.ge-divider:hover::after, .ge-divider:focus-visible::after, .ge-divider.dragging::after { background: var(--accent); }
-.ge-divider:focus { outline: none; }
-.ge-tree { overflow: auto; border-right: 1px solid var(--line); padding: 8px 8px 24px; overscroll-behavior: contain; }
-/* the goal tree canvas (GoalCanvas.tsx): root at the top, children in rows below, elbow lines; drag to pan, wheel to zoom */
-.ge-tree.ge-canvas { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.sheet-main.ge-canvas { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
 .ge-canvas .ge-tools { position: static; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .gc { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; outline: none;
   background-color: color-mix(in srgb, var(--bg) 71%, var(--panel-2)); background-image: radial-gradient(color-mix(in srgb, var(--line-2) 50%, var(--panel)) 1px, transparent 1px); background-size: 20px 20px; }
@@ -918,7 +903,6 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .gc-pct { font-size: var(--fs-xs); color: var(--muted); min-width: 36px; text-align: center; }
 .gc-ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: 80%; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: var(--fs-md); display: grid; gap: 8px; box-shadow: 0 8px 24px color-mix(in srgb, var(--black) 50%, transparent); cursor: default; }
 .gc-ask .actions { display: flex; gap: 6px; justify-content: flex-end; }
-.ge-detail { overflow: auto; padding: 14px 18px 28px; overscroll-behavior: contain; }
 .ge-tools { display: flex; gap: 10px; align-items: center; padding: 2px 4px 8px; position: sticky; top: -8px; background: var(--panel); z-index: 1; }
 .ge-tools select { width: auto; max-width: 170px; padding: 4px 6px; font-size: var(--fs-sm); }
 .ge-node-meta { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -944,8 +928,8 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ge-tag.warn { background: color-mix(in srgb, var(--faint) 3%, var(--ink)); color: var(--warn); }
 .ge-tag.bad { background: color-mix(in srgb, var(--bad) 24%, var(--black)); color: var(--bad); }
 .ge-tag.prop { background: var(--ink); color: var(--gold); font-weight: 700; }
-.ge .decide-footer { border-top: none; padding-top: 2px; margin: 4px 0 0; gap: 6px; }
-.ge .decide-footer .btn, .ge .decide-footer .btn.sm { flex: none; padding: 4px 12px; font-size: var(--fs-md); min-height: 0; }
+.goal-sheet .decide-footer { border-top: none; padding-top: 2px; margin: 4px 0 0; gap: 6px; }
+.goal-sheet .decide-footer .btn, .goal-sheet .decide-footer .btn.sm { flex: none; padding: 4px 12px; font-size: var(--fs-md); min-height: 0; }
 .ge-goal { background: color-mix(in srgb, var(--green) 22%, var(--bg)); border: 1px solid color-mix(in srgb, var(--ok) 24%, var(--bg)); border-radius: var(--r); padding: 10px 13px; display: flex; flex-direction: column; gap: 4px; }
 .ge-goal > span { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--ok); font-weight: 700; }
 .ge-goal h2 { margin: 0; font-size: var(--fs-lg); line-height: 1.35; font-weight: 600; }
@@ -956,42 +940,53 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ge-kr-card .goal-kr-text { order: 10; flex-basis: 100%; }
 .ge-kr-card .goal-kr-acts { margin-left: auto; }
 .ge-check { display: block; color: var(--muted); font-size: var(--fs-sm); margin-top: 2px; }
-@media (max-width: 760px) { .ge-wrap { padding: 0; right: 0; } .ge { border-radius: 0; } .ge-body, .ge-body.sized { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; } .ge-divider { display: none; } .ge-tree { border-right: none; border-bottom: 1px solid var(--line); } }
-/* The Bank as a centered sheet (gr_567tikzitl step 1, BankSheet.tsx): the goal editor's shell (.ge-*) copied to bank-*;
-   tabs in a column on the left, the tab's tables in .bank-main, its prose, Terms and selected row in .bank-side */
-.bank-wrap { position: fixed; top: 0; bottom: 0; left: 0; right: var(--panel-w, 0px); z-index: 30; display: flex; align-items: stretch; justify-content: center; padding: 20px; background: color-mix(in srgb, color-mix(in srgb, var(--bg) 52%, var(--black)) 55%, transparent); }
-.bank-sheet { width: min(1280px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px color-mix(in srgb, var(--black) 55%, transparent); overflow: hidden; }
-.bank-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
-.bank-head .who { flex: 1; min-width: 0; }
-.bank-body { flex: 1; min-height: 0; display: flex; }
-.bank-tabs { flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; border-right: 1px solid var(--line); background: var(--panel-2); overflow: auto; }
-.bank-tab { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); padding: 7px 10px; font: inherit; font-size: var(--fs-md); cursor: pointer; }
-.bank-tab:hover { color: var(--text); background: color-mix(in srgb, var(--white) 4%, transparent); }
-.bank-tab.on { color: var(--text); background: var(--panel); border-color: var(--line-2); font-weight: 600; }
-.bank-cols { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(360px, 1fr) 0 minmax(300px, 36%); }
-.bank-cols.sized { grid-template-columns: minmax(0, 1fr) 0 max(320px, min(var(--bank-side), calc(100% - 360px))); }
-.bank-main { overflow: auto; padding: 10px 16px 28px; overscroll-behavior: contain; min-width: 0; }
-.bank-side { overflow: auto; padding: 12px 16px 28px; overscroll-behavior: contain; border-left: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-md); min-width: 0; }
-.bank-side h4 { margin: 4px 0 8px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
-.bank-side p { margin: 0 0 10px; line-height: 1.5; }
-.bank-side .bank-note { margin: 0 0 10px; }
-.bank-side .bank-note > b { display: block; margin-bottom: 2px; }
-.bank-side .finance-terms { margin: 12px 0; }
-.bank-selected { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-.bank-divider { position: relative; z-index: 5; width: 0; cursor: col-resize; touch-action: none; }
-.bank-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; }
-.bank-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
-.bank-divider:hover::after, .bank-divider:focus-visible::after, .bank-divider.dragging::after { background: var(--accent); }
-.bank-divider:focus { outline: none; }
+/* The centred sheet (panels/Sheet.tsx, gr_4csjpgh346): content you read or edit on its own (the Bank, the goal editor) over
+   the map, left of any side panel; head, optional tab column, main, optional side behind a draggable divider */
+.sheet-wrap { position: fixed; top: 0; bottom: 0; left: 0; right: var(--panel-w, 0px); z-index: 30; display: flex; align-items: stretch; justify-content: center; padding: 20px; background: color-mix(in srgb, color-mix(in srgb, var(--bg) 52%, var(--black)) 55%, transparent); }
+.sheet { width: min(var(--sheet-max, 1280px), 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 12px 48px color-mix(in srgb, var(--black) 55%, transparent); overflow: hidden; }
+.sheet-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.sheet-head .who { flex: 1; min-width: 0; }
+.sheet-body { flex: 1; min-height: 0; display: flex; }
+.sheet-tabs { flex: none; width: 168px; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; border-right: 1px solid var(--line); background: var(--panel-2); overflow: auto; }
+.sheet-tab { text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); padding: 7px 10px; font: inherit; font-size: var(--fs-md); cursor: pointer; }
+.sheet-tab:hover { color: var(--text); background: color-mix(in srgb, var(--white) 4%, transparent); }
+.sheet-tab.on { color: var(--text); background: var(--panel); border-color: var(--line-2); font-weight: 600; }
+.sheet-cols { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+/* the side's default share (Sheet sideShare); a dragged divider (.sized): the side keeps 320 px, the main 360 px, whatever the sheet's width */
+.sheet-cols.has-side { grid-template-columns: minmax(360px, 1fr) 0 minmax(300px, var(--sheet-side-share, 36%)); }
+.sheet-cols.has-side.sized { grid-template-columns: minmax(0, 1fr) 0 max(320px, min(var(--sheet-side), calc(100% - 360px))); }
+.sheet-main { overflow: auto; padding: 10px 16px 28px; overscroll-behavior: contain; min-width: 0; min-height: 0; }
+.sheet-side { overflow: auto; padding: 12px 16px 28px; overscroll-behavior: contain; border-left: 1px solid var(--line); background: var(--panel-2); font-size: var(--fs-md); min-width: 0; min-height: 0; }
+/* a side on the sheet's own background (the goal editor's detail) */
+.sheet-side.plain { padding: 14px 18px 28px; background: var(--panel); font-size: inherit; }
+.sheet-side:focus { outline: none; }
+.sheet-divider { position: relative; z-index: 5; width: 0; cursor: col-resize; touch-action: none; }
+.sheet-divider::before { content: ""; position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; }
+.sheet-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
+.sheet-divider:hover::after, .sheet-divider:focus-visible::after, .sheet-divider.dragging::after { background: var(--accent); }
+.sheet-divider:focus { outline: none; }
 @media (max-width: 760px) {
-  .bank-wrap { padding: 0; right: 0; } .bank-sheet { border-radius: 0; }
-  .bank-body { flex-direction: column; }
-  .bank-tabs { width: auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--line); padding: 6px; overflow-x: auto; }
-  .bank-tab { white-space: nowrap; flex: none; }
-  .bank-cols, .bank-cols.sized { display: block; overflow: auto; }
-  .bank-main, .bank-side { overflow: visible; } .bank-side { border-left: none; border-top: 1px solid var(--line); }
-  .bank-divider { display: none; }
+  .sheet-wrap { padding: 0; right: 0; } .sheet { border-radius: 0; }
+  .sheet-body { flex-direction: column; }
+  .sheet-tabs { width: auto; flex-direction: row; border-right: none; border-bottom: 1px solid var(--line); padding: 6px; overflow-x: auto; }
+  .sheet-tab { white-space: nowrap; flex: none; }
+  .sheet-divider { display: none; }
+  /* "scroll" (default): main then side in one scroll */
+  .sheet-cols.has-side, .sheet-cols.has-side.sized { display: block; overflow: auto; }
+  .sheet-cols.has-side > .sheet-main, .sheet-cols.has-side > .sheet-side { overflow: visible; }
+  .sheet-side { border-left: none; border-top: 1px solid var(--line); }
+  /* "split": main the top 40%, side the rest, each scrolling */
+  .sheet-cols.has-side.phone-split, .sheet-cols.has-side.phone-split.sized { display: grid; overflow: hidden; grid-template-columns: 1fr; grid-template-rows: 40% 1fr; }
+  .sheet-cols.phone-split > .sheet-main.ge-canvas { overflow: hidden; }
+  .sheet-cols.phone-split > .sheet-side { overflow: auto; }
 }
+/* the Bank's sidebar (BankView): its prose, Terms and selected row */
+.bank-about h4 { margin: 4px 0 8px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.bank-about p { margin: 0 0 10px; line-height: 1.5; }
+.bank-about .bank-note { margin: 0 0 10px; }
+.bank-about .bank-note > b { display: block; margin-bottom: 2px; }
+.bank-about .finance-terms { margin: 12px 0; }
+.bank-selected { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 
 /* the in-tray as a list (Mitchell's flag dc_2hllscunfx): one line per item */
 .intray-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding-top: 5px; padding-bottom: 5px; margin-bottom: 3px; }
@@ -1007,10 +1002,10 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .intray-focus > .btn { margin-bottom: 8px; }
 /* gr_567tikzitl step 3: Bank list toggles ("Show N cancelled") and rows picked for the sidebar's "Selected row" */
 .bank-section-right { display: inline-flex; gap: 6px; align-items: center; }
-.bank-main .bank-pick { cursor: pointer; }
-.bank-main .bank-pick:hover { background: var(--panel-2); }
-.bank-main .bank-pick.on, .bank-main .bank-pick.on:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.bank-main .bank-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sheet-main .bank-pick { cursor: pointer; }
+.sheet-main .bank-pick:hover { background: var(--panel-2); }
+.sheet-main .bank-pick.on, .sheet-main .bank-pick.on:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.sheet-main .bank-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .input-credits .table { font-size: var(--fs-sm); }
 /* the Bank's Spending drill-down (gr_567tikzitl step 4, kr_trhi5frg4k): breadcrumb, one table per level, the picked row's detail in the sidebar */
 .bank-crumbs { font-size: var(--fs-md); margin: 0 0 6px; }

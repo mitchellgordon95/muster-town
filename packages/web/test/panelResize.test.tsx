@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { clampPanelWidth, defaultPanelWidth, GE_CANVAS_MIN, GE_DETAIL_KEY, GE_DETAIL_MIN, GeDivider, geDetailWidth, savedGeDetailWidth, saveGeDetailWidth, MAP_KEEP, PANEL_MIN, PANEL_WIDTH_KEY, PanelResizer, panelMax, panelWidthFor, RESIZE_HINT, savedPanelWidth, savePanelWidth } from "../src/panels/panelResize";
+import { clampPanelWidth, defaultPanelWidth, GE_CANVAS_MIN, GE_DETAIL_KEY, GE_DETAIL_MIN, SheetDivider, geDetailWidth, savedGeDetailWidth, saveGeDetailWidth, MAP_KEEP, PANEL_MIN, PANEL_WIDTH_KEY, PanelResizer, panelMax, panelWidthFor, RESIZE_HINT, savedPanelWidth, savePanelWidth } from "../src/panels/panelResize";
 
 function memStore() {
   const m = new Map<string, string>();
@@ -41,8 +41,8 @@ describe("side panel resize", () => {
 
 describe("goal editor divider (flag dc_bc67e2sw7z)", () => {
   it("renders a vertical separator with the reset hint", () => {
-    const html = renderToStaticMarkup(<GeDivider width={420} onResize={() => undefined} />);
-    expect(html).toContain('class="ge-divider"');
+    const html = renderToStaticMarkup(<SheetDivider width={420} onResize={() => undefined} />);
+    expect(html).toContain('class="sheet-divider"');
     expect(html).toContain('role="separator"');
     expect(html).toContain('aria-valuenow="420"');
     expect(html).toContain(RESIZE_HINT);
