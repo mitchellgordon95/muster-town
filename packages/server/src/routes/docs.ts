@@ -1,4 +1,4 @@
-import { AppError, bulletinNotes, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { AppError, bulletinNotesFor, markBulletinRead, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -75,7 +75,9 @@ export async function docRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/docs/:id/unpublish", async (req) => ({ doc: unpublishTownFyi(world, actorOf(world, req), req.params.id) }));
 
   /** The bulletin board in the town square (flag dc_52njv3shp8): its notes newest first (anyone, guests too); a signed-in human pins one; its author or an admin takes it down. */
-  app.get("/api/bulletin", async (req) => ({ docs: bulletinNotes(world, parse(BulletinQuery, req.query).limit) }));
+  app.get("/api/bulletin", async (req) => bulletinNotesFor(world, req.auth?.kind === "user" ? req.auth.user.id : null, parse(BulletinQuery, req.query).limit));
+  /** Read / unread per signed-in human (flag dc_04q4h8s229): mark one note read, or `all` of them. → { unread }. */
+  app.post<{ Params: Params }>("/api/bulletin/:id/read", async (req) => ({ unread: markBulletinRead(world, requireUser(req).id, req.params.id) }));
   app.post("/api/bulletin", async (req, reply) => {
     requireUser(req);
     return reply.code(201).send({ doc: postBulletin(world, actorOf(world, req), parse(BulletinBody, req.body)) });
