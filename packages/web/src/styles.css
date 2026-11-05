@@ -336,6 +336,15 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .md a.md-media-link { display: inline-block; max-width: 100%; cursor: zoom-in; }
 .md th { background: color-mix(in srgb, var(--warn) 1%, var(--panel-2)); }
 .md img { max-width: 100%; }
+/* rich HTML in docs (Markdown.tsx allowlist, kr_pm0fmsiaxs): a class or style that positions a box (fixed, absolute) stays inside the doc, never over the town */
+.md { contain: layout; }
+.md details { margin: 8px 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); }
+.md summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.md details[open] > summary { margin-bottom: 4px; }
+.md figure { margin: 10px 0; }
+.md figcaption { color: var(--soft); font-size: var(--fs-sm); margin-top: 4px; }
+.md audio { display: block; width: 100%; margin: 8px 0; }
+.md mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inherit; padding: 0 2px; border-radius: 2px; }
 /* deck docs (DeckView): one slide fills the panel; long text scrolls inside the slide, pictures scale to fit */
 .deck { display: flex; flex-direction: column; gap: 8px; outline: none; margin-top: 8px; }
 .deck:focus-visible .deck-slide { border-color: var(--accent); }
@@ -966,6 +975,10 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .sheet-divider::after { content: ""; position: absolute; top: 0; bottom: 0; left: -1px; width: 2px; background: transparent; transition: background .12s; }
 .sheet-divider:hover::after, .sheet-divider:focus-visible::after, .sheet-divider.dragging::after { background: var(--accent); }
 .sheet-divider:focus { outline: none; }
+/* a page doc (PageView.tsx): its sandboxed frame fills the sheet's main column */
+.sheet-main.page-main { padding: 0; overflow: hidden; display: flex; }
+.page-frame { flex: 1; width: 100%; height: 100%; border: 0; background: var(--panel); }
+.page-doc { display: grid; gap: 8px; justify-items: start; margin: 10px 0; }
 @media (max-width: 760px) {
   .sheet-wrap { padding: 0; right: 0; } .sheet { border-radius: 0; }
   .sheet-body { flex-direction: column; }
