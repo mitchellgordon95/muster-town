@@ -104,7 +104,7 @@ describe("prompts follow the repo mode", () => {
     const work = workSystemPrompt(pix, b, world.town.get(), { repo: world.repoMode() });
     expect(work).toMatch(/\{pr: <number>\}/);
     expect(work).not.toMatch(/\{deploy/);
-    expect(workshopPrompt({ dir: "/w", branch: "x", base: "main" }, "their-app", "own")).not.toMatch(/redeploy/);
+    expect(workshopPrompt({ dir: "/w", base: "main" }, "their-app", "own")).not.toMatch(/redeploy/);
   });
 
   it("muster: the Workshop's brief is as today (Live line, deploy and PR waits, the redeploy line)", () => {
@@ -116,7 +116,7 @@ describe("prompts follow the repo mode", () => {
     expect(work).toMatch(/"Merge PR #12\."/);
     expect(managerIntrayBlock(world, b, pix.id)).toMatch(/Live: fa73e88/);
     expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/merge rights/);
-    expect(workshopPrompt({ dir: "/w", branch: "x", base: "main" }, "agent-town")).toMatch(/If you call `redeploy`/);
+    expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/If you call `redeploy`/);
   });
 });
 
