@@ -646,6 +646,8 @@ export interface Api {
   health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
+  /** a hosted collective's admin renames it, its address (slug) unchanged (`PATCH /<slug>/api/collective`) */
+  renameCollective(name: string): Promise<{ collective: { name: string; slug: string; url: string } }>;
   /** the root homepage's list (GET /api/collectives): the Workshop first, then the active hosted collectives */
   collectives(): Promise<{ slug: string; name: string; goal: string; url: string; started: boolean }[]>;
   /** a Workshop admin retires any hosted collective (`POST /api/collectives/:slug/retire`, root only) */
@@ -891,6 +893,7 @@ class HttpApi implements Api {
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
+  async renameCollective(name: string) { return this.call<{ collective: { name: string; slug: string; url: string } }>("PATCH", "/api/collective", { name }); }
   async collectives() { return (await this.get<{ collectives?: { slug: string; name: string; goal: string; url: string; started: boolean }[] }>("/api/collectives")).collectives ?? []; }
   async retireHostedCollective(slug: string) { return this.post<{ collective: { slug: string; state: "active" | "retired" } }>(`/api/collectives/${encodeURIComponent(slug)}/retire`); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }

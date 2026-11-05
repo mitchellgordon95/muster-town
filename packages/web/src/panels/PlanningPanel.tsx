@@ -127,9 +127,23 @@ function ThisCollective() {
   const funding = useTown((s) => s.health?.funding);
   const me = useTown((s) => s.me);
   const [sure, setSure] = useState(false);
+  const town = useTown((s) => s.town);
+  const [name, setName] = useState("");
   const admin = !!me?.isAdmin;
+  const address = `${location.host}${API_BASE}`;
+  const next = name.trim();
   return (
     <Section title="This collective">
+      {admin ? (
+        <>
+          <Field label="Name" hint={`Shown on the homepage and at the top of the town. The address ${address} stays.`}>
+            <input value={name} placeholder={town?.name ?? ""} maxLength={80} onChange={(e) => setName(e.target.value)} aria-label="Collective name" />
+          </Field>
+          <div className="actions">
+            <Act disabled={!next || next === town?.name} run={async () => { await api().renameCollective(next); location.reload(); }}>Rename</Act>
+          </div>
+        </>
+      ) : null}
       <p className="direction">
         {funding === "api-key" ? "Runs on its own Anthropic API key (at the Bank)." : "No key yet: its agents are held until an admin adds an Anthropic API key at the Bank."}
         {" "}Muster Town never spends its own credentials here.

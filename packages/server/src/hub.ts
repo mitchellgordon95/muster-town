@@ -2,7 +2,7 @@ import { AppError, townRoleId, upsertGithubUser, World, type GithubProfile } fro
 import { apiKeyProblem, RESERVED_SLUGS as RESERVED, slugify, slugProblem } from "@muster-town/schema";
 import Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -48,6 +48,10 @@ export const CreateCollectiveInput = z.object({
   apiKey: z.string().trim().max(400).optional(),
 });
 export type CreateCollectiveInput = z.infer<typeof CreateCollectiveInput>;
+
+/** A collective's new name (`PATCH /<slug>/api/collective`): the slug, its address, never changes. */
+export const RenameCollectiveInput = z.object({ name: z.string().trim().min(1).max(80) });
+export type RenameCollectiveInput = z.infer<typeof RenameCollectiveInput>;
 
 /** The building a new hosted collective starts with (docs/hosted-collectives.md step 5, "First building"). */
 const FIRST_BUILDING_NAME = "Workshop";
@@ -227,6 +231,25 @@ export class Hub {
     this.mounted.delete(slug);
     if (m) this.closing.push(new Promise((r) => setTimeout(r, 50)).then(async () => { await m.app.close(); m.world.close(); }));
     return { ...row, state: "retired" };
+  }
+
+  /**
+   * Rename a collective (Mitchell's flag dc_hz1nz88pkt): the hub row (homepage tile), collective.json (the seed reads its
+   * name on every boot, so the file must agree) and the World's town row (the HUD) all take the new name in one go.
+   * The slug is the address and stays: muster.town/<slug>/ keeps working, and nothing else is keyed on the name.
+   */
+  rename(slug: string, input: RenameCollectiveInput): HubCollective {
+    const { name } = RenameCollectiveInput.parse(input);
+    const row = this.get(slug);
+    if (!row) throw new AppError("not_found", `No collective at /${slug}/.`);
+    if (row.state === "retired") throw new AppError("conflict", `/${slug}/ is retired: a retired collective keeps its name.`);
+    const file = join(this.dirOf(slug), "collective.json");
+    const cfg = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> : { goal: row.goal, buildings: [] };
+    writeFileSync(file, JSON.stringify({ ...cfg, name }, null, 2) + "\n");
+    this.db.prepare("UPDATE collectives SET name = ? WHERE slug = ?").run(name, slug);
+    const m = this.mounted.get(slug);
+    if (m) { m.world.town.set({ name }); m.row = { ...m.row, name }; }
+    return { ...row, name };
   }
 
   /** The retired collective this URL names (first path segment), or null. */
