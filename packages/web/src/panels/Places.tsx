@@ -81,7 +81,10 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {open ? (
-        <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
+        <>
+          <DocView doc={open} review onBack={() => setOpenId(null)} backLabel={asDeck ? "Review deck" : "In-tray"} onDecided={() => { setOpenId(null); list.reload(); }} />
+          {list.data?.digest && list.data.digest.doc.id === open.id ? <DigestOvertaken card={list.data.digest} onDecided={list.reload} /> : null}
+        </>
       ) : focused ? (
         <div className="intray-focus">
           <button className="btn sm" onClick={() => setFocus(null)}>← In-tray</button>
@@ -96,7 +99,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {hall ? <ReviewAsDeckButton count={count} onOpen={() => setAsDeck(true)} view={signedIn ? { view, hidden, set: setView, funder: !!funder } : undefined} digestRun={list.data?.digestRun ?? null} onDigestStarted={list.reload} /> : null}
           <ErrorLine error={list.error} />
           {list.loading && !list.data ? <Loading /> : hall ? (
-            <TownHallIntray digest={list.data?.digest ?? null} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} onDecided={list.reload} />
+            <TownHallIntray digest={list.data?.digest ?? null} onFocus={setFocus} reports={reports} grants={grants} goalProposals={goalProposals} access={access} captains={captains} retainers={retainers} blocked={list.data?.blocked ?? []} stopped={stopped} onOpen={openDoc} />
           ) : !reports.length ? <Empty>The in-tray is empty. When the manager or a fork finishes a session, its report lands here and that agent goes idle; a flag you plant (F on the map) lands here too.</Empty> : (
             <div className="doc-list">
               {reports.map((d) => <CompactLine key={d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => setOpenId(d.id)} />)}
@@ -200,8 +203,8 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
  * reports they cover), then the grants a human must decide: proposals (Fund / Counter / Reject) and checkpoints
  * (Continue / Adjust / Cut). Countered proposals wait on the manager and are shown without buttons.
  */
-export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals, access, captains, retainers, blocked, stopped, onOpen, onDecided }: { onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; onDecided: () => void; digest?: DigestCard | null }) {
-  const digestCard = digest ? <DigestCardView card={digest} onOpen={onOpen} onDecided={onDecided} /> : null;
+export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals, access, captains, retainers, blocked, stopped, onOpen }: { onFocus: (f: Focus) => void; reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: NonNullable<Intray["blocked"]>; stopped: GrantView[]; onOpen: (id: string) => void; digest?: DigestCard | null }) {
+  const digestCard = digest ? <DigestLine card={digest} onOpen={onOpen} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
   const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
@@ -277,38 +280,37 @@ export function TownHallIntray({ digest, onFocus, reports, grants, goalProposals
 }
 
 /**
- * The Secretary's digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray: what needs a yes or no (read
- * live), what shipped since the last card, and the rollups it covers, collapsed (the ones it archived left the list).
+ * The Secretary's digest (gr_kdlogzzo5s step 3), first in the Town Hall in-tray as one line like every other item
+ * (Mitchell, 1:1 mt_pr3347g2w2: "the digest should show up in the intray as a one line item you can click into, just
+ * like any of the other items in the intray"): title and date; the click opens the full digest doc.
  */
-export function DigestCardView({ card: c, onOpen, onDecided }: { card: DigestCard; onOpen: (id: string) => void; onDecided?: () => void }) {
-  // "Already overtaken": one Approve-all archives the rollups whose asks the town has since decided (1:1 mt_i50xwu4z2t)
-  const approveAll = async (ids: string[]) => {
+export function DigestLine({ card: c, onOpen }: { card: DigestCard; onOpen: (id: string) => void }) {
+  return (
+    <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
+      <div className="doc-list"><CompactLine lead={<ReportLead doc={c.doc} />} title={c.doc.title} at={c.doc.createdAt} pill={<Pill tone="ok">digest</Pill>} onOpen={() => onOpen(c.doc.id)} /></div>
+    </Section>
+  );
+}
+
+/**
+ * Under the opened digest doc: the covered rollups the town has since overtaken (their asks decided elsewhere), with one
+ * Approve-all that archives them (1:1 mt_i50xwu4z2t); the doc's own "Decisions needed" is the copy filed at the time.
+ * Nothing when no group is overtaken.
+ */
+export function DigestOvertaken({ card: c, onDecided }: { card: DigestCard; onDecided?: () => void }) {
+  const ids = c.decisions.flatMap((g) => g.docIds ?? []);
+  if (!ids.length) return null;
+  const approveAll = async () => {
     const done = await Promise.all(ids.map((id) => api().archive(id)));
     store.putDocs(done.map((r) => r.doc));
     store.toast(`Approved ${ids.length} overtaken rollup${ids.length === 1 ? "" : "s"}.`, "ok");
     onDecided?.();
   };
   return (
-    <Section title={<>Digest <Pill>by the Secretary</Pill></>}>
-      <div className="doc-row intray-row digest-card">
-        <div className="intray-who"><button className="link" onClick={() => onOpen(c.doc.id)}>{c.doc.title}</button><span>{timeAgo(c.doc.createdAt)}</span><TalkToSecretary /></div>
-        <b>Decisions needed</b>
-        {c.decisions.length ? c.decisions.map((g) => (
-          <div className="digest-group" key={g.heading}>
-            <div className="digest-group-head"><b>{g.heading}</b>{g.note ? <span className="muted"> {g.note}</span> : null}{g.docIds?.length ? <Act tone="ok" small run={() => approveAll(g.docIds!)} title="Archive these rollups: what they asked has since been decided">Approve all {g.docIds.length}</Act> : null}</div>
-            <ul className="digest-decisions">{g.lines.map((l, i) => <li key={i}><DocText text={l} /></li>)}</ul>
-          </div>
-        )) : <div className="muted">Nothing waits on a yes or no.</div>}
-        <b>Shipped since last digest</b>
-        {c.shipped ? <Markdown text={c.shipped} /> : <div className="muted">Nothing shipped.</div>}
-        {c.covered.length ? (
-          <details className="digest-covered">
-            <summary>Covered rollups ({c.covered.length})</summary>
-            <ul>{c.covered.map((r) => <li key={r.id}><button className="link" onClick={() => onOpen(r.id)}>{r.buildingName}: {r.title}</button> {r.pending ? <Pill tone="warn">still asks a call</Pill> : <span className="muted">archived</span>}</li>)}</ul>
-          </details>
-        ) : null}
-      </div>
-    </Section>
+    <div className="callout digest-overtaken">
+      <b>Already overtaken:</b> {ids.length} covered rollup{ids.length === 1 ? "" : "s"} ask{ids.length === 1 ? "s" : ""} only what the town has since decided.{" "}
+      <Act tone="ok" small run={approveAll} title="Archive these rollups: what they asked has since been decided">Approve all {ids.length}</Act>
+    </div>
   );
 }
 
