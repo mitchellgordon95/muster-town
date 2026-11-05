@@ -24,9 +24,11 @@ const TABS: { tab: string; group: NonNullable<Doc["requestStatus"]>; empty: stri
 ];
 
 export function OutboxPanel() {
-  const rev = useTown((s) => s.rev);
-  const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [rev]);
-  const reports = useLoad(() => api().docs({ type: "human-report", limit: 50 }), [rev]);
+  // keyed on `outboxRev`, not `rev`: `rev` bumps on every doc/meeting/assignment/building frame, and in a busy town each bump
+  // cancelled the fetch in flight, so the panel sat on "Loading…" for 5 s or more (live check dc_a019go9663)
+  const outboxRev = useTown((s) => s.outboxRev);
+  const list = useLoad(() => api().docs({ type: "request", limit: 200 }), [outboxRev]);
+  const reports = useLoad(() => api().docs({ type: "human-report", limit: 50 }), [outboxRev]);
   const unclaimed = useTown((s) => s.outbox);
   const [open, setOpen] = useState<Doc | null>(null);
   const grouped = useMemo(() => {
