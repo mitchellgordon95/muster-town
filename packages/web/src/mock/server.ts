@@ -996,6 +996,8 @@ export class MockApi implements Api {
   async health() { return { ok: true, commit: "mock" }; }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
   async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
+  async collectives() { return []; }
+  async retireHostedCollective(): Promise<{ collective: { slug: string; state: "active" | "retired" } }> { throw new Error("The mock server hosts no collectives."); }
   async manual() {
     await wait(60);
     const body = manualMd.replace(/^# .*\n+/, "");
