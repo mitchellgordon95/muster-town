@@ -30,7 +30,7 @@ const HOLD_RESERVE = 0;
 const HOLD_FULL = 1;
 
 /** The reserve a funded grant keeps for its in-flight sessions: min(150k, ⌊grantTokens / 3⌋). Computed, never stored. */
-export function reserveOf(grantTokens: number): number {
+function reserveOf(grantTokens: number): number {
   return Math.min(150_000, Math.floor(grantTokens / 3));
 }
 
@@ -41,7 +41,7 @@ const holdPoint = (h: number, tokens: number) => (h === HOLD_RESERVE ? tokens - 
  * A grant's next hold point: grantTokens − reserve until the reserve hold fired, then grantTokens (after a continue);
  * null when both fired or the grant has no tokens.
  */
-export function holdAtTokens(g: Pick<Grant, "grantTokens" | "checkpointsDone">): number | null {
+function holdAtTokens(g: Pick<Grant, "grantTokens" | "checkpointsDone">): number | null {
   const tokens = g.grantTokens ?? 0;
   if (!tokens || g.checkpointsDone.includes(HOLD_FULL)) return null;
   return g.checkpointsDone.includes(HOLD_RESERVE) ? tokens : holdPoint(HOLD_RESERVE, tokens);
