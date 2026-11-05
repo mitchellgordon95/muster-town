@@ -185,9 +185,15 @@ export const grants: GrantView[] = [
       grantId: "gr_hud", objective: "HUD works on narrow screens", spentTokens: 2_010_000, grantTokens: 2_000_000, topUpTokens: 400_000,
       whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.", reportId: "dc_keel_cp", shipped: ["The HUD collapses below 700px"],
       keyResults: [
-        { id: "kr_bl_workshop_0", text: "HUD collapses below 700px", status: "claimed", verdict: "shipped", note: "Live: at 650px the HUD folds into one row (PR #41)." },
-        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "on-track", verdict: "partly", note: "The panel still covers the HUD's last button at 650px." },
+        { id: "kr_bl_workshop_0", text: "HUD collapses below 700px", status: "claimed", verdict: "shipped", note: "Live: at 650px the HUD folds into one row (PR #41).", by: "Keel 2" },
+        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "on-track", verdict: "partly", note: "The panel still covers the HUD's last button at 650px.", by: "Keel 3" },
       ],
+      // the grant's own reports (its forks' sessions), oldest first; `filed`: a fork set a key result (grant C)
+      reports: [
+        { id: "dc_keel_s1", title: "Step 1: the HUD folds below 700px (PR #41)", authorName: "Keel 2", verdict: "continue", at: ago(200) },
+        { id: "dc_keel_s2", title: "Step 2: the meeting panel still overlaps at 650px", authorName: "Keel 3", verdict: "continue", at: ago(40) },
+      ],
+      filed: true,
     },
     createdAt: ago(700), updatedAt: ago(25),
   },
