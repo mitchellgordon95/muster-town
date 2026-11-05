@@ -24,9 +24,9 @@ const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<
 const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).join("");
 /** The Spending tab with this row picked (`spend:` + its path; null = none): the drill-down's level and the sidebar's Selected row. */
 const spendAt = (picked: string | null, spend: FinanceSpend) => renderToStaticMarkup(<BankView tab="Spending" bank={null} fin={{ f, spend, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} picked={picked} />);
-/** The sheet's centre column (`.bank-main`) and its sidebar (`aside.bank-side`) of one rendered tab. */
-const centreOf = (html: string) => html.slice(0, html.indexOf('<aside class="bank-side"'));
-const sideOf = (html: string) => html.slice(html.indexOf('<aside class="bank-side"'));
+/** The sheet's centre column (`.sheet-main`) and its sidebar (`aside.sheet-side.bank-about`) of one rendered tab. */
+const centreOf = (html: string) => html.slice(0, html.indexOf('<aside class="sheet-side bank-about"'));
+const sideOf = (html: string) => html.slice(html.indexOf('<aside class="sheet-side bank-about"'));
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
@@ -379,7 +379,7 @@ describe("finance page: sources", () => {
   });
   it("a picked input shows its dated credits in the sidebar's Selected row, none in the centre (kr_y7derda40x)", () => {
     const html = renderToStaticMarkup(<BankView tab="Inputs" bank={null} fin={{ f, spend: null, sources: src, fly: null }} rev={0} onChange={noop} onReload={noop} picked="in_a" />);
-    const side = html.slice(html.indexOf('<aside class="bank-side"')), centre = html.slice(0, html.indexOf('<aside class="bank-side"'));
+    const side = html.slice(html.indexOf('<aside class="sheet-side bank-about"')), centre = html.slice(0, html.indexOf('<aside class="sheet-side bank-about"'));
     expect(side.indexOf("<h4>Selected row")).toBeLessThan(side.indexOf("<h4>About this tab"));
     for (const s of ["Mitchell&#x27;s Max plan", "subscription · daily · from Mitchell", "Credited on", "2026-10-20", "2026-10-21 00:00", "50 expired undrawn", "2026-10-27", "2 credits"]) expect(side).toContain(s);
     expect(centre).toContain('class="spend-row bank-pick on"');
@@ -432,7 +432,7 @@ describe("finance page: free tokens", () => {
       creditedCounts: { input: 0, output: 5000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, inputs: [], buildings: [], contributors: [], free,
     } as unknown as Bank;
     const html = renderToStaticMarkup(<BankView tab="Balance" bank={bank} fin={{ f, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
-    const side = html.indexOf('<aside class="bank-side"');
+    const side = html.indexOf('<aside class="sheet-side bank-about"');
     const centre = html.slice(0, side), sidebar = html.slice(side);
     expect(centre).toContain("<td>Free for exploration</td><td><b>250</b></td>");
     expect(centre).not.toContain("general balance");

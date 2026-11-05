@@ -25,8 +25,8 @@ type PickProps = { picked: string | null; onPick: (id: string | null) => void };
 
 /**
  * One tab of the Bank sheet given its data: `bank` from GET /api/bank (null until loaded), `fin` the finance endpoints (null
- * until loaded). The centre column (`.bank-main`) holds the tab's tables only; every explanation sits in the sidebar
- * (`.bank-side`): "About this tab" (`BankAbout`, the tab's prose), the Terms and where the numbers come from, then the
+ * until loaded). The centre column (`.sheet-main`) holds the tab's tables only; every explanation sits in the sidebar
+ * (`.sheet-side.bank-about`): "About this tab" (`BankAbout`, the tab's prose), the Terms and where the numbers come from, then the
  * selected row: a row picked in the centre (on Inputs a Bank input: its dated credits, InputCredits; gr_567tikzitl step 3), or
  * `selected` when the caller gives one. `picked` is the row picked at first (tests). `divider` (the sheet's drag handle)
  * goes between the two columns.
@@ -40,9 +40,9 @@ export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactN
     ?? (spendPicked && view.tab === "Spending" && view.fin?.spend ? <SpendSelected sp={view.fin.spend} picked={spendPicked} bank={view.bank} rev={view.rev} /> : null);
   return (
     <>
-      <div className="bank-main" aria-label="The tab's tables">{head}<BankTab {...view} picked={picked} onPick={onPick} /></div>
+      <div className="sheet-main" aria-label="The tab's tables">{head}<BankTab {...view} picked={picked} onPick={onPick} /></div>
       {divider}
-      <aside className="bank-side" aria-label="About this tab">
+      <aside className="sheet-side bank-about" aria-label="About this tab">
         {selected ? <section className="bank-selected"><h4>Selected row</h4>{selected}</section> : null}
         <h4>About this tab</h4>
         <BankAbout {...view} />

@@ -5,7 +5,7 @@
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
-import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
+import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
@@ -597,7 +597,7 @@ export function facilitateMaterial(world: World, meeting: Meeting): string {
     intray = [...(th ? intrayOf(world, th.id).map(row) : []), ...counts].join("\n") || "(empty)";
   }
   const prev = previousMeeting(world, meeting);
-  const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${nameOf(d.assigneeId)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
+  const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${decisionTarget(world, d)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
   const needs = meeting.attendeeIds.flatMap((id) => (meeting.summaries[id] ?? "").split("\n").filter((l) => /^need:/i.test(l.trim())).map((l) => `- ${nameOf(id)}: ${l.trim().replace(/^need:\s*/i, "")}`)).join("\n") || "(none)";
   // a reorg meeting ("Change this goal"): the change, the prep reports, the proposals and the under-review key results first
   const reorg = world.reorgs.material(meeting);

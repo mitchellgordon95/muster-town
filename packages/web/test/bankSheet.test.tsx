@@ -27,12 +27,12 @@ const sp: FinanceSpend = {
 };
 const noop = () => undefined;
 const sheet = (tab: string) => renderToStaticMarkup(
-  <BankSheetView tab={tab} onTab={noop} onClose={noop} sideW={null} onSideW={noop}
+  <BankSheetView tab={tab} onTab={noop} onClose={noop}
     view={{ bank: null, fin: { f, spend: sp, sources: null, fly: null }, rev: 0, onChange: noop, onReload: noop }} />,
 );
 /** the centre column's markup and the sidebar's */
 const columns = (html: string) => {
-  const main = html.indexOf('class="bank-main"'), side = html.indexOf('<aside class="bank-side"');
+  const main = html.indexOf('class="sheet-main"'), side = html.indexOf('<aside class="sheet-side bank-about"');
   expect(main).toBeGreaterThan(0);
   expect(side).toBeGreaterThan(main);
   return { centre: html.slice(main, side), sidebar: html.slice(side) };
@@ -45,14 +45,14 @@ describe("the Bank sheet", () => {
     const html = sheet("Spending");
     expect(html).toContain('role="tablist"');
     for (const t of BANK_TABS) expect(html).toContain(`>${t.replace("&", "&amp;")}</button>`);
-    expect(html).toContain('aria-selected="true" class="bank-tab on">Spending</button>');
+    expect(html).toContain('aria-selected="true" class="sheet-tab on">Spending</button>');
     expect([bankSheetTab("Hosting"), bankSheetTab("nope"), bankSheetTab()]).toEqual(["Hosting", BANK_TABS[0], BANK_TABS[0]]);
   });
   it("opens on Donate: the form (signed out: the sign-in line) at the top of the centre, what funds the town under it, the explanations in the sidebar (gr_567tikzitl step 2, kr_00lym2zmif)", () => {
     expect(BANK_TABS[0]).toBe("Donate");
     expect(bankSheetTab()).toBe("Donate");
     const html = sheet(bankSheetTab());
-    expect(html).toContain('aria-selected="true" class="bank-tab on">Donate</button>');
+    expect(html).toContain('aria-selected="true" class="sheet-tab on">Donate</button>');
     const { centre, sidebar } = columns(html);
     expect(centre.indexOf("Sign in to donate")).toBeGreaterThan(0);
     expect(centre.indexOf("Sign in to donate")).toBeLessThan(centre.indexOf("Funding the town now"));
