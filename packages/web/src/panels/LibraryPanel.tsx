@@ -1,22 +1,16 @@
-/** Library (search + filters + doc view). */
+/** Library (search + filters + the list; a doc opens in the link sheet). */
 import { useEffect, useState } from "react";
 import { DocState, DocType } from "@muster-town/schema";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
-import { DocRow, DocView } from "./DocView";
+import { DocRow } from "./DocView";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SkillList } from "./Skills";
 import { Empty, ErrorLine, Loading, Tabs, useLoad } from "./ui";
 
-function useDoc(id: string | undefined) {
-  const cached = useTown((s) => (id ? s.docs[id] : undefined));
-  const r = useLoad(() => (id ? api().doc(id) : Promise.resolve(null)), [id]);
-  useEffect(() => { if (r.data) store.putDocs([r.data]); }, [r.data]);
-  return { doc: cached ?? r.data ?? null, loading: r.loading, error: r.error };
-}
-
-export function LibraryPanel({ docId }: { docId?: string }) {
+/** The library's list; a doc opens in the link sheet over it (gr_4csjpgh346 step 3), so closing the doc is back on the list. */
+export function LibraryPanel() {
   const buildings = useTown((s) => s.buildings);
   const rev = useTown((s) => s.rev);
   const [q, setQ] = useState("");
@@ -31,15 +25,11 @@ export function LibraryPanel({ docId }: { docId?: string }) {
     [debounced, type, state, buildingId, rev],
   );
   useEffect(() => { if (list.data) store.putDocs(list.data); }, [list.data]);
-  const open = useDoc(docId);
+  const shown = useTown((s) => (s.sheet?.kind === "doc" ? s.sheet.id : null));
 
   return (
     <PanelShell icon={<Glyph kind="library" />} title="Library" subtitle="Everything the town knows, with sources">
-      {docId ? (
-        open.doc ? <DocView doc={open.doc} onBack={() => store.open({ kind: "library" })} backLabel="Library" />
-          : open.loading ? <Loading /> : <><ErrorLine error={open.error} /><Empty>Document not found.</Empty></>
-      ) : (
-        <>
+      <>
           <Tabs tabs={[{ id: "docs", label: "Documents" }, { id: "skills", label: "Skills" }]} active={tab} onChange={(t) => setTab(t as "docs" | "skills")} />
           {tab === "skills" ? <SkillList /> : <>
           <div className="search">
@@ -63,12 +53,11 @@ export function LibraryPanel({ docId }: { docId?: string }) {
           {list.loading && !list.data ? <Loading /> : !list.data?.length ? <Empty>No documents match.</Empty> : (
             <>
               <div className="count">{list.data.length} document{list.data.length === 1 ? "" : "s"}</div>
-              <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} onOpen={() => store.open({ kind: "library", docId: d.id })} />)}</div>
+              <div className="doc-list">{list.data.map((d) => <DocRow key={d.id} doc={d} selected={shown === d.id} onOpen={() => store.openSheet({ kind: "doc", id: d.id })} />)}</div>
             </>
           )}
           </>}
-        </>
-      )}
+      </>
     </PanelShell>
   );
 }

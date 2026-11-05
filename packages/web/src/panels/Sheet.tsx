@@ -15,7 +15,7 @@
  * `.sheet-side` one. On a phone (≤ 760 px) it is full screen: tabs in a row, main above side, no divider; `phone: "split"`
  * gives main the top 40% and side the rest (each scrolls), `"scroll"` (default) stacks them in one scroll.
  */
-import { useEffect, type ReactNode, type Ref } from "react";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { store } from "../state";
 import { SheetDivider, useSideWidth } from "./panelResize";
@@ -64,21 +64,43 @@ export type SheetProps = {
   escFirst?: boolean;
 };
 
+/**
+ * The open sheets, each with the order it first rendered in: Esc closes only the newest (a link sheet over an in-tray item
+ * sheet, a page's frame over its doc). Render order, not effect order: a sheet opened inside another renders after it but
+ * runs its effects before it.
+ */
+const open = new Set<{ seq: number }>();
+let seqNext = 0;
+/** A new sheet's place in the order (call once, when it first renders). */
+export const nextSheetSeq = () => ++seqNext;
+/** Whether `me` is the newest open sheet (exported for the tests). */
+export const isTopSheet = (me: { seq: number }) => open.has(me) && [...open].every((o) => o.seq <= me.seq);
+/** Mark a sheet open until the returned cleanup runs. */
+export function pushSheet(me: { seq: number }): () => void {
+  open.add(me);
+  return () => { open.delete(me); };
+}
+const escHandled = new WeakSet<Event>();
+
 /** The sheet in its backdrop, portalled to the body, closing on Esc and on a backdrop mousedown. */
 export function Sheet(props: SheetProps) {
   const { onClose, escFirst } = props;
+  const [me] = useState(() => ({ seq: nextSheetSeq() }));
+  useEffect(() => pushSheet(me), [me]);
   // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first), unless the
   // sheet is that panel's own (escFirst): then it closes the sheet and the app never sees the key
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
-      if (e.key !== "Escape" || (store.state.panel && !escFirst) || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
+      // one Esc closes one sheet: the top one (the sheet under it may already be top again when its listener runs)
+      if (e.key !== "Escape" || escHandled.has(e) || !isTopSheet(me) || (store.state.panel && !escFirst) || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
+      escHandled.add(e);
       if (escFirst) e.stopPropagation();
       onClose();
     };
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
-  }, [onClose, escFirst]);
+  }, [onClose, escFirst, me]);
   return createPortal(
     <div className="sheet-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <SheetView {...props} />
