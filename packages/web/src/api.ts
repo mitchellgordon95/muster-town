@@ -562,6 +562,12 @@ export interface Api {
   promote(docId: string, state: DocState): Promise<Doc>;
   /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
   unpublish(docId: string): Promise<Doc>;
+  /** GET /api/bulletin — the bulletin board in the town square: humans' notes, newest first (anyone reads) */
+  bulletin(limit?: number): Promise<Doc[]>;
+  /** POST /api/bulletin — pin a note on it (a signed-in human) */
+  postBulletin(input: { title: string; body: string }): Promise<Doc>;
+  /** POST /api/bulletin/:id/take-down — take a note down (back to its author's drafts; its author or a town admin) */
+  takeDownBulletin(docId: string): Promise<Doc>;
   /** PATCH /api/docs/:id — edit a board note's title/body in place (its author, a town admin or the building's manager) */
   editBoardNote(docId: string, input: { title: string; body: string }): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
@@ -813,6 +819,9 @@ class HttpApi implements Api {
   async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
+  async bulletin(limit = 50) { return unwrap<Doc[]>(await this.get(`/api/bulletin${qs({ limit })}`), "docs"); }
+  async postBulletin(i: { title: string; body: string }) { return unwrap<Doc>(await this.post("/api/bulletin", i), "doc"); }
+  async takeDownBulletin(id: string) { return unwrap<Doc>(await this.post(`/api/bulletin/${id}/take-down`, {}), "doc"); }
   async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
