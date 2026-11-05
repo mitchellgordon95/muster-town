@@ -1347,12 +1347,15 @@ export const Grant = z.object({
   continues: Id.nullable().default(null),
   /** the plan's steps, in order (1-5 on a proposal; [] on grants funded before migration 096): funding queues the first */
   steps: z.array(GrantStep).default([]),
-  /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
+  /**
+   * holds already fired for the current grantTokens: 0 = the reserve hold (at grantTokens − reserveOf), 1 = the 100% hold
+   * (a legacy 0.5 may remain). Each fires once per grantTokens value; `holdAtTokens` reads the next one from it.
+   */
   checkpointsDone: z.array(z.number()).default([]),
-  /** the manager's latest checkpoint report */
+  /** the grant's close report (close_grant's rollup; older grants: the manager's checkpoint report) */
   checkpointDocId: Id.nullable().default(null),
   /**
-   * The manager's checkpoint line (checkpoint_grant, Mitchell 1:1 mt_7b4zc7yja3): what a top-up of `topUpTokens` more
+   * The checkpoint's top-up line (Mitchell 1:1 mt_7b4zc7yja3): what a top-up of `topUpTokens` more
    * tokens would deliver. Cleared when a new checkpoint holds the grant; null / "" = not stated (old checkpoints).
    */
   topUpTokens: z.number().int().positive().nullable().default(null),
@@ -1376,7 +1379,7 @@ export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "cl
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
 /**
  * A key result of a grant (docs/how-work-gets-done.md §4): something a human can check in the live town, by a date. The
- * manager writes them in its grant proposal and sets status up to `claimed` (`checkpoint_grant`, `close_grant`);
+ * manager writes them in its grant proposal and sets status up to `claimed` (`close_grant`, PATCH /api/key-results);
  * `met` / `missed` only users with `building.fund`, on the grant. Goals keep none open: a goal holds only the archived
  * key results of its grants (and those dropped by migration 069) as history.
  */
@@ -1813,6 +1816,8 @@ export type RollupAsk = z.infer<typeof RollupAsk>;
 export const GrantView = Grant.extend({
   keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
+  /** a funded grant's next hold point (spent ≥ it → checkpoint): grantTokens − min(150k, a third), or grantTokens after a continue; null otherwise */
+  holdAtTokens: z.number().int().nonnegative().nullable().optional(),
   /** a checkpoint grant's evidence, or a proposal's earlier stopped grant's (null: none) */
   evidence: CheckpointEvidence.nullable().optional(),
   /** the Town Hall in-tray only: rollups asking about this grant (RollupAsk) */
@@ -2067,14 +2072,6 @@ export const VerbInputs = {
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
     grantId: Id.optional().describe("answer a counter: the countered proposal to rewrite with this plan and re-propose under its own id (leave it out for a new proposal)"),
   }),
-  checkpoint_grant: z.object({
-    grantId: Id, reportId: Id.optional().describe("an already filed checkpoint report; leave it out when you file the checkpoint first and then submit_report with rollup: true in this session (that report links itself)"),
-    status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).optional().describe("the status of the grant's open key results (close_grant marks them met; only a human marks missed)"),
-    keyResultId: Id.optional().describe("set the status of this one key result of the grant only (default: all its open ones)"),
-    note: z.string().max(2000).default("").describe("the evidence for that status: what shipped (or did not) and where a human checks it; the checkpoint card shows it on the key result's line"),
-    whatTopUpBuys: z.string().trim().min(1).max(1000).optional().describe("required once per checkpoint: what the next tokens would deliver if a human tops the grant up (concrete: which key results it finishes, what a human would then see)"),
-    topUpTokens: z.number().int().positive().optional().describe("required with whatTopUpBuys: how many more tokens that top-up is"),
-  }),
   close_grant: z.object({
     grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
     note: z.string().trim().min(1).max(2000).describe("the evidence that the work is done: what a human can check in the live town; it becomes its key results' claimed note"),
@@ -2160,8 +2157,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, description, optional model and pages: one session each), an objective, the approach, a stop condition and a token ask. Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
-  checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (close_grant marks them met; only a human marks missed), with a note on the evidence (what shipped or did not), and once per checkpoint whatTopUpBuys + topUpTokens (what the next tokens would deliver); then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
-  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
+  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",

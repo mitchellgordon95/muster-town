@@ -6,7 +6,6 @@ import {
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
-import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
@@ -274,17 +273,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY (purpose = 'work') DESC, startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
-  // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
-  const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
   // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
-  const closedGrants = input.rollup && isManager && session && !checkpointGrantId
+  const closedGrants = input.rollup && isManager && session
     ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
       .filter((g) => g.history.at(-1)?.byId === me.id)
     : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -300,8 +297,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
   // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
   if (format) {
-    // a checkpoint or close rollup asks about its own grant: that is what the rollup is for
-    const own = new Set([checkpointGrantId, ...closedGrants.map((g) => g.id)]);
+    // a close rollup asks about its own grant: that is what the rollup is for
+    const own = new Set(closedGrants.map((g) => g.id));
     const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
     if (dup.length) {
       const captain = world.captainName();
@@ -327,17 +324,13 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
-    if (checkpointGrantId) {
-      const g = world.grants.get(checkpointGrantId);
-      if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
-    }
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
-    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A checkpoint or close rollup is
+    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
     // its grant's report and stays.
-    const rowIds = format && !checkpointGrantId && !closedGrants.length ? waitingRowIds(world) : null;
+    const rowIds = format && !closedGrants.length ? waitingRowIds(world) : null;
     const asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
     const folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them

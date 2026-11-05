@@ -79,6 +79,8 @@ describe("grants routes", () => {
     await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr, body: { note: "ok, half" } });
     const funded = await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
     expect(funded.body.grant).toMatchObject({ status: "funded", grantTokens: 5_000_000 });
+    // grant C: a funded grant holds at its tokens minus min(150k, a third), served with the grant
+    expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.holdAtTokens).toBe(4_850_000);
     expect((await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } })).status).toBe(409);
     expect((await json(app, "GET", `/api/buildings/${LAB}/grants?status=funded`)).body.grants.map((g: any) => g.id)).toEqual([id]);
     expect((await json(app, "GET", `/api/buildings/${LAB}/board`)).body).toMatchObject({ proposals: [], grants: [{ id }] });
@@ -119,7 +121,8 @@ describe("grants routes", () => {
     world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(g.id, { status: "checkpoint", history: [...world.grants.require(g.id).history, { at: new Date().toISOString(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     const [k1] = world.grantDesk.get(g.id).keyResults;
-    world.grantDesk.fileCheckpoint(manager, g.id, { status: "claimed", note: "live on the banner", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the board", topUpTokens: 200_000 });
+    world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "live on the banner" });
+    world.grants.patch(g.id, { topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board" });
     const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
     const row = intray.body.grants.find((x: { id: string }) => x.id === g.id);
     expect(row.evidence).toMatchObject({
