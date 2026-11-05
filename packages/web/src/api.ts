@@ -405,7 +405,7 @@ export interface Board {
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[]; /** FYIs only: the board to post to ("town-hall" = a town-wide FYI) */ buildingId?: string }
-export type RequestAction = "claim" | "done" | "delete";
+export type RequestAction = "claim" | "done" | "delete" | "withdraw" | "decline";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
 export interface SocketHandlers { onMessage(msg: unknown): void; onOpen(): void; onClose(): void }
