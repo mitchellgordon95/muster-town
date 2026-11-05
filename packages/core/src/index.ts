@@ -50,6 +50,7 @@ export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, des
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { engagement, type Engagement } from "./engagement.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";

@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -229,6 +229,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
     return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
+
+  // community engagement in this collective only (flag dc_r7u6bkaei4): what its signed-in humans did here, counts only
+  app.get(`${prefix}/api/engagement`, async () => engagement(opts.world));
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.

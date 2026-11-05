@@ -615,7 +615,7 @@ export const PlaceKind = z.enum([
   "bank",
   /** goal-tree — Town Hall: the goal tree wall chart; using it opens the goal editor (docs/goals.md "The Town Hall goal editor") */
   "goal-tree",
-  /** stats — Town Hall: the user stats stand beside the outbox; using it opens the join numbers (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
+  /** stats — Town Hall: the user stats stand beside the outbox; using it opens this collective's engagement (GET /api/engagement, flag dc_r7u6bkaei4) and, on the root, the join funnel (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
   "stats",
   /** help — every building: the "?" help sign just inside the door; using it opens a card on what this building is, what each thing in the room is and what to do here (Mitchell's flag dc_8dwch9z5pi) */
   "help",
