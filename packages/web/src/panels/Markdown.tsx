@@ -190,12 +190,15 @@ const KIND_HASH: Record<string, string> = { dc: "doc", gr: "grant", mt: "meeting
 const urlOf = (id: string) => id.startsWith("gr_") ? grantUrl(id) : id.startsWith("dc_") ? docUrl(id) : hasHash(id) ? `${location.origin}${location.pathname}#/${KIND_HASH[id.slice(0, 2)]}/${id}` : mediaUrl(id);
 const mediaUrl = (id: string) => `${API_BASE}/api/media/${id}`;
 
-/** Open what an id names in its panel: a grant, a meeting, an agent, a building, a key result in the goal tree, else a doc in the library. */
+/**
+ * Open what an id names: a doc, a grant or an agent in the link sheet over whatever is open (gr_4csjpgh346 step 3), a
+ * meeting, a building, an assignment or a session in its side panel, a key result in the goal tree.
+ */
 export function openIdLink(id: string) {
   switch (id.slice(0, 3)) {
     case "gr_": return store.open({ kind: "grant", id });
     case "mt_": return store.open({ kind: "meeting", id });
-    case "ag_": return store.open({ kind: "agent", id });
+    case "ag_": return store.openSheet({ kind: "agent", id });
     case "bl_": return store.open({ kind: "building", id });
     case "kr_": return store.open({ kind: "goals", id });
     case "as_": return store.open({ kind: "assignment", id });
