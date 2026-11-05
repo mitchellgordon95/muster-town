@@ -12,6 +12,13 @@
     "maxTurnsPerSession": 120,
     "codeAccess": true
   },
+  "plans": [
+    {
+      "label": "Claude Max 20x (now \"Ultra\")",
+      "usdPerMonth": 200,
+      "from": "2026-10-25"
+    }
+  ],
   "buildings": [
     {
       "id": "workshop",
