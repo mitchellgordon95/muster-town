@@ -357,6 +357,73 @@ describe("request_human lifecycle", () => {
     expect(world.ops.outbox().filter((d) => d.requestStatus === "open")).toHaveLength(0);
   });
 
+  it("the author withdraws its own open request with a note; a colleague can't, the building's manager can; a claimed one stays", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const noor = by("Noor");
+    const mei = by("Mei");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Photo", body: "x" });
+    await expect(world.verbs.withdraw_request(noor, { docId: id, note: "nope" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(() => world.ops.requestAction(ingrid, id, "withdraw")).toThrow(/why/);
+    const r = await world.verbs.withdraw_request(ingrid, { docId: id, note: "No longer needed." });
+    expect(r.requestStatus).toBe("withdrawn");
+    expect(world.docs.require(id)).toMatchObject({ requestStatus: "withdrawn", requestNote: "No longer needed.", requestDecidedById: ingrid.id });
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect(world.snapshot().outbox).toBe(0);
+    await expect(world.verbs.withdraw_request(ingrid, { docId: id, note: "again" })).rejects.toThrow(/withdrawn/);
+    // the building's manager withdraws a resident's; the resident is told
+    world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
+    const b = await world.verbs.request_human(ingrid, { title: "Second", body: "y" });
+    await world.verbs.withdraw_request(mei, { docId: b.id, note: "Superseded by the plan." });
+    expect(world.docs.require(b.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: mei.id });
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("withdrew your outbox request") && m.body.includes("Superseded"))).toBe(true);
+    // a claimed one is someone's work: it stays
+    const c = await world.verbs.request_human(ingrid, { title: "Third", body: "z" });
+    world.ops.requestAction(world.ops.ensureAvatar(world.ops.createUser("Rando").user.id), c.id, "claim");
+    await expect(world.verbs.withdraw_request(ingrid, { docId: c.id, note: "late" })).rejects.toThrow(/claimed/);
+  });
+
+  it("a request that replaces an older one withdraws it: `replaces`, or \"replaces dc_…\" in the text; another agent's is left alone", async () => {
+    const { world, by } = seededWorld();
+    const ingrid = by("Ingrid");
+    const noor = by("Noor");
+    const a = await world.verbs.request_human(ingrid, { title: "Drill v1", body: "x" });
+    const theirs = await world.verbs.request_human(noor, { title: "Noor's", body: "n" });
+    const b = await world.verbs.request_human(ingrid, { title: "Drill v2", body: "Run it again.", replaces: a.id });
+    expect(b.withdrew).toEqual([a.id]);
+    expect(world.docs.require(a.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: ingrid.id });
+    expect(world.docs.require(a.id).requestNote).toContain(`Replaced by ${b.id}`);
+    expect(world.docs.require(b.id).requestReplaces).toBe(a.id);
+    const c = await world.verbs.request_human(ingrid, { title: "Drill v3", body: `This supersedes ${b.id} and ${theirs.id}. Run it once more.` });
+    expect(c.withdrew).toEqual([b.id]);
+    expect(world.docs.require(b.id).requestStatus).toBe("withdrawn");
+    expect(world.docs.require(c.id).requestReplaces).toBe(b.id);
+    expect(world.docs.require(theirs.id).requestStatus).toBe("open");
+    expect(world.ops.outbox().map((d) => d.id).sort()).toEqual([c.id, theirs.id].sort());
+    // an explicit `replaces` that isn't yours, or isn't open, refuses the whole request
+    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: theirs.id })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: a.id })).rejects.toThrow(/not open/);
+  });
+
+  it("an admin declines an open request with a note; the author hears why; a member can't; delete stays its own move", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Set the repo topics", body: "x" });
+    const rando = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
+    expect(() => world.ops.requestAction(rando, id, "decline", "no")).toThrow(/approve_request/);
+    expect(() => world.ops.requestAction(ingrid, id, "decline", "no")).toThrow(/Only humans/);
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    expect(() => world.ops.requestAction(admin, id, "decline")).toThrow(/why/);
+    const { request } = world.ops.requestAction(admin, id, "decline", "Outreach is paused.");
+    expect(request).toMatchObject({ requestStatus: "declined", requestNote: "Outreach is paused.", requestDecidedById: seed.admin.id });
+    expect(request!.requestViaAgentId).toBeUndefined();
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect(world.ops.outbox(true).map((d) => d.id)).toEqual([id]);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("declined your outbox request") && m.body.includes("Outreach is paused."))).toBe(true);
+    expect(() => world.ops.requestAction(admin, id, "claim")).toThrow(/declined/);
+    expect(world.ops.requestAction(admin, id, "delete").request).toBeNull();
+  });
+
   it("legacy proposed/approved requests read as open", () => {
     expect(RequestStatus.parse("proposed")).toBe("open");
     expect(RequestStatus.parse("approved")).toBe("open");

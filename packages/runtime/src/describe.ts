@@ -50,6 +50,7 @@ export function describeTool(world: World, name: string, input: unknown): string
     }
     case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
     case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
+    case "withdraw_request": return `Withdrawing the outbox request ${i.docId}`;
     case "assignments": return "Checking assignments";
     case "accept_assignment": return "Accepting an assignment";
     case "meeting": {
