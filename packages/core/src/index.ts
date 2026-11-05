@@ -74,7 +74,7 @@ export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";
 export {
-  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
+  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES, TOWN_HALL_RESTS,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { defaultSide, deriveRoads, doorOf, doorstepOf, type Roads, type Side } from "./world/road.ts";
