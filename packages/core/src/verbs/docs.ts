@@ -357,8 +357,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
         createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
         description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
       });
+      // a parked step stays the same step of its grant's plan: its continuation's report queues the next one
+      if (current.grantStep != null) world.assignments.patch(next.id, { grantStep: current.grantStep });
       parked = { assignmentId: next.id, waitingOn: what };
     }
+    // grant B (gr_b5fyqibfx2): a plan step's report queues the grant's next step by itself (not on a pivot verdict, not
+    // when the step was cancelled under it); the manager's review stop / redirect of this report cancels it while it waits
+    const nextStep = !resumeWhen && current && world.assignments.get(current.id)?.status === "done"
+      ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
+    const stepNote = nextStep ? ` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
     const decision: Doc["decision"] = folded ? "approve" : "pending";
@@ -374,7 +381,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
         note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), note: `Report submitted to ${where}.${formatNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 

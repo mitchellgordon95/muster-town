@@ -54,7 +54,8 @@ The first code span is the test file. The second is the `it` text, copied exactl
 ## How it connects
 
 - **Budget → checkpoints.** After every charge, `Budget.afterCharge` calls `Grants.checkpoints` (wired in `packages/core/src/world.ts`). That moves a grant whose spend reached its tokens to `checkpoint` and queues the manager's checkpoint assignment (invariant 5).
-- **Decisions → assignments.** Fund, counter and reject each queue one assignment for the building's manager agent (`decisionAssignment`). Funded queues grant-lane work with the plan; countered queues "Answer the counter"; rejected queues "read the note". If the building has no manager agent, nothing is queued.
-   - Test: `packages/core/test/lanes.test.ts` › `funded: a front-of-queue grant-lane assignment with the plan, which may run`
+- **Decisions → assignments.** Fund queues the plan's step 1 on the building queue (`queueStep`, lane grant, `grantStep` 0; no manager session); a step's report with a verdict other than pivot queues the next step (`queueNextStep`), and the manager's review stop or redirect of that report cancels it while it waits. Counter and reject each queue one assignment for the building's manager agent (`decisionAssignment`): "Answer the counter", "read the note". If the building has no manager agent, nothing is queued.
+   - Test: `packages/core/test/lanes.test.ts` › `funded: no manager assignment; the plan's step 1 is on the building queue (grant B gr_b5fyqibfx2)`
+   - Test: `packages/core/test/grant-steps.test.ts` › `fund puts step 1 on the building queue (lane grant, grantStep 0, its model and pages) and no manager assignment`
    - Test: `packages/core/test/lanes.test.ts` › `countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'`
 - **The lane gate reads grant status.** `resolveLane` and `laneBlock` (`packages/core/src/lanes.ts`) decide whether grant-lane work may start from the grant's status: funded runs, checkpoint holds everything except the checkpoint assignment, and exploration names a goal gap, never a key result. Those invariants live in [assignments-lanes.md](assignments-lanes.md).

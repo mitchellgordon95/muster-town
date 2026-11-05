@@ -308,7 +308,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions", "brings", "deck"], bool: ["askHumans"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session, SessionWrite>(db, "sessions", Session, { json: ["byModel", "origin"] }),
     schedules: new Table<Schedule>(db, "schedules", Schedule, { json: ["dailyAt", "pages", "origin"], bool: ["paused"] }),
-    grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan", "estimate"] }),
+    grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan", "estimate", "steps"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
     objectives: new Table<Objective>(db, "objectives", Objective, { json: ["sourceDocIds"] }),
     goals: new Table<Goal>(db, "goals", Goal, { json: ["sourceDocIds"], bool: ["explore"] }),
