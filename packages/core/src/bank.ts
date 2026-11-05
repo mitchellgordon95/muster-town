@@ -480,6 +480,25 @@ export class Bank {
     return fee;
   }
 
+  /**
+   * collective.json `plans` at boot (seed.ts): each plan the file spells out is recorded once, by the admin, unless a
+   * fee with its label and first day is already there (a plan an admin recorded by hand, or an earlier boot). A hosted
+   * collective has no plans, so nothing is recorded there. Returns the fees it added.
+   */
+  seedFees(adminId: string, plans: AddBankFee[]): BankFee[] {
+    if (!plans.length || this.permissions.isHosted()) return [];
+    const have = new Set(this.fees().map((f) => `${f.label}\n${f.fromDate}`));
+    const added: BankFee[] = [];
+    for (const raw of plans) {
+      const f = AddBankFee.parse(raw);
+      if (have.has(`${f.label}\n${f.from}`)) continue;
+      const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: adminId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+      this.events.append({ type: "bank.fee", text: `collective.json records a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate, seeded: true } });
+      added.push(fee);
+    }
+    return added;
+  }
+
   /** An admin sets a plan fee's last paid day (an ended plan can be moved). */
   endFee(userId: string, feeId: string, to: string): BankFee {
     this.requireAdmin(userId, "end a plan fee");
@@ -972,7 +991,7 @@ export class Bank {
    */
   cash(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt" | "windowDays"> = {}, now = new Date()): { cash: FinanceCash; cashCheck: CashCheck } {
     const fly = this.fly(desks, townOnFly, { ...o, windowDays: CASH_FLY_DAYS }, now);
-    const cash = financeCash({ fees: this.fees(), sessions: this.repos.sessions.all(), inputs: this.repos.bankInputs.all(), fly }, now);
+    const cash = financeCash({ fees: this.fees(), sessions: this.repos.sessions.all(), inputs: this.repos.bankInputs.all(), fly, hosted: !!o.hosted }, now);
     return { cash, cashCheck: cashCheck(cash) };
   }
 

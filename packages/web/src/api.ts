@@ -151,7 +151,10 @@ export interface FinanceCash {
   plans: number; apiKeys: number; hosting: number; total: number;
   listUsd: number; perDollar: number | null;
   planRows: { id: string; label: string; usdPerMonth: number; activeDays: number; usd: number }[];
-  apiKeySessions: number; pricedAt: "cash";
+  apiKeySessions: number;
+  /** a hosted collective: runs on API keys only, so plans is $0 by design (absent from an older server) */
+  hosted?: boolean;
+  pricedAt: "cash";
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {

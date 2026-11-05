@@ -1,12 +1,15 @@
 /**
  * "Plans paid for" on the Bank's Inputs tab (gr_qggxximtru step 1, kr_au6pcldl3c): what the town pays in cash for a
  * subscription plan, $ per month from a first day to an optional last one (GET /api/bank/fees; docs/bank.md "Plans paid
- * for"). Anyone sees the rows; an admin also sees a small add form and an "End" action per ongoing row.
+ * for"). Anyone sees the rows; an admin also sees a small add form and an "End" action per ongoing row. A hosted
+ * collective runs on API keys only (1:1 mt_pr3347g2w2): no plans is its normal case, so the section says so and has no form.
+ * collective.json `plans` seeds the Workshop's own plan (core seed.ts).
  */
 import { useState } from "react";
 import type { BankFee } from "@muster-town/schema";
 import { api } from "../api";
 import { useTown } from "../state";
+import { useHosted } from "./BankFunding";
 import { Act, Empty, Loading, Section, useLoad } from "./ui";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -14,13 +17,15 @@ const usd = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits
 
 export function PlansPaidFor() {
   const admin = useTown((s) => !!s.me?.isAdmin);
+  const hosted = useHosted();
   const [rev, setRev] = useState(0);
   const r = useLoad(() => api().bankFees(), [rev]);
-  return <PlansPaidForView fees={r.data?.fees ?? null} admin={admin} onChange={() => setRev((x) => x + 1)} />;
+  return <PlansPaidForView fees={r.data?.fees ?? null} admin={admin} hosted={hosted} onChange={() => setRev((x) => x + 1)} />;
 }
 
-/** The section given its rows (null = loading): the table, or "None recorded yet."; an admin also gets the add form. */
-export function PlansPaidForView({ fees, admin, onChange: reload }: { fees: BankFee[] | null; admin: boolean; onChange: () => void }) {
+/** The section given its rows (null = loading): the table, or "None recorded yet."; an admin also gets the add form. A hosted collective: no plans by design, no form. */
+export function PlansPaidForView({ fees, admin, hosted = false, onChange: reload }: { fees: BankFee[] | null; admin: boolean; hosted?: boolean; onChange: () => void }) {
+  if (hosted && !fees?.length) return <Section title="Plans paid for"><Empty>None: a hosted collective runs on API keys, not a subscription plan.</Empty></Section>;
   return (
     <Section title="Plans paid for">
       {!fees ? <Loading /> : !fees.length ? <Empty>None recorded yet.</Empty> : (
@@ -29,7 +34,7 @@ export function PlansPaidForView({ fees, admin, onChange: reload }: { fees: Bank
           <tbody>{fees.map((f) => <FeeRow key={f.id} f={f} admin={admin} onChange={reload} />)}</tbody>
         </table>
       )}
-      {admin ? <AddFee onChange={reload} /> : null}
+      {admin && !hosted ? <AddFee onChange={reload} /> : null}
     </Section>
   );
 }
