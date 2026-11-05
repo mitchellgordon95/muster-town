@@ -273,7 +273,7 @@ function LaneKindLine({ r }: { r: LaneKindRow }) {
       <td>{n(r.sessions)}</td>
       <td className="spend-tokens">{fmtTokens(r.tokens)}</td>
       <td className="spend-usd muted">{dollars(r.usd)}</td>
-      <td style={r.cacheWriteShare > 0.2 ? { color: "#c0392b" } : undefined}>{pct(r.cacheWriteShare)}</td>
+      <td>{pct(r.cacheWriteShare)}</td>
       {KIND_COLS.map(([k]) => <td key={k} title={dollars(r.kinds[k].usd)}>{fmtTokens(r.kinds[k].tokens)}</td>)}
     </tr>
   );

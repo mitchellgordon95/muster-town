@@ -116,7 +116,7 @@ export function fundingAlert(events: Event[], now = Date.now()): Event | null {
   return null;
 }
 
-/** The latest `alert: cache-miss` of the last day (gr_lwgus14rd2 step 2: a purpose's 1 h cache-write share or first turns), or null. */
+/** The latest `alert: cache-miss` of the last day (gr_lwgus14rd2 step 2: the share of a purpose's sessions that bust their prompt prefix), or null. */
 export function cacheMissAlert(events: Event[], now = Date.now()): Event | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];

@@ -152,7 +152,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
-    // a session purpose re-wrote its prompt prefix today (gr_lwgus14rd2 step 2): its 1 h cache-write share or first turns
+    // too many of a purpose's sessions re-wrote their prompt prefix turn after turn today (gr_lwgus14rd2 step 2)
     const cm = cacheMissAlert(events);
     if (cm) {
       out.push({
