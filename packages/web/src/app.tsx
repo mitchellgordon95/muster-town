@@ -27,6 +27,7 @@ import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { BankSheet } from "./panels/BankSheet";
 import { GrantPanel } from "./panels/GrantPanel";
+import { LinkSheet } from "./panels/LinkSheet";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
@@ -204,7 +205,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
     case "building": return <BuildingPanel key={panel.tab ? `${panel.id}:${panel.tab}:${openSeq(panel)}` : `${panel.id}:`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
-    case "library": return <LibraryPanel docId={panel.docId} />;
+    case "library": return <LibraryPanel />;
     case "outbox": return <OutboxPanel />;
     case "stats": return <StatsPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
@@ -230,6 +231,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
 export function App() {
   const [phase, setPhase] = useState<Phase>({ k: "booting" });
   const open = useTown((s) => s.panel);
+  const linkSheet = useTown((s) => s.sheet);
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
   const helpSign = open?.kind === "help" && open.id ? open.id : null;
@@ -336,6 +338,8 @@ export function App() {
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
       {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
+      {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
+      {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
