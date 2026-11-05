@@ -619,6 +619,8 @@ export const PlaceKind = z.enum([
   "stats",
   /** help — every building: the "?" help sign just inside the door; using it opens a card on what this building is, what each thing in the room is and what to do here (Mitchell's flag dc_8dwch9z5pi) */
   "help",
+  /** bulletin:town — the town square, outside the Town Hall: the humans' bulletin board (notes by signed-in humans, read by everyone; core bulletin.ts) */
+  "bulletin",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -647,6 +649,7 @@ export const DocType = z.enum([
   "log",           // an agent's memory: one private append-only log of durable events (assignments, reports, decisions); its tail is injected
   "skill",         // a reusable skill: SKILL.md (frontmatter name + description, then instructions) plus bundled files (docs/skills.md)
   "deck",          // slides: markdown split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only (deck.ts)
+  "bulletin",      // a human's note on the bulletin board in the town square (core bulletin.ts, flag dc_52njv3shp8): published in no building, newest first
   "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance
 ]);
 export type DocType = z.infer<typeof DocType>;
@@ -2316,6 +2319,8 @@ export const TILE = {
   HELP: 34,
   /** the Bank's chest (station `bank:donate`, gr_567tikzitl step 2): opens the Donate tab */
   BANK_CHEST: 35,
+  /** the bulletin board in the town square (place `bulletin:town`, flag dc_52njv3shp8): humans' notes on a roofed board on two posts; not walkable */
+  BULLETIN: 36,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
@@ -2359,6 +2364,8 @@ export function bankPlaces(x0: number, y0: number): Place[] {
     { id: "bank-map", kind: "bank-map", name: "Bank town map", buildingId: null, pos: { x: x0 + F.mapStand.x, y: y0 + F.mapStand.y } },
   ];
 }
+/** The humans' bulletin board in the town square (TILE.BULLETIN; core bulletin.ts): its one place id. */
+export const BULLETIN_PLACE = "bulletin:town";
 export const WALKABLE = new Set<number>([TILE.GRASS, TILE.PATH, TILE.FLOOR, TILE.DOOR, TILE.PAVING]);
 
 // ---------- REST payloads ----------

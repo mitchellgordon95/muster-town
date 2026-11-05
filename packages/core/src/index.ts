@@ -67,6 +67,7 @@ export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNo
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
+export { bulletinNotes, postBulletin, takeDownBulletin } from "./bulletin.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";

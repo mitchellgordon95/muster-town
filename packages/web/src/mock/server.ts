@@ -562,6 +562,22 @@ export class MockApi implements Api {
     if (d.buildingId !== hall?.id || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw new ApiError("Only a town-wide FYI on the Town Hall board can be taken off it here.", "bad_request", 400);
     return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
   }
+  async bulletin(limit = 50) {
+    await wait(60);
+    return clone([...this.sim.docs.values()].filter((d) => d.type === "bulletin" && d.state === "building").sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit));
+  }
+  async postBulletin(i: { title: string; body: string }) {
+    await wait();
+    const title = i.title.trim(), body = i.body.trim();
+    if (!title || !body) throw new ApiError("A note needs a title and a body.", "bad_request", 400);
+    return clone(this.sim.putDoc({ id: newId("dc"), type: "bulletin", state: "building", title, body, authorId: "us_mitchell", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() }));
+  }
+  async takeDownBulletin(docId: string) {
+    await wait();
+    const d = this.need(this.sim.docs.get(docId), "doc");
+    if (d.type !== "bulletin" || d.state !== "building") throw new ApiError("Only a note on the bulletin board can be taken down here.", "bad_request", 400);
+    return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
+  }
   async editBoardNote(docId: string, i: { title: string; body: string }) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
