@@ -51,6 +51,11 @@ describe("the hub", () => {
     expect(funnel.collectives.map((c: { slug: string }) => c.slug)).toEqual(["workshop", "demo"]);
     expect(funnel.collectives[1].totals.guestCardViews).toBe(1);
     expect((await json(app, "GET", "/demo/api/join-funnel")).body.collectives.map((c: { slug: string }) => c.slug)).toEqual(["demo"]);
+    // engagement (flag dc_r7u6bkaei4): each collective answers for itself only, public, counts only
+    const own = (await json(app, "GET", "/demo/api/engagement"));
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ days: 30, totals: { humans: 0, spoke: 0, flags: 0, asked: 0 }, daily: [] });
+    expect((await json(app, "GET", "/api/engagement")).body.totals).toHaveProperty("decisions");
 
     // tokens are per World: the Workshop admin's token means nothing at /demo
     expect((await json(app, "GET", "/api/me", { headers: admin })).status).toBe(200);

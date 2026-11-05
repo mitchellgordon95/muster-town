@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { JoinFunnelView } from "../src/api";
-import { byDay, COLUMNS, MembersTable, StatsView, waitLabel } from "../src/panels/StatsPanel";
+import type { EngagementView as Engagement, JoinFunnelView } from "../src/api";
+import { byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, MembersTable, StatsView, waitLabel } from "../src/panels/StatsPanel";
 
 const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
 const one = (slug: string, daily: ({ day: string } & typeof zero)[], medianDecisionMs: number | null) => {
@@ -12,7 +12,23 @@ const workshop = one("workshop", [{ ...zero, day: "2026-10-29", guestCardViews: 
 const holly = one("hollyville", [{ ...zero, day: "2026-10-29", signIns: 1, asked: 1, letIn: 1 }], 14_987);
 const root: JoinFunnelView = { days: 30, from: "2026-10-03", to: "2026-11-01", decisions: 1, medianDecisionMs: 14_987, totals: { ...zero, guestCardViews: 21, signIns: 2, asked: 1, letIn: 1 }, collectives: [workshop, holly] };
 
+const none = { humans: 0, spoke: 0, oneOnOnes: 0, flags: 0, decisions: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+const eng: Engagement = {
+  days: 30, from: "2026-10-03", to: "2026-11-01", medianDecisionMs: 14_987,
+  daily: [{ ...none, day: "2026-10-29", humans: 2, spoke: 7, flags: 1, decisions: 3 }, { ...none, day: "2026-10-31", humans: 1, oneOnOnes: 1, asked: 1, letIn: 1, acted: 1 }],
+  totals: { ...none, humans: 2, spoke: 7, oneOnOnes: 1, flags: 1, decisions: 3, asked: 1, letIn: 1, acted: 1 },
+};
+
 describe("user stats panel", () => {
+  it("engagement (flag dc_r7u6bkaei4): this collective's own counts, 6-9 columns, newest day first, no Muster-Town-wide funnel steps", () => {
+    expect(ENGAGEMENT_COLUMNS.length).toBeGreaterThanOrEqual(6);
+    expect(ENGAGEMENT_COLUMNS.length).toBeLessThanOrEqual(9);
+    const html = renderToStaticMarkup(<EngagementView e={eng} />);
+    for (const s of ["This collective, last 30 days", "in this collective only", "Humans", "Spoke", "1:1s", "Flags", "Decisions", "Asked", "Let in", "Declined", "Acted", "Typical wait", "15 s", "/api/engagement", "names nobody"]) expect(html).toContain(s);
+    for (const s of ["Pressed Sign in", "Saw card", "homepage", "Per collective"]) expect(html).not.toContain(s);
+    expect(html.indexOf("Oct 31")).toBeLessThan(html.indexOf("Oct 29"));
+    expect(renderToStaticMarkup(<EngagementView e={{ ...eng, daily: [], totals: none }} />)).toContain("No human did anything here");
+  });
   it("sums the collectives' days, newest first", () => {
     expect(byDay(root)).toEqual([
       { ...zero, day: "2026-10-31", guestCardViews: 9 },
