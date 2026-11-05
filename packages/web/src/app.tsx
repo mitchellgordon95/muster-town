@@ -130,6 +130,15 @@ async function boot(): Promise<Phase> {
   };
   loadBlocked();
   setInterval(loadBlocked, 30_000);
+  // the bulletin board's unread count for a signed-in human (flag dc_04q4h8s229): on connect, when a note is pinned or taken down, and when `me` changes
+  const loadBulletinUnread = () => {
+    if (!store.state.me) { if (store.state.bulletinUnread) store.set({ bulletinUnread: 0 }); return; }
+    a.bulletinBoard(200).then((b) => store.set({ bulletinUnread: b.unread ?? 0 }), () => undefined);
+  };
+  store.onBulletinChanged = loadBulletinUnread;
+  let bulletinFor = store.state.me?.user.id;
+  store.subscribe(() => { const id = store.state.me?.user.id; if (id !== bulletinFor) { bulletinFor = id; loadBulletinUnread(); } });
+  loadBulletinUnread();
   return { k: "ready" };
 }
 

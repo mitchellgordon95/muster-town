@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
-import { api, type Board, type GoalProposalView, type Intray } from "../api";
+import { api, type Board, type BulletinNote, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocView } from "./DocView";
@@ -831,9 +831,23 @@ export function TownNoteForm({ buildingId, onPosted }: { buildingId: string; onP
 export function BulletinPanel() {
   const rev = useTown((s) => s.rev);
   useTown((s) => s.me); // re-render on sign-in
-  const notes = useLoad(() => api().bulletin(50), [rev]);
+  const board = useLoad(() => api().bulletinBoard(50), [rev]);
+  const notes = { ...board, data: board.data?.docs };
   const [open, setOpen] = useState<Doc | null>(null);
-  useEffect(() => { if (notes.data) store.putDocs(notes.data); }, [notes.data]);
+  // read / unread per signed-in human (flag dc_04q4h8s229): opening a note marks it read; the map badge follows the count
+  const [read, setRead] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!board.data) return;
+    store.putDocs(board.data.docs);
+    if (store.state.me && board.data.unread !== undefined) store.set({ bulletinUnread: board.data.unread });
+  }, [board.data]);
+  const isUnread = (d: BulletinNote) => !!d.unread && !read.has(d.id);
+  const unreadLeft = (board.data?.docs ?? []).filter(isUnread).length;
+  const markRead = (id: string) => {
+    setRead((s) => new Set(s).add(id));
+    api().readBulletin(id).then((n) => store.set({ bulletinUnread: n }), () => undefined);
+  };
+  const openNote = (d: BulletinNote) => { if (isUnread(d)) markRead(d.id); setOpen(d); };
   if (open) return (
     <PanelShell icon={<Glyph kind="bulletin" />} title="Bulletin board" subtitle="In the town square, outside the Town Hall">
       <DocView doc={open} onBack={() => setOpen(null)} backLabel="Bulletin board" />
@@ -841,17 +855,26 @@ export function BulletinPanel() {
   );
   return (
     <PanelShell icon={<Glyph kind="bulletin" />} title="Bulletin board" subtitle="In the town square: notes from the people who use this town, to each other. Anyone can read them; sign in to pin one.">
-      {canPostBulletin() ? <BulletinForm onPosted={notes.reload} /> : null}
+      {canPostBulletin() ? <BulletinForm onPosted={board.reload} /> : null}
       <ErrorLine error={notes.error} />
+      {unreadLeft ? (
+        <div className="bulletin-unread">
+          <span>{unreadLeft} new note{unreadLeft === 1 ? "" : "s"} since you last looked</span>
+          <Act small title="Mark every note on the board read" run={async () => {
+            setRead(new Set(notes.data?.map((d) => d.id)));
+            store.set({ bulletinUnread: await api().readBulletin("all") });
+          }}>Mark all read</Act>
+        </div>
+      ) : null}
       {notes.loading && !notes.data ? <Loading /> : !notes.data?.length ? <Empty>No notes on the bulletin board yet.</Empty> : (
         <div className="doc-list">{notes.data.map((d) => (
           <div key={d.id} className="board-fyi">
-            <DocRow doc={d} onOpen={() => setOpen(d)} />
+            <DocRow doc={d} onOpen={() => openNote(d)} unread={isUnread(d)} />
             {canUnpublish(d) ? <Act small title="Back to its author's drafts" run={async () => {
               const r = await api().takeDownBulletin(d.id);
               store.putDocs([r]);
               store.toast(`"${d.title}" is off the bulletin board`, "ok");
-              notes.reload();
+              board.reload();
             }}>Take down</Act> : null}
           </div>
         ))}</div>

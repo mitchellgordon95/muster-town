@@ -269,6 +269,8 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); background: var(--raise
 .doc-row { display: block; width: 100%; text-align: left; background: color-mix(in srgb, var(--link) 4%, var(--panel)); border: 1px solid var(--line); border-radius: var(--r); padding: 8px 11px; cursor: pointer; margin-bottom: 6px; }
 .doc-list .doc-row { margin-bottom: 0; }
 .board-fyi { display: flex; gap: 6px; align-items: flex-start; }
+/* the bulletin board's "N new notes" line over its list (flag dc_04q4h8s229) */
+.bulletin-unread { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin: 6px 0; font-size: var(--fs-sm); }
 .board-fyi .doc-row { flex: 1; min-width: 0; }
 .town-note-form .form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .doc-row:hover { border-color: var(--line-2); background: color-mix(in srgb, var(--bg) 27%, var(--line)); }

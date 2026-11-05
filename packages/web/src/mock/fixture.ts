@@ -25,6 +25,7 @@ export const town: Town = {
 
 export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
+  { id: "us_ada", name: "Ada", createdAt: ago(3000), donatedTokens: 0, hasApiKey: false },
 ];
 
 const base = { goal: "", goalId: "gl_town", description: "", budgetMode: "goal-directed" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
@@ -109,6 +110,7 @@ export const memoryDocs: Doc[] = [
 ];
 
 export const docs: Doc[] = [
+  { ...docBase, id: "dc_bulletin_picnic", type: "bulletin", state: "building", title: "Picnic in the square on Saturday", authorId: "us_ada", authorKind: "user", buildingId: null, body: "Bring a blanket; the fountain end has shade after noon.", createdAt: ago(90), updatedAt: ago(90) },
   { ...docBase, id: "dc_town_merge", type: "fyi", state: "building", title: "Town-wide merge rules", authorId: "ag_moss", buildingId: "bl_townhall", body: "A manager merges their own building's green PR to main and redeploys without asking. Schema migrations ship with the PR (additive, backward compatible). Ask Mitchell first only for Bank or token-accounting changes, or another building's code.", createdAt: ago(600), updatedAt: ago(600) },
   { ...docBase, id: "dc_gcb_essd", type: "source", state: "library", title: "GCB 2025 ESSD", tags: ["gcb-2025-essd"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Global Carbon Budget 2025 (ESSD)\n\n**Says:** fossil CO2 emissions 10.2 ± 0.5 GtC in 2024; ocean sink 2.9 ± 0.4 GtC/yr; land sink 3.2 ± 0.9 GtC/yr (2014–2023).\n\n**Link:** https://essd.copernicus.org/\n\nSee also the [data note](gcb-2025-data.md).", provenance: { sourceIds: [], urls: ["https://essd.copernicus.org/"] }, createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_gcb_data", type: "source", state: "library", title: "GCB 2025 data", tags: ["gcb-2025-data"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# GCB 2025 data files\n\nNational and global budget spreadsheets (v1.0). Budget imbalance for the last decade: −0.4 GtC/yr.", createdAt: ago(5000), updatedAt: ago(5000) },
