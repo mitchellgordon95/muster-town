@@ -22,7 +22,7 @@
 .hiw-arrow i { width: 2px; height: 10px; background: repeating-linear-gradient(var(--ink-3) 0 3px, transparent 3px 6px); }
 .hiw-arrow i.tip { position: relative; height: 12px; }
 .hiw-arrow i.tip::after { content: ""; position: absolute; left: -4px; bottom: -4px; border: 5px solid transparent; border-top-color: var(--ink-3); border-bottom-width: 0; }
-.hiw-step { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--hue-bg); font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; }
+.hiw-step { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; background: var(--hue-bg); font-size: var(--fs-lg); font-weight: 600; line-height: 1.3; text-wrap: balance; }
 .hiw-n { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: var(--fs-sm); background: var(--hue); color: var(--paper); }
 .hiw kbd, .hiw code { background: color-mix(in srgb, var(--warn) 8%, var(--white)); color: var(--ink); border: 1px solid var(--rule); font-size: var(--fs-xs); }
 .hiw kbd { border-bottom-width: 2px; }
