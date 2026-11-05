@@ -51,6 +51,7 @@ export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, des
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { engagement } from "./engagement.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";
@@ -76,7 +77,7 @@ export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";
 export {
-  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
+  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES, TOWN_HALL_RESTS,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { defaultSide, deriveRoads, doorOf, doorstepOf, type Roads, type Side } from "./world/road.ts";

@@ -11,8 +11,14 @@ export const TOWN_HALL_SIZE = { w: 17, h: 11 } as const;
 export { MAX_HEADCOUNT };
 
 export const TOWN_HALL_ID = "town-hall";
-/** Seats at the Town Hall mod station (the Town Hall's desks; the Planner sits at one). */
+/** Seats at the Town Hall mod station (the Town Hall's desks). */
 export const MOD_SEATS = 3;
+/**
+ * Town Hall residents who rest by the thing they serve instead of at their mod-station seat (Mitchell's flag
+ * dc_r7u6bkaei4): title -> the furniture piece they idle next to. They still hold a mod-station desk slot (the desk
+ * bookkeeping is unchanged); only that desk place's tile moves beside the piece's stand.
+ */
+export const TOWN_HALL_RESTS: Readonly<Record<string, string>> = { Planner: "goal-tree", Secretary: "intray" };
 
 /** Town Hall fixtures, relative to its lot (17x11). Exported so tests and the web can reason about them. */
 export const TOWN_HALL_FIXTURES = {
@@ -59,7 +65,7 @@ export interface LayoutResult {
  * Build the tile grid and places from the goal tree (`treeLayout` decides every lot and plaza; a building's stored lot
  * is not read) and desk occupancy. `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
  */
-export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree"): LayoutResult {
+export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree", rests: Map<string, string> = new Map()): LayoutResult {
   const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })), shape);
   const lots = buildings.filter((b) => tree.lots.has(b.id)).map((b) => ({ ...b, lot: tree.lots.get(b.id)! }));
   const { w, h } = tree;
@@ -114,12 +120,32 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     const occ = occupancy.get(b.id) ?? new Map<number, string>();
 
     if (b.kind === "town-hall") {
-      // mod-station seats are the Town Hall's desks (the Planner's)
-      const seats: DeskSlot[] = Array.from({ length: MOD_SEATS }, (_, n) => ({ buildingId: b.id, n, pos: stand("mod-station", n), agentId: occ.get(n) ?? null }));
+      // mod-station seats are the Town Hall's desks; a resident in `rests` (the Planner, the Secretary) has its desk beside the piece it serves
+      const standTiles = new Set([...piece.keys()].flatMap((k) => piece.get(k)!.stands.map((_, i) => stand(k, i))).map((t) => `${t.x},${t.y}`));
+      standTiles.add(`${door.x},${door.y}`);
+      const restTaken = new Set<string>();
+      /** the first walkable tile right, left, below or above `key`'s stand that is no stand, door or other rest spot; else the stand */
+      const restBy = (key: string): Tile => {
+        const s = stand(key);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const t = { x: s.x + dx, y: s.y + dy }, k = `${t.x},${t.y}`;
+          if (t.x <= x0 || t.y <= y0 || t.x >= x0 + bw - 1 || t.y >= y0 + bh - 1) continue;
+          if (standTiles.has(k) || restTaken.has(k) || !WALKABLE.has(tiles[t.y * w + t.x])) continue;
+          restTaken.add(k);
+          return t;
+        }
+        return s;
+      };
+      const seats: DeskSlot[] = Array.from({ length: MOD_SEATS }, (_, n) => {
+        const agentId = occ.get(n) ?? null, rest = agentId ? rests.get(agentId) : undefined;
+        return { buildingId: b.id, n, pos: rest && piece.has(rest) ? restBy(rest) : stand("mod-station", n), agentId };
+      });
       desks.set(b.id, seats);
       for (const s of seats) {
+        const rest = s.agentId ? rests.get(s.agentId) : undefined;
+        const where = rest && piece.has(rest) ? `spot by the ${piece.get(rest)!.label.toLowerCase()}` : "seat at the mod station";
         places.push(s.agentId
-          ? { id: `desk:${s.agentId}`, kind: "desk", name: `${names.get(s.agentId) ?? s.agentId}'s seat at the mod station`, buildingId: b.id, pos: s.pos }
+          ? { id: `desk:${s.agentId}`, kind: "desk", name: `${names.get(s.agentId) ?? s.agentId}'s ${where}`, buildingId: b.id, pos: s.pos }
           : { id: `desk:free:${b.id}:${s.n}`, kind: "desk", name: "Free mod station seat", buildingId: b.id, pos: s.pos });
       }
       places.push(
