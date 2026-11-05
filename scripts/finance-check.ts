@@ -151,6 +151,26 @@ function laneKindChecks(window: string, lk: Json | undefined): Check[] {
     flag(`lane × kind ${window} buildings`, Math.abs(bldSum - counted) <= tol && kindsOk, `Σ ${blds.length} buildings' tables ${fmt(bldSum)} = town ${fmt(counted)}; each row's kinds sum to its tokens (±3)`),
   ];
 }
+/**
+ * Manager wakes (gr_lwgus14rd2 step 3): each building's days sum to its total, the buildings to the town's total and to
+ * Σ manage sessions, and that is no more than the 7 d lane × kind table's manager row + its back-filled sessions.
+ */
+function wakeChecks(mw: Json | undefined, lk7d: Json | undefined): Check[] {
+  if (!mw) return [flag("manager wakes", false, "GET /api/finance/spend has no managerWakes")];
+  const blds = Object.values(mw.buildings ?? {}) as Json[];
+  const tol = Math.max(1, Number(mw.total?.wakes) / 2);
+  const daysOk = blds.every((b) => Math.abs(sum(((b.days ?? []) as Json[]).map((d) => Number(d.tokens))) - Number(b.total?.tokens)) <= tol
+    && sum(((b.days ?? []) as Json[]).map((d) => Number(d.wakes))) === Number(b.total?.wakes));
+  const bldSum = sum(blds.map((b) => Number(b.total?.tokens)));
+  const mgr = Number(((lk7d?.rows ?? []) as Json[]).find((r) => r.lane === "manager")?.tokens ?? 0) + Number(lk7d?.notCounted?.tokens ?? 0);
+  const wakes = Number(mw.total?.tokens);
+  return [
+    flag("manager wakes add up", daysOk && Math.abs(bldSum - wakes) <= tol && Math.abs(wakes - Number(mw.manageTokens)) <= tol && mw.check?.ok === true,
+      `${blds.length} buildings' days sum to their totals; Σ buildings ${fmt(bldSum)} = town ${fmt(wakes)} = Σ manage sessions ${fmt(mw.manageTokens)} (±${fmt(tol)}, ${mw.total?.wakes} wakes, ${mw.total?.decided} decided)`),
+    flag("manager wakes ≤ manager row", !lk7d || wakes <= mgr + tol,
+      `wake tokens ${fmt(wakes)} ≤ 7 d lane × kind manager row + not counted ${fmt(mgr)}`),
+  ];
+}
 function mixChecks(m: Json | undefined, bm: Json | undefined): Check[] {
   if (!m) return [flag("mix present", false, "GET /api/finance has no mix")];
   const counts = KINDS.map((k) => Number(m.counts?.[k]));
@@ -185,7 +205,8 @@ async function main(): Promise<number> {
   const [f, s, src, , fly] = bodies as [Json, Json, Json, Json, Json];
   if (s.grants) result.push(...await grantSampleChecks(s));
   if (s.grants) result.push(...await grantSessionChecks(s));
-  result.push(...laneKindChecks("today", s.byLaneKind), ...laneKindChecks("7d", (await get("/api/finance/spend?window=7d").catch(() => ({}))).byLaneKind));
+  const lk7d = (await get("/api/finance/spend?window=7d").catch(() => ({}))).byLaneKind;
+  result.push(...laneKindChecks("today", s.byLaneKind), ...laneKindChecks("7d", lk7d), ...wakeChecks(s.managerWakes, lk7d));
   console.log(`${base}: commit ${String(health.commit).slice(0, 7)}${round > 1 ? `, round ${round} of 3` : ""}`);
   console.log(`at: finance ${f.at}, spend ${s.at}, sources ${src.at}, fly ${fly.at}`);
   console.log(`usd at API list price: used $${Number(f.usd?.used).toFixed(2)}, left $${Number(f.usd?.left).toFixed(2)}, burn $${Number(f.usd?.burnPerDay).toFixed(2)}/day, inflow $${Number(f.usd?.inflowPerDay).toFixed(2)}/day`);
@@ -193,6 +214,7 @@ async function main(): Promise<number> {
   if (s.grants) console.log(`grants: ${fmt(s.grants.spent)} spent on ${s.grants.count} (funded ${fmt(s.grants.funded)}): done ${fmt(s.grants.byOutcome.done.tokens)} on ${s.grants.byOutcome.done.count}, cut ${fmt(s.grants.byOutcome.cut.tokens)} on ${s.grants.byOutcome.cut.count}, open ${fmt(s.grants.byOutcome.open.tokens)} on ${s.grants.byOutcome.open.count}; ${s.grants.overFunding.count} over funding by ${fmt(s.grants.overFunding.tokens)}`);
   if (f.mix) console.log(`mix: 1 adj. token ≈ ${Number(f.mix.rawPerAdjusted).toFixed(1)} raw tokens, ${KINDS.map((k) => `${k} ${(f.mix.rawShare[k] * 100).toFixed(1)}%`).join(", ")} (${f.mix.formula})`);
   if (s.byLaneKind) console.log(`lane × kind today: ${(s.byLaneKind.rows as Json[]).map((r) => `${r.lane} ${fmt(r.tokens)} (cache writes ${(r.cacheWriteShare * 100).toFixed(1)}%)`).join(", ")}; not counted ${fmt(s.byLaneKind.notCounted.tokens)}`);
+  if (s.managerWakes) console.log(`manager wakes 7 d: ${s.managerWakes.total.wakes} wakes, ${fmt(s.managerWakes.total.tokens)} adj. tokens, ${s.managerWakes.total.decided} decided`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);
