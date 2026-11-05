@@ -615,7 +615,7 @@ export const PlaceKind = z.enum([
   "bank",
   /** goal-tree — Town Hall: the goal tree wall chart; using it opens the goal editor (docs/goals.md "The Town Hall goal editor") */
   "goal-tree",
-  /** stats — Town Hall: the user stats stand beside the outbox; using it opens the join numbers (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
+  /** stats — Town Hall: the user stats stand beside the outbox; using it opens this collective's engagement (GET /api/engagement, flag dc_r7u6bkaei4) and, on the root, the join funnel (GET /api/join-funnel; 1:1 mt_ec2b7x80rg) */
   "stats",
   /** help — every building: the "?" help sign just inside the door; using it opens a card on what this building is, what each thing in the room is and what to do here (Mitchell's flag dc_8dwch9z5pi) */
   "help",
@@ -2098,7 +2098,10 @@ export const VerbInputs = {
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   adopt: z.object({ goalId: Id.describe("an active goal no building works on (none on it or on a goal above it)") }),
   ban: z.object({ agentId: Id, reason: z.string() }),
-  redeploy: z.object({ image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers") }),
+  redeploy: z.object({
+    image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers"),
+    restart: z.string().trim().min(1).max(500).optional().describe("a deliberate restart with nothing new on prod: say why; logged in the event (without it, or image, a redeploy with nothing new ends without restarting)"),
+  }),
   digest: z.object({
     shipped: z.array(z.object({
       rollupId: Id.describe("the rollup the item came from (as the read listed it)"),
@@ -2147,7 +2150,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
   digest: "(Secretary) The Town Hall's daily in-tray digest. With no arguments: the \"Decisions needed\" yes/no lines (built in code) and every Shipped item of the rollups filed since the last digest card, or why there is nothing to digest. With `shipped` (one line per item): files the card first in the Town Hall in-tray and archives the covered rollups that ask nothing under it.",
-  redeploy: "Pull main on the host, reinstall, rebuild the web client (and the desk image when image=true), then restart the collective's server. Use when Mitchell asks you to deploy or when main has changed and the running town is stale. The restart no longer waits for desk work sessions: yours keeps running through it (a town call during the few seconds the server is down is retried for you). Still never poll or wait for the new build in the same session: call it, say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
+  redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI already fast-forwards `prod` and redeploys muster.town after every green push to main, so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
 /** The wait union narrowed to the kinds a collective in `mode` may set (`waitKindsFor`). */
@@ -2529,7 +2532,7 @@ export const MeetingPresentInput = z.object({ docId: z.string().trim().min(1).nu
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
 /** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
-export const RedeployInput = z.object({ image: z.boolean().default(false) });
+export const RedeployInput = z.object({ image: z.boolean().default(false), restart: z.string().trim().min(1).max(500).optional() });
 /**
  * `{ started: true }` (runs in the background, progress as `system` events) or `{ queued: true }` when one is in flight:
  * the request joins it (its post-drain pull takes the latest main; past that pull, it runs again after the restart).
