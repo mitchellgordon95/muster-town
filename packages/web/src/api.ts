@@ -646,6 +646,8 @@ export interface Api {
   health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
+  /** a hosted collective's admin renames it, its address (slug) unchanged (`PATCH /<slug>/api/collective`) */
+  renameCollective(name: string): Promise<{ collective: { name: string; slug: string; url: string } }>;
   /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
   manual(): Promise<{ doc: Doc; author: string }>;
   connect(handlers: SocketHandlers): Socket;
@@ -887,6 +889,7 @@ class HttpApi implements Api {
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
+  async renameCollective(name: string) { return this.call<{ collective: { name: string; slug: string; url: string } }>("PATCH", "/api/collective", { name }); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
   async scheduled() { return (await this.get<{ schedules?: ScheduleView[] }>("/api/scheduled")).schedules ?? []; }
