@@ -20,6 +20,19 @@ import { founderStale } from "./founder";
  */
 export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
+/**
+ * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant
+ * or an agent in a centred sheet over the map and over whatever side panel is open; closing it leaves that panel where it was.
+ */
+export interface SheetRef { kind: "doc" | "grant" | "agent"; id: string; tab?: string }
+/** The sheet a panel ref names: a doc in the library (`docId`) and a grant are content, so they open as a sheet, not a side panel. */
+export function sheetOf(p: PanelRef | null): SheetRef | null {
+  if (p?.kind === "library" && p.docId) return { kind: "doc", id: p.docId };
+  if (p?.kind === "grant" && p.id) return { kind: "grant", id: p.id };
+  return null;
+}
+/** A phone: a sheet is full screen there, so a side panel opened from it would sit hidden under it. */
+const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 760px)").matches;
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
 interface TownState {
@@ -43,6 +56,8 @@ interface TownState {
   docs: Record<string, Doc>;
   assignments: Record<string, Assignment>;
   panel: PanelRef | null;
+  /** the link sheet over the map and the panel (SheetRef); null when none */
+  sheet: SheetRef | null;
   toasts: Toast[];
   /** bumps whenever a doc/assignment/meeting arrives so panels can refetch lists */
   rev: number;
@@ -66,7 +81,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -275,7 +290,15 @@ class Store {
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
   /** Always a fresh ref, so re-opening a panel that's already open (e.g. E twice on one target) counts as a new open (app.tsx openSeq). */
-  open(panel: PanelRef | null) { const p = redirectPanel(panel); this.set({ panel: p ? { ...p } : null }); }
+  open(panel: PanelRef | null) {
+    const p = redirectPanel(panel);
+    const sheet = sheetOf(p);
+    if (sheet) return this.openSheet(sheet);
+    // on a phone the sheet covers the panel: a side panel opened from it (a building, a 1:1) replaces it
+    this.set(p && this.state.sheet && isPhone() ? { panel: { ...p }, sheet: null } : { panel: p ? { ...p } : null });
+  }
+  /** Open a doc, grant or agent in the link sheet (over the side panel, which stays); null closes it. */
+  openSheet(sheet: SheetRef | null) { this.set({ sheet: sheet ? { ...sheet } : null }); }
   /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
   walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {

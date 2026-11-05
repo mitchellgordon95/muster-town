@@ -48,7 +48,7 @@ export function pageSrcDoc(body: string, vars: Record<string, string>, mediaOrig
 function PageSheet({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const srcDoc = useMemo(() => pageSrcDoc(doc.body, townCssVars(), location.origin), [doc.body]);
   return (
-    <Sheet label={doc.title} title={doc.title} sub={<>page by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.updatedAt)}</>} onClose={onClose} mainClass="page-main" maxWidth={1100} className="page-sheet">
+    <Sheet label={doc.title} title={doc.title} sub={<>page by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.updatedAt)}</>} onClose={onClose} escFirst mainClass="page-main" maxWidth={1100} className="page-sheet">
       <iframe className="page-frame" title={doc.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc} />
     </Sheet>
   );
