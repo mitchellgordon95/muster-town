@@ -943,6 +943,8 @@ export const Assignment = z.object({
   reservationId: Id.nullable().default(null),
   /** manager forks: topic pages (doc ids, at most 3) the manager attached for its fork's memory block */
   pages: z.array(Id).max(3).optional(),
+  /** lane grant: which step of its grant's plan this runs (0-based; `Grant.steps`); its report queues the next one. Null = not a plan step */
+  grantStep: z.number().int().min(0).nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1298,6 +1300,17 @@ export function estimateRangeOf(e: GrantEstimate | null | undefined): { low: num
   return null;
 }
 /**
+ * One step of a grant's plan (grant B gr_b5fyqibfx2): one session's worth of work. Funding queues step 1 on the building
+ * queue; a step's report (verdict not pivot) queues the next. `model` / `pages` as in `assign`.
+ */
+export const GrantStep = z.object({
+  title: z.string().trim().min(1).max(160).describe("the step's assignment title"),
+  description: z.string().trim().min(1).max(4000).describe("what the fork does in this step and the check a human can make in the live town"),
+  model: z.string().trim().min(1).optional().describe("optional: the model its fork runs on (the building's model or cheapModel; default the building's model)"),
+  pages: z.array(Id).max(3).optional().describe("optional: topic pages of this building loaded into its fork's memory, at most 3"),
+});
+export type GrantStep = z.infer<typeof GrantStep>;
+/**
  * A building's proposal and, once funded, its grant (docs/how-work-gets-done.md §4): filed against a goal, it carries
  * its own 1-5 key results (the checks of its work; `key_results.grantId`) and the plan (objective, approach, stop
  * condition) and a token ceiling (not a reservation). Funding it runs the plan.
@@ -1332,6 +1345,8 @@ export const Grant = z.object({
    * card and deck slide show that grant's checkpoint evidence. Null = none named: the card shows no other grant's evidence.
    */
   continues: Id.nullable().default(null),
+  /** the plan's steps, in order (1-5 on a proposal; [] on grants funded before migration 096): funding queues the first */
+  steps: z.array(GrantStep).default([]),
   /** spend fractions already checkpointed (1; a legacy 0.5 may remain), so each fires once per grantTokens value */
   checkpointsDone: z.array(z.number()).default([]),
   /** the manager's latest checkpoint report */
@@ -1932,6 +1947,7 @@ export type GrantKeyResultInput = z.input<typeof GrantKeyResultInput>;
 export const CreateGrantInput = z.object({
   goalId: Id.optional().describe("the goal it is filed against: your building's goal or one under it (default your building's goal)"),
   keyResults: z.array(GrantKeyResultInput).min(1).max(5).describe("its 1-5 key results: what a human checks in the live town to call the work done, each with how to check and a due date"),
+  steps: z.array(GrantStep).min(1).max(5).describe("its 1-5 steps in order, each one session's worth: funding queues step 1 on the building queue (a fork runs it), and each step's report queues the next (a pivot verdict stops the chain for your review)"),
   objective: z.string().trim().min(1).max(300),
   approach: z.string().trim().max(2000).default("").describe("how: the approach the plan takes"),
   stopCondition: z.string().trim().min(1).max(500),
@@ -2143,7 +2159,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
-  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), an objective, the approach, a stop condition and a token ask. Funding it runs the plan. It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
+  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, description, optional model and pages: one session each), an objective, the approach, a stop condition and a token ask. Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
   checkpoint_grant: "(manager) File a grant's checkpoint: set the status of the grant's open key results (or one, keyResultId), at most claimed (close_grant marks them met; only a human marks missed), with a note on the evidence (what shipped or did not), and once per checkpoint whatTopUpBuys + topUpTokens (what the next tokens would deliver); then submit_report with rollup: true, which links itself to the grant as its checkpoint report. The grant stays held until a human continues, adjusts or cuts it.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). Use checkpoint_grant instead when the grant is held at its 100% checkpoint and the work is not done.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",

@@ -78,7 +78,7 @@ describe("blockedBy", () => {
     fundGoalOf(world, LAB, { exploreCapTokensPerDay: 6_385_714 });
     creditBank(world, 20_000_000);
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor sees the spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor sees the spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
     const grantWork = world.ops.createWork(admin, noor.id, { title: "Grant step", lane: "grant", grantId: g.id });
     const ex = world.ops.createWork(admin, noor.id, { title: "Explore", lane: "exploration", gap: "gap" });
     expect(blockedBy(world, grantWork)).toBeNull();

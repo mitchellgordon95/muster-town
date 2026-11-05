@@ -188,7 +188,7 @@ describe("report state machine", () => {
     const mei = by("Mei");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
-    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", stopCondition: "when the number is in", askTokens: 1_000_000 });
+    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "when the number is in", askTokens: 1_000_000 });
     expect(world.ops.townHallIntray().grants).toEqual([]);
     world.grantDesk.propose(mei, g.id);
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).toEqual([g.id]);
