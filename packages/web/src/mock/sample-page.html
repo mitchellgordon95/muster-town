@@ -1,0 +1,71 @@
+<!doctype html>
+<html><head><title>Bank balance over a week (sample page)</title>
+<style>
+  h1 { font-size: var(--fs-lg); margin: 0 0 4px; }
+  p.note { color: var(--muted); margin: 0 0 12px; max-width: 60ch; }
+  .chart { position: relative; }
+  svg { display: block; width: 100%; max-width: 900px; height: auto; overflow: visible; }
+  .axis text { fill: var(--muted); font-size: 11px; }
+  .grid line { stroke: var(--line); stroke-width: 1; }
+  .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .area { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .cross { stroke: var(--line-2); stroke-width: 1; }
+  .dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+  .tip { position: absolute; pointer-events: none; background: var(--raised); border: 1px solid var(--line-2); border-radius: 6px; padding: 4px 8px; font-size: 12px; color: var(--text); white-space: nowrap; transform: translate(-50%, -120%); }
+  .tip b { font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  td, th { border: 1px solid var(--line); padding: 3px 8px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  summary { cursor: pointer; color: var(--soft); margin-top: 12px; }
+</style></head>
+<body>
+<h1>Bank balance over a week</h1>
+<p class="note">A sample page: this chart is drawn by the page's own script, in a sandboxed frame. The numbers are illustrative, not the live ledger. Move the mouse (or a finger) over the chart.</p>
+<div class="chart" id="chart"><svg id="svg" role="img" aria-label="Line chart of the Bank balance, in thousands of tokens, over seven days"></svg><div class="tip" id="tip" hidden></div></div>
+<details><summary>The numbers as a table</summary><table id="table"><tr><th>Day</th><th>Balance (k tokens)</th></tr></table></details>
+<script>
+  const DATA = [["Mon", 7400], ["Tue", 7180], ["Wed", 6930], ["Thu", 8150], ["Fri", 7790], ["Sat", 7520], ["Sun", 6970]];
+  const H = 260, L = 44, R = 18, T = 12, B = 28;
+  const svg = document.getElementById("svg"), tip = document.getElementById("tip"), box = document.getElementById("chart");
+  let W = 640, show = () => {}, hide = () => {};
+  function draw() {
+  W = Math.max(280, Math.min(900, box.clientWidth));
+  svg.replaceChildren();
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n, a, p = svg) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); p.append(e); return e; };
+  const lo = 6000, hi = 9000;
+  const x = (i) => L + (i * (W - L - R)) / (DATA.length - 1);
+  const y = (v) => T + ((hi - v) * (H - T - B)) / (hi - lo);
+  const grid = el("g", { class: "grid" }), axis = el("g", { class: "axis" });
+  for (let v = lo; v <= hi; v += 1000) {
+    el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v) }, grid);
+    el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end" }, axis).textContent = `${v / 1000}M`;
+  }
+  DATA.forEach(([d], i) => { el("text", { x: x(i), y: H - 8, "text-anchor": "middle" }, axis).textContent = d; });
+  const pts = DATA.map(([, v], i) => `${x(i)},${y(v)}`);
+  el("path", { class: "area", d: `M${x(0)},${y(lo)} L${pts.join(" L")} L${x(DATA.length - 1)},${y(lo)} Z` });
+  el("path", { class: "line", d: `M${pts.join(" L")}` });
+  const cross = el("line", { class: "cross", y1: T, y2: H - B, visibility: "hidden" });
+  const dot = el("circle", { class: "dot", r: 5, visibility: "hidden" });
+  show = (cx) => {
+    const r = svg.getBoundingClientRect(), sx = ((cx - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(DATA.length - 1, Math.round(((sx - L) / (W - L - R)) * (DATA.length - 1))));
+    const [d, v] = DATA[i];
+    for (const [k, val] of [["x1", x(i)], ["x2", x(i)]]) cross.setAttribute(k, val);
+    dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(v));
+    cross.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+    tip.hidden = false; tip.innerHTML = `${d} · <b>${v.toLocaleString()}k</b> tokens`;
+    tip.style.left = `${(x(i) / W) * r.width}px`; tip.style.top = `${(y(v) / H) * r.height}px`;
+  };
+  hide = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); };
+  svg.onpointermove = (e) => show(e.clientX);
+  svg.onpointerdown = (e) => show(e.clientX);
+  svg.onpointerleave = hide;
+  }
+  draw();
+  addEventListener("resize", () => { hide(); draw(); });
+  const table = document.getElementById("table");
+  for (const [d, v] of DATA) { const tr = table.insertRow(); tr.insertCell().textContent = d; tr.insertCell().textContent = v.toLocaleString(); }
+</script>
+</body></html>
