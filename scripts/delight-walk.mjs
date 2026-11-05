@@ -5,9 +5,9 @@
  *   land     landing page → Skip → Workshop Collective → "Watch first" → the map
  *   agent    click a working agent on the map (the HUD's "who is here" row when no name label is on screen)
  *   building enter a building: its panel (#/building/<id>)
- *   report   open the newest report (#/doc/<id>)
+ *   report   open the newest report (#/doc/<id>: a centred sheet since PR #376)
  *   meeting  open the newest meeting (#/meeting/<id>)
- *   oneonone a building manager's panel, where a 1:1 starts ("Talk to ★"), as a guest sees it
+ *   oneonone a building manager's sheet (#/agent/<id>), where a 1:1 starts ("Talk to ★"), as a guest sees it
  * For each moment and size it saves a screenshot and prints one table row:
  *   cover%   share of the screen covered by HUD and cards (sampled every 8 px; the map canvas is "uncovered")
  *   panel%   share taken by the panel the moment opened (the thing clicked; not counted in cover%)
@@ -63,7 +63,8 @@ const init = () => {
 function measure(target) {
   const vw = innerWidth, vh = innerHeight;
   const canvas = document.querySelector("canvas.map");
-  const isMap = (el) => !el || el === canvas || el === document.body || el === document.documentElement || el.classList?.contains("app");
+  // a sheet's dimmed backdrop (.sheet-wrap) is the map seen through a scrim, not something covering it
+  const isMap = (el) => !el || el === canvas || el === document.body || el === document.documentElement || el.classList?.contains("app") || el.classList?.contains("sheet-wrap");
   const vis = (el) => { const s = getComputedStyle(el), r = el.getBoundingClientRect(); return s.visibility !== "hidden" && s.display !== "none" && +s.opacity > 0.05 && r.width > 0 && r.height > 0; };
   // cover: grid sample of what's on top, apart from the panel the moment opened (that is the thing clicked)
   const own = target ? document.querySelector(target) : null;
@@ -80,7 +81,7 @@ function measure(target) {
     if (!vis(el)) return;
     const r = el.getBoundingClientRect();
     if (r.width < 24 || r.height < 16) return;
-    if (clear(getComputedStyle(el)) && el.children.length) { for (const c of el.children) add(c); return; }
+    if ((clear(getComputedStyle(el)) || el.classList.contains("sheet-wrap")) && el.children.length) { for (const c of el.children) add(c); return; }
     overlays.push({ el, name: `${el.tagName.toLowerCase()}.${String(el.className).trim().split(/\s+/).slice(0, 2).join(".")}`, r });
   };
   const positioned = (el) => ["fixed", "absolute"].includes(getComputedStyle(el).position) && el !== canvas && !el.classList.contains("app");
@@ -158,7 +159,12 @@ for (const size of SIZES) {
   const tap = (loc) => (size.touch ? loc.tap() : loc.click());
   const settle = (ms = 1500) => page.waitForTimeout(ms);
   const hash = async (h) => { await page.evaluate((x) => { location.hash = x; }, h); await settle(2500); };
-  const closePanel = async () => { await page.evaluate(() => { location.hash = ""; }); await page.keyboard.press("Escape").catch(() => {}); await settle(500); };
+  // clears the hash, then Esc closes the newest open sheet (a link sheet over a panel), then the panel
+  const closePanel = async () => {
+    await page.evaluate(() => { location.hash = ""; });
+    for (let i = 0; i < 3 && (await page.locator(".sheet").count()) > 0; i++) { await page.keyboard.press("Escape").catch(() => {}); await settle(300); }
+    await page.keyboard.press("Escape").catch(() => {}); await settle(500);
+  };
 
   const moments = [
     ["land", null, async () => {
@@ -191,14 +197,15 @@ for (const size of SIZES) {
       return `map click on ${hit?.t}`;
     }],
     ["building", "aside.panel", async () => { await closePanel(); await hash(`#/building/${building.id}`); return building.name; }],
-    ["report", "aside.panel", async () => { await closePanel(); if (!reports[0]) return "no report"; await hash(`#/doc/${reports[0].id}`); return reports[0].id; }],
+    // since PR #376 a doc, grant or agent opened by its hash (#/doc/…, #/agent/…) is a centred sheet, not a side panel
+    ["report", ".sheet", async () => { await closePanel(); if (!reports[0]) return "no report"; await hash(`#/doc/${reports[0].id}`); return reports[0].id; }],
     ["meeting", "aside.panel", async () => { await closePanel(); if (!meetings[0]) return "no meeting"; await hash(`#/meeting/${meetings[0].id}`); return `${meetings[0].kind} ${meetings[0].phase}`; }],
-    ["oneonone", "aside.panel", async () => {
+    ["oneonone", ".sheet", async () => {
       await closePanel(); if (!manager) return "no manager";
       await hash(`#/agent/${manager.id}`);
-      const talk = page.locator("aside.panel").getByRole("button", { name: /Talk to/ }).first();
+      const talk = page.locator(".sheet").getByRole("button", { name: /Talk to/ }).first();
       const can = await talk.isVisible().catch(() => false);
-      const signIn = await page.locator("aside.panel").getByText(/sign in/i).first().isVisible().catch(() => false);
+      const signIn = await page.locator(".sheet").getByText(/sign in/i).first().isVisible().catch(() => false);
       return `${manager.name}: ${can ? "Talk button shown" : "no Talk button"}${signIn ? ", asks to sign in" : ", no sign-in hint"}`;
     }],
   ];
