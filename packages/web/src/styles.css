@@ -482,9 +482,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .review-box textarea { margin-bottom: 8px; }
 .review-box .actions { flex-wrap: wrap; }
 .intray-row { display: flex; flex-direction: column; gap: 3px; }
-.digest-group { margin: 2px 0; }
-.digest-group-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.digest-group .digest-decisions { margin: 2px 0 0; }
+.digest-overtaken { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .intray-who { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
 .intray-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .intray-who b { color: var(--text); }
