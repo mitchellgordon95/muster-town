@@ -274,6 +274,7 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); background: var(--raise
 .board-fyi .doc-row { flex: 1; min-width: 0; }
 .town-note-form .form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .doc-row:hover { border-color: var(--line-2); background: color-mix(in srgb, var(--bg) 27%, var(--line)); }
+.doc-row.on, .doc-row.on:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
 .doc-row-title { font-weight: 600; font-size: var(--fs-md); }
 .doc-row-act { display: flex; gap: 6px; align-items: center; }
 .doc-row-act > .doc-row { flex: 1; min-width: 0; }
@@ -1002,6 +1003,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .intray-focus > .btn { margin-bottom: 8px; }
 /* gr_567tikzitl step 3: Bank list toggles ("Show N cancelled") and rows picked for the sidebar's "Selected row" */
 .bank-section-right { display: inline-flex; gap: 6px; align-items: center; }
+/* an in-tray grant or retainer in its sheet: the row is the page (no card frame), its title is the sheet's head */
+.item-sheet .sheet-main > .intray-row { border: none; background: none; padding: 0; margin: 0; cursor: default; }
+.item-sheet .sheet-main > .intray-row > .doc-row-title { display: none; }
 .sheet-main .bank-pick { cursor: pointer; }
 .sheet-main .bank-pick:hover { background: var(--panel-2); }
 .sheet-main .bank-pick.on, .sheet-main .bank-pick.on:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }

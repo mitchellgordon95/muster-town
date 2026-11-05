@@ -15,6 +15,7 @@ import { requestDecisionLine, requestTone } from "./requests";
 import { RollupReport, rollupCardsOf } from "./RollupCards";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
+import { Sheet } from "./Sheet";
 
 const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -111,8 +112,8 @@ function TalkToAuthor({ doc }: { doc: Doc }) {
   );
 }
 
-/** `review`: a pending report gets Talk to + Archive, a flag its decide box (only the in-tray passes it). */
-export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void }) {
+/** `review`: a pending report gets Talk to + Archive, a flag its decide box (only the in-tray passes it). `inSheet`: the sheet's head shows the title (DocSheet). */
+export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided, inSheet }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void; inSheet?: boolean }) {
   const live = useTown((s) => s.docs[initial.id]);
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
   useTown((s) => s.me); // re-render when permissions arrive
@@ -126,7 +127,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   return (
     <article className="doc">
       {onBack ? <button className="link back" onClick={onBack}>← {backLabel}</button> : null}
-      <h2 className="doc-title">{doc.title}</h2>
+      {inSheet ? null : <h2 className="doc-title">{doc.title}</h2>}
       <DocMeta doc={doc} />
       <div className="doc-byline">
         by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
@@ -159,6 +160,20 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   );
 }
 
+/**
+ * One doc opened from a list in a side panel (the in-tray, the filing cabinet: grant gr_4csjpgh346, "central modals for
+ * content"): a centred sheet over the map with the list still beside it. Esc, the backdrop or × closes it, back to the list.
+ * `after`: more under the doc in the same scroll (the digest's "overtaken" line).
+ */
+export function DocSheet({ doc, onClose, review, onDecided, after }: { doc: Doc; onClose: () => void; review?: boolean; onDecided?: () => void; after?: ReactNode }) {
+  return (
+    <Sheet label={doc.title} title={doc.title} sub={`${doc.type.replace(/-/g, " ")} · ${nameOf(doc.authorId)}`} onClose={onClose} escFirst maxWidth={980} className="doc-sheet">
+      <DocView doc={doc} review={review} onDecided={onDecided} inSheet />
+      {after}
+    </Sheet>
+  );
+}
+
 /** The doc's id, which agents can cite in any body; click copies a shareable URL. */
 function CopyLink({ id }: { id: string }) {
   const copy = async () => {
@@ -182,10 +197,10 @@ function legacyCopy(text: string): boolean {
 }
 
 /** `unread`: a red "new" mark first in the meta line (the bulletin board's notes the signed-in human hasn't opened, flag dc_04q4h8s229). */
-export function DocRow({ doc, onOpen, unread }: { doc: Doc; onOpen: () => void; unread?: boolean }) {
+export function DocRow({ doc, onOpen, unread, selected }: { doc: Doc; onOpen: () => void; unread?: boolean; /** its doc is open (or was last open) in a sheet */ selected?: boolean }) {
   const cost = docCost(doc);
   return (
-    <button className="doc-row" onClick={onOpen}>
+    <button className={selected ? "doc-row on" : "doc-row"} aria-current={selected || undefined} onClick={onOpen}>
       <MediaThumb body={doc.body} />
       <div className="doc-row-title">{doc.title}</div>
       <div className="doc-row-meta">

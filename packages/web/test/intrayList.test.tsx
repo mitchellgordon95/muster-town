@@ -27,6 +27,15 @@ describe("the in-tray as a list (Mitchell's flag dc_2hllscunfx)", () => {
     expect(onOpen).toHaveBeenCalledOnce();
   });
 
+  it("the line whose item is open in the sheet (or was last) stays marked in the list (gr_4csjpgh346 step 2)", () => {
+    const on = renderToStaticMarkup(<CompactLine title="A report" at={null} selected onOpen={() => {}} />);
+    expect(on).toContain('class="doc-row intray-line on"');
+    expect(on).toContain('aria-current="true"');
+    const off = renderToStaticMarkup(<CompactLine title="A report" at={null} onOpen={() => {}} />);
+    expect(off).not.toContain(" on\"");
+    expect(off).not.toContain("aria-current");
+  });
+
   it("the pill: a flag, a verdict, a grant's status with its money", () => {
     expect(renderToStaticMarkup(<>{reportPill({ type: "flag", tags: [], verdict: null })}</>)).toContain("⚑ flag");
     expect(renderToStaticMarkup(<>{reportPill({ type: "report", tags: [], verdict: "stop" })}</>)).toContain(">stop<");
