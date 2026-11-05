@@ -54,6 +54,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
   stats: () => ({ kind: "stats", verb: "Read the user stats" }),
+  bulletin: () => ({ kind: "bulletin", verb: "Read the bulletin board" }),
   help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
   // the vault opens Balance; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {

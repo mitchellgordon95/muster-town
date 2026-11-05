@@ -33,7 +33,7 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     [`%"${me.id}"%`, home ?? "-"], "ORDER BY scheduledAt");
   const mine = (p: { buildingId: string | null }) => p.buildingId === here?.id || p.buildingId === home;
   const visible = world.layout.places.filter((p) =>
-    p.kind === "door" || p.kind === "plaza" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
+    p.kind === "door" || p.kind === "plaza" || p.kind === "bulletin" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
     p.kind === "mod-station" || p.kind === "planning" || p.kind === "town-map" || p.kind === "goal-tree" || p.id === "schedule-board" || p.kind === "bench" || p.id === "intray:town-hall" || p.id === "board:town-hall" ||
     // the board, schedule board, filing cabinet, in-tray (manager's desk) and help sign of the building I'm in / my home building

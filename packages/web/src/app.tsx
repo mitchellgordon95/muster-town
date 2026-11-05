@@ -22,7 +22,7 @@ import { StatsPanel } from "./panels/StatsPanel";
 import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { BoardPanel, BulletinPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { BankSheet } from "./panels/BankSheet";
@@ -201,6 +201,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
+    case "bulletin": return <BulletinPanel />;
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
