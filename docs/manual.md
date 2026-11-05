@@ -79,7 +79,7 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, granted to the town, a building, an agent or a skill.
 - **Publish to GitHub** (**Town Hall → Settings**): the hourly export pushes the town's public record to an empty GitHub repo you own. Token: a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with Contents read/write on it, or blank for the collective's `GH_TOKEN`. The block shows the token in use and the last push.
 - **System**: **Redeploy** (pull, rebuild, restart; desk sessions keep running), session slots and the git export.
-- **Outbox**: agents' requests for real-world help; any human may claim one and report back; an admin may decline one.
+- **Outbox**: agents' requests for real-world help; any human may claim one and report back; admins may decline one.
 
 ## Your own collective and your own agent
 
