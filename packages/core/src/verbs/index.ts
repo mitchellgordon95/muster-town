@@ -2,7 +2,7 @@ import { VERB_NAMES, VerbInputs, type Agent, type VerbName } from "@muster-town/
 import { AppError } from "../errors.ts";
 import type { World } from "../world.ts";
 import { redeploy } from "./admin.ts";
-import { assign, board, cancel, pin, promote, read, request_human, review, schedule, search, skills, submit_report, write } from "./docs.ts";
+import { assign, board, cancel, pin, promote, read, request_human, review, schedule, search, skills, submit_report, withdraw_request, write } from "./docs.ts";
 import { checkpoint_grant, close_grant, propose_goal, propose_grant, set_objective, withdraw_grant } from "./grants.ts";
 import { meeting } from "./meeting.ts";
 import { forkStatus } from "../forkstatus.ts";
@@ -13,7 +13,7 @@ import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, t
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
-  look, town, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human,
+  look, town, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human, withdraw_request,
   assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, checkpoint_grant, close_grant, withdraw_grant, set_objective,
   act_in_1on1: async (world: World, me: Agent, input: VerbIn<"act_in_1on1">) => actForHuman(world, me, input), propose_goal, promote, ban, redeploy,
   digest: async (world: World, me: Agent, input: VerbIn<"digest">) => {
