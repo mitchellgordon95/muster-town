@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -113,7 +113,7 @@ function card(fields: { whatItIs: string; steps?: string; whatYoudSee: string; p
   ].join("\n\n");
 }
 
-/** One numbered line per key result: "1. ✓ shipped: <the manager's note>". */
+/** One numbered line per key result: "1. ✓ shipped: <the note a fork filed> (who)". */
 function evidenceLines(e: CheckpointEvidence): string {
   return e.keyResults.length ? e.keyResults.map((k, i) => `${i + 1}. ${evidenceKrLine(k)}`).join("\n") : "_No key results._";
 }
@@ -138,9 +138,12 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     const e = g.evidence;
     if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + [
       `**What shipped** (${g.id}; its grant work is stopped until you decide):`,
+      // grant C (gr_95svkzi4l6): the forks' key-result evidence, then the grant's own reports; the top-up only when filed
+      ...(e.filed ? [] : [`_${NO_FORK_EVIDENCE}._`]),
       evidenceLines(e),
+      ...(e.reports.length ? [`**The grant's reports:** ${e.reports.map((r) => `${oneLine(r.title)} (${r.id}, ${r.authorName}${r.verdict ? `, ${r.verdict}` : ""})`).join(" · ")}`] : []),
       `**Spent:** ${fmt(e.spentTokens)} of ${fmt(e.grantTokens)} adjusted tokens granted (${pct}%).`,
-      `**${topUpLine(e)}**`,
+      ...(e.topUpTokens && e.whatTopUpBuys.trim() ? [`**${topUpLine(e)}**`] : []),
       ...(e.shipped.length ? [`**Shipped in the checkpoint report${e.reportId ? ` ${e.reportId}` : ""}:** ${e.shipped.map(oneLine).join(" · ")}`] : []),
       `**Your call:** Continue, adjust (top up) or cut.`,
       `_The plan as funded (below the fold):_ ${kr}. Stops when: ${oneLine(g.stopCondition)}`,

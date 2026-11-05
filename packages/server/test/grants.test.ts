@@ -110,6 +110,37 @@ describe("grants routes", () => {
     expect((await json(app, "GET", `/api/grants/gr_missing`)).status).toBe(404);
     expect((await json(app, "GET", `/api/buildings/nowhere/grants`)).status).toBe(404);
   });
+  it("POST /api/verbs/submit_report: a grant-lane fork files its own grant's key-result evidence and top-up; another lane is refused (grant C, kr_13txlz2pnc)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const fork = world.agents.first("homeBuildingId = ? AND kind != 'human' AND id != ?", [LAB, manager.id])!;
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
+    world.grantDesk.decide(null, g.id, { action: "fund", tokens: 1_000_000 });
+    const [k1] = world.grantDesk.get(g.id).keyResults;
+    const auth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", fork.id)}` };
+    const body = { title: "Step 1", body: "## What I did\nx", verdict: "continue", keyResults: [{ id: k1!.id, status: "claimed", evidence: "PR #9" }], topUp: { tokens: 100_000, buys: "KR 2" } };
+    const startIn = (lane: "grant" | "exploration") => {
+      const a = world.ops.createWork(null, fork.id, lane === "grant" ? { title: "w", lane, grantId: g.id } : { title: "w", lane, gap: "g" });
+      world.ops.startSession(fork.id, { purpose: "work", model: "m", assignmentId: a.id });
+    };
+    startIn("exploration");
+    const refused = await json(app, "POST", "/api/verbs/submit_report", { headers: auth, body });
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/only from a grant-lane session/);
+    for (const x of world.sessions.where("agentId = ? AND status = 'running'", [fork.id])) world.ops.endSession(x.id, { status: "done", tokens: 0 });
+    for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [fork.id])) world.assignments.patch(a.id, { status: "cancelled" });
+    world.agents.patch(fork.id, { currentAssignmentId: null });
+    startIn("grant");
+    const ok = await json(app, "POST", "/api/verbs/submit_report", { headers: auth, body });
+    expect(ok.status).toBe(200);
+    expect(world.keyResults.require(k1!.id)).toMatchObject({ status: "claimed", statusBy: fork.id, statusNote: `PR #9 (report ${ok.body.result.id})` });
+    const view = (await json(app, "GET", `/api/grants/${g.id}`)).body;
+    expect(view.grant.topUpTokens).toBe(100_000);
+  });
+
   it("a checkpoint grant in the Town Hall in-tray and the review deck carries its evidence: per key result verdict and note, spend, the top-up line (mt_7b4zc7yja3)", async () => {
     const s = await seededApp();
     cleanups.push(s.close);

@@ -50,6 +50,12 @@ function reportFormat(mode: RepoMode): string {
 }
 export const REPORT_FORMAT = reportFormat("muster");
 
+/**
+ * Grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence with its report; the held grant's
+ * checkpoint card assembles from it (there is no manager checkpoint session). Static text: it sits in the cached system prompt.
+ */
+const GRANT_EVIDENCE = `When your session runs in the grant lane and your work moved one of that grant's key results, file it with your report: \`submit_report\` keyResults: [{id, status, evidence}] (id: a key result of your session's own grant, as the first message lists them; status: not-started | on-track | at-risk | claimed, never met or missed, a human marks those; evidence: where a human checks it, a PR, a commit, a doc id or a live URL, at most 2000 chars) and, when more tokens would finish it, topUp: {tokens, buys} (how many more tokens and what they would deliver). The grant's checkpoint card in the Town Hall in-tray is built from what you file: it lists each key result with your note and your name, the grant's reports, and the latest top-up line. Filing for another grant's key results, or from an exploration or directed session, is refused.`;
+
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
 
@@ -117,6 +123,8 @@ ${worldRules(repo)}
 ${RESEARCH_RULES}
 
 ${reportFormat(repo)}
+
+${GRANT_EVIDENCE}
 
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
