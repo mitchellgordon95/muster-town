@@ -58,7 +58,7 @@ function previewOf(c: Collective): string | undefined {
 }
 
 /**
- * One square tile (the same markup as web/src/home/HomeCard.tsx `Tile`), its goal under it: this server's town gets a live
+ * One square tile, its goal under it: this server's town gets a live
  * preview. A never-run collective (`started: false`) gets no "working now" pill: the line under its name says it hasn't started.
  */
 function tile(c: Collective): string {
