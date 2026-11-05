@@ -55,7 +55,7 @@ export function turnUsage(jsonl: string): Turn[] {
 }
 
 /** What a session's turns 2+ did to its prefix. */
-export interface SessionBust {
+interface SessionBust {
   /** turns after the first that read or wrote the cache */
   turns: number;
   /** of those, the turns that re-wrote at least `BUST_TURN_RATE` of their prefix */
