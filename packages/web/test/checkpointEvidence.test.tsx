@@ -35,12 +35,25 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
     expect(html.indexOf("How to check")).toBeGreaterThan(fold);
   });
 
-  it("an old checkpoint says the top-up is not stated; a not-started key result reads not shipped", () => {
+  it("with the forks' evidence: each key result names who filed it, then the grant's reports (grant C, gr_95svkzi4l6)", () => {
+    store.state = { ...store.state, ...STATE };
+    const html = row(hud);
+    expect(html).toContain("✓ shipped: Live: at 650px the HUD folds into one row (PR #41). (Keel 2)");
+    expect(html).toContain("The grant&#x27;s reports:");
+    expect(html).toContain("Step 1: the HUD folds below 700px (PR #41)");
+    expect(html.indexOf("evidence-krs")).toBeLessThan(html.indexOf("evidence-reports"));
+    expect(html.indexOf("evidence-reports")).toBeLessThan(html.indexOf("A top-up of 400,000"));
+    expect(html).not.toContain("No evidence filed by the forks");
+  });
+
+  it("without evidence: 'No evidence filed by the forks', no top-up line; a not-started key result reads not shipped", () => {
     store.state = { ...store.state, ...STATE };
     const e = hud.evidence!;
-    const old = { ...hud, evidence: { ...e, topUpTokens: null, whatTopUpBuys: "", keyResults: [{ ...e.keyResults[0]!, status: "not-started" as const, verdict: "not" as const, note: "" }] } };
+    const old = { ...hud, evidence: { ...e, topUpTokens: null, whatTopUpBuys: "", reports: [], filed: false, keyResults: [{ ...e.keyResults[0]!, status: "not-started" as const, verdict: "not" as const, note: "", by: null }] } };
     const html = row(old);
-    expect(html).toContain("A top-up: not stated");
+    expect(html).toContain("No evidence filed by the forks");
+    expect(html).not.toContain("A top-up");
+    expect(html).not.toContain("The grant&#x27;s reports");
     expect(html).toContain("✗ not shipped: HUD collapses below 700px");
   });
 

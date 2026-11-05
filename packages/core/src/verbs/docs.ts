@@ -307,6 +307,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const needs = rollupNeedsCount(input.body);
     if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
   }
+  // grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence and the top-up line with its
+  // report, for its own grant only; the held grant's checkpoint card assembles from them (no manager checkpoint session)
+  const krEvidence = input.keyResults ?? [];
+  const lane = session?.lane ?? current?.lane;
+  const laneGrantId = session?.grantId ?? current?.grantId;
+  const evidenceGrant = krEvidence.length || input.topUp ? world.grantDesk.checkReportEvidence(lane, laneGrantId, krEvidence) : null;
+  if (!evidenceGrant && lane === "grant" && laneGrantId && !input.rollup) {
+    formatWarnings.push(`a grant-lane report with no keyResults or topUp: if your work moved a key result of ${laneGrantId}, file it with keyResults [{id, status, evidence}] next time (the checkpoint card shows what the forks filed)`);
+  }
   const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
@@ -327,6 +336,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
     // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
     // its grant's report and stays.

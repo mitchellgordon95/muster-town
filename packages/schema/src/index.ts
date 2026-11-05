@@ -1789,17 +1789,37 @@ const VERDICT_MARK: Record<KrVerdict, string> = { shipped: "✓ shipped", not: "
 export const CheckpointEvidence = z.object({
   grantId: Id,
   objective: z.string(),
-  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string() })),
+  /** per key result: its status, the latest note and who set it (`by`: a name; null while nobody did) */
+  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string(), by: z.string().nullable().default(null) })),
   spentTokens: z.number().int().nonnegative(),
   grantTokens: z.number().int().nonnegative(),
   topUpTokens: z.number().int().positive().nullable(),
   whatTopUpBuys: z.string(),
   reportId: Id.nullable(),
   shipped: z.array(z.string()),
+  /** the grant's own reports (its sessions' reports), oldest first (grant C, gr_95svkzi4l6) */
+  reports: z.array(z.object({ id: Id, title: z.string(), authorName: z.string(), verdict: z.string().nullable(), at: Iso })).default([]),
+  /** whether any key result's status was set by an agent (a fork's submit_report): false → "No evidence filed by the forks" */
+  filed: z.boolean().default(false),
 });
 export type CheckpointEvidence = z.infer<typeof CheckpointEvidence>;
-/** "✓ shipped: <note>" for one key result (the note, else its text). */
-export const evidenceKrLine = (k: CheckpointEvidence["keyResults"][number]) => `${VERDICT_MARK[k.verdict]}: ${(k.note || k.text).replace(/\s+/g, " ").trim()}`;
+/** "✓ shipped: <note> (Pix 2)" for one key result (the note, else its text; who set it when someone did). */
+export const evidenceKrLine = (k: CheckpointEvidence["keyResults"][number]) => `${VERDICT_MARK[k.verdict]}: ${(k.note || k.text).replace(/\s+/g, " ").trim()}${k.by && k.note ? ` (${k.by})` : ""}`;
+/** The checkpoint card's line when no fork filed key-result evidence (grant C). */
+export const NO_FORK_EVIDENCE = "No evidence filed by the forks";
+/** One key result's evidence a grant-lane fork files with `submit_report` (grant C, gr_95svkzi4l6): status at most claimed. */
+export const ReportKrEvidence = z.object({
+  id: Id.describe("a key result of your session's grant"),
+  status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).describe("at most claimed: only a human (or close_grant) marks met or missed"),
+  evidence: z.string().trim().min(1).max(2000).describe("where a human checks it: what shipped (a PR, a commit, a doc id, a live URL) or what did not"),
+});
+export type ReportKrEvidence = z.infer<typeof ReportKrEvidence>;
+/** A grant-lane report's top-up line: what `tokens` more would deliver. */
+export const ReportTopUp = z.object({
+  tokens: z.number().int().positive().describe("how many more tokens"),
+  buys: z.string().trim().min(1).max(1000).describe("what they would deliver: which key results they finish, what a human would then see"),
+});
+export type ReportTopUp = z.infer<typeof ReportTopUp>;
 /** "A top-up of 200,000 buys: …", or "A top-up: not stated" on a checkpoint filed before the line existed. */
 export const topUpLine = (e: Pick<CheckpointEvidence, "topUpTokens" | "whatTopUpBuys">) =>
   e.topUpTokens && e.whatTopUpBuys.trim() ? `A top-up of ${e.topUpTokens.toLocaleString("en-US")} tokens buys: ${e.whatTopUpBuys.replace(/\s+/g, " ").trim()}` : "A top-up: not stated";
@@ -2034,6 +2054,8 @@ export const VerbInputs = {
     provenance: Provenance.optional(),
     resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, your PR's CI checks finishing, a time), your continuation starts by itself. Waiting on CI: {pr: N} (the town watches the PR's checks and resumes you when they pass or fail), never an {after} guess. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
+    keyResults: z.array(ReportKrEvidence).min(1).max(5).optional().describe("lane grant only, your session's own grant: the key results your work moved, each with its status (at most claimed) and the evidence a human checks; the held grant's checkpoint card shows them"),
+    topUp: ReportTopUp.optional().describe("lane grant only, your session's own grant: what a top-up of `tokens` more would deliver (the latest one filed shows on the checkpoint card)"),
     rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line. A rollup whose only ask is on an item with its own in-tray row (a proposal, checkpoint or retainer it names) is folded into that row on submit: the row shows your line about it, and the rollup is no card of its own."),
   }),
   request_human: z.object({

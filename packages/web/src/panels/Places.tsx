@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -772,18 +772,27 @@ export function GrantSteps({ grant: g }: { grant: Pick<GrantView, "steps" | "ste
 
 /**
  * What a checkpoint shipped (Mitchell 1:1 mt_7b4zc7yja3): one line per key result "✓ shipped / ✗ not shipped / ~ partly:
- * <the manager's note>", spent vs granted, what a top-up buys, and the checkpoint report's Shipped titles. On a proposal
+ * <the note a fork filed> (who)" (grant C: "No evidence filed by the forks" when none did), the grant's own reports, spent vs
+ * granted, what a top-up buys (only when a fork filed one), and a close report's Shipped titles. On a proposal
  * (`earlier`) it is the earlier grant the proposal names in `continues` (1:1 mt_z1b38bwg98); none named, no block.
  */
 function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvidence; onOpenDoc: (id: string) => void; earlier?: boolean }) {
+  const topUp = !!(e.topUpTokens && e.whatTopUpBuys.trim());
   return (
     <div className="checkpoint-evidence">
       {earlier ? <div className="muted">Continues the earlier grant <GrantLink id={e.grantId} /> {e.objective}</div> : null}
+      {/* grant C (gr_95svkzi4l6): the forks file key-result evidence with their reports; the card assembles from it */}
+      {e.filed ? null : <div className="muted">{NO_FORK_EVIDENCE}.</div>}
       <ol className="evidence-krs">
         {e.keyResults.map((k) => <li key={k.id} className={`evidence-${k.verdict}`} title={k.text}>{evidenceKrLine(k)}</li>)}
       </ol>
+      {e.reports.length ? (
+        <div className="evidence-reports">The grant's reports:
+          <ul>{e.reports.map((r) => <li key={r.id}><button className="link" onClick={() => onOpenDoc(r.id)}>{r.title}</button> <span className="muted">· {r.authorName}{r.verdict ? ` · ${r.verdict}` : ""} · {timeAgo(r.at)}</span></li>)}</ul>
+        </div>
+      ) : null}
       {earlier ? <div>Spent {fmtTokens(e.spentTokens)} of {fmtTokens(e.grantTokens)} {ADJ} granted.</div> : null}
-      <div className={e.topUpTokens && e.whatTopUpBuys ? "" : "muted"}>{topUpLine(e)}</div>
+      {topUp ? <div>{topUpLine(e)}</div> : null}
       {e.shipped.length ? <div>Shipped in the {e.reportId ? <button className="link" onClick={() => onOpenDoc(e.reportId!)}>checkpoint report</button> : "checkpoint report"}: {e.shipped.join(" · ")}</div> : null}
     </div>
   );
