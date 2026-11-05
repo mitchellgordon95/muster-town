@@ -160,9 +160,10 @@ describe("finance page: spending", () => {
     for (const s of ["By lane × token kind", "today so far (UTC)", "60,000", "$1.20", "cache writes 41.7% of cost", "Show the table"]) expect(top).toContain(s);
     expect(top).not.toContain("lane-kind-table");
     expect(centreOf(spendAt("spend:workshop", { ...sp, byLaneKind: lk }))).toContain("cache writes 75.0% of cost");
-    // open: lanes, kinds, the share in red over 20%, the not-counted line and the check
+    // open: lanes, kinds, the share (no red line: the cache-miss alert is about prefix busting, 1:1 mt_pr3347g2w2), the not-counted line and the check
     const open = renderToStaticMarkup(<LaneKind today={lk} initialOpen />);
-    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "color:#c0392b", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    expect(open).not.toContain("color:#c0392b");
     const one = renderToStaticMarkup(<LaneKind today={lk} buildingId="workshop" name="Town Workshop" initialOpen />);
     expect(one).toContain("Manager wakes");
     expect(one).not.toContain(">Grant<");
