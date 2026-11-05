@@ -180,13 +180,15 @@ function legacyCopy(text: string): boolean {
   try { return document.execCommand("copy"); } catch { return false; } finally { ta.remove(); }
 }
 
-export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+/** `unread`: a red "new" mark first in the meta line (the bulletin board's notes the signed-in human hasn't opened, flag dc_04q4h8s229). */
+export function DocRow({ doc, onOpen, unread }: { doc: Doc; onOpen: () => void; unread?: boolean }) {
   const cost = docCost(doc);
   return (
     <button className="doc-row" onClick={onOpen}>
       <MediaThumb body={doc.body} />
       <div className="doc-row-title">{doc.title}</div>
       <div className="doc-row-meta">
+        {unread ? <Pill tone="bad">new</Pill> : null}
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
         {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}

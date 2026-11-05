@@ -34,6 +34,8 @@ interface TownState {
   flags: MapFlag[];
   /** outbox requests nobody has claimed yet: the snapshot's count, then kept by `outbox` frames (the map's outbox badge) */
   outbox: number;
+  /** bulletin board notes the signed-in human hasn't opened (flag dc_04q4h8s229): from GET /api/bulletin, refetched on bulletin `doc` frames; 0 for guests (the map's red badge on the board) */
+  bulletinUnread: number;
   grid: Grid | null;
   gridVersion: number;
   meetings: Record<string, Meeting>;
@@ -60,7 +62,7 @@ const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, grid: null, gridVersion: 0,
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
     meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
@@ -112,7 +114,10 @@ class Store {
         return;
       }
       case "event": return this.applyEvent(m.event);
-      case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
+      case "doc":
+        this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
+        if (m.doc.type === "bulletin") this.onBulletinChanged?.();
+        return;
       case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
@@ -148,6 +153,8 @@ class Store {
   onAccessDecided?: () => void;
   /** a hosted collective: refetch `health.funding` / `health.founder` (a key added, an exploration, a proposal or funding; set at boot) */
   onFounderChanged?: () => void;
+  /** refetch `bulletinUnread`: a note was pinned or taken down (set at boot) */
+  onBulletinChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
   readonly names = new Map<string, string>();
