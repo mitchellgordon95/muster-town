@@ -1,7 +1,7 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
   StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
-  type Assignment, type Building, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
+  type Assignment, type Building, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
@@ -103,8 +103,18 @@ export class Grants {
       ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, keyResults: this.keyResultsOf(g.id), spentTokens: this.adjustedSum(sessions), spentCounts,
       fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
       holdAtTokens: g.status === "funded" ? holdAtTokens(g) : null,
-      evidence: this.evidenceFor(g),
+      evidence: this.evidenceFor(g), stepStates: this.stepStates(g),
     };
+  }
+
+  /** Per step of the plan, its latest assignment (`grantStep`): queued, running, done or cancelled; null while none was queued. */
+  stepStates(g: Grant): (GrantStepState | null)[] {
+    if (!g.steps.length) return [];
+    const out: (GrantStepState | null)[] = g.steps.map(() => null);
+    for (const a of this.world.assignments.where("grantId = ? AND grantStep IS NOT NULL", [g.id], "ORDER BY createdAt, rowid")) {
+      if (a.grantStep! < out.length) out[a.grantStep!] = { assignmentId: a.id, status: a.status, reportId: a.reportId };
+    }
+    return out;
   }
 
   /**

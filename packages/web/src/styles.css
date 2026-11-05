@@ -744,6 +744,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .grant-tab-row .kr-grant-head { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
 .grant-tab-row .doc-row-title { text-align: left; }
 .grant-steps { margin: 2px 0 0; padding-left: 20px; font-size: var(--fs-sm); }
+.grant-plan-steps { margin: 4px 0; font-size: var(--fs-sm); }
+.grant-step-state { color: var(--muted); } .grant-step-state.running { color: var(--accent); } .grant-step-state.done { color: var(--ok); } .grant-step-state.cancelled { color: var(--bad); }
 /* plant a flag (F on the map): a floating box above the key hint */
 .flag-box { pointer-events: auto; width: min(520px, 90%); background: color-mix(in srgb, var(--bg) 96%, transparent); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 12px; box-shadow: 0 4px 16px color-mix(in srgb, var(--black) 30%, transparent); }
 .flag-box .reply-box { margin: 0; padding-top: 0; border-top: none; }

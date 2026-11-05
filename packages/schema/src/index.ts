@@ -1813,6 +1813,17 @@ export const RollupAsk = z.object({
   reportId: Id, buildingId: Id.nullable(), buildingName: z.string(), title: z.string(), line: z.string(), at: Iso, folded: z.boolean(),
 });
 export type RollupAsk = z.infer<typeof RollupAsk>;
+/** Where one step of a funded grant's plan stands: its latest assignment (a parked step's continuation keeps the step). */
+export const GrantStepState = z.object({ assignmentId: Id, status: AssignmentStatus, reportId: Id.nullable() });
+export type GrantStepState = z.infer<typeof GrantStepState>;
+/** A step's state in plain words: "queued", "running", "done", "cancelled"; "" while none was queued. */
+export function grantStepWord(s: GrantStepState | null | undefined): string {
+  return !s ? "" : s.status === "pending" ? "queued" : s.status === "active" ? "running" : s.status;
+}
+/** A grant's steps as numbered markdown lines ("1. <title> · done"); "" when the grant has none. */
+export function grantStepLines(g: Pick<GrantView, "steps" | "stepStates">): string {
+  return g.steps.map((st, i) => { const w = grantStepWord(g.stepStates?.[i]); return `${i + 1}. ${st.title}${w ? ` · ${w}` : ""}`; }).join("\n");
+}
 export const GrantView = Grant.extend({
   keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
@@ -1822,6 +1833,8 @@ export const GrantView = Grant.extend({
   evidence: CheckpointEvidence.nullable().optional(),
   /** the Town Hall in-tray only: rollups asking about this grant (RollupAsk) */
   asks: z.array(RollupAsk).optional(),
+  /** one entry per `steps` item: its latest assignment (`Assignment.grantStep`), null while none was queued (grant B gr_b5fyqibfx2) */
+  stepStates: z.array(GrantStepState.nullable()).optional(),
 });
 export type GrantView = z.infer<typeof GrantView>;
 

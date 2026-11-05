@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyDecision, buildingQueue, createBuilding, createDoc, createResident, forkManager, retireFork, updateBuilding } from "../src/index.ts";
+import { applyDecision, buildingQueue, reviewDeck, createBuilding, createDoc, createResident, forkManager, retireFork, updateBuilding } from "../src/index.ts";
 import { migrate } from "../src/db.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -128,6 +128,28 @@ describe("grant B: a step's report queues the next step", () => {
     expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([cont.id]);
     const resumed = await runStep("continue");
     expect(world.assignments.require(resumed.r.nextStepId!).grantStep).toBe(1);
+  });
+});
+
+describe("grant B step 2: the card and the deck show the steps (kr_snardl39qh)", () => {
+  it("a proposal's view has its steps with no state; its deck slide lists them numbered", () => {
+    const { world, propose } = lab();
+    const p = propose();
+    expect(world.grantDesk.get(p.id).stepStates).toEqual([null, null, null]);
+    const slide = reviewDeck(world).slides.find((s) => s.key === `proposal:${p.id}`)!;
+    expect(slide.text).toContain("**Steps** (funding queues step 1");
+    expect(slide.text).toContain("1. Build the banner\n2. Check it live\n3. Close it");
+  });
+
+  it("once funded each step carries its latest assignment: done, queued, none yet", async () => {
+    const { world, fund, runStep } = lab();
+    const g = fund();
+    expect(world.grantDesk.get(g.id).stepStates!.map((x) => x?.status ?? null)).toEqual(["pending", null, null]);
+    const { a, r } = await runStep("continue");
+    const st = world.grantDesk.get(g.id).stepStates!;
+    expect(st[0]).toEqual({ assignmentId: a.id, status: "done", reportId: r.id });
+    expect(st[1]?.status).toBe("pending");
+    expect(st[2]).toBeNull();
   });
 });
 
