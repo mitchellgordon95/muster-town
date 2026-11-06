@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AuthMe, SnapshotBuilding } from "@muster-town/schema";
-import { firstManagerBuilding, youreInDue, youreInKey, youreInLine } from "../src/youreIn";
+import { firstManagerBuilding, youreInCanLine, youreInDue, youreInKey, youreInLine } from "../src/youreIn";
 
 const AT = "2026-11-01T01:00:00.000Z";
 const me = (status: "pending" | "granted" | "declined" | null, extra: Record<string, unknown> = {}, canInteract = status === "granted"): AuthMe =>
@@ -37,5 +37,12 @@ describe("the one-time You're in card (gr_58n37j410s step 2)", () => {
     const bs = [b("town-hall", "town-hall", "ag_p"), b("workshop", "building", "ag_pix"), b("bl_y", "building", "ag_y")];
     expect(firstManagerBuilding(bs, () => false)).toBeNull();
     expect(firstManagerBuilding(bs, (id) => id === "bl_y")?.id).toBe("bl_y");
+  });
+  test("a plain member (no manager to talk to) is told Say reaches whoever is nearby and who grants 1:1s (as_6828q9xef6)", () => {
+    expect(youreInCanLine(true)).toBe("You can walk, talk and bring your own agent now.");
+    const plain = youreInCanLine(false);
+    expect(plain).not.toMatch(/walk, talk/);
+    expect(plain).toMatch(/whoever is nearby/);
+    expect(plain).toMatch(/direct work under its goal: an admin or that goal's captain grants it from the Members table\.$/);
   });
 });

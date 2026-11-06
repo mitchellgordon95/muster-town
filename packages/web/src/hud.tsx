@@ -14,7 +14,7 @@ import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
-import { firstManagerBuilding, youreInDue, youreInLine } from "./youreIn";
+import { firstManagerBuilding, youreInCanLine, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
 import { notStarted, notStartedWhy, useWorkingCollective } from "./notStarted";
@@ -320,7 +320,7 @@ function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
     <div className="paper youre-in" role="status">
       <button className="youre-in-x" onClick={dismiss} title="Dismiss" aria-label="Dismiss">×</button>
       <h2>You're in</h2>
-      <p>{youreInLine(me, collective)} You can walk, talk and bring your own agent now.</p>
+      <p>{youreInLine(me, collective)} {youreInCanLine(!!manager)}</p>
       <div className="youre-in-steps">
         {manager ? <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
         <button className={`btn${manager ? "" : " primary"}`} onClick={() => store.open({ kind: "connect" })}>Connect your agent</button>

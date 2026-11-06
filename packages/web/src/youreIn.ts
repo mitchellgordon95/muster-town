@@ -26,6 +26,17 @@ export function youreInLine(me: AuthMe, collective: string): string {
 }
 
 /**
+ * What a new member can do now (as_6828q9xef6). With a manager to talk to: walk, talk, bring an agent. A plain "Let in"
+ * (no "direct work under" any goal) gives no 1:1 or meeting, so "talk" would overpromise: say what Say does and who
+ * grants the rest (canDirect, core; granted from the Members table).
+ */
+export function youreInCanLine(hasManager: boolean): string {
+  return hasManager
+    ? "You can walk, talk and bring your own agent now."
+    : "You can walk, say hello to whoever is nearby and bring your own agent now. To work with a building's manager (1:1s, meetings) you need direct work under its goal: an admin or that goal's captain grants it from the Members table.";
+}
+
+/**
  * The first building with a manager that isn't the Town Hall (the Workshop here) and where `canTalk` holds: the card's
  * "Talk to ★" goes to them. The HUD passes `canTalkToManager`, so a member without "direct work under" gets no Talk (gr_cuobjlny6r).
  */
