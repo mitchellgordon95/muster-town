@@ -1,4 +1,4 @@
-import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView } from "@muster-town/core";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -115,6 +115,17 @@ export async function townRoutes(app: FastifyInstance) {
     const user = requireUser(req);
     const input = parse(AccessRequestInput, req.body);
     return { accessRequest: requestAccess(world, user.id, input.message ?? "") };
+  });
+
+  // Self-service role reset (dc_ia2hybtuax): the signed-in user goes back to a never-granted visitor (core reset.ts).
+  // Refused for an admin and the root's captain. Allowlisted past the write gate: a visitor with a pending request may reset too.
+  app.post("/api/me/reset", async (req) => {
+    const user = requireUser(req);
+    const reset = resetOwnAccount(world, user.id);
+    for (const id of reset.agentsRetired) {
+      try { await app.runtime?.onAgentRetired?.(id, { purge: false }); } catch (e) { app.log.error({ err: e }, "[server] runtime.onAgentRetired failed"); }
+    }
+    return { reset };
   });
 
   // pending requests for the admin's HUD notice (gr_fibsfwr4tz step 2): only who may decide them (`town.manage_roles`)
