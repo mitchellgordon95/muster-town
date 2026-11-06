@@ -25,3 +25,12 @@ describe("a never-run collective (gr_a6512x0je1)", () => {
     expect(workingCollective([], "/trauma/")).toBeNull();
   });
 });
+
+describe("the WS snapshot keeps a hosted collective's health (live check as_fjgpn4eyt2)", () => {
+  test("parsing the snapshot frame does not strip started, funding or founder", async () => {
+    const { ServerMessage } = await import("@muster-town/schema");
+    const snapshot = ServerMessage.options.find((o) => o.shape.type.value === "snapshot");
+    const health = { docker: true, repoMode: "none", slots: { running: 0, max: 1 }, funding: "none", founder: { exploringSince: null, proposals: 0, funded: false }, started: false };
+    expect(snapshot?.shape.health.parse(health)).toEqual(health);
+  });
+});

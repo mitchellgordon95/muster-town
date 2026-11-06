@@ -2327,8 +2327,32 @@ export function mapFlagOf(d: Doc): MapFlag | null {
   return { docId: d.id, buildingId: d.buildingId, x: d.flagPos.x, y: d.flagPos.y, title: d.title, authorId: d.authorId, createdAt: d.createdAt };
 }
 
+/** Work-session slots on the host: `running` live or starting sessions out of `max` (desks.maxRunning). */
+export const SessionSlots = z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() });
+export type SessionSlots = z.infer<typeof SessionSlots>;
+/**
+ * A hosted collective's founder road after the key (gr_ngg1z160a8 step 3): when its latest exploration started (null: none
+ * yet), how many grant proposals are open (proposed or countered), and whether any grant was ever funded.
+ */
+export const FounderProgress = z.object({ exploringSince: Iso.nullable(), proposals: z.number().int().nonnegative(), funded: z.boolean() });
+export type FounderProgress = z.infer<typeof FounderProgress>;
+/**
+ * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
+ * `slots` = work-session slots (absent without a runtime).
+ */
+export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
+  /** what code this collective works on (core `World.repoMode`): the web hides the build and code rows without a repo */
+  repoMode: RepoMode.optional(),
+  /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
+  funding: z.enum(["api-key", "none"]).optional(),
+  /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
+  founder: FounderProgress.optional(),
+  /** a hosted collective only: whether any agent session ever ran (false: a never-run collective; its guest card and first-minute card say so) */
+  started: z.boolean().optional() });
+export type TownHealth = z.infer<typeof TownHealth>;
+
 export const ServerMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: z.object({ docker: z.boolean(), slots: z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() }).optional(), repoMode: RepoMode.optional() }).optional(),
+  z.object({ type: z.literal("snapshot"), avatarAgentId: Id.optional(), town: Town, buildings: z.array(SnapshotBuilding), agents: z.array(Agent), places: z.array(Place), flags: z.array(MapFlag).default([]), grid: z.object({ w: z.number(), h: z.number(), /** row-major tile kinds */ tiles: z.array(z.number()) }), meetings: z.array(Meeting), health: TownHealth.optional(),
     /** outbox requests nobody has claimed yet (requestStatus open): the badge on the map's outbox */
     outbox: z.number().int().nonnegative().optional() }),
   z.object({ type: z.literal("event"), event: Event }),
@@ -2623,29 +2647,6 @@ export const RedeployLive = z.object({
   since: z.string().nullable(),
 });
 export type RedeployLive = z.infer<typeof RedeployLive>;
-/** Work-session slots on the host: `running` live or starting sessions out of `max` (desks.maxRunning). */
-export const SessionSlots = z.object({ running: z.number().int().nonnegative(), max: z.number().int().positive() });
-export type SessionSlots = z.infer<typeof SessionSlots>;
-/**
- * A hosted collective's founder road after the key (gr_ngg1z160a8 step 3): when its latest exploration started (null: none
- * yet), how many grant proposals are open (proposed or countered), and whether any grant was ever funded.
- */
-export const FounderProgress = z.object({ exploringSince: Iso.nullable(), proposals: z.number().int().nonnegative(), funded: z.boolean() });
-export type FounderProgress = z.infer<typeof FounderProgress>;
-/**
- * `health` on the snapshot: `docker` = the runtime's last docker probe (true when docker isn't used or not probed);
- * `slots` = work-session slots (absent without a runtime).
- */
-export const TownHealth = z.object({ docker: z.boolean(), slots: SessionSlots.optional(),
-  /** what code this collective works on (core `World.repoMode`): the web hides the build and code rows without a repo */
-  repoMode: RepoMode.optional(),
-  /** a hosted collective only: whether it has an Anthropic API key of its own ("none": its agents are held) */
-  funding: z.enum(["api-key", "none"]).optional(),
-  /** a hosted collective only: how far its founder's road has got (core world.ts `founderProgress`; the HUD's founder notices) */
-  founder: FounderProgress.optional(),
-  /** a hosted collective only: whether any agent session ever ran (false: a never-run collective; its guest card and first-minute card say so) */
-  started: z.boolean().optional() });
-export type TownHealth = z.infer<typeof TownHealth>;
 
 // ---------- access requests (a signed-in visitor asks to join; an admin lets them in as `member`) ----------
 export const AccessRequestStatus = z.enum(["pending", "granted", "declined"]);
