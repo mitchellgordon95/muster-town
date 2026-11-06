@@ -39,6 +39,32 @@ describe("who may interact", () => {
     expect((await json(app, "POST", "/api/docs", { headers: visitor, body: { title: "x", body: "y" } })).status).toBe(201);
   });
 
+  it("POST /api/me/reset puts a member back to a visitor (allowed past the write gate); an admin and an agent token are refused", async () => {
+    const { app, world, visitor, user, by } = await setup();
+    expect((await json(app, "POST", "/api/access-requests", { headers: visitor, body: { message: "hi" } })).status).toBe(200);
+    // a visitor with a pending ask may reset: it withdraws the ask
+    const noop = await json(app, "POST", "/api/me/reset", { headers: visitor });
+    expect(noop.status).toBe(200);
+    expect(noop.body.reset).toMatchObject({ rolesRemoved: [], accessRequestsDeleted: 1 });
+    world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));
+    const reg = await json(app, "POST", "/api/agents/visitors", { headers: visitor, body: { name: "Octo's Claude", buildingId: "carbon-cycle" } });
+    expect(reg.status).toBe(201);
+    const out = await json(app, "POST", "/api/me/reset", { headers: visitor });
+    expect(out.body.reset.rolesRemoved).toEqual([townRoleId("member")]);
+    expect(out.body.reset.agentsRetired).toEqual([reg.body.agent.id]);
+    expect((await json(app, "POST", "/api/verbs/say", { headers: { authorization: `Bearer ${reg.body.token}` }, body: { text: "hi" } })).status).toBe(401);
+    const me = await json(app, "GET", "/api/me", { headers: visitor });
+    expect(me.body).toMatchObject({ canInteract: false, accessRequest: null, isAdmin: false });
+    expect(me.body.roles.map((r: { id: string }) => r.id)).toEqual([townRoleId("visitor")]);
+
+    world.permissions.grant({ kind: "user", id: user.id }, townRoleId("admin"));
+    const refused = await json(app, "POST", "/api/me/reset", { headers: visitor });
+    expect(refused.status).toBe(403);
+    expect(world.permissions.isUserAdmin(user.id)).toBe(true);
+    const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", by("Tomas").id)}` };
+    expect((await json(app, "POST", "/api/me/reset", { headers: agent })).status).toBe(403);
+  });
+
   it("a bring-your-own agent of a visitor is gated by its owner; residents are not", async () => {
     const { app, world, user, by } = await setup();
     world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));

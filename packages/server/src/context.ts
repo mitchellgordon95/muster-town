@@ -167,7 +167,9 @@ export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/
   // the join funnel's guest-card view count (gr_fibsfwr4tz step 3): it is the card a visitor sees; the homepage's visitor count (gr_zoo2cf2zpp)
   "POST /api/join-funnel/view", "POST /api/join-funnel/home",
   // marking a bulletin board note read (flag dc_04q4h8s229) is reading, not taking part
-  "POST /api/bulletin/:id/read"]);
+  "POST /api/bulletin/:id/read",
+  // the self-service role reset (dc_ia2hybtuax): putting yourself back to a visitor is never taking part
+  "POST /api/me/reset"]);
 export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";
 
 export function adminToken(world: World): string | null {

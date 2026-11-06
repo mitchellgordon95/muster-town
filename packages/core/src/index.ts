@@ -54,6 +54,7 @@ export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, join
 export { engagement } from "./engagement.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
+export { resetOwnAccount } from "./reset.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";
 export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
