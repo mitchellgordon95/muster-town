@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, SpendNode } from "../src/api";
+import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, SpendNode } from "../src/api";
 import { approxUsd, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
-import { LaneKind, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
+import { LaneKind, ManagerWakesLines, wakeLine, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
 import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
 import { PlansPaidForView } from "../src/panels/BankFees";
@@ -169,6 +169,30 @@ describe("finance page: spending", () => {
     expect(one).not.toContain(">Grant<");
     expect(renderToStaticMarkup(<LaneKind today={lk} buildingId="bl_none" initialOpen />)).toContain("No sessions in this window.");
     expect(renderToStaticMarkup(<LaneKind />)).toBe("");
+  });
+  it("shows manager wakes per day in a building's level and the 7 d total in the sidebar (gr_lwgus14rd2 step 3, kr_avafh64h02)", () => {
+    const line = (wakes: number, decided: number) => ({ wakes, tokens: wakes * 40_000, usd: wakes * 0.8, decided, perWake: 40_000, perDecision: decided ? Math.round(wakes * 40_000 / decided) : null });
+    const days = [[4, 4], [6, 3], [2, 0], [5, 5], [3, 1], [7, 2], [1, 1], [2, 2]].map(([w, d], i) => ({ day: `2026-11-0${8 - i}`, ...line(w!, d!) }));
+    const total = line(30, 18);
+    const mw: ManagerWakes = {
+      from: "2026-10-29T00:00:00.000Z", to: "2026-11-05T18:00:00.000Z", windowNote: "the last 7 full UTC days and today so far",
+      buildings: { workshop: { days, total } }, total, manageTokens: total.tokens,
+      check: { ok: true, diff: 0, identity: "Σ days = each building's total; Σ buildings = Σ manage sessions in the window" },
+    };
+    expect(wakeLine(line(4, 4))).toBe("4 wakes · 160k adj. tokens · $3.20 · 40k per wake · 4 decided, 40k per decision");
+    expect(wakeLine(line(1, 0))).toContain("1 wake · ");
+    expect(wakeLine(line(1, 0))).toContain("no decisions");
+    // a building's level: the newest 7 days, folded, then the total
+    const lvl = centreOf(spendAt("spend:workshop", { ...sp, managerWakes: mw }));
+    for (const s of ["Manager wakes", days[0]!.day, "Show 1 more day", "7 d total", "160k"]) expect(lvl).toContain(s);
+    expect(lvl).not.toContain(days[7]!.day);
+    expect(renderToStaticMarkup(<ManagerWakesLines mw={mw} buildingId="workshop" initialOpen />)).toContain(days[7]!.day);
+    expect(renderToStaticMarkup(<ManagerWakesLines mw={mw} buildingId="bl_none" />)).toContain("No manager wakes in this window.");
+    // the top level has no day lines, the sidebar has the town's total
+    const top = spendAt(null, { ...sp, managerWakes: mw });
+    expect(centreOf(top)).not.toContain("manager-wakes-table");
+    expect(sideOf(top)).toContain("Manager wakes, 7 d:");
+    expect(sideOf(top)).toContain("30 wakes");
   });
   it("formats shares as percentages, negative for not funded", () => {
     expect(pct(0.8182)).toBe("81.8%");

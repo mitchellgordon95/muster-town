@@ -431,6 +431,9 @@ describe("meetings, roles, budget, events, human moves", () => {
     const spend7d = await json(app, "GET", "/api/finance/spend?window=7d");
     expect(spend7d.body.byLaneKind).toMatchObject({ window: "7d", windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
     expect(spend7d.body.rows).toEqual(spendToday.body.rows);
+    // manager wakes per building per day (gr_lwgus14rd2 step 3): the same 7 d window whatever ?window= is
+    expect(spendToday.body.managerWakes).toMatchObject({ windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
+    expect(spend7d.body.managerWakes.total).toEqual(spendToday.body.managerWakes.total);
     expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);

@@ -46,7 +46,7 @@ export function BankView(props: ViewProps & { head?: ReactNode; divider?: ReactN
         {selected ? <section className="bank-selected"><h4>Selected row</h4>{selected}</section> : null}
         <h4>About this tab</h4>
         <BankAbout {...view} />
-        {view.tab === "Spending" ? <SpendingHealth bank={view.bank} /> : null}
+        {view.tab === "Spending" ? <SpendingHealth bank={view.bank} wakes={view.fin?.spend?.managerWakes} /> : null}
         <FinanceTerms />
         {props.fin ? <FinanceFooter {...props.fin} /> : null}
       </aside>
