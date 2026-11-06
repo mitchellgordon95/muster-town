@@ -1,6 +1,7 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
 import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { AccessRequestView, AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
@@ -402,13 +403,16 @@ export function SayBox({ inputRef, onSend, onCancel }: { inputRef: RefObject<HTM
   );
 }
 
+/** Portalled to <body>: .app is position:fixed (its own stacking context), so a z-index inside it can never
+ *  beat the centred sheets, which portal to <body> too (flag dc_2ya4gawacy; PR #385's z-index alone did not show live). */
 export function Toasts() {
   const toasts = useTown((s) => s.toasts);
-  return (
+  return createPortal(
     <div className="toasts">
       {toasts.map((t) => (
         <div key={t.id} className={`toast ${t.tone} ${t.panel ? "clickable" : ""}`} onClick={() => t.panel && store.open(t.panel)}>{t.text}</div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }
