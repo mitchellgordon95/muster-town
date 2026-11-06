@@ -529,7 +529,7 @@ function AssignmentsTab({ agent }: { agent: Agent }) {
       </Section>
       <Section title={`${visitor ? "Offered" : "Queue"}${queue.length ? ` (${queue.length})` : ""}`}>
         {!queue.length ? <Empty>{visitor ? `No offers. ${agent.name} accepts assignments from their own session; unaccepted offers are cancelled after 24 h.` : `No queued assignments. A message to ${agent.name} starts one.`}</Empty> : queue.map((a, i) => (
-          <AssignmentRow key={a.id} a={a} blocked={why.get(a.id)} index={visitor ? undefined : i + 1} slotWait={!visitor && i === 0 && agent.status === "idle" && noSlot} actions={canControl && !gone && visitor ? (
+          <AssignmentRow key={a.id} a={a} blocked={why.get(a.id)} index={visitor ? undefined : i + 1} foldActions={!visitor} slotWait={!visitor && i === 0 && agent.status === "idle" && noSlot} actions={canControl && !gone && visitor ? (
             <Act small tone="bad" run={async () => { put(await api().cancelAssignment(a.id)); }}>Withdraw</Act>
           ) : canControl && !gone ? (
             <>
@@ -571,7 +571,13 @@ function waitLabel(w: NonNullable<Assignment["waitFor"]>): string {
 }
 
 
-function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean; blocked?: BlockedBy }) {
+/**
+ * `foldActions`: the row's actions (a queued row's ▲ ▼ Start next Cancel) go inside the row's one fold with its description,
+ * so a queue opens on titles and states, each row's actions one click away (gr_zak30564zh step 5, kr_p6l1w6tade).
+ */
+function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked, foldActions }: { a: Assignment; actions?: ReactNode; index?: number; offline?: boolean; footer?: ReactNode; slotWait?: boolean; blocked?: BlockedBy; foldActions?: boolean }) {
+  const desc = a.description && a.description.trim() !== a.title.trim() ? a.description : "";
+  const folded = foldActions && actions;
   return (
     <div className={`asg ${a.status}`}>
       <div className="asg-head">
@@ -590,13 +596,18 @@ function AssignmentRow({ a, actions, index, offline, footer, slotWait, blocked }
         </div>
       ) : null}
       {/* the description (and the links in it) folds under the title: the row opens on its title and state (gr_zak30564zh step 4) */}
-      {a.description && a.description.trim() !== a.title.trim() ? <details className="kr-more asg-desc-fold"><summary>Description</summary><div className="asg-desc"><DocText text={a.description} /></div></details> : null}
+      {folded ? (
+        <details className="kr-more asg-desc-fold"><summary>{desc ? "Description and actions" : "Actions"}</summary>
+          {desc ? <div className="asg-desc"><DocText text={desc} /></div> : null}
+          <div className="asg-actions">{actions}</div>
+        </details>
+      ) : desc ? <details className="kr-more asg-desc-fold"><summary>Description</summary><div className="asg-desc"><DocText text={desc} /></div></details> : null}
       <div className="asg-meta">
         {a.fromAssignmentId ? "retried or delegated · " : a.fromMeetingId ? "from a meeting · " : a.fromReportId ? "from a report · " : ""}
         {a.status === "done" || a.status === "cancelled" ? `${a.status} ${timeAgo(a.updatedAt)}` : `created ${timeAgo(a.createdAt)}`}
         {a.reportId ? <> · <button type="button" className="link" onClick={() => store.open({ kind: "library", docId: a.reportId! })}>report</button></> : null}
       </div>
-      {actions ? <div className="asg-actions">{actions}</div> : null}
+      {actions && !folded ? <div className="asg-actions">{actions}</div> : null}
       {footer}
     </div>
   );
