@@ -5,7 +5,7 @@
 import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
-import { currentSlide, decisionOutcomes, previousMeeting, type DecisionOutcome } from "./meetings.ts";
+import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
@@ -50,6 +50,12 @@ function reportFormat(mode: RepoMode): string {
 }
 export const REPORT_FORMAT = reportFormat("muster");
 
+/**
+ * Grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence with its report; the held grant's
+ * checkpoint card assembles from it (there is no manager checkpoint session). Static text: it sits in the cached system prompt.
+ */
+const GRANT_EVIDENCE = `When your session runs in the grant lane and your work moved one of that grant's key results, file it with your report: \`submit_report\` keyResults: [{id, status, evidence}] (id: a key result of your session's own grant, as the first message lists them; status: not-started | on-track | at-risk | claimed, never met or missed, a human marks those; evidence: where a human checks it, a PR, a commit, a doc id or a live URL, at most 2000 chars) and, when more tokens would finish it, topUp: {tokens, buys} (how many more tokens and what they would deliver). The grant's checkpoint card in the Town Hall in-tray is built from what you file: it lists each key result with your note and your name, the grant's reports, and the latest top-up line. Filing for another grant's key results, or from an exploration or directed session, is refused.`;
+
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
 
@@ -92,17 +98,25 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
 }
 
 /**
- * The system prompt of a work session. \`memory\` is the agent's "## What you know" + "## Your log" block
- * (\`memoryBlock\`); \`team\` the manager's "## Your team" block (\`teamBlock\`), only for the building's manager agent.
+ * The system prompt of a work session: only what is the same from one session to the next (docs/prompt-caching.md),
+ * so it is byte-identical for every fork of one building whatever its assignment, and for every work session of one
+ * manager. A fork (\`forkOf\` = its manager's name) is not named here: its own name and id, the goals and grants with
+ * this session's lane, the town board, its manager's memory and its branch open the first message (\`workStateBlock\`).
+ * A manager's work session also carries the fixed in-tray rules (\`intrayRules\`); its in-tray rows, team and grants
+ * are live, so they are in the first message too.
  */
-export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; memory?: string; team?: string; skills?: string; keyResults?: string; townBoard?: string; buildings?: string; purpose?: string; repo?: RepoMode } = {}): string {
+export function workSystemPrompt(agent: Agent, building: Building, town: Town, opts: { desk?: boolean; skills?: string; buildings?: string; purpose?: string; repo?: RepoMode; forkOf?: string; intrayRules?: string } = {}): string {
   const repo = opts.repo ?? "muster";
-  // no clock here: it changes every session and would break the provider's cache on the whole prefix; the work
-  // prompt (the first message) opens with it (docs/prompt-caching.md)
-  return `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}
+  // no clock, no names of today's work, nothing live: it would break the provider's cache on the whole prefix
+  const who = opts.forkOf
+    ? `You are a fork of ${opts.forkOf}, the manager of the ${building.name} of ${town.name}: one of the copies of ${opts.forkOf} that run the building's work, each on its own assignment. ${OWNERSHIP}`
+    : `You are ${agent.name}, a resident of the ${building.name} of ${town.name}. ${OWNERSHIP}`;
+  const ids = opts.forkOf ? `Your building id: ${building.id}. Your own name and agent id open the first message.` : `Your agent id: ${agent.id}. Your building id: ${building.id}.`;
+  return `${who}
 Town goal: ${town.goal || "(none set)"}
-Building goal: ${opts.purpose ?? (building.goal || "(none set)")}${opts.keyResults ? `\n${opts.keyResults}` : ""}
-Your agent id: ${agent.id}. Your building id: ${building.id}.
+Building goal: ${opts.purpose ?? (building.goal || "(none set)")}
+${ids}
+This prompt holds only what is the same every session. What is live now (the server's clock, ${opts.forkOf ? "who you are, " : ""}the goals and grants with this session's lane, the town-wide FYIs, ${opts.intrayRules ? "your in-tray, team and grants, the index of your wiki and log" : opts.forkOf ? `${opts.forkOf}'s memory and the topic pages for your work` : "your wiki and log"}, your branch) opens the first message, then your assignment.
 
 ${worldRules(repo)}
 
@@ -110,27 +124,74 @@ ${RESEARCH_RULES}
 
 ${reportFormat(repo)}
 
+${GRANT_EVIDENCE}
+
 You have about ${building.maxTurnsPerSession} turns; budget them. ${opts.desk
     ? "You work at your own desk: a private sandbox computer with your home directory (/home/agent), a shell, Python with the usual scientific libraries, and the web. Files you keep there persist between sessions; the town library is still where shared work goes."
-    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.buildings ? `\n\n${opts.buildings}` : ""}${opts.townBoard ? `\n\n${opts.townBoard}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.team ? `\n\n${opts.team}` : ""}
+    : "Your only tools are the town tools (mcp__town__*), WebSearch and WebFetch."}${opts.buildings ? `\n\n${opts.buildings}` : ""}${standingRules(building)}${opts.skills ? `\n\n${opts.skills}` : ""}${opts.intrayRules ? `\n\n${opts.intrayRules}` : ""}`;
+}
 
-${opts.memory ?? ""}`;
+/** The pieces of a work session's prompt: the fixed ones go to \`workSystemPrompt\`, the live ones to \`workStateBlock\`. */
+export interface WorkSessionParts {
+  /** live: a fork's copy of its manager's memory, a manager's wiki index, a resident's wiki and log */
+  memory: string;
+  /** live, the building's manager only: in-tray rows, team and queue, grants */
+  team?: string;
+  keyResults?: string;
+  townBoard?: string;
+  /** fixed */
+  buildings: string;
+  purpose: string;
+  repo: RepoMode;
+  /** fixed: a fork's manager's name */
+  forkOf?: string;
+  /** fixed, the building's manager only: how to work the in-tray */
+  intrayRules?: string;
 }
 
 /**
- * The memory and team blocks for an agent's work session (the manager agent of a building gets the team), and in
- * goal-directed buildings the Key results block for `assignment`'s session.
+ * The parts of an agent's work session (the manager agent of a building gets the team), and in goal-directed buildings
+ * the Key results block for \`assignment\`'s session.
  */
-export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): { memory: string; team?: string; keyResults?: string; townBoard?: string; buildings: string; purpose: string; repo: RepoMode } {
+export function sessionMemory(world: World, agent: Agent, building: Building, assignment?: Assignment | null): WorkSessionParts {
   const manager = building.managerAgentId === agent.id && building.kind !== "town-hall";
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
   const townBoard = townBoardBlock(world);
-  // a fork gets a frozen read-only copy of its manager's memory (dc_mymt27yz25 §5.2); everyone else their own wiki and log,
-  // then the building's topic index
+  const forkOf = agent.forkOf ? world.agents.get(agent.forkOf)?.name ?? agent.forkOf : undefined;
+  // a fork gets a frozen read-only copy of its manager's memory (dc_mymt27yz25 §5.2); a manager the index of its wiki
+  // (pages read on demand, as on a team-lead wake); everyone else their own wiki and log; then the building's topic index
   const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
-  const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : `${memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
-  return { memory, repo: world.repoMode(), purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), ...(townBoard ? { townBoard } : {}), ...(manager ? { team: `${teamBlock(world, building, agent.id)}\n\n${managerIntrayBlock(world, building, agent.id)}${grants ? `\n\n${grants}` : ""}` } : {}), ...(keyResults ? { keyResults } : {}) };
+  const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment)
+    : `${manager ? memoryIndexBlock(world, agent.id) : memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
+  return {
+    memory, repo: world.repoMode(), purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building),
+    ...(forkOf ? { forkOf } : {}),
+    ...(townBoard ? { townBoard } : {}),
+    ...(manager ? { team: [managerIntrayRows(world, building, agent.id), teamBlock(world, building, agent.id), grants].filter(Boolean).join("\n\n"), intrayRules: managerIntrayRules(world.repoMode(), world.captainName()) } : {}),
+    ...(keyResults ? { keyResults } : {}),
+  };
+}
+
+/** The fixed parts of a work session, for \`workSystemPrompt\`. */
+export function fixedParts(p: WorkSessionParts): { buildings: string; purpose: string; repo: RepoMode; forkOf?: string; intrayRules?: string } {
+  return { buildings: p.buildings, purpose: p.purpose, repo: p.repo, ...(p.forkOf ? { forkOf: p.forkOf } : {}), ...(p.intrayRules ? { intrayRules: p.intrayRules } : {}) };
+}
+
+/**
+ * The live half of a work session's brief: everything \`workSystemPrompt\` leaves out, in one block that \`workPrompt\`
+ * puts after the clock (docs/prompt-caching.md, layer 2): a fork's own name and id, the goals and grants with this
+ * session's lane, a manager's in-tray rows, team and grants, the town board, the memory, and the branch.
+ */
+export function workStateBlock(agent: Agent, parts: WorkSessionParts, workspace?: { dir: string; branch: string; base: string }): string {
+  return [
+    parts.forkOf ? `You are ${agent.name} (agent id ${agent.id}), a fork of ${parts.forkOf}.` : "",
+    parts.keyResults ?? "",
+    parts.team ?? "",
+    parts.townBoard ?? "",
+    parts.memory,
+    workspace ? workspaceBlock(workspace) : "",
+  ].filter((x) => x.trim()).join("\n\n");
 }
 
 /**
@@ -196,7 +257,7 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const attached = `Attached to: ${tree.pathText(at)} (captain: ${ownerName}). Key results belong to grants: a grant is filed against a goal in this subtree and carries its own dated key results; goals keep none open.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   const lane = !assignment ? "" : assignment.lane === "grant"
-    ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : " (the checkpoint)"}.`
+    ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : ""}.`
     : assignment.lane === "exploration"
       ? assignment.reservationId ? explorerBrief(world, building, assignment) : `This session: exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
       : `This session: directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;
@@ -221,14 +282,14 @@ export function explorerBrief(world: World, building: Building, assignment: Assi
   const recent = world.events.list({ buildingId: building.id, from: day, types: ["doc.decision", "assignment.status", "exploration.proposed", "exploration.closed"], desc: true, limit: 12 });
   return [
     `This session: exploration. The town's explore tick reserved ${tok(r?.tokens ?? 0)} tokens (${assignment.reservationId}) under goal ${at} because a desk here was idle and tokens were free. Your sessions draw on that chunk; you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it, and what you don't spend returns.`,
-    `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), objective, approach, stopCondition and askTokens; your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
+    `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), steps (1-5, each title and description: one session of work; funding queues step 1 and each step's report the next), objective, approach, stopCondition and askTokens; your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
     rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what ${world.captainName()} asked.` : "The building has no rollup yet.",
     open.length ? `Open proposals under this goal: ${open.map((g) => `${g.id} "${oneLine(g.objective, 100)}" (${g.status}, asks ${tok(g.askTokens)})`).join("; ")}.` : "No proposal is open under this goal.",
     recent.length ? `The building's last day: ${recent.map((e) => `${stamp(e.ts)} ${oneLine(e.text, 120)}`).join(" · ")}` : "",
   ].filter(Boolean).join("\n");
 }
 
-/** Goal-directed buildings: how the manager works with grants and their key results (`assign` lanes, `propose_grant`, `checkpoint_grant`). */
+/** Goal-directed buildings: how the manager works with grants and their key results (`assign` lanes, `propose_grant`, `close_grant`). */
 export function managerGrantsBlock(world: World, building: Building): string {
   if (building.kind === "town-hall") return "";
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
@@ -236,15 +297,15 @@ export function managerGrantsBlock(world: World, building: Building): string {
 The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it. Admins and a goal's captain (the human who owns it) edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids (\`set_objective\`). Key results belong to grants (docs/how-work-gets-done.md §4): a grant is filed against a goal in your subtree and carries its own 1-5 key results, each something a human can check in the live town by a date. \`propose_grant\` with goalId (default your building's goal), keyResults (text, howToCheck, due), an objective, the approach, a stop condition and a token ask. Funding it runs the plan; closing it as done marks its key results met, and only a human marks one missed, on the grant.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key results are implied), or "exploration" with a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work draws the free tokens under your goal like exploration (held while none are free; metered on its own: "Directed today"); a gap says what it is for. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
 ${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another plan can get its own proposal now.` : "No proposal is open. Explorers propose on their own: the runtime's explore tick reserves a chunk and queues an explorer on an idle desk while tokens are free under your goal, and its proposal goes straight to the Town Hall in-tray."}
-A human's decision on your proposal wakes you with an assignment: funded → "Grant … funded: assign its first step or take it yourself" (lane grant, the plan in it; nothing runs until its steps are assignments), countered → "Answer the counter on …" (re-propose with \`propose_grant\`), rejected → "Grant … rejected: read the note". When a grant reaches 100% of its tokens (the only checkpoint; it runs to its full number before that) you get a "Write the checkpoint for …" assignment: \`checkpoint_grant\` (the status of its key results up to claimed, one at a time, each with a note on what shipped or did not; once, \`whatTopUpBuys\` + \`topUpTokens\`: what a top-up of how many more tokens would deliver; the checkpoint card shows these first), then \`submit_report\` with \`rollup: true\`; it lands in the Town Hall in-tray linked to the grant. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and its key results are marked met (say what shipped in the rollup; a human can flip one to missed). Use \`checkpoint_grant\` only when the grant is held at its 100% checkpoint and the work is not done. To change a proposal that is still waiting (proposed or countered), \`withdraw_grant\` (grantId, why as note: it leaves the in-tray, its key results archive, the note stays on the grant), then \`propose_grant\` fresh.`;
+A proposal carries its plan as 1-5 steps (\`propose_grant\` steps: title, description, optional model and pages; one session each, each with a check a human can make in the live town). Funding queues step 1 on your building queue by itself (a fork runs it, charged to the grant); each step's report queues the next step by itself unless its verdict is pivot. Approve a step's report to let the plan go on; stop or redirect it to cancel the queued next step (a pivot queues nothing: you decide). A human's counter wakes you with "Answer the counter on …" (re-propose with \`propose_grant\`), a rejection with "Grant … rejected: read the note". A funded grant holds at its checkpoint when its spend reaches its tokens minus a reserve of min(150k, a third) (the reserve covers the sessions already running, which finish and book); after a human continues it, it holds again at 100%. At a hold new sessions on it wait for a human to continue, adjust or cut it in the Town Hall in-tray; the checkpoint card assembles itself from the grant's reports and the key-result evidence its forks file with \`submit_report\`: nothing for you to write. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and its key results are marked met (say what shipped in the rollup; a human can flip one to missed). To change a proposal that is still waiting (proposed or countered), \`withdraw_grant\` (grantId, why as note: it leaves the in-tray, its key results archive, the note stays on the grant), then \`propose_grant\` fresh.`;
 }
 
-export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string, now = Date.now()): string {
+export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string, now = Date.now(), state?: string): string {
   const prev = chain !== undefined ? `\n\n${chain}` : lastReport
     ? `\n\nYour previous report: "${lastReport.title}" (${lastReport.id}, verdict ${lastReport.verdict ?? "?"}, decision ${lastReport.decision ?? "?"}${lastReport.decisionNote ? `, note: ${lastReport.decisionNote}` : ""}). \`read\` it if you need the details.`
     : "\n\nThis is your first session.";
   // the clock opens the brief (standing rule 5) here, in the first message, not in the cached system prompt (docs/prompt-caching.md)
-  return `${clockLine(now)}
+  return `${clockLine(now)}${state ? `\n\n${state}` : ""}
 
 Your assignment (${assignment.id}): ${assignment.title}
 
@@ -597,7 +658,7 @@ export function facilitateMaterial(world: World, meeting: Meeting): string {
     intray = [...(th ? intrayOf(world, th.id).map(row) : []), ...counts].join("\n") || "(empty)";
   }
   const prev = previousMeeting(world, meeting);
-  const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${nameOf(d.assigneeId)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
+  const last = prev ? `("${prev.title}"):\n${decisionOutcomes(world, prev).map((d) => `- ${d.n}. ${oneLine(d.text, 200)}${d.assigneeId ? ` → ${decisionTarget(world, d)}` : ""}: ${d.outcome}`).join("\n") || "(no decisions)"}` : "(none; first meeting)";
   const needs = meeting.attendeeIds.flatMap((id) => (meeting.summaries[id] ?? "").split("\n").filter((l) => /^need:/i.test(l.trim())).map((l) => `- ${nameOf(id)}: ${l.trim().replace(/^need:\s*/i, "")}`)).join("\n") || "(none)";
   // a reorg meeting ("Change this goal"): the change, the prep reports, the proposals and the under-review key results first
   const reorg = world.reorgs.material(meeting);
@@ -670,18 +731,28 @@ ${error ? "Nothing needed unless the task still matters: the session failed befo
 `;
 }
 
-/** Extra system prompt for buildings with a workspace: the agent edits code in its own checkout inside its desk. */
-export function workshopPrompt(ws: { dir: string; branch: string; base: string }, repoName: string, repo: RepoMode = "muster"): string {
+/**
+ * Extra system prompt for buildings with a workspace: the agent edits code in its own checkout inside its desk. Fixed
+ * per building (the checkout dir and base are the town's); the branch is per assignment, so it is in the first
+ * message (\`workspaceBlock\`).
+ */
+export function workshopPrompt(ws: { dir: string; base: string }, repoName: string, repo: RepoMode = "muster"): string {
   return `
 
 ## Code access
-You can edit the ${repoName} repository. Your own checkout is at ${ws.dir} on branch \`${ws.branch}\` (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
+You can edit the ${repoName} repository. Your own checkout is at ${ws.dir}, on the branch the first message names (forked from \`${ws.base}\`); it is your current working directory. Nobody else edits it. Rules:
 - Read the repo's AGENTS.md and CLAUDE.md first, then the files you need. Keep the change small and complete.
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
-- Commit with a clear message, then \`git push -u origin ${ws.branch}\` and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report. To wait for its CI, park with \`submit_report\` \`resumeWhen: {pr: <number>}\`: you resume when its checks pass or fail.
+- Commit with a clear message, then push your branch (\`git push -u origin <your branch>\`) and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report. To wait for its CI, park with \`submit_report\` \`resumeWhen: {pr: <number>}\`: you resume when its checks pass or fail.
 - Never force-push, never rewrite history, never run destructive commands.${repo === "muster" ? `
 - If you call \`redeploy\`, your session keeps running through the restart (a town call in the few seconds the server is down is retried for you). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.` : ""}
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
+}
+
+/** The live half of Code access, in the first message: this session's branch and the push command with it. */
+export function workspaceBlock(ws: { dir: string; branch: string; base: string }): string {
+  return `## Your branch
+Your checkout at ${ws.dir} is on branch \`${ws.branch}\` (forked from \`${ws.base}\`). Push with \`git push -u origin ${ws.branch}\`, then \`gh pr create --draft --fill\` (base ${ws.base}).`;
 }
 
 /** Slug for branch and directory names. */
@@ -733,12 +804,17 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   const town = world.town.get();
   const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) ?? null : null;
   const workspace = deskWorkspace(town, building, agent, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, ...sessionMemory(world, agent, building, assignment), skills: skillsBlock(world.skills.forAgent(agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl), world.repoMode()) : "");
+  // layer 1 (docs/prompt-caching.md): byte-identical for every fork of the building / every session of one agent;
+  // a fork's skills are its manager's pins (building and town ones), not the fork's own, or the block differs per fork
+  const parts = sessionMemory(world, agent, building, assignment);
+  const system = workSystemPrompt(agent, building, town, { desk: true, ...fixedParts(parts), skills: skillsBlock(world.skills.forAgent(agent.forkOf ?? agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl), world.repoMode()) : "");
+  // layer 2: the live state, after the clock
+  const state = workStateBlock(agent, parts, workspace);
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });
   const brief = assignment
     ? workPrompt(assignment, world.docs.first("authorId = ? AND type = 'report' AND (sessionId IS NULL OR sessionId != ?)", [agent.id, session.id], "ORDER BY createdAt DESC, rowid DESC"), recent,
-      agent.forkOf ? chainBlock(world, assignment, session.id) : undefined)
-    : `${clockLine()}\n\n${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
+      agent.forkOf ? chainBlock(world, assignment, session.id) : undefined, Date.now(), state)
+    : `${clockLine()}\n\n${state}\n\n${CHECK_IN}\n\n${recent}\n\nStart with \`look\`, then the board. End with \`submit_report\`.`;
   // while main is red, every brief names its one fixer (gr_7op2v8fjcl step 2): live state, so the first message, not the system prompt
   const red = mainRedLine(world);
   const prompt = red ? `${brief}\n\n${red}` : brief;

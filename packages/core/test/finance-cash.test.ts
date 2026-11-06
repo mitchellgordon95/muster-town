@@ -13,8 +13,15 @@ const base: CashInputs = { fees: [], sessions: [], inputs: [{ id: "in_key", sour
 describe("financeCash (Paid in cash, last 30 days)", () => {
   it("is all zero with no plan, no API-key session and no hosting; perDollar is null", () => {
     const c = financeCash({ ...base, sessions: [sess("2026-11-01T00:00:00Z", 1_000_000)] }, NOW);
-    expect(c).toMatchObject({ windowDays: 30, from: "2026-10-05T12:00:00.000Z", to: NOW.toISOString(), plans: 0, apiKeys: 0, hosting: 0, total: 0, listUsd: 20, perDollar: null });
+    expect(c).toMatchObject({ windowDays: 30, from: "2026-10-05T12:00:00.000Z", to: NOW.toISOString(), plans: 0, apiKeys: 0, hosting: 0, total: 0, listUsd: 20, perDollar: null, hosted: false });
     expect(cashCheck(c).ok).toBe(true);
+  });
+
+  it("says when the collective is hosted (no plans by design), so the page never reads plans $0 as a plan missing", () => {
+    expect(financeCash({ ...base, hosted: true }, NOW).hosted).toBe(true);
+    const { world } = seededWorld();
+    expect(world.bank.cash({ backend: "docker" }, false, { hosted: true }, NOW).cash.hosted).toBe(true);
+    expect(world.bank.cash({ backend: "docker" }, false, {}, NOW).cash.hosted).toBe(false);
   });
 
   it("prorates each plan by the part of the window it was active, across from/to edges", () => {

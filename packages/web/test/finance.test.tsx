@@ -24,9 +24,9 @@ const tabOf = (tab: string, fin: Partial<FinanceData>) => renderToStaticMarkup(<
 const page = (fin: Partial<FinanceData>) => BANK_TABS.map((t) => tabOf(t, fin)).join("");
 /** The Spending tab with this row picked (`spend:` + its path; null = none): the drill-down's level and the sidebar's Selected row. */
 const spendAt = (picked: string | null, spend: FinanceSpend) => renderToStaticMarkup(<BankView tab="Spending" bank={null} fin={{ f, spend, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} picked={picked} />);
-/** The sheet's centre column (`.bank-main`) and its sidebar (`aside.bank-side`) of one rendered tab. */
-const centreOf = (html: string) => html.slice(0, html.indexOf('<aside class="bank-side"'));
-const sideOf = (html: string) => html.slice(html.indexOf('<aside class="bank-side"'));
+/** The sheet's centre column (`.sheet-main`) and its sidebar (`aside.sheet-side.bank-about`) of one rendered tab. */
+const centreOf = (html: string) => html.slice(0, html.indexOf('<aside class="sheet-side bank-about"'));
+const sideOf = (html: string) => html.slice(html.indexOf('<aside class="sheet-side bank-about"'));
 
 describe("finance page", () => {
   it("says the four figures add up, overdrawn included", () => {
@@ -160,9 +160,10 @@ describe("finance page: spending", () => {
     for (const s of ["By lane × token kind", "today so far (UTC)", "60,000", "$1.20", "cache writes 41.7% of cost", "Show the table"]) expect(top).toContain(s);
     expect(top).not.toContain("lane-kind-table");
     expect(centreOf(spendAt("spend:workshop", { ...sp, byLaneKind: lk }))).toContain("cache writes 75.0% of cost");
-    // open: lanes, kinds, the share in red over 20%, the not-counted line and the check
+    // open: lanes, kinds, the share (no red line: the cache-miss alert is about prefix busting, 1:1 mt_pr3347g2w2), the not-counted line and the check
     const open = renderToStaticMarkup(<LaneKind today={lk} initialOpen />);
-    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "color:#c0392b", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    expect(open).not.toContain("color:#c0392b");
     const one = renderToStaticMarkup(<LaneKind today={lk} buildingId="workshop" name="Town Workshop" initialOpen />);
     expect(one).toContain("Manager wakes");
     expect(one).not.toContain(">Grant<");
@@ -403,7 +404,7 @@ describe("finance page: sources", () => {
   });
   it("a picked input shows its dated credits in the sidebar's Selected row, none in the centre (kr_y7derda40x)", () => {
     const html = renderToStaticMarkup(<BankView tab="Inputs" bank={null} fin={{ f, spend: null, sources: src, fly: null }} rev={0} onChange={noop} onReload={noop} picked="in_a" />);
-    const side = html.slice(html.indexOf('<aside class="bank-side"')), centre = html.slice(0, html.indexOf('<aside class="bank-side"'));
+    const side = html.slice(html.indexOf('<aside class="sheet-side bank-about"')), centre = html.slice(0, html.indexOf('<aside class="sheet-side bank-about"'));
     expect(side.indexOf("<h4>Selected row")).toBeLessThan(side.indexOf("<h4>About this tab"));
     for (const s of ["Mitchell&#x27;s Max plan", "subscription · daily · from Mitchell", "Credited on", "2026-10-20", "2026-10-21 00:00", "50 expired undrawn", "2026-10-27", "2 credits"]) expect(side).toContain(s);
     expect(centre).toContain('class="spend-row bank-pick on"');
@@ -456,7 +457,7 @@ describe("finance page: free tokens", () => {
       creditedCounts: { input: 0, output: 5000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, inputs: [], buildings: [], contributors: [], free,
     } as unknown as Bank;
     const html = renderToStaticMarkup(<BankView tab="Balance" bank={bank} fin={{ f, spend: null, sources: null, fly: null }} rev={0} onChange={noop} onReload={noop} />);
-    const side = html.indexOf('<aside class="bank-side"');
+    const side = html.indexOf('<aside class="sheet-side bank-about"');
     const centre = html.slice(0, side), sidebar = html.slice(side);
     expect(centre).toContain("<td>Free for exploration</td><td><b>250</b></td>");
     expect(centre).not.toContain("general balance");
@@ -557,6 +558,13 @@ describe("Plans paid for", () => {
     expect(renderToStaticMarkup(<PlansPaidForView fees={[]} admin={false} onChange={noop} />)).toContain("None recorded yet.");
     expect(tabOf("Inputs", {})).toContain("Plans paid for");
   });
+  // 1:1 mt_pr3347g2w2: a hosted collective runs on API keys, so no plans is its normal case, not a gap, and its admin gets no form
+  it("a hosted collective: says plans don't apply and shows no add form, even to an admin", () => {
+    const html = renderToStaticMarkup(<PlansPaidForView fees={[]} admin hosted onChange={noop} />);
+    expect(html).toContain("a hosted collective runs on API keys");
+    expect(html).not.toContain("None recorded yet.");
+    expect(html).not.toContain("Add plan");
+  });
 });
 
 // gr_qggxximtru step 2 (kr_ruh7apqptm): Paid in cash, last 30 days, on Balance
@@ -572,6 +580,14 @@ describe("finance page: paid in cash, last 30 days", () => {
     expect(cashLines({ ...cash, total: 260 }).check).toEqual({ ok: false, text: "Cash does not add up: the parts come to $250.00, but the total is $260.00." });
     const none = cashLines({ ...cash, plans: 0, apiKeys: 0, hosting: 0, total: 0, perDollar: null });
     expect(none.ratio).toContain("No plan recorded yet: add one on Inputs");
+  });
+  it("a hosted collective: plans $0 is by design, so the parts say so and nothing points at Inputs", () => {
+    const h = cashLines({ ...cash, hosted: true, plans: 0, total: 50, perDollar: 50 });
+    expect(h.parts).toBe("API keys $12.50 · hosting $37.50 (no plans: a hosted collective runs on API keys)");
+    expect(h.ratio).toContain("Each $1 paid bought ≈ $50.00");
+    const none = cashLines({ ...cash, hosted: true, plans: 0, apiKeys: 0, hosting: 0, total: 0, perDollar: null });
+    expect(none.ratio).toBe("Nothing paid in cash in these 30 days yet.");
+    expect(none.ratio).not.toContain("Inputs");
   });
   it("shows the cash row on Balance under the list-price figures, and nothing from an older server", () => {
     const html = tabOf("Balance", { f: { ...f, cash, cashCheck: { ok: true, diff: 0, text: "" } } });

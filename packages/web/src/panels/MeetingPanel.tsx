@@ -183,7 +183,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : oneOnOne ? `${nameOf(m.facilitatorId)} records the work you agree on here.` : "The facilitator records decisions at the end."}</Empty> : (
           <ol className="decisions">
             {m.decisions.map((d, i) => (
-              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>
+              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {d.queueBuildingId ? `${buildings.find((b) => b.id === d.queueBuildingId)?.name ?? d.queueBuildingId} queue (a fork of ${nameOf(d.assigneeId)})` : nameOf(d.assigneeId)}</button></> : null}</li>
             ))}
           </ol>
         )}

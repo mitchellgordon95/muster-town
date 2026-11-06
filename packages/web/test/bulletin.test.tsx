@@ -6,6 +6,7 @@ import { store } from "../src/state";
 import { MockApi } from "../src/mock/server";
 import { BulletinForm, canPostBulletin } from "../src/panels/Places";
 import { placePanel } from "../src/map/renderer";
+import { DocRow } from "../src/panels/DocView";
 
 const as = (m: unknown) => { store.state = { ...store.state, me: m as never }; };
 
@@ -36,5 +37,21 @@ describe("the bulletin board in the town square (Mitchell's flag dc_52njv3shp8)"
     expect((await api.bulletin()).map((d) => d.id)).not.toContain(a.id);
     await expect(api.takeDownBulletin(a.id)).rejects.toThrow(/bulletin board/);
     await expect(api.postBulletin({ title: " ", body: "y" })).rejects.toThrow(/title and a body/);
+  });
+  it("mock: read / unread for the signed-in human (flag dc_04q4h8s229): others' notes start unread, own notes read; read one, then all", async () => {
+    const api = new MockApi();
+    const own = await api.postBulletin({ title: "Mine", body: "x" });
+    const b0 = await api.bulletinBoard();
+    expect(b0.docs.find((d) => d.id === own.id)?.unread).toBe(false);
+    expect(b0.docs.find((d) => d.id === "dc_bulletin_picnic")?.unread).toBe(true);
+    expect(b0.unread).toBe(1);
+    expect(await api.readBulletin("dc_bulletin_picnic")).toBe(0);
+    expect((await api.bulletinBoard()).docs.every((d) => !d.unread)).toBe(true);
+    expect(await api.readBulletin("all")).toBe(0);
+  });
+  it("an unread row shows a red \"new\" mark; a read one doesn't", () => {
+    const d = { id: "dc_x", type: "bulletin", state: "building", title: "Hi", body: "", authorId: "us_a", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: "2026-11-05T00:00:00.000Z", updatedAt: "2026-11-05T00:00:00.000Z" } as never;
+    expect(renderToStaticMarkup(<DocRow doc={d} onOpen={() => {}} unread />)).toContain(">new<");
+    expect(renderToStaticMarkup(<DocRow doc={d} onOpen={() => {}} />)).not.toContain(">new<");
   });
 });

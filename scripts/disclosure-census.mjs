@@ -17,7 +17,7 @@
  *
  * Decision (step 4, as_daweqw8v78): the goal tree's canvas is a map, like the pixel map. Its cards are a zoomed-out
  * picture of the tree (10–21% zoom on live: their words are not readable text) and its toolbar is map chrome, so the
- * whole-sheet row of `goals` / `kr` is excluded and only the selected goal's detail pane (.ge-detail) is measured
+ * whole-sheet row of `goals` / `kr` is excluded and only the selected goal's detail pane (.sheet-side) is measured
  * against the bar. Showing desk steppers only on the selected card would cut controls but not the card words, so
  * the sheet would fail on words either way.
  *
@@ -91,13 +91,13 @@ const label = (t) => t.kind + (t.id ? ":" + t.id : "") + (t.docId ? ":" + t.docI
 
 // ---- measuring ----
 /**
- * Where the open panel is: the side panel (aside.panel), or a sheet over the map: the goal tree (.ge; its `part` "detail" is the
- * selected goal's pane, .ge-detail), the manual and help cards (.paper), the Bank (.bank-sheet). Marked data-census for the tab locator.
+ * Where the open panel is: the side panel (aside.panel), or a sheet over the map: the goal tree (.sheet.goal-sheet; its `part` "detail" is the
+ * selected goal's pane, .sheet-side), the manual and help cards (.paper), the Bank (.sheet[aria-label="The Bank"]). Marked data-census for the tab locator.
  */
 const measure = (page, part) => page.evaluate((part) => {
   document.querySelectorAll("[data-census]").forEach((el) => el.removeAttribute("data-census"));
-  let panel = document.querySelector("aside.panel") ?? document.querySelector(".ge") ?? document.querySelector(".paper.manual") ?? document.querySelector(".bank-sheet");
-  if (panel && part === "detail") panel = panel.querySelector(".ge-detail");
+  let panel = document.querySelector("aside.panel") ?? document.querySelector(".sheet.goal-sheet") ?? document.querySelector(".paper.manual") ?? document.querySelector('.sheet[aria-label="The Bank"]');
+  if (panel && part === "detail") panel = panel.querySelector(".sheet-side");
   if (!panel) return null;
   panel.setAttribute("data-census", "");
   const pr = panel.getBoundingClientRect();

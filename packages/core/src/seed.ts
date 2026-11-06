@@ -168,6 +168,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
       world.town.set({ defaults: BuildingDefaults.parse({ ...world.town.defaults(), ...fromLab, ...spelledDefaults(opts.collectivePath) }) });
     }
     world.permissions.ensureTownRoles();
+    seedPlans(world, opts.collectivePath, existing.id);
     // a hosted collective's tree is its founder's: the Workshop's untouched placeholder pillars go (gr_5ltmbf3a2f)
     world.goalTree.ensureRootText();
     if (world.permissions.isHosted()) world.goalTree.dropPlaceholderPillars();
@@ -233,6 +234,7 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
         if (!lab) lab = b;
       }
     }
+    seedPlans(world, opts.collectivePath, admin.id);
     world.events.append({ type: "system", text: "Town seeded", payload: { adminId: admin.id, labId: lab?.id ?? null } });
     return { created: true, admin: world.users.require(admin.id), adminToken, townHall: world.buildings.require(townHall.id), lab, manager };
   });
@@ -240,6 +242,13 @@ export function seedDefaults(world: World, opts: SeedOptions = {}): SeedResult {
   world.tokens.ensure("user", result.admin.id, result.adminToken); // remembered for getOrCreate (the dev admin-token route)
   if (opts.dataDir) writeAdminToken(opts.dataDir, result.adminToken);
   return result;
+}
+
+/** collective.json `plans` (the subscription plans paid for in cash) into the Bank's "Plans paid for", once each (Bank.seedFees). */
+function seedPlans(world: World, collectivePath: string | undefined, adminId: string): void {
+  if (!collectivePath || !existsSync(collectivePath)) return;
+  const plans = CollectiveConfig.pick({ plans: true }).parse(JSON.parse(readFileSync(collectivePath, "utf8"))).plans;
+  world.bank.seedFees(adminId, plans);
 }
 
 function writeAdminToken(dataDir: string, token: string): void {

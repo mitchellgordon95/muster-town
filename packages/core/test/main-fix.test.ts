@@ -24,7 +24,7 @@ function setup() {
   const mara = createResident(world, { buildingId: code.id, name: "Mara", title: "t", direction: "d" });
   world.ops.updateBuilding(admin, code.id, { managerAgentId: mara.id });
   world.permissions.grant(mara, buildingRoleId(code.id, "manager"));
-  const g = world.grantDesk.decide(admin, world.grantDesk.propose(mara, world.grantDesk.create(mara, code.id, { keyResults: [{ text: "one fixer", howToCheck: "the queue" }], objective: "o", stopCondition: "s", askTokens: 500_000 }).id).id, { action: "fund" });
+  const g = world.grantDesk.decide(admin, world.grantDesk.propose(mara, world.grantDesk.create(mara, code.id, { keyResults: [{ text: "one fixer", howToCheck: "the queue" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500_000 }).id).id, { action: "fund" });
   const opts = { fallbackBuildingId: code.id, grantId: g.id };
   return { ...s, mei, mara, code, grantId: g.id, opts };
 }
@@ -89,9 +89,9 @@ describe("a red main gets one fixer (gr_7op2v8fjcl step 2)", () => {
     expect((await world.verbs.look(mei, {})).notices.mainRed).toContain("Main is red");
 
     const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", backend: "docker" });
-    expect(composeWorkBrief(world, s.id).prompt).toContain("Main is red");
+    expect(composeWorkBrief(world, s.id).prompt).toContain("Main is red: CI failed");
     ci = { ...ci, state: "green", failedStep: null };
-    expect(composeWorkBrief(world, s.id).prompt).not.toContain("Main is red");
+    expect(composeWorkBrief(world, s.id).prompt).not.toContain("Main is red: CI failed"); // the queue (a manager's first message) still lists the fix assignment
     expect((await world.verbs.look(mei, {})).notices.mainRed).toBeUndefined();
   });
 });

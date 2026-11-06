@@ -44,16 +44,6 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   };
 }
 
-/** `checkpoint_grant` (the manager): the status of the grant's open key results (or one) up to claimed, and the checkpoint report link. */
-export async function checkpoint_grant(world: World, me: Agent, input: VerbIn<"checkpoint_grant">) {
-  const g = world.grantDesk.fileCheckpoint(me, input.grantId, { reportId: input.reportId ?? null, status: input.status ?? null, note: input.note, keyResultId: input.keyResultId ?? null, whatTopUpBuys: input.whatTopUpBuys ?? null, topUpTokens: input.topUpTokens ?? null });
-  return {
-    grantId: g.id, status: g.status, checkpointDocId: g.checkpointDocId, keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status, note: k.statusNote })),
-    topUp: { tokens: g.topUpTokens, buys: g.whatTopUpBuys },
-    note: g.checkpointDocId ? "Linked. A human continues, adjusts or cuts it from the Town Hall in-tray." : "Now submit_report with rollup: true: it links itself to this grant as the checkpoint report.",
-  };
-}
-
 /**
  * `close_grant` (the manager): close a funded grant as done before it is spent (town hall mt_6830h8x5qk, decision 3). The
  * open key results go to claimed with the note; the unspent rest returns to the Bank; without reportId the manager's next

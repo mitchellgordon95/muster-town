@@ -15,7 +15,7 @@ function setup() {
   const tree = world.goalTree;
   const goal = tree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
   tree.attach(admin, LAB, goal.id);
-  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
   const kr = world.keyResults.require(g.keyResultId!);
   world.grantDesk.propose(null, g.id);
   world.grantDesk.decide(admin, g.id, { action: "fund" });
@@ -52,7 +52,7 @@ describe("Postmortems on missed key results (docs/goals.md, step 6)", () => {
 
   it("a key result archived as missed in a reorg gets one too; met gets none", () => {
     const { world, admin, goal, kr } = setup();
-    const k2 = world.keyResults.require(world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "k2", howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const k2 = world.keyResults.require(world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "k2", howToCheck: "h", due }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
     world.grantDesk.updateKeyResult(admin, k2.id, { status: "met" });
     expect(postmortemNote(world, k2.id)).toBeUndefined();
     world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });

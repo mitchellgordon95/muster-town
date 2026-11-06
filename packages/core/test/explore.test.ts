@@ -102,7 +102,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
       world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: null });
       expect(exploreBlock(world, lab())).toBeNull();
     }
-    const g = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000 });
+    const g = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000 });
     world.grantDesk.propose(mei, g.id);
     expect(exploreBlock(world, lab())).toMatch(/proposal of this building is open/);
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "no" });
@@ -116,7 +116,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     const { world, mei, by } = setup();
     const a = exploreTick(world).started[0]!;
     const fork = world.agents.upsert({ ...by("Noor"), id: newId("ag"), name: "Mei 1", forkOf: mei.id, forkN: 1, homeBuildingId: LAB, currentAssignmentId: a.id });
-    const out = await world.verbs.propose_grant(fork, { keyResults: [{ text: "The lab's goal shows first on its board", howToCheck: "Open the lab board" }], objective: "Show the lab's goal first", stopCondition: "two tries", askTokens: 200_000 });
+    const out = await world.verbs.propose_grant(fork, { keyResults: [{ text: "The lab's goal shows first on its board", howToCheck: "Open the lab board" }], objective: "Show the lab's goal first", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 200_000 });
     expect(world.grants.require(out.grantId).proposedBy).toBe(mei.id);
     expect(world.grants.require(out.grantId)).toMatchObject({ buildingId: LAB, status: "proposed" });
     const ev = world.events.list({ types: ["exploration.proposed"] });
