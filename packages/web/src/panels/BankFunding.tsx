@@ -10,6 +10,11 @@ import { store, useTown } from "../state";
 import { SignInNote } from "../auth/auth";
 import { ADJ, ADJ_HINT, Act, Empty, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
 
+/** Whether this is a hosted collective (served at /<slug>/; its health says its funding): it runs on API keys only, never a subscription or a plan. */
+export function useHosted(): boolean {
+  return useTown((s) => s.health?.funding) != null || !!API_BASE;
+}
+
 interface Props { bank: Bank; onChange: () => void }
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -132,7 +137,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [model, setModel] = useState("claude-opus-5-5");
   // a hosted collective (served at /<slug>/; its health says its funding) runs on API keys only: no subscription source
   // anywhere in this form (Anthropic's subscription terms; the API refuses one too). The Workshop and self-hosted towns keep it.
-  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
+  const hosted = useHosted();
   const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
   const [goalId, setGoalId] = useState("");
   const streams = useLoad(() => api().bankStreams(), []);

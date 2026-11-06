@@ -64,9 +64,9 @@ export function DeckView({ id, body }: { id: string; body: string }) {
       window.removeEventListener("hashchange", follow);
       setShownDeck(null);
       setPanelFull(false);
-      // closed inside another panel (cabinet, in-tray): its slide URL no longer names what is shown
-      const p = store.state.panel;
-      if (slideOfHash(location.hash, id) !== null && !(p?.kind === "library" && p.docId === id)) history.replaceState(null, "", location.pathname + location.search);
+      // closed (its sheet, or the cabinet's or in-tray's): its slide URL no longer names what is shown
+      const s = store.state.sheet;
+      if (slideOfHash(location.hash, id) !== null && !(s?.kind === "doc" && s.id === id)) history.replaceState(null, "", location.pathname + location.search);
     };
   }, [id, count]);
   useEffect(() => { const f = () => setFull(isPanelFull()); window.addEventListener("musterTown:panel-full", f); return () => window.removeEventListener("musterTown:panel-full", f); }, []);

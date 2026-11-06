@@ -7,7 +7,6 @@
  * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
@@ -21,7 +20,8 @@ import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmt
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
-import { GeDivider, useGeDetailWidth } from "./panelResize";
+import { GE_DETAIL_KEY } from "./panelResize";
+import { Sheet } from "./Sheet";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -53,7 +53,6 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);
   const [bump, setBump] = useState(0);
   const detail = useRef<HTMLElement>(null);
-  const [detailW, setDetailW] = useGeDetailWidth();
   const tree = useLoad(() => retired ? api().goalTreeWithRetired() : api().goalTree(), [rev, retired, bump]);
   const proposals = useLoad(() => api().goalProposals("open"), [rev, bump]);
   // the funder filter (goal tree step 8): a signed-in human with a Bank input can dim what their money didn't reach
@@ -67,16 +66,6 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
     const at = root && focusKr ? krGoal(root, focusKr) : null;
     if (at) select(at.id);
   }, [root?.id, focusKr]);
-  // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first)
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      const el = document.activeElement as HTMLElement | null;
-      if (e.key !== "Escape" || store.state.panel || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
-      onClose();
-    };
-    window.addEventListener("keydown", key, true);
-    return () => window.removeEventListener("keydown", key, true);
-  }, [onClose]);
   const toggle = (id: string) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const select = (id: string | null) => {
     const to = id ?? ROOT_GOAL_ID;
@@ -85,46 +74,36 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   };
   const byNode = new Map<string, number>();
   if (root) for (const p of proposals.data ?? []) { const id = proposalNode(root, p).id; byNode.set(id, (byNode.get(id) ?? 0) + 1); }
-  return createPortal(
-    <div className="ge-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="ge" role="dialog" aria-label="Goal tree">
-        <header className="ge-head">
-          <div className="panel-icon"><Glyph kind="goals" /></div>
-          <div className="who">
-            <div className="who-title">Goal tree</div>
-            <div className="who-sub">{anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}</div>
+  return (
+    <Sheet label="Goal tree" className="goal-sheet" icon={<Glyph kind="goals" />} title="Goal tree" onClose={onClose}
+      sub={anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}
+      actions={anyEdit ? <Act small tone="primary" run={() => openPlanner(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
+      status={<ErrorLine error={tree.error ?? proposals.error} />}
+      mainClass={root && node ? "ge-canvas" : undefined} mainLabel={root && node ? "Goals" : undefined}
+      sideKey={GE_DETAIL_KEY} sideShare={40} dividerLabel="Resize the goal detail" phone="split"
+      sideIsMain sideClass="plain" sideRef={detail}
+      side={root && node ? (
+        <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
+          proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
+      ) : undefined}>
+      {!root || !node ? <Loading /> : (
+        <>
+          <div className="ge-tools">
+            <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="">All buildings</option>
+              {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
+              {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
           </div>
-          {anyEdit ? <Act small tone="primary" run={() => openPlanner(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
-          <button className="close" title="Close (Esc)" aria-label="Close" onClick={onClose}>×</button>
-        </header>
-        <ErrorLine error={tree.error ?? proposals.error} />
-        {!root || !node ? <Loading /> : (
-          <div className={detailW ? "ge-body sized" : "ge-body"} style={detailW ? { ["--ge-detail" as string]: `${detailW}px` } : undefined}>
-            <div className="ge-tree ge-canvas" aria-label="Goals">
-              <div className="ge-tools">
-                <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
-                  <option value="">All buildings</option>
-                  {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
-                  {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
-              </div>
-              <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
-                scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
-                canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
-                onSelect={select} onToggle={toggle} onChanged={reload}
-                onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
-            </div>
-            <GeDivider width={detailW} onResize={setDetailW} />
-            <main className="ge-detail" ref={detail} tabIndex={-1}>
-              <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
-                proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
-            </main>
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
+            scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
+            canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
+            onSelect={select} onToggle={toggle} onChanged={reload}
+            onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
+        </>
+      )}
+    </Sheet>
   );
 }
 

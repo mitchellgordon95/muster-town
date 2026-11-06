@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db.ts";
 import { buildingRoleId, nextPending, pendingQueue, setAssignmentStatus } from "../src/index.ts";
-import { isCheckpointAssignment } from "../src/lanes.ts";
 import { seededWorld } from "./helpers.ts";
 
 function setup() {
@@ -120,19 +119,6 @@ describe("assignment queue", () => {
     expect(world.assignments.require(c.id).status).toBe("done");
     const b = world.assignments.first("title = 'B'")!;
     expect(() => world.ops.retryAssignment(admin, b.id)).toThrow(/Only cancelled or done/);
-  });
-
-  it("retryAssignment: a grant's checkpoint assignment (system author, lane grant) keeps its system author so the copy runs at the checkpoint too", () => {
-    const { world, admin, add } = setup();
-    const a = add("Write the checkpoint for X");
-    world.assignments.patch(a.id, { lane: "grant", grantId: "gr_test", keyResultId: null, createdBy: "system", createdByKind: "user" });
-    setAssignmentStatus(world, a.id, "done");
-    const r = world.ops.retryAssignment(admin, a.id, {});
-    expect(r).toMatchObject({ status: "pending", fromAssignmentId: a.id, lane: "grant", grantId: "gr_test", createdBy: "system" });
-    expect(isCheckpointAssignment(r)).toBe(true);
-    // an ordinary done assignment retried by an admin is theirs
-    const b = add("B"); setAssignmentStatus(world, b.id, "done");
-    expect(world.ops.retryAssignment(admin, b.id, {}).createdBy).toBe(admin.ownerUserId);
   });
 
   it("permissions: owner, building.assign on the building, or admin; anyone else is refused", () => {

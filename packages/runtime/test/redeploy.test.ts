@@ -114,6 +114,8 @@ describe("redeploy", () => {
       "git pull --rebase origin main",
       "git rev-list --count abc123..HEAD",
       "git diff --name-only abc123 HEAD -- package-lock.json",
+      // the no-op guard reads HEAD after the pull (the runtime's live commit is this checkout's HEAD, not abc123)
+      "git rev-parse HEAD",
       "npm run build --workspace packages/web",
       "npm run build --workspace packages/server",
       // pulls again after the drain: nothing new, so no rebuild
@@ -411,5 +413,76 @@ describe("redeploy status for the UI", () => {
     expect(runs(h.world).at(-1)).toMatchObject({ state: "done", commits: 3, head: "abc123" });
     mk();
     expect(h.texts().filter((t) => t.startsWith("Redeploy finished"))).toHaveLength(1);
+  });
+  describe("nothing new on the deploy branch (no-op guard)", () => {
+    /** a clean tree whose pull brings `n` commits; HEAD after it is abc123 */
+    const pulls = (n: number) => base().map(([p, a]) => (p === "git rev-list --count" ? [p, ok(`${n}\n`)] : [p, a]) as [string, CmdResult | (() => CmdResult)]);
+    const drainNudge = vi.fn();
+
+    test("HEAD equals the running commit, no image, no reason: no build, no drain, no exit; one terminal 'nothing new' event", async () => {
+      const h = harness(pulls(0), ["ag_1"], { working: () => ["ag_1"], nudge: drainNudge });
+      h.world.host.commit = "abc123";
+      h.r.redeploy({ image: false, requestedBy: "Pix" });
+      await h.r.done();
+      expect(h.exit).not.toHaveBeenCalled();
+      expect(drainNudge).not.toHaveBeenCalled();
+      expect(h.runner.calls.some((c) => c.startsWith("npm"))).toBe(false);
+      expect(h.runner.calls.filter((c) => c.startsWith("git pull"))).toHaveLength(1);
+      const last = h.world.events.latestWith("system", "redeploy")!;
+      expect(last.text).toBe('Redeploy: nothing new on main (live abc123); no restart. CI deploys a merge once main is green. Give restart: "<reason>" for a deliberate restart.');
+      expect(last.payload).toMatchObject({ terminal: true, noop: true, run: { state: "done", commits: 0 } });
+      expect(h.r.running()).toBe(false);
+    });
+
+    test("with a restart reason it restarts, and the request event carries the reason", async () => {
+      const h = harness(pulls(0));
+      h.world.host.commit = "abc123";
+      h.r.redeploy({ image: false, restart: "clear stuck state", requestedBy: "Pix" });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+      expect(h.texts()).toContain("Redeploy requested by Pix (restart: clear stuck state)");
+      expect(h.texts().some((t) => t.startsWith("Redeploy: nothing new"))).toBe(false);
+    });
+
+    test("a request that joins with a reason before the check turns the run into a restart", async () => {
+      const h = harness(pulls(0));
+      h.world.host.commit = "abc123";
+      h.r.redeploy({ image: false, requestedBy: "Pix" });
+      expect(h.r.redeploy({ image: false, restart: "Mitchell asked", requestedBy: "Root" })).toEqual({ queued: true });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+    });
+
+    test("with image=true it restarts", async () => {
+      const h = harness(pulls(0));
+      h.world.host.commit = "abc123";
+      h.r.redeploy({ image: true, requestedBy: "Pix" });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+    });
+
+    test("the pull brings commits past the running one: restarts as before", async () => {
+      const h = harness([["git rev-parse HEAD", ok("def456\n")], ...pulls(2)]);
+      h.world.host.commit = "abc123";
+      h.r.redeploy({ image: false, requestedBy: "CI" });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+    });
+
+    test("a checkout already ahead of the running server (nothing pulled now) still restarts", async () => {
+      const h = harness(pulls(0));
+      h.world.host.commit = "0ld0ld";
+      h.r.redeploy({ image: false, requestedBy: "Pix" });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+    });
+
+    test("running commit unknown (dev checkout): restarts as before", async () => {
+      const h = harness(pulls(0));
+      h.world.host.commit = undefined;
+      h.r.redeploy({ image: false, requestedBy: "Pix" });
+      await h.r.done();
+      expect(h.exit).toHaveBeenCalledWith(75);
+    });
   });
 });

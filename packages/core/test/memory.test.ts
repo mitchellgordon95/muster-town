@@ -123,7 +123,7 @@ describe("memory: wiki + log", () => {
 });
 
 describe("work brief carries memory", () => {
-  test("composeWorkBrief: wiki and log in system, recent work in prompt, the memory rule in the world rules; the manager gets the team", async () => {
+  test("composeWorkBrief: wiki and log in the first message (live: docs/prompt-caching.md), recent work in prompt, the memory rule in the world rules; the manager gets the team", async () => {
     const { world, by } = seededWorld();
     const noor = by("Noor");
     await world.verbs.write(noor.id, { type: "wiki", title: "Dashboard", body: "Waiting on Mitchell about 0.44.", state: "draft" });
@@ -131,13 +131,19 @@ describe("work brief carries memory", () => {
     const asg = world.ops.createWork(null, noor.id, { title: "Answer Mitchell", description: "What did you find?" });
     const s = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: asg.id, backend: "docker" });
     const b = composeWorkBrief(world, s.id);
-    expect(b.system).toContain("## What you know (your wiki)");
-    expect(b.system).toContain("### Dashboard (dc_");
-    expect(b.system).toContain("Waiting on Mitchell about 0.44.");
+    expect(b.prompt).toContain("## What you know (your wiki)");
+    expect(b.prompt).toContain("### Dashboard (dc_");
+    expect(b.prompt).toContain("Waiting on Mitchell about 0.44.");
+    expect(b.system).not.toContain("Waiting on Mitchell about 0.44.");
     expect(b.system).toContain("Your memory between sessions is your wiki and your log");
-    expect(b.system).not.toContain("## Your team");
+    expect(b.prompt).not.toContain("## Your team");
     world.buildings.patch(noor.homeBuildingId!, { managerAgentId: noor.id });
-    expect(composeWorkBrief(world, s.id).system).toContain("## Your team (you are the manager");
+    const m = composeWorkBrief(world, s.id);
+    expect(m.prompt).toContain("## Your team (you are the manager");
+    expect(m.system).not.toContain("## Your team");
+    // a manager gets the index of its wiki, the pages read on demand
+    expect(m.prompt).toMatch(/- "Dashboard" \(dc_/);
+    expect(m.prompt).not.toContain("### Dashboard (dc_");
     expect(b.prompt).toContain("## Your recent work");
     expect(b.prompt).toMatch(/- article "Airborne fraction" \(dc_[\w-]+, just now\): It is 0\.44 ± 0\.03\./);
     expect(b.prompt).toContain(READ_FIRST);

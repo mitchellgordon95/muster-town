@@ -12,7 +12,7 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [bid])!;
   world.permissions.grant(manager, buildingRoleId(bid, "manager"));
   const mk = () => {
-    const g = world.grantDesk.create(manager, bid, { keyResults: [{ text: "A banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
+    const g = world.grantDesk.create(manager, bid, { keyResults: [{ text: "A banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 20_000 });
     world.grantDesk.propose(manager, g.id);
     return g;
   };

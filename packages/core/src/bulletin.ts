@@ -1,6 +1,7 @@
 import type { Agent, Doc } from "@muster-town/schema";
 import { createDoc, updateDoc } from "./domain.ts";
 import { badRequest, forbidden } from "./errors.ts";
+import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
 /**
@@ -40,4 +41,37 @@ export function takeDownBulletin(world: World, me: Agent, docId: string): Doc {
   const doc = updateDoc(world, d.id, { state: "draft" });
   world.events.append({ type: "doc.state", agentId: me.kind === "human" ? null : me.id, buildingId: null, text: `"${doc.title}" taken off the bulletin board`, payload: { docId: doc.id, state: "draft", from: d.state, by: world.holderOf(me).id } });
   return doc;
+}
+
+/**
+ * Read / unread per signed-in human (flag dc_04q4h8s229). Only users are tracked (guests and agents get no flags). A
+ * note counts as read once its reader opened it (a row in bulletin_reads) or when they wrote it. The rule is per note
+ * id: a note taken down and pinned again (same id, even edited) stays read; reads are never deleted.
+ */
+export type BulletinNote = Doc & { unread?: boolean };
+
+/** The board's notes for `userId` (a user id, or null for guests/agents): each with `unread`, plus the unread count. */
+export function bulletinNotesFor(world: World, userId: string | null, limit = 50): { docs: BulletinNote[]; unread?: number } {
+  const docs = bulletinNotes(world, limit);
+  if (!userId) return { docs };
+  const read = new Set((world.db.prepare("SELECT docId FROM bulletin_reads WHERE userId = ?").all(userId) as { docId: string }[]).map((r) => r.docId));
+  const out = docs.map((d) => ({ ...d, unread: d.authorId !== userId && !read.has(d.id) }));
+  return { docs: out, unread: out.filter((d) => d.unread).length };
+}
+
+/** How many notes on the board `userId` has not opened (0 for null). */
+export function bulletinUnreadCount(world: World, userId: string | null): number {
+  return userId ? bulletinNotesFor(world, userId).unread ?? 0 : 0;
+}
+
+/** Mark bulletin notes read for a user: one note id, or every note on the board now (`"all"`). Idempotent. */
+export function markBulletinRead(world: World, userId: string, docId: string | "all"): number {
+  const ids = docId === "all" ? bulletinNotes(world, 200).map((d) => d.id) : [world.docs.require(docId, "doc")].map((d) => {
+    if (d.type !== "bulletin") throw badRequest("Only a bulletin board note is marked read here.");
+    return d.id;
+  });
+  const ins = world.db.prepare("INSERT OR IGNORE INTO bulletin_reads (userId, docId, readAt) VALUES (?, ?, ?)");
+  const at = nowIso();
+  for (const id of ids) ins.run(userId, id, at);
+  return bulletinUnreadCount(world, userId);
 }

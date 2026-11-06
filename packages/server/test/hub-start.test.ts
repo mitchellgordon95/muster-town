@@ -123,7 +123,7 @@ describe("Start a collective", () => {
     const manager = w.agents.first("homeBuildingId = ? AND kind != 'human'", [lab.id])!;
     const ev = w.events.append({ type: "exploration.started", agentId: manager.id, buildingId: lab.id, text: "started exploring", payload: { reservationId: "rv_x" } });
     expect(await founder()).toEqual({ exploringSince: ev.ts, proposals: 0, funded: false });
-    const g = w.grantDesk.propose(manager, w.grantDesk.create(manager, lab.id, { objective: "Map gardens", approach: "", stopCondition: "done", askTokens: 100_000, keyResults: [{ text: "A map", howToCheck: "Open it" }] }).id);
+    const g = w.grantDesk.propose(manager, w.grantDesk.create(manager, lab.id, { objective: "Map gardens", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, keyResults: [{ text: "A map", howToCheck: "Open it" }] }).id);
     expect(await founder()).toMatchObject({ proposals: 1, funded: false });
     w.grants.patch(g.id, { status: "funded", fundedAt: new Date().toISOString() });
     expect(await founder()).toMatchObject({ proposals: 0, funded: true });

@@ -4,8 +4,8 @@
  * building's in-tray (author "system", shown as Town); the runtime's `doc.created` branch then wakes (or feeds) the
  * manager's team-lead session, the same path as a resident's report. The manager acknowledges it with `review` approve.
  *
- * Events that already wake the manager with an assignment are left out: fund, counter and reject
- * (`Grants.decisionAssignment`) and `grant.checkpoint`. Each row carries the tag `wake:<rule>:<eventId>:<buildingId>`,
+ * Events that already wake the manager with an assignment are left out: counter and reject (`Grants.decisionAssignment`)
+ * and `grant.checkpoint`; fund wakes nobody, it queues the plan's step 1 (`Grants.queueStep`). Each row carries the tag `wake:<rule>:<eventId>:<buildingId>`,
  * so delivering the same event twice writes nothing the second time.
  */
 import type { Agent, Assignment, Doc, Event, Grant } from "@muster-town/schema";
@@ -46,7 +46,7 @@ function describe(world: World, e: Event): { title: string; what: string; summar
   if (!human) return null;
   if (e.type === "grant.funded" || e.type === "grant.closed") {
     const action = String(p.action ?? "");
-    // fund has its own assignment (Grants.decisionAssignment); a manager closing its own grant is not a human event
+    // fund queues the plan's step 1 itself (Grants.queueStep), no manager wake; a manager closing its own grant is not a human event
     if (e.type === "grant.funded" && action !== "continue" && action !== "adjust") return null;
     const g = world.grants.get(String(p.grantId));
     if (!g) return null;

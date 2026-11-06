@@ -566,6 +566,20 @@ export class MockApi implements Api {
     await wait(60);
     return clone([...this.sim.docs.values()].filter((d) => d.type === "bulletin" && d.state === "building").sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit));
   }
+  /** = core bulletinNotesFor: the mock is signed in as Mitchell (`?guest` never reaches the API's read state), so every note carries `unread`. */
+  async bulletinBoard(limit = 50) {
+    const docs = (await this.bulletin(limit)).map((d) => ({ ...d, unread: d.authorId !== "us_mitchell" && !this.bulletinRead.has(d.id) }));
+    return { docs, unread: docs.filter((d) => d.unread).length };
+  }
+  async readBulletin(docId: string) {
+    await wait();
+    if (docId === "all") for (const d of this.sim.docs.values()) { if (d.type === "bulletin" && d.state === "building") this.bulletinRead.add(d.id); }
+    else if (this.need(this.sim.docs.get(docId), "doc").type !== "bulletin") throw new ApiError("Only a bulletin board note is marked read here.", "bad_request", 400);
+    else this.bulletinRead.add(docId);
+    return (await this.bulletinBoard(200)).unread;
+  }
+  /** notes the mock's signed-in human (Mitchell) has opened */
+  private readonly bulletinRead = new Set<string>();
   async postBulletin(i: { title: string; body: string }) {
     await wait();
     const title = i.title.trim(), body = i.body.trim();
@@ -650,6 +664,10 @@ export class MockApi implements Api {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
     if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
+    if (action === "withdraw" || action === "decline") {
+      d.requestStatus = action === "withdraw" ? "withdrawn" : "declined"; d.requestNote = body || "(no note)"; d.requestDecidedById = "us_mitchell";
+      this.sim.putDoc(d); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return d;
+    }
     d.requestStatus = action === "claim" ? "claimed" : "done";
     if (action === "claim") d.claimedByUserId = "us_mitchell";
     if (action === "done") {

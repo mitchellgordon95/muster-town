@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -10,7 +10,6 @@ import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
-import { isCheckpointAssignment } from "./lanes.ts";
 import { walkHome } from "./home.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
@@ -23,7 +22,6 @@ const warnedModels = new Set<string>();
 
 interface StartNextResult { assignment: Assignment; agent: Agent; when: "now" | "after-current" }
 
-export type RequestAction = "claim" | "done" | "delete";
 /** `null` actor = system (scheduler/runtime): no permission checks. */
 export type Actor = Agent | null;
 
@@ -334,13 +332,10 @@ export class Ops {
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
     // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
     if (isGone(agent) && !(agent.status === "retired" && agent.forkOf)) throw goneError(agent);
-    // a grant's checkpoint assignment is known by its system author (isCheckpointAssignment) and runs while the grant is held;
-    // its retry keeps that author, else the copy would wait on the very checkpoint it is meant to write
-    const system = { kind: "system" as const, id: "system" };
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      createdBy: isCheckpointAssignment(a) || !actor ? system : this.world.holderOf(actor),
+      createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
   }
 
@@ -475,12 +470,28 @@ export class Ops {
   }
 
   // ---- outbox requests ----
+  /** May `actor` withdraw this request: its author, or the manager of the author's building (or that manager's fork), or anyone with building.manage there. */
+  canWithdrawRequest(actor: Agent, doc: Doc): boolean {
+    if (doc.authorKind === "agent" && doc.authorId === actor.id) return true;
+    const me = this.world.permissions.managerOfFork(actor) ?? actor;
+    if (doc.authorKind === "agent" && doc.authorId === me.id) return true;
+    const author = doc.authorKind === "agent" ? this.world.agents.get(doc.authorId) : undefined;
+    const bid = doc.buildingId ?? (author ? homeOf(author) : null);
+    if (!bid) return false;
+    const b = this.world.buildings.get(bid);
+    if (b?.managerAgentId === me.id) return true;
+    return this.world.permissions.can(actor, "building.manage", bid);
+  }
   /**
    * A request is open to every human as soon as an agent files it (no approval step); the human decides whether to do it.
    * claim: any human (avatar). done: the claimer (or admin) with `body` → creates a `human-report` in the library.
    * delete: an admin (town.approve_request) removes a request that misuses the town; returns `request: null`.
+   * withdraw (1:1 mt_pr3347g2w2 decision 7): the author, or its building's manager or a fork of it, takes an open request
+   * back with a note (`body`): it leaves the outbox as `withdrawn`, the note stays on it. decline: a human with
+   * town.approve_request turns an open one down with a note (`body`); the author hears why. Through act_in_1on1 `via`
+   * names the agent and 1:1 that carried the human's word: the request records the human as the decider, via them.
    */
-  requestAction(actor: Agent, docId: string, action: RequestAction, body?: string): { request: Doc | null; humanReport: Doc | null } {
+  requestAction(actor: Agent, docId: string, action: RequestAction, body?: string, via?: { agentId: string; meetingId: string }): { request: Doc | null; humanReport: Doc | null } {
     const doc = this.world.docs.require(docId, "doc");
     if (doc.type !== "request") throw badRequest(`Doc ${docId} is not a request.`);
     const h = this.world.holderOf(actor);
@@ -489,7 +500,26 @@ export class Ops {
     };
     let humanReport: Doc | null = null;
     let patch: Partial<Doc>;
+    const viaFields = via ? { requestViaAgentId: via.agentId, requestViaMeetingId: via.meetingId } : {};
+    const viaText = via ? ` via ${this.world.nameOf(via.agentId)} in ${via.meetingId}` : "";
     switch (action) {
+      case "withdraw": {
+        if (!this.canWithdrawRequest(actor, doc)) throw forbidden("building.manage", "Only the request's author, or the manager of its building (or a fork of the manager), withdraws it.");
+        need(["open"]);
+        if (!body?.trim()) throw badRequest("Say why you withdraw it (note): it stays on the request.");
+        patch = { requestStatus: "withdrawn", requestNote: body.trim(), requestDecidedById: h.id, ...viaFields };
+        if (doc.authorKind === "agent" && doc.authorId !== actor.id) sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)} withdrew your outbox request "${doc.title}" (${doc.id}): ${body.trim()}` });
+        break;
+      }
+      case "decline": {
+        if (h.kind !== "user") throw badRequest("Only humans decline requests (an author withdraws its own).");
+        this.world.permissions.require(actor, "town.approve_request");
+        need(["open"]);
+        if (!body?.trim()) throw badRequest("Say why you decline it (note): the author hears it and it stays on the request.");
+        patch = { requestStatus: "declined", requestNote: body.trim(), requestDecidedById: h.id, ...viaFields };
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)}${viaText} declined your outbox request "${doc.title}" (${doc.id}): ${body.trim()}` });
+        break;
+      }
       case "delete": {
         this.world.permissions.require(actor, "town.approve_request");
         this.world.docs.delete(doc.id);
@@ -516,7 +546,7 @@ export class Ops {
         break;
     }
     const request = updateDoc(this.world, doc.id, patch);
-    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
+    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "claim" && action !== "done" ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
     // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)
     if (humanReport) requestAnswerWake(this.world, request, humanReport, updated);
     return { request, humanReport };

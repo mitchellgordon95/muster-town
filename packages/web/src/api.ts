@@ -12,6 +12,7 @@ import type {
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { visitorId } from "./visitor";
+import { knownNames } from "./names";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
@@ -151,7 +152,10 @@ export interface FinanceCash {
   plans: number; apiKeys: number; hosting: number; total: number;
   listUsd: number; perDollar: number | null;
   planRows: { id: string; label: string; usdPerMonth: number; activeDays: number; usd: number }[];
-  apiKeySessions: number; pricedAt: "cash";
+  apiKeySessions: number;
+  /** a hosted collective: runs on API keys only, so plans is $0 by design (absent from an older server) */
+  hosted?: boolean;
+  pricedAt: "cash";
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
@@ -408,7 +412,7 @@ export interface Board {
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[]; /** FYIs only: the board to post to ("town-hall" = a town-wide FYI) */ buildingId?: string }
-export type RequestAction = "claim" | "done" | "delete";
+export type RequestAction = "claim" | "done" | "delete" | "withdraw" | "decline";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
 export interface SocketHandlers { onMessage(msg: unknown): void; onOpen(): void; onClose(): void }
@@ -568,6 +572,10 @@ export interface Api {
   unpublish(docId: string): Promise<Doc>;
   /** GET /api/bulletin — the bulletin board in the town square: humans' notes, newest first (anyone reads) */
   bulletin(limit?: number): Promise<Doc[]>;
+  /** GET /api/bulletin with read state (flag dc_04q4h8s229): for a signed-in human each note carries `unread` and the board an `unread` count; guests get neither */
+  bulletinBoard(limit?: number): Promise<BulletinBoard>;
+  /** POST /api/bulletin/:id/read — mark one note read for the signed-in human, or `all` of them; returns the unread count left */
+  readBulletin(docId: string | "all"): Promise<number>;
   /** POST /api/bulletin — pin a note on it (a signed-in human) */
   postBulletin(input: { title: string; body: string }): Promise<Doc>;
   /** POST /api/bulletin/:id/take-down — take a note down (back to its author's drafts; its author or a town admin) */
@@ -693,6 +701,11 @@ export const tokenStore = {
 };
 
 /** Single-object endpoints aren't pinned down in the contract: accept `{doc}` or the bare object. */
+/** A bulletin board note with its read state for the signed-in human (= core's BulletinNote; absent for guests). */
+export type BulletinNote = Doc & { unread?: boolean };
+/** GET /api/bulletin: the notes, plus `unread` (how many the signed-in human hasn't opened) when signed in. */
+export interface BulletinBoard { docs: BulletinNote[]; unread?: number }
+
 function unwrap<T>(r: unknown, key: string): T {
   if (r && typeof r === "object" && key in (r as Record<string, unknown>)) return (r as Record<string, T>)[key];
   return r as T;
@@ -827,10 +840,19 @@ class HttpApi implements Api {
   publishSettings(patch: { repoUrl: string; token?: string }) { return this.call<{ publish: TownPublish }>("PUT", "/api/town/publish", patch); }
   clearPublish() { return this.call<{ cleared: boolean }>("DELETE", "/api/town/publish"); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
-  async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
+  async doc(id: string) {
+    const r = await this.get(`/api/docs/${id}`);
+    const doc = unwrap<Doc>(r, "doc");
+    // the server resolves the author's name (a retired fork is not in the snapshot): keep it so the byline isn't an id
+    const author = (r as { author?: unknown }).author;
+    if (typeof author === "string" && author && author !== doc.authorId) knownNames.set(doc.authorId, author);
+    return doc;
+  }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
-  async bulletin(limit = 50) { return unwrap<Doc[]>(await this.get(`/api/bulletin${qs({ limit })}`), "docs"); }
+  async bulletin(limit = 50) { return (await this.bulletinBoard(limit)).docs; }
+  async bulletinBoard(limit = 50) { return await this.get<BulletinBoard>(`/api/bulletin${qs({ limit })}`); }
+  async readBulletin(id: string) { return (await this.post<{ unread: number }>(`/api/bulletin/${id}/read`, {})).unread; }
   async postBulletin(i: { title: string; body: string }) { return unwrap<Doc>(await this.post("/api/bulletin", i), "doc"); }
   async takeDownBulletin(id: string) { return unwrap<Doc>(await this.post(`/api/bulletin/${id}/take-down`, {}), "doc"); }
   async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }

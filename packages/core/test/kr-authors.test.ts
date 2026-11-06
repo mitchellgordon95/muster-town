@@ -20,10 +20,10 @@ function setup() {
 describe("managers write key results through their grants (docs/how-work-gets-done.md §4)", () => {
   it("the manager's grant carries its KRs; the manager edits them; residents, met/missed and deletes stay refused", async () => {
     const { world, mei, noor, admin, notes } = setup();
-    const r = await world.verbs.propose_grant(mei, { keyResults: [KR], objective: "Spend on the banner", stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
+    const r = await world.verbs.propose_grant(mei, { keyResults: [KR], objective: "Spend on the banner", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
     const kr = world.keyResults.require(world.grants.require(r.grantId).keyResultId!);
     expect(kr).toMatchObject({ buildingId: LAB, grantId: r.grantId, createdBy: mei.id, editedBy: null, status: "not-started", text: KR.text });
-    await expect(world.verbs.propose_grant(noor, { keyResults: [KR], objective: "o", stopCondition: "s", askTokens: 1000 })).rejects.toThrow();
+    await expect(world.verbs.propose_grant(noor, { keyResults: [KR], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 })).rejects.toThrow();
     world.grantDesk.updateKeyResult(mei, kr.id, { howToCheck: "Open the banner, Usage line" });
     expect(world.keyResults.require(kr.id)).toMatchObject({ howToCheck: "Open the banner, Usage line", createdBy: mei.id, editedBy: mei.id });
     // status: up to claimed only; met / missed and delete stay human

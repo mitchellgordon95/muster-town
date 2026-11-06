@@ -1,6 +1,6 @@
 /** Grant gr_jh0lu0w6yj step 1 (town hall mt_1u7mwyjrrz): meeting sessions run on the agent's full context. */
 import { describe, expect, it, vi } from "vitest";
-import { createBuilding, createResident, facilitateSystemPrompt, humanDecisionsBlock, meetingContextBlock, oneOnOnePrompt, sessionMemory, summaryPrompt, updateBuilding, workSystemPrompt } from "../src/index.ts";
+import { createBuilding, createResident, facilitateSystemPrompt, humanDecisionsBlock, workStateBlock, meetingContextBlock, oneOnOnePrompt, sessionMemory, summaryPrompt, updateBuilding } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 vi.setConfig({ testTimeout: 60_000 }); // seeding a world is slow on a loaded desk
@@ -67,7 +67,7 @@ describe("meeting sessions load the full context", () => {
     world.ops.meetingDecide(null, standup.id, [{ text: "Deck before forms", assigneeId: null, assignmentId: null }]);
     closeAt(standup.id, "2026-10-28T11:00:00.000Z");
     const oo = world.ops.openOneOnOne(admin, b.id);
-    const system = workSystemPrompt(pix, b, world.town.get(), sessionMemory(world, pix, b));
+    const system = workStateBlock(pix, sessionMemory(world, pix, b));
     expect(system).toContain(`"Live checks" (${tp}`);
     const prompt = oneOnOnePrompt(oo, (id) => world.nameOf(id), humanDecisionsBlock(world, oo));
     expect(prompt).toContain(`${standup.id} standup 2026-10-28 11:00 UTC #1: Deck before forms`);

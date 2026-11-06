@@ -131,11 +131,32 @@ export function nameOf(id: string | null | undefined): string {
     const avatar = Object.values(s.agents).find((a) => a.kind === "human" && a.ownerUserId === id);
     if (avatar) return avatar.name;
   }
-  // dismissed/banned agents aren't in the snapshot; GET /api/agents/:id still answers for them
-  if (id.startsWith("ag_") && !lookups.has(id)) {
-    lookups.add(id);
-    api().agent(id).then((d) => { store.names.set(id, d.agent.name); store.set({ rev: store.state.rev + 1 }); }, () => undefined);
-  }
+  // dismissed/banned agents and retired forks aren't in the snapshot; GET /api/agents/:id still answers for them
+  if (id.startsWith("ag_")) void lookUpName(id);
   return id;
 }
-const lookups = new Set<string>();
+const lookups = new Map<string, Promise<void>>();
+function lookUpName(id: string): Promise<void> {
+  let p = lookups.get(id);
+  if (!p) {
+    p = api().agent(id).then((d) => { store.names.set(id, d.agent.name); store.set({ rev: store.state.rev + 1 }); }, () => undefined);
+    lookups.set(id, p);
+  }
+  return p;
+}
+
+/**
+ * `nameOf` for a component that doesn't re-render on `rev` (a doc's byline): when the name isn't known yet it waits for
+ * the lazy agent lookup and re-renders with the name, so a retired fork's doc never stays "by ag_…".
+ */
+export function useNameOf(id: string | null | undefined): string {
+  const [, bump] = useState(0);
+  const name = nameOf(id);
+  useEffect(() => {
+    if (!id || name !== id || !id.startsWith("ag_")) return;
+    let live = true;
+    void lookUpName(id).then(() => { if (live && store.names.has(id)) bump((n) => n + 1); });
+    return () => { live = false; };
+  }, [id, name]);
+  return name;
+}

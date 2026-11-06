@@ -7,13 +7,16 @@ import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
 import { docUrl } from "../route";
 import { SkillDetails } from "./Skills";
-import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd } from "./ui";
+import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd, useNameOf } from "./ui";
 import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
+import { requestDecisionLine, requestTone } from "./requests";
 import { RollupReport, rollupCardsOf } from "./RollupCards";
+import { PageDoc } from "./PageView";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
+import { Sheet } from "./Sheet";
 
 const DECISION_TONE: Record<string, string> = { pending: "warn", approve: "ok", continue: "ok", redirect: "info", stop: "bad" };
 /** How a decision reads on a pill. `approve` is "Acknowledge" in v1.2: no assignment follows. */
@@ -27,7 +30,7 @@ function DocMeta({ doc }: { doc: Doc }) {
       <Pill tone={`state-${doc.state}`}>{doc.state}</Pill>
       {doc.verdict ? <Pill tone={VERDICT_TONE[doc.verdict]} title="Agent's verdict">verdict: {doc.verdict}</Pill> : null}
       {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]} title="Manager's decision">{decisionLabel(doc)}</Pill> : null}
-      {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
+      {doc.requestStatus ? <Pill tone={requestTone(doc.requestStatus)} title={doc.requestNote ? requestDecisionLine(doc) : undefined}>{doc.requestStatus}</Pill> : null}
     </div>
   );
 }
@@ -110,8 +113,8 @@ function TalkToAuthor({ doc }: { doc: Doc }) {
   );
 }
 
-/** `review`: a pending report gets Talk to + Archive, a flag its decide box (only the in-tray passes it). */
-export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void }) {
+/** `review`: a pending report gets Talk to + Archive, a flag its decide box (only the in-tray passes it). `inSheet`: the sheet's head shows the title (DocSheet). */
+export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDecided, inSheet }: { doc: Doc; onBack?: () => void; backLabel?: string; review?: boolean; onDecided?: () => void; inSheet?: boolean }) {
   const live = useTown((s) => s.docs[initial.id]);
   const doc = live && live.updatedAt >= initial.updatedAt ? live : initial;
   useTown((s) => s.me); // re-render when permissions arrive
@@ -122,19 +125,20 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   const sources = doc.provenance.sourceIds;
   const cost = docCost(doc);
   const cards = rollupCardsOf(doc);
+  const author = useNameOf(doc.authorId);
   return (
     <article className="doc">
       {onBack ? <button className="link back" onClick={onBack}>← {backLabel}</button> : null}
-      <h2 className="doc-title">{doc.title}</h2>
+      {inSheet ? null : <h2 className="doc-title">{doc.title}</h2>}
       <DocMeta doc={doc} />
       <div className="doc-byline">
-        by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{nameOf(doc.authorId)}</b> · {timeAgo(doc.createdAt)}
+        by <b title={forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId) || undefined}>{author}</b> · {timeAgo(doc.createdAt)}
         {cost ? <> · <span title={docCostTitle(doc)}>{cost}</span></> : null}
         {doc.location ? <> · at {doc.location}</> : null}
         {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
-      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : cards ? <RollupReport parsed={cards} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
+      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : doc.type === "page" ? <PageDoc doc={doc} /> : cards ? <RollupReport parsed={cards} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview && doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : null}
       {/* the buttons that act on the doc come after reading it, big (Mitchell's flag dc_4uiv48047s) */}
@@ -155,6 +159,21 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         </details>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * One doc opened from a list in a side panel (the in-tray, the filing cabinet: grant gr_4csjpgh346, "central modals for
+ * content"): a centred sheet over the map with the list still beside it. Esc, the backdrop or × closes it, back to the list.
+ * `after`: more under the doc in the same scroll (the digest's "overtaken" line).
+ */
+export function DocSheet({ doc, onClose, review, onDecided, after }: { doc: Doc; onClose: () => void; review?: boolean; onDecided?: () => void; after?: ReactNode }) {
+  const author = useNameOf(doc.authorId);
+  return (
+    <Sheet label={doc.title} title={doc.title} sub={`${doc.type.replace(/-/g, " ")} · ${author}`} onClose={onClose} escFirst maxWidth={980} className="doc-sheet">
+      <DocView doc={doc} review={review} onDecided={onDecided} inSheet />
+      {after}
+    </Sheet>
   );
 }
 
@@ -180,17 +199,20 @@ function legacyCopy(text: string): boolean {
   try { return document.execCommand("copy"); } catch { return false; } finally { ta.remove(); }
 }
 
-export function DocRow({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
+/** `unread`: a red "new" mark first in the meta line (the bulletin board's notes the signed-in human hasn't opened, flag dc_04q4h8s229). */
+export function DocRow({ doc, onOpen, unread, selected }: { doc: Doc; onOpen: () => void; unread?: boolean; /** its doc is open (or was last open) in a sheet */ selected?: boolean }) {
   const cost = docCost(doc);
+  const author = useNameOf(doc.authorId);
   return (
-    <button className="doc-row" onClick={onOpen}>
+    <button className={selected ? "doc-row on" : "doc-row"} aria-current={selected || undefined} onClick={onOpen}>
       <MediaThumb body={doc.body} />
       <div className="doc-row-title">{doc.title}</div>
       <div className="doc-row-meta">
+        {unread ? <Pill tone="bad">new</Pill> : null}
         <Pill tone="type">{doc.type.replace(/-/g, " ")}</Pill>
         {doc.decision ? <Pill tone={DECISION_TONE[doc.decision]}>{decisionLabel(doc)}</Pill> : null}
-        {doc.requestStatus ? <Pill tone={doc.requestStatus === "rejected" ? "bad" : "ok"}>{doc.requestStatus}</Pill> : null}
-        <span title={[forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId), cost ? docCostTitle(doc) : ""].filter(Boolean).join("\n") || undefined}>{nameOf(doc.authorId)} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
+        {doc.requestStatus ? <Pill tone={requestTone(doc.requestStatus)}>{doc.requestStatus}</Pill> : null}
+        <span title={[forkTip(store.state.agents[doc.authorId], nameOf, doc.assignmentId, doc.sessionId), cost ? docCostTitle(doc) : ""].filter(Boolean).join("\n") || undefined}>{author} · {timeAgo(doc.updatedAt)}{cost ? ` · ${cost}` : ""}</span>
       </div>
     </button>
   );
