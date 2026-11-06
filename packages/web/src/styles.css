@@ -111,7 +111,8 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); background: var(--raise
 .hud-row.bad em { color: color-mix(in srgb, var(--bad) 76%, var(--white)); }
 .notice-dot { background: color-mix(in srgb, var(--bad) 70%, var(--black)); color: var(--white); font-size: var(--fs-xs); font-weight: 700; border-radius: 9px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; }
 
-/* the minimap, bottom left under the HUD (keep .hud's max-height and .toasts' bottom clear of it) */
+/* the minimap, bottom left under the HUD (keep .hud's max-height and .toasts' bottom clear of it).
+   Stacking: .layout-bar 20, .sheet-wrap 30, help/manual 40-41, .toasts 50 (a toast fired from an open sheet must show over it; flag dc_2ya4gawacy) */
 .minimap { position: absolute; left: 12px; bottom: 16px; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; box-shadow: 0 6px 24px color-mix(in srgb, var(--black) 35%, transparent); background: var(--bg); }
 .minimap canvas { display: block; cursor: pointer; touch-action: none; }
 .minimap-label { position: absolute; left: 6px; top: 6px; background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 4px; padding: 2px 6px; font-size: var(--fs-xs); pointer-events: none; }
@@ -125,7 +126,7 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); background: var(--raise
 .saybox { pointer-events: auto; width: min(520px, 90%); display: flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--bg) 96%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--panel)); border-radius: 8px; padding: 6px 8px 6px 12px; }
 .saybox span { color: var(--accent); font-weight: 600; font-size: var(--fs-sm); }
 .saybox input { border: none; box-shadow: none; background: transparent; padding: 4px; }
-.toasts { position: absolute; bottom: 192px; left: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 360px; pointer-events: none; }
+.toasts { position: absolute; z-index: 50; bottom: 192px; left: 12px; display: flex; flex-direction: column; gap: 6px; max-width: 360px; pointer-events: none; }
 .toast { background: color-mix(in srgb, var(--panel) 97%, transparent); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 12px; font-size: var(--fs-md); pointer-events: auto; animation: rise .2s ease-out; box-shadow: 0 4px 16px color-mix(in srgb, var(--black) 35%, transparent); }
 .toast.ok { border-left-color: var(--ok); } .toast.bad { border-left-color: var(--bad); }
 .toast.clickable { cursor: pointer; }
@@ -402,7 +403,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .asg-block { color: color-mix(in srgb, var(--bad) 86%, var(--text)); font-size: var(--fs-sm); margin-top: 3px; }
 .asg-block .link { color: inherit; text-align: left; }
 .asg-when { color: color-mix(in srgb, var(--accent) 78%, var(--text)); font-size: var(--fs-sm); margin-top: 3px; }
-.asg.cancelled, .asg.done { opacity: .85; }
+.asg.cancelled, .asg.done { background: transparent; } /* finished rows step back without fading their text */
 .asg-n { color: var(--faint); font-weight: 500; margin-right: 6px; }
 .asg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .asg-actions .btn.icon { min-width: 28px; padding-left: 0; padding-right: 0; justify-content: center; }
@@ -445,7 +446,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .phases li.on { background: color-mix(in srgb, var(--blue) 39%, var(--panel-2)); color: var(--text); }
 .summaries { display: grid; grid-template-columns: 1fr; gap: 6px; }
 .summary { background: color-mix(in srgb, var(--link) 4%, var(--panel)); border: 1px solid var(--line); border-radius: var(--r); padding: 7px 10px; }
-.summary.waiting { opacity: .65; }
+.summary.waiting { border-style: dashed; background: transparent; } /* no summary yet: a dashed outline, not faded text (gr_kvmwutmybu step 4) */
 .summary-who { display: flex; align-items: center; gap: 7px; font-size: var(--fs-md); }
 .summary-who img { width: 12px; height: 16px; image-rendering: pixelated; }
 .summary-who span { color: var(--muted); font-size: var(--fs-sm); }
@@ -922,7 +923,7 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ge-tag { font-size: var(--fs-xs); line-height: 16px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--line-2) 25%, var(--panel-2)); color: var(--muted); white-space: nowrap; }
 .ge-tag.building { background: color-mix(in srgb, var(--blue) 23%, var(--panel-2)); color: color-mix(in srgb, var(--link) 44%, var(--white)); }
 .ge-tag.desks { background: color-mix(in srgb, var(--green) 34%, var(--bg)); color: color-mix(in srgb, var(--ok) 55%, var(--text)); font-weight: 700; }
-.ge-tag.desks.none { background: transparent; color: var(--muted); font-weight: 400; opacity: .7; }
+.ge-tag.desks.none { background: transparent; color: var(--muted); font-weight: 400; }
 .ge-desks { margin: 6px 0 2px; font-size: var(--fs-md); color: var(--muted); }
 .ge-desks b { color: color-mix(in srgb, var(--ok) 55%, var(--text)); }
 .ge-desks.none b { color: var(--muted); }

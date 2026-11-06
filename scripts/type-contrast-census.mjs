@@ -7,6 +7,11 @@
  * large), samples. Needs playwright-core in /tmp/pw and /usr/bin/chromium.
  *   node scripts/type-contrast-census.mjs laptop,phone      ORIGIN=http://localhost:5200 for a vite dev server
  *   (HOME_URL=http://localhost:5200/workshop/home.html for the home card on dev; VIEWS=agent,bank to pick views)
+ * Mock mode (kr_mmdday2x7z, the signed-in views): every panel kind and every tab of it on the mock fixture, signed in as
+ * the mock admin, opened through the dev-only `window.__muster.open` (the panel list of scripts/disclosure-census.mjs,
+ * plus the review deck). One row per panel/tab, measured on the whole screen like the guest views.
+ *   (cd packages/web && VITE_MOCK=1 npx vite --port 5199 &)
+ *   MOCK=http://localhost:5199/workshop/ node scripts/type-contrast-census.mjs laptop,phone      (ONLY=grant,bank to pick kinds)
  */
 import fs from "node:fs";
 const { chromium } = await import("/tmp/pw/node_modules/playwright-core/index.mjs");
@@ -65,9 +70,44 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? 
 const out = [];
 const log = (n, name, r) => {
   out.push({ n, name, ...r });
-  console.log(n, name.padEnd(9), "texts", r.total, "sizes", r.nSizes, "colors", r.nColors, "lowLines", r.lowLines, "lowEls", r.lowC, "<11px", r.tiny, "| sizes", r.sizes.join(" "));
+  console.log(n, name.padEnd(process.env.MOCK ? 34 : 9), "texts", r.total, "sizes", r.nSizes, "colors", r.nColors, "lowLines", r.lowLines, "lowEls", r.lowC, "<11px", r.tiny, "| sizes", r.sizes.join(" "));
   if (r.lows.length) console.log("    " + r.lows.join("\n    "));
 };
+const MOCK_TARGETS = [
+  { kind: "agent", id: "ag_noor" }, { kind: "agent", id: "ag_keel" }, { kind: "building", id: "bl_carbon" }, { kind: "building", id: "bl_townhall" },
+  { kind: "library" }, { kind: "library", docId: "dc_noor_r2" }, { kind: "library", docId: "review-deck" }, { kind: "meeting", id: "mt_town1" },
+  { kind: "intray", id: "bl_carbon" }, { kind: "intray", id: "bl_townhall" }, { kind: "board", id: "bl_carbon" }, { kind: "cabinet", id: "bl_carbon" },
+  { kind: "planning" }, { kind: "schedule", id: "bl_carbon" }, { kind: "mod" }, { kind: "grant", id: "gr_ocean" }, { kind: "grant", id: "gr_stress" },
+  { kind: "assignment", id: "as_noor2" }, { kind: "session", id: "se_fork1" }, { kind: "manual" }, { kind: "manual", id: "design" }, { kind: "stats" }, { kind: "help", id: "bl_carbon" },
+  { kind: "goals" }, { kind: "goals", id: "gl_join" }, { kind: "outbox" }, { kind: "connect" }, { kind: "bank" },
+].filter((t) => !process.env.ONLY || process.env.ONLY.split(",").includes(t.kind));
+if (process.env.MOCK) {
+  for (const [w, h, n] of SIZES) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: n === "phone", isMobile: n === "phone" });
+    const page = await ctx.newPage();
+    await page.goto(process.env.MOCK, { waitUntil: "load" }); await page.waitForTimeout(2500);
+    for (const b of ["Explore the town", "Skip"]) { const x = page.getByText(b).first(); if (await x.isVisible().catch(() => false)) { await x.click().catch(() => {}); await page.waitForTimeout(800); } }
+    if (!(await page.evaluate(() => !!window.__muster))) { console.error("no window.__muster: is this a dev (vite) mock build?"); process.exit(1); }
+    log(n, "map", await page.evaluate(measure));
+    for (const t of MOCK_TARGETS) {
+      const label = t.kind + (t.id ? ":" + t.id : "") + (t.docId ? ":" + t.docId : "");
+      await page.evaluate((x) => window.__muster.open(x), t); await page.waitForTimeout(900);
+      const tabs = page.locator("aside.panel [role=tab], .bank-sheet [role=tab]");
+      const names = await tabs.evaluateAll((els) => els.map((e) => e.textContent.trim()));
+      for (const [i, tab] of (names.length ? names : [null]).entries()) {
+        if (i > 0) { await tabs.nth(i).click().catch(() => {}); await page.waitForTimeout(600); }
+        const name = label + (tab ? "/" + tab : "");
+        await page.screenshot({ path: `${OUT}/${n}-${name.replace(/[:/ ]/g, "_")}.png` });
+        log(n, name, await page.evaluate(measure));
+      }
+      await page.evaluate(() => window.__muster.open(null)); await page.waitForTimeout(200);
+    }
+    await ctx.close();
+  }
+  fs.writeFileSync(`${OUT}/census.json`, JSON.stringify(out, null, 1));
+  await browser.close();
+  process.exit(0);
+}
 for (const [w, h, n] of SIZES) {
   // home page (server-rendered "/", pitch card over it on a first visit)
   if (want("home")) {

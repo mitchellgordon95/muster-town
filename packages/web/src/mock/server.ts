@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -44,6 +44,22 @@ function toyLaneKind(window: "today" | "7d"): SpendByLaneKind {
     window, from, to: now(), windowNote: window === "today" ? "today so far (UTC)" : "the last 7 full UTC days and today so far", ...table,
     sessionsTokens: rows.reduce((s, r) => s + r.tokens, 0) + notCounted.tokens, check: { ok: true, diff: 0, identity: "Σ lane × kind rows + not counted (back-filled) = Σ sessions in the window" },
     buildings: { workshop: table },
+  };
+}
+/**
+ * Toy manager wakes (gr_lwgus14rd2 step 3): the Town Workshop's manager wakes on each of the 8 days (one
+ * more than the fold), each wake 40,000 adj. tokens; days sum to the total exactly.
+ */
+function toyManagerWakes(): ManagerWakes {
+  const day = new Date(); day.setUTCHours(0, 0, 0, 0);
+  const line = (wakes: number, decided: number) => { const tokens = wakes * 40_000; return { wakes, tokens, usd: toyUsd(tokens), decided, perWake: wakes ? 40_000 : 0, perDecision: decided ? Math.round(tokens / decided) : null }; };
+  const counts: [number, number][] = [[4, 4], [6, 3], [2, 0], [5, 5], [3, 1], [7, 2], [1, 1], [2, 2]];
+  const days = counts.map(([w, d], i) => ({ day: new Date(day.getTime() - i * 86_400_000).toISOString().slice(0, 10), ...line(w, d) }));
+  const total = line(counts.reduce((s, c) => s + c[0], 0), counts.reduce((s, c) => s + c[1], 0));
+  return {
+    from: new Date(day.getTime() - 7 * 86_400_000).toISOString(), to: now(), windowNote: "the last 7 full UTC days and today so far",
+    buildings: { workshop: { days, total } }, total, manageTokens: total.tokens,
+    check: { ok: true, diff: 0, identity: "Σ days = each building's total; Σ buildings = Σ manage sessions in the window" },
   };
 }
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -913,7 +929,7 @@ export class MockApi implements Api {
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now(), byLaneKind: toyLaneKind(window) };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {

@@ -49,11 +49,18 @@ of thousands on every wake means the layout is broken again: something in the sy
 The Bank's `mix` (`GET /api/finance`, "1 adj. token ≈ N raw tokens") shows the town-wide shares by kind; cache writes
 above about a third of cost is the same symptom at the aggregate level.
 
-The runtime watches this itself (gr_lwgus14rd2 step 2, core `cache-miss.ts`, runtime `cache-miss.ts`): after a session
-ends, the next tick checks the UTC day per purpose × model and appends one `system` event `alert: cache-miss` per purpose
-per day (the HUD shows it for a day, `GET /api/events?kind=system` lists it with the session ids) when 1-hour cache
-writes pass 20% of that group's list-price cost, or a session's first turn (its stored transcript's first `assistant`
-usage) wrote more to the cache than it read.
+The runtime watches this itself (gr_lwgus14rd2 step 2, core `cache-miss.ts`, runtime `cache-miss.ts`; redefined by
+Mitchell in 1:1 mt_pr3347g2w2 on 2026-11-05 around prefix busting, not cache-write share): after a session ends, the
+next tick reads the stored transcripts of the UTC day's ended sessions. One API call of the main thread is one turn;
+turn 1 is a cold start and never counts. For turns 2+, a turn's re-write rate is
+`cache_creation / (cache_read + cache_creation)`: the share of its prefix written fresh. A turn busts at 50% or more
+(`BUST_TURN_RATE`; healthy turns write 1–14%, at most 20%, measured on 37 live sessions of 11-04/05), and a session
+busts when more than half of at least two such turns bust (one compaction turn is not a bust). Per purpose, when busting
+sessions pass 10% (`CACHE_MISS_SHARE`) of the day's ended sessions with a signal, and there are at least 5 of those
+(`MIN_SESSIONS`: the day's first session alone is no verdict), it appends one `system` event
+`alert: cache-miss` per purpose per day naming the worst sessions (the HUD shows it for a day; `GET /api/events?kind=system`
+lists it with `sessions`, `busting`, `noSignal` and `worst` {sessionId, turns, bustTurns, rewritten}). The 1-hour
+cache-write share of cost is a column of the Spending lane × kind table, not an alert.
 
 ## The measurement (2026-11-02)
 

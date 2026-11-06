@@ -332,7 +332,6 @@ export function App() {
       {planSide ? <aside className="panel plan-side" style={{ width: pw }} aria-label="Selected building"><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`plan:${planSide}`}><PlanSideBar id={planSide} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
       <PlanToolbar inset={inset ? pw : 0} />
-      <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
@@ -340,6 +339,8 @@ export function App() {
       {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
       {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
       {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
+      {/* toasts last, over every sheet and overlay (z-index 50 in styles.css) */}
+      <Toasts />
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
