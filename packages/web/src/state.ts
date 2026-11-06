@@ -54,6 +54,8 @@ interface TownState {
   gridVersion: number;
   meetings: Record<string, Meeting>;
   events: Event[];
+  /** the last day's `alert: cache-miss` events, read from the server (GET /api/events?alert=cache-miss&from=): the HUD's "Cache alert" stays up after the alert scrolls out of `events` */
+  cacheAlerts: Event[];
   docs: Record<string, Doc>;
   assignments: Record<string, Assignment>;
   panel: PanelRef | null;
@@ -82,7 +84,7 @@ const MAX_EVENTS = 600;
 class Store {
   state: TownState = {
     conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
+    meetings: {}, events: [], cacheAlerts: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();

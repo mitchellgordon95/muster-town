@@ -97,7 +97,7 @@ export interface DocQuery { state?: DocState; type?: DocType; buildingId?: strin
 export interface CabinetQuery { type?: DocType; authorId?: string; limit?: number }
 /** `GET /api/buildings/:id/cabinet`: the matching docs (newest first) and unfiltered counts per (type, author). */
 export interface Cabinet { docs: Doc[]; counts: { type: DocType; authorId: string; n: number }[] }
-export interface EventQuery { since?: number; agentId?: string; buildingId?: string; limit?: number }
+export interface EventQuery { since?: number; agentId?: string; buildingId?: string; limit?: number; /** system events whose payload.alert is this */ alert?: string; /** at or after this ISO time */ from?: string }
 /** `GET /api/budget` — the contract only says "per-building allocated/spent and per-user donated". */
 export interface Budget {
   buildings: { buildingId: string; allocated: number; spent: number; spentUsd?: number; tokensToday?: number; tokensAllTime?: number }[];
