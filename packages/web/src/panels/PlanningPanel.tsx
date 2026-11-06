@@ -35,7 +35,7 @@ export function Buildings() {
   const can = store.can("town.manage_buildings");
   return (
     <>
-      <p className="direction">A building is a thin layer on the goal tree: the goal it is attached to, its desks, an optional name and its manager. Open one to change them in its Settings. To move or draw buildings, use the town map table in the Town Hall.</p>
+      <p className="direction">Open a building to change its goal, desks, name or manager in its Settings. Move or draw buildings at the town map table in the Town Hall.</p>
       <Section title="Buildings">
         {buildings.map((b) => (
           <button key={b.id} className="doc-row" title="Open its Settings" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}>
@@ -221,15 +221,24 @@ function RolesTab() {
         return (
           <Section key={role.id} title={<>{role.name} <Pill tone="type">{role.scope === "building" && role.buildingId ? store.state.buildings.find((b) => b.id === role.buildingId)?.name ?? role.buildingId : role.scope}</Pill></>}>
             <div className="holders">
-              {holders.length ? holders.map((h) => (
-                <span key={h.holderId} className="holder">
-                  {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
-                  {canManage ? <button className="x" title="Remove role" onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button> : null}
-                </span>
-              )) : <span className="muted">nobody</span>}
+              {holders.length ? holders.map((h) => <span key={h.holderId} className="holder">{nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}</span>) : <span className="muted">nobody</span>}
             </div>
             <div className="perms">{role.permissions.map((p) => <code key={p}>{p}</code>)}</div>
-            {canManage ? <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} /> : null}
+            {/* remove (×) and add fold under one line per role: the tab opens on who holds what (gr_zak30564zh step 5) */}
+            {canManage ? (
+              <details className="kr-more role-edit">
+                <summary>Change holders</summary>
+                <div className="holders">
+                  {holders.map((h) => (
+                    <span key={h.holderId} className="holder">
+                      {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
+                      <button className="x" title="Remove role" aria-label={`Remove ${nameOf(h.holderId)}`} onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} />
+              </details>
+            ) : null}
           </Section>
         );
       })}

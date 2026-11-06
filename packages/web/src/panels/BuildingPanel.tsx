@@ -207,6 +207,9 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
                 <span>next {x.paused ? "— (paused)" : x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
                 <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
               </div>
+              {/* the retainer, the last run, what it creates and Pause / Cancel fold under the row (gr_zak30564zh step 5): the tab opens on what runs when */}
+              <details className="kr-more schedule-more">
+              <summary>{[x.lane === "retainer" ? "retainer" : "", x.lastAssignmentId ? "last run" : "", "what it creates", canCancel ? "pause or cancel" : ""].filter(Boolean).join(" · ")}</summary>
               {x.lane === "retainer" ? <RetainerMeta x={x} /> : null}
               {x.lastAssignmentId ? <div className="doc-row-meta"><span>last fired: {last ? `"${last.title}" (${last.status === "pending" ? "queued" : last.status === "active" ? "running" : last.status})` : x.lastAssignmentId}{x.lastRunAt ? ` · ${runsAtLabel(x.lastRunAt)}` : ""}</span></div> : null}
               <div className="doc-row-meta">
@@ -216,6 +219,7 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
                   <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act>
                 </span> : null}
               </div>
+              </details>
             </div>
           );
         })}</div>

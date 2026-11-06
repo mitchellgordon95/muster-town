@@ -155,10 +155,13 @@ export function ReviewAsDeckButton({ count, onOpen, view, digestRun, onDigestSta
       <DailyDigestButton run={digestRun ?? null} onStarted={onDigestStarted} />
       <span className="muted">{view?.view === "funded" ? `${count} under the goals your money reached: slide 1 is your week as a funder` : count ? `${count} waiting: slide 1 is the state of the town` : "slide 1 is the state of the town"}</span>
       {view ? (
-        <span className="intray-view" role="group" aria-label="Show">
-          <button className={`btn sm ${view.view === "mine" ? "primary" : ""}`} onClick={() => view.set("mine")} title="Items routed to you: the goals you captain and everything under them">Mine</button>
-          <button className={`btn sm ${view.view === "all" ? "primary" : ""}`} onClick={() => view.set("all")} title="Everything waiting in the Town Hall">All</button>
-          {view.funder ? <button className={`btn sm ${view.view === "funded" ? "primary" : ""}`} onClick={() => view.set("funded")} title="What your Bank inputs paid for this week, and the items under the goals your money reached">Funded by me</button> : null}
+        <span className="intray-view">
+          {/* one select, not a button per view (gr_zak30564zh step 5: the in-tray's first screen is its items) */}
+          <select value={view.view} aria-label="Show" title={`Mine: items routed to you (the goals you captain and everything under them). All: everything waiting in the Town Hall.${view.funder ? " Funded by me: what your Bank inputs paid for this week, and the items under the goals your money reached." : ""}`} onChange={(e) => view.set(e.target.value as IntrayView)}>
+            <option value="mine">Mine</option>
+            <option value="all">All</option>
+            {view.funder ? <option value="funded">Funded by me</option> : null}
+          </select>
           {view.view !== "all" && view.hidden ? <span className="muted">{view.hidden} more under All</span> : null}
         </span>
       ) : null}
@@ -572,7 +575,7 @@ function EstimateLine({ g }: { g: GrantView }) {
  * and History sections carry the stop condition and the latest note, so the row leaves those out.
  */
 /** Characters of a key result shown on the grant page before its fold (about one line of the side panel). */
-const KR_LINE = 50;
+const KR_LINE = 46;
 
 export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, meetingId, canDecide, route, onPage }: { grant: GrantView; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; deckSlide?: number; meetingId?: string; canDecide?: boolean; route?: IntrayRoute; onPage?: boolean }) {
   useTown((s) => s.me);
@@ -642,23 +645,28 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const folded = checkpoint && !!g.evidence;
   // on the grant's own page each key result opens on one line; the full text sits in its "How to check" fold (kr_p6l1w6tade)
   const krLine = (text: string) => (onPage ? clipText(text, KR_LINE).head : text);
+  // a closed-as-done grant's per-key-result mark (on its own page: inside that key result's fold, gr_zak30564zh step 5)
+  const markActions = (k: (typeof krs)[number]) => closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
+    <div className="actions">
+      {k.status === "met"
+        ? <Act small tone="bad" disabled={!note.trim()} run={mark(k.id, "missed")} title={note.trim() ? "It did not ship: mark it missed (queues a postmortem)" : "Say why in the note first"}>Mark missed</Act>
+        : <Act small run={mark(k.id, "met")} title="Undo: back to met">Back to met</Act>}
+    </div>
+  ) : null;
   const planList = (<>
+      {/* on the page the key results are numbered under one heading, not "Key result N:" on every line (gr_zak30564zh step 5: ≤200 words) */}
+      {onPage && krs.length > 1 ? <div className="grant-krs-head"><b>Key results</b></div> : null}
       <ul className="grant-krs">
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
-            <b>Key result{krs.length > 1 ? ` ${i + 1}` : ""}:</b> {krLine(k.text)} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
+            <b>{onPage && krs.length > 1 ? `${i + 1}.` : `Key result${krs.length > 1 ? ` ${i + 1}` : ""}:`}</b> {krLine(k.text)} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
             <details className="kr-more"><summary>{onPage ? "details" : `How to check${k.statusNote ? " · note" : ""}`}</summary>
               {krLine(k.text) !== k.text ? <div className="kr-full">{k.text}</div> : null}
               <div className="muted kr-check">How to check: {k.howToCheck}</div>
               {k.statusNote ? <div className="muted kr-check">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div> : null}
+              {onPage ? markActions(k) : null}
             </details>
-            {closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
-              <div className="actions">
-                {k.status === "met"
-                  ? <Act small tone="bad" disabled={!note.trim()} run={mark(k.id, "missed")} title={note.trim() ? "It did not ship: mark it missed (queues a postmortem)" : "Say why in the note first"}>Mark missed</Act>
-                  : <Act small run={mark(k.id, "met")} title="Undo: back to met">Back to met</Act>}
-              </div>
-            ) : null}
+            {onPage ? null : markActions(k)}
           </li>
         )) : <li className="muted">No key results yet</li>}
         {g.testingPlan.map((t, i) => <li key={i} className="muted">Test: {t.text}</li>)}
@@ -684,7 +692,16 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         <><div className="muted">{grantSettledLine(g)}</div>{footer}</>
       ) : !canFund && !memberFund ? (
         <><div className="muted">Funding decisions are for humans with building.fund, the captain of its goal, or anyone with a Bank input that has tokens left.</div>{footer}</>
-      ) : (<>
+      ) : onPage ? (<>
+        {/* on the grant's own page the decision form folds under one line, Talk beside it (gr_zak30564zh step 5): the page opens on the grant */}
+        <details className="grant-fold decide-fold">
+          <summary><b>Decide</b>{checkpoint ? "continue, adjust or cut" : canFund ? "fund, counter or reject" : "fund it from your Bank input"}</summary>
+          {decideForm(false)}
+        </details>
+        {footer}
+      </>) : decideForm(true));
+  function decideForm(withTalk: boolean) {
+    return (<>
         {unfundableReason(g) ? <div className="kr-blocked">{unfundableReason(g)}</div> : null}
         <div className="grant-decide">
           <div className="grant-inputs">
@@ -711,10 +728,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
                 <Act small tone="bad" run={decide("reject", "Proposal rejected")}>Reject</Act>
               </> : null}
             </>}
-            {talk}
+            {withTalk ? talk : null}
           </div>
         </div>
-      </>));
+      </>);
+  }
   return (
     <div className="doc-row intray-row grant-row">
       <div className="intray-who">
