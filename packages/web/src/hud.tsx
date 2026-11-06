@@ -101,7 +101,8 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
     // a hosted collective without an API key of its own: its agents are held (docs/hosted-collectives.md, own-key block)
     // its admin (the founder) sees it as the one next step: the first building is already there, only the key is missing
-    if (health?.funding === "none") {
+    // a guest (signed out, or not let in) can't act on it: their guest card already says "hasn't started" (as_g2nyuydifs)
+    if (health?.funding === "none" && !auth.guest && me?.canInteract !== false) {
       out.push({
         key: "no-key", icon: "bank", tone: "warn", cta: "Bank →",
         text: me?.isAdmin
@@ -220,7 +221,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, cacheAlerts, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, cacheAlerts, agents, health, redeployLive, access, town, auth.guest]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""} ${view ? `g-${view}` : ""}`}>
