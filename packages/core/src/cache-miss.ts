@@ -8,8 +8,10 @@
  * - a turn busts when that rate reaches `BUST_TURN_RATE`; a session busts when more than half of its turns 2+ bust
  *   (at least `MIN_TURNS` of them: shorter sessions carry no signal).
  * Once a session of the UTC day ends, the runtime asks per session purpose: of the day's ended sessions with a signal,
- * what share busts? Above `CACHE_MISS_SHARE` it raises one `system` event `alert: cache-miss` per purpose per UTC day
- * naming the worst sessions (the events log is the "already fired" memory); the HUD shows it for a day. The 1-hour
+ * what share busts? Above `CACHE_MISS_SHARE`, once the purpose has at least `MIN_SESSIONS` such sessions (the day's
+ * first session alone is no verdict: the old check judged a purpose at 00:00Z on one session, dc_px0f53iitq), it raises
+ * one `system` event `alert: cache-miss` per purpose per UTC day naming the worst sessions (the events log is the
+ * "already fired" memory); the HUD shows it for a day. The 1-hour
  * cache-write share of cost is a Spending column, not an alert. Read-only over sessions and transcripts: no Bank row.
  * Live baseline (Bank Transparency's 37 sessions of 11-04/05): turns 2+ re-write 1–14% of their prefix, at most 20%.
  */
@@ -24,6 +26,8 @@ export const BUST_TURN_RATE = 0.5;
 export const MIN_TURNS = 2;
 /** the alert threshold: the share of a purpose's sessions (with a signal) that bust over the day (KR kr_f49co6lg51) */
 export const CACHE_MISS_SHARE = 0.1;
+/** a purpose needs this many ended sessions with a signal before its share is judged (one session is no verdict) */
+export const MIN_SESSIONS = 5;
 /** how many session ids an alert names (the worst first); `busting` still counts them all */
 const MAX_IDS = 10;
 const TEXT_PREFIX = "Cache miss:";
@@ -112,7 +116,7 @@ export function cacheMissCheck(sessions: CheckSession[], turnsOf: (id: string) =
   const out: CacheMissAlert[] = [];
   for (const [purpose, g] of groups) {
     const share = g.signal > 0 ? g.busting.length / g.signal : 0;
-    if (share <= CACHE_MISS_SHARE) continue;
+    if (g.signal < MIN_SESSIONS || share <= CACHE_MISS_SHARE) continue;
     const worst = g.busting.sort((a, b) => b.bustTurns / b.turns - a.bustTurns / a.turns || b.rewritten - a.rewritten).slice(0, MAX_IDS)
       .map(({ busts: _, ...w }) => w);
     out.push({ day, purpose, share: Math.round(share * 1e4) / 1e4, sessions: g.signal, busting: g.busting.length, noSignal: g.noSignal, sessionIds: worst.map((w) => w.sessionId), worst });

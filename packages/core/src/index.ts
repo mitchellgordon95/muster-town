@@ -91,4 +91,4 @@ export { digestCard, digestRunView, pressDigest } from "./secretary.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
-export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
+export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";

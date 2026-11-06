@@ -6,7 +6,7 @@ const usageLine = (i: number, read: number, write: number) =>
   JSON.stringify({ type: "assistant", message: { id: `msg_${i}`, usage: { input_tokens: 3, output_tokens: 10, cache_read_input_tokens: read, cache_creation_input_tokens: write } } });
 
 describe("cacheMissDue (the tick re-checks the day only after a session ended; once per purpose per day)", () => {
-  it("quiet with no ended session, fires once when one ends busting its prefix, stays quiet on later ticks", () => {
+  it("quiet with no ended session, fires once the purpose has 5 sessions with a signal and one busts, stays quiet on later ticks", () => {
     const world = World.open(":memory:");
     world.seedDefaults({ adminName: "T", importDir: new URL("../../../buildings/carbon-cycle", import.meta.url).pathname });
     const noor = world.agents.first("name = ?", ["Noor"])!;
@@ -17,10 +17,12 @@ describe("cacheMissDue (the tick re-checks the day only after a session ended; o
     };
     expect(cacheMissDue(world, new Date())).toBe(0);
     endBusting();
-    expect(cacheMissDue(world, new Date(Date.now() + 1000))).toBe(1);
-    expect(cacheMissDue(world, new Date(Date.now() + 2000))).toBe(0);
+    expect(cacheMissDue(world, new Date())).toBe(0); // one session is no verdict
+    for (let i = 0; i < 4; i++) endBusting();
+    expect(cacheMissDue(world, new Date())).toBe(1);
+    expect(cacheMissDue(world, new Date())).toBe(0);
     endBusting();
-    expect(cacheMissDue(world, new Date(Date.now() + 3000))).toBe(0);
+    expect(cacheMissDue(world, new Date())).toBe(0);
     expect(world.events.list({ types: ["system"], textLike: "Cache miss:%" })).toHaveLength(1);
     world.close();
   });
