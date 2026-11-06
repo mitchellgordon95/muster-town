@@ -2,6 +2,7 @@ import { ROOT_GOAL_ID, type ExploreRule, type FreeTokens, type GoalFunding } fro
 import type { Repos } from "./store.ts";
 import { reservationLeft } from "./explore.ts";
 import { retainerClaims } from "./retainers.ts";
+import { tickMemo } from "./tick-memo.ts";
 import type { World } from "./world.ts";
 
 type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
@@ -123,6 +124,11 @@ function claims(world: World, except?: string, now = new Date()): Claim[] {
  * grant whose own claim is left out (funding it asks what is free besides it).
  */
 export function freeTokensAll(world: World, now = new Date(), except?: string): Map<string, FreeTokens> {
+  // one walk per scheduler pass, not one per queued assignment (tick-memo.ts); callers only read it
+  return except === undefined ? tickMemo(world, "freeTokensAll", now, () => walkFreeTokens(world, now)) : walkFreeTokens(world, now, except);
+}
+
+function walkFreeTokens(world: World, now: Date, except?: string): Map<string, FreeTokens> {
   const bank = world.bank;
   // what each goal's own live earmarks hold, consumed by the claims under it nearest-first
   const held = new Map<string, number>();

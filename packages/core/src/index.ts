@@ -93,3 +93,4 @@ export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTim
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
 export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
+export { tickMemo, withTickMemo } from "./tick-memo.ts";

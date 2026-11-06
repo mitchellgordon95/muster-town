@@ -16,7 +16,7 @@ Live values: `GET https://muster.town/api/health` at 2026-11-02T03:13:27Z (serve
 |---|---|---|---|---|---|---|
 | 1 | WebSocket egress (network path) | about 20–25 MB/s total, where the viewer ramps flattened (stress runs 3 and 4, dc_jea12u6sal; rollup dc_eldvky6svj) | not measured live; 1 WS client, so near 0 | 10 MB/s sustained (half the ceiling), or `wsClients` ≥ 600 | 1. stringify once per change: done 11-04 (gr_n0p3ast5pp step 4, below); 2. coalesce walker moves into one frame per tick; 3. smaller snapshot (23.4 KB at 13 walkers) | read replicas serving viewers (below) |
 | 2 | WebSocket per-viewer fanout (main thread) | 1,200 viewers sustained, 1,600 marginal, 2,000 fail (dc_eldvky6svj, page dc_258ct4a96c); on a desk, one change costs the main thread 20.7 ms of wall time (10.5 ms CPU) at 1,000 sockets after stringify-once, 25.2 ms (12.7 ms) before (table below) | `wsClients` 1 | `wsClients` ≥ 600 (50 % of 1,200) | 1. stringify-once in packages/server/src/ws.ts: done 11-04 (step 4, kr_vc8rkafulk); 2. re-run the viewer ramp on a throwaway to get the new ceiling; 3. pre-frame one buffer per change (ws `Sender.frame`) only if the fanout row fires: it bypasses the library's per-socket queue | read replicas for viewers |
-| 3 | Runtime tick (main thread, every 5 s) | `SLOW_TICK_MS` = 500 ms (packages/runtime/src/index.ts). Desk p95 163 / 473 / 1,841 ms at 1× / 2× / 4× world size; live p95 crosses 500 ms at about 1.5× today's world (range 1.2–1.8×) (dc_er6dxw6kil) | last tick 138 ms; slowest recent 635 ms (03:12:18Z, explore 172 ms, work 243 ms). Earlier samples 154–291 ms (dc_dij54lgnuk, dc_er6dxw6kil) | tick p95 ≥ 350 ms over 100 ticks (70 % of 500), or world size ≥ 1.2× today (≥ 120k events, ≥ 10 buildings) | 1. cache `Bank.expectedSession` per tick (or a rolling aggregate); 2. sum Bank debits once per tick, not per funding candidate; 3. memoize free tokens per tick in `exploreTick` (all from the step 1 profile, dc_er6dxw6kil). Runtime code is the Workshop's: Prod measures, the fix goes through them | bigger Machine does not help a single thread much; next is moving the tick off the main thread (worker), not built |
+| 3 | Runtime tick (main thread, every 5 s) | `SLOW_TICK_MS` = 500 ms (packages/runtime/src/index.ts). Desk p95 163 / 473 / 1,841 ms at 1× / 2× / 4× world size; live p95 crosses 500 ms at about 1.5× today's world (range 1.2–1.8×) (dc_er6dxw6kil) | last tick 138 ms; slowest recent 635 ms (03:12:18Z, explore 172 ms, work 243 ms). Earlier samples 154–291 ms (dc_dij54lgnuk, dc_er6dxw6kil) | tick p95 ≥ 350 ms over 100 ticks (70 % of 500), or world size ≥ 1.2× today (≥ 120k events, ≥ 10 buildings) | 1–3 done 11-04 (gr_db6ofyd0yf: `Bank.expectedSession` cache, debits index, one free-token walk and one `Bank.available` per scheduler pass; table "After gr_db6ofyd0yf" below). Next: `credentialHold` → `pickFunding` per queued assignment (the biggest step left in `work.residents`) | bigger Machine does not help a single thread much; next is moving the tick off the main thread (worker), not built |
 | 4 | Restarts (every one drops all WebSockets) | each restart 2.8–3.8 s; 35 in 4 h 11 min on 10-31/11-01 (dc_dij54lgnuk); outside pollers saw 2 timeouts in one (dc_2ns1jgf0fu) | 15 "Redeploy finished" events in the 24 h before 03:13Z 11-02 (events 96,125–100,995), mostly two bursts (21:23–22:29Z and 02:24–03:07Z) | > 10 restarts in 24 h. **Firing now (15).** | 1. coalesced CI redeploy and the prebuilt server (page dc_eka5xluv6o, PR #230 live); 2. drain without throwing away sessions (grant gr_w9ue1k1p0c); 3. clients reconnect without a full snapshot (not started) | a second Machine for zero-downtime deploys needs replicas first |
 | 5 | Database and volume growth | volume 10 GB (deploy/recover.sh default "like the live one"); the monitor's `disk` metric is yellow under 25 % free, red under 10 % | backup `bytes` 44,505,918 (44.5 MB) at 03:00Z 11-02. Growth: 40.0 MB (00:00Z 11-01, dc_ovwbrarmw8) → 44.5 MB in 27 h, about 0.17 MB/h (two points; dc_dij54lgnuk's 0.9 MB/h came from 2 h of one busy night). At this rate 10 GB lasts years | db ≥ 1,000 MB, or volume free < 50 % | 1. prune old `events` and `agent.tool`/`agent.thought` rows into the export (not built); 2. `VACUUM` after the prune; 3. grow the volume (`fly volumes extend`, $0.15/GB-month) | — |
 | 6 | Hourly backup and export vs db size | backup is a SQLite snapshot plus gzip, encrypted, uploaded and re-downloaded to verify (grant gr_ba0juhlm7n); the git export runs in a worker since 9484ad6 (PR #235): desk loop block 2.1–3.2 s → max gap 17–18 ms (dc_4ouqa4mlh1, page dc_yotozpmakq). No measured ceiling | backup `lastAt` = `verifiedAt` 03:00:10.964Z, so the run took about 11 s after the hour mark for 44.5 MB; `error` null. Export: one export.done per hour, ~2,045 files (dc_8kz3scjc33); its git commit fails on Fly since 10-29 (fix 45be606 live 03:07Z, unverified) | backup `lastAt` more than 300 s after the hour, or > 70 min old (the monitor's `backup` rule is yellow at 2 h, red at 6 h) | 1. move the backup snapshot+gzip into the same worker as the export; 2. incremental export (only changed docs) | — |
@@ -70,6 +70,30 @@ From the tick benchmark note dc_er6dxw6kil (desk, local SQLite worlds seeded at 
 - Biases: the bench ran 37–97 sessions at once against ~7 live, which inflates `work` at 2× and 4× (the 4× work figure is an
   upper bound), and its session history is denser than live, which inflates `streams` about 2×. Hosted towns, viewers and
   meetings were not scaled.
+
+### After gr_db6ofyd0yf (11-04)
+
+The same bench (`scripts/stress/tick-bench.mts k n`, fresh `/tmp` db each, 1 vCPU desk; 30 / 15 / 8 measured ticks at
+1× / 2× / 4×), before = main at fd8558cc, after = the same plus the scheduler-pass memo (PR below). Steps 1–2 (PRs #302,
+#304: `Bank.expectedSession` cache, `bank_debits(creditId, tokens)` index) were already in the before column.
+
+| world size | tick p50 before → after (ms) | tick p95 before → after (ms) | work p95 | explore p95 | streams p95 |
+|---|---|---|---|---|---|
+| 1× | 34 → 31 | 63 → 64 | 12 → 8 | 32 → 26 | 6 → 3 |
+| 2× | 132 → 72 | 193 → 143 | 56 → 20 | 96 → 70 | 50 → 41 |
+| 4× | 900 → 220 | 1,225 → 330 | 1,011 → 146 | 179 → 73 | 85 → (not re-read) |
+
+- What grew: the work phase asks `Budget.canStart` / the lane gate once per idle resident and per queued assignment, and
+  each asked `freeTokensAll` (the free-token walk over every goal, 40–55 ms at 4×) and `Bank.available` (the same sum for
+  every building) afresh. Health `load.tick.last.sub` now splits explore and work into steps (PR #332); at 4× before the
+  memo: `work.residents` 418 ms, `work.forks.queue` 199 ms, `explore.block` 96 ms.
+- Fix: `withTickMemo` (packages/core/src/tick-memo.ts) around the explore, managers and work phases: each whole-town
+  figure is computed once per pass and recomputed after any write (SQLite `total_changes()`), so every answer is the one
+  a fresh computation gives. API reads are not cached.
+- Desk p95 now stays under 500 ms past 4× (was about 2.1×).
+- Live (muster.town, 1 shared perf-1x core with the web server and builds): median 145 ms over 30 samples at 18:49–18:54Z
+  on 0af48747 (work 79, explore 32, streams 1.3), climbing to 200–270 ms with ~10 desk sessions running at 19:02–19:04Z
+  (work 120–280). The after reading goes into the grant's report once the PR is live.
 
 ## Scale-out options (written only, not built)
 
