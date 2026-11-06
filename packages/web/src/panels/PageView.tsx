@@ -10,7 +10,7 @@
 import { useMemo, useState } from "react";
 import type { Doc } from "@muster-town/schema";
 import { Sheet } from "./Sheet";
-import { nameOf, timeAgo } from "./ui";
+import { timeAgo, useNameOf } from "./ui";
 
 /** The town's CSS custom properties as declared on :root in its stylesheets, with their computed values. */
 function townCssVars(): Record<string, string> {
@@ -47,8 +47,9 @@ export function pageSrcDoc(body: string, vars: Record<string, string>, mediaOrig
 /** The page in a centred sheet. */
 function PageSheet({ doc, onClose }: { doc: Doc; onClose: () => void }) {
   const srcDoc = useMemo(() => pageSrcDoc(doc.body, townCssVars(), location.origin), [doc.body]);
+  const author = useNameOf(doc.authorId);
   return (
-    <Sheet label={doc.title} title={doc.title} sub={<>page by <b>{nameOf(doc.authorId)}</b> · {timeAgo(doc.updatedAt)}</>} onClose={onClose} escFirst mainClass="page-main" maxWidth={1100} className="page-sheet">
+    <Sheet label={doc.title} title={doc.title} sub={<>page by <b>{author}</b> · {timeAgo(doc.updatedAt)}</>} onClose={onClose} escFirst mainClass="page-main" maxWidth={1100} className="page-sheet">
       <iframe className="page-frame" title={doc.title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc} />
     </Sheet>
   );

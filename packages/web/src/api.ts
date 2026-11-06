@@ -12,6 +12,7 @@ import type {
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { visitorId } from "./visitor";
+import { knownNames } from "./names";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
@@ -839,7 +840,14 @@ class HttpApi implements Api {
   publishSettings(patch: { repoUrl: string; token?: string }) { return this.call<{ publish: TownPublish }>("PUT", "/api/town/publish", patch); }
   clearPublish() { return this.call<{ cleared: boolean }>("DELETE", "/api/town/publish"); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
-  async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
+  async doc(id: string) {
+    const r = await this.get(`/api/docs/${id}`);
+    const doc = unwrap<Doc>(r, "doc");
+    // the server resolves the author's name (a retired fork is not in the snapshot): keep it so the byline isn't an id
+    const author = (r as { author?: unknown }).author;
+    if (typeof author === "string" && author && author !== doc.authorId) knownNames.set(doc.authorId, author);
+    return doc;
+  }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
   async bulletin(limit = 50) { return (await this.bulletinBoard(limit)).docs; }
