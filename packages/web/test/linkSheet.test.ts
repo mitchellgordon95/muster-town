@@ -55,6 +55,14 @@ describe("hash routes", () => {
     expect(routeOf("#/nothing")).toBeNull();
   });
 
+  it("#/building opens a bl_ building and the two un-prefixed ones (the Workshop, the Town Hall)", () => {
+    expect(routeOf("#/building/bl_hzjw0z0zlz")).toEqual({ panel: { kind: "building", id: "bl_hzjw0z0zlz" } });
+    expect(routeOf("#/building/workshop")).toEqual({ panel: { kind: "building", id: "workshop" } });
+    expect(routeOf("#/building/town-hall")).toEqual({ panel: { kind: "building", id: "town-hall" } });
+    expect(routeOf("#/building/elsewhere")).toBeNull();
+    expect(routeOf("#/meeting/workshop")).toBeNull();
+  });
+
   it("the address bar follows the sheet, then the panel under it once it closes", () => {
     expect(shownHash({ kind: "doc", id: "dc_c" }, { kind: "bank" })).toBe("#/doc/dc_c");
     expect(shownHash({ kind: "agent", id: "ag_b" }, null)).toBe("#/agent/ag_b");
