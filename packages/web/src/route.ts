@@ -5,13 +5,13 @@
  * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
  * `/#/bank` opens the Bank page (tokens received, used and left, their sources, free tokens, spending and hosting in dollars; public).
  * `/#/finance`, the old Finance page's hash, opens the Bank too (1:1 mt_ew2d0mm7h9: one Bank page).
- * `/#/meeting/<id>`, `/#/building/<id>`, `/#/assignment/<id>`, `/#/session/<id>` open that panel and `/#/kr/<id>` the goal tree at that key result: an id link
+ * `/#/meeting/<id>`, `/#/building/<id>` (a bl_ id, or `workshop` / `town-hall`: the two buildings without a prefixed id), `/#/assignment/<id>`, `/#/session/<id>` open that panel and `/#/kr/<id>` the goal tree at that key result: an id link
  * in a live meeting opens one in a new tab (Markdown `newTab`). They are read on load and on a hash change; the address bar doesn't follow those panels.
  * `/#/manual` opens the operating manual (the HUD's "?"), `/#/manual/<section>` at that section.
  */
 import { store, type PanelRef, type SheetRef } from "./state";
 
-const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$/;
+const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$|^#\/(building)\/(workshop|town-hall)$/;
 
 /** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
@@ -48,6 +48,7 @@ export function routeOf(hash: string): { sheet: SheetRef } | { panel: PanelRef }
   if (m[1]) return { sheet: { kind: m[1] as "doc" | "grant", id: m[2] } };
   if (m[7] === "agent") return { sheet: { kind: "agent", id: m[8] } };
   if (m[7]) return { panel: { kind: m[7] === "kr" ? "goals" : m[7] as "meeting" | "building" | "assignment" | "session", id: m[8] } };
+  if (m[9]) return { panel: { kind: "building", id: m[10] } }; // the two buildings whose ids have no xx_ prefix
   if (m[5]) return { panel: { kind: "manual", ...(m[6] ? { id: m[6] } : {}) } };
   return { panel: { kind: m[4] === "connect" ? "connect" : "bank" } };
 }
