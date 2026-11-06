@@ -53,7 +53,11 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   const all = [...objectives.flatMap((o) => o.keyResults), ...unsorted];
   const num = new Map(all.map((k, i) => [k.id, i + 1]));
   const g = grants.data ?? [];
-  const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k.id, g)} canFund={canFund} canDelete={canManage} onChanged={tree.reload} />;
+  const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k.id, g)} />;
+  // met and missed key results are the record: they fold to their count under the open ones (gr_zak30564zh step 5)
+  const isOpen = (k: GoalKeyResult) => k.status !== "met" && k.status !== "missed";
+  const judged = all.filter((k) => !isOpen(k));
+  const rows = (list: GoalKeyResult[]) => list.filter(isOpen).length ? <ol className="kr-rows">{list.filter(isOpen).map(row)}</ol> : null;
   return (
     <Section title="Objectives and key results" right={toggle}>
       {blockedLabel(b) ? <div className="kr-blocked"><Pill tone="bad">{blockedLabel(b)}</Pill> {UNBLOCK_LINE}</div> : null}
@@ -63,17 +67,43 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
       {objectives.map((o, i) => (
         <div key={o.id} className="kr-objective">
           <div className="kr-objective-head"><b>Objective {i + 1}: {o.text}</b> <span className="muted">{objectiveLine(o)}</span></div>
-          {o.keyResults.length ? <ol className="kr-rows">{o.keyResults.map(row)}</ol> : <div className="muted kr-funding">No key results under it yet.</div>}
+          {o.keyResults.length ? rows(o.keyResults) ?? <div className="muted kr-funding">Every key result under it is met or missed.</div> : <div className="muted kr-funding">No key results under it yet.</div>}
         </div>
       ))}
-      {objectives.length && unsorted.length ? <div className="kr-objective-head muted">Not under an objective yet</div> : null}
-      {unsorted.length ? <ol className="kr-rows">{unsorted.map(row)}</ol> : null}
+      {objectives.length && unsorted.some(isOpen) ? <div className="kr-objective-head muted">Not under an objective yet</div> : null}
+      {rows(unsorted)}
+      {judged.length ? <details className="grant-fold settled-fold kr-judged-fold"><summary><b>Met or missed</b>{judged.length} key result{judged.length === 1 ? "" : "s"}</summary><ol className="kr-rows">{judged.map(row)}</ol></details> : null}
+      {/* one fold for every key result's how to check, notes and marks, not one per row: the list opens on status and words,
+          and its controls stay the same however many key results there are (gr_zak30564zh step 5, kr_p6l1w6tade) */}
+      {all.length ? (
+        <details className="kr-more kr-checks-fold">
+          <summary>How to check{all.some((k) => k.statusNote) ? ", notes" : ""}{canFund || canManage ? " and marks" : ""}</summary>
+          <ol className="kr-rows">{all.map((k) => <GoalRowMore key={k.id} n={num.get(k.id)!} kr={k} canFund={canFund} canDelete={canManage} onChanged={tree.reload} />)}</ol>
+        </details>
+      ) : null}
     </Section>
   );
 }
 
-/** One key result, read-only: status, text and its grant word; how to check, met / missed (building.fund) and delete (building.manage) one click away in its fold. */
-function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; word: KrGrantWord; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
+/** Characters of a key result's words on its row (about one line); the full words are in the "How to check" fold. */
+const KR_ROW = 64;
+
+/** One key result, read-only: number, status, text and its grant word. How to check, notes and marks are in the list's one fold (GoalRowMore). */
+function GoalRow({ n, kr, word }: { n: number; kr: GoalKeyResult; word: KrGrantWord }) {
+  return (
+    <li className="kr-row">
+      <div className="kr-row-head">
+        <span className="kr-n">{n}</span>
+        <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
+        <b title={kr.text}>{clipText(kr.text, KR_ROW).head}</b>
+        <span className={`kr-word ${WORD_TONE[word]}`} title={WORD_TITLE[word]}>{word}</span>
+      </div>
+    </li>
+  );
+}
+
+/** One key result in the "How to check" fold: how to check, the status note, the postmortem, met / missed (building.fund) and delete (building.manage). */
+function GoalRowMore({ n, kr, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
   const judged = kr.status === "met" || kr.status === "missed";
   const mark = (status: KeyResultStatus) => async () => {
     // missed asks why: the line is filed as the human's note and queues one postmortem (docs/goals.md "Postmortems on missed KRs")
@@ -85,30 +115,21 @@ function GoalRow({ n, kr, word, canFund, canDelete, onChanged }: { n: number; kr
   };
   return (
     <li className="kr-row">
-      <div className="kr-row-head">
-        <span className="kr-n">{n}</span>
-        <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
-        <b>{kr.text}</b>
-        <span className={`kr-word ${WORD_TONE[word]}`} title={WORD_TITLE[word]}>{word}</span>
-      </div>
-      {/* how to check, the status note and the marks fold under the line (gr_zak30564zh step 4: first screen keeps the summary) */}
-      <details className="kr-more">
-        <summary>How to check{kr.statusNote ? " · note" : ""}{(canFund && !judged) || canDelete ? " · mark" : ""}</summary>
-        <div className="muted kr-check">How to check: {kr.howToCheck}</div>
-        {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
-        {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
-        {(canFund && !judged) || canDelete ? (
-          <div className="actions">
-            {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}
-            {canDelete ? <Act small tone="bad" title="Refused while a grant names it" run={async () => {
-              if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
-              await api().deleteKeyResult(kr.id);
-              store.toast(`Key result ${n} deleted`, "ok");
-              onChanged();
-            }}>Delete</Act> : null}
-          </div>
-        ) : null}
-      </details>
+      <div className="kr-row-head"><span className="kr-n">{n}</span><b>{kr.text}</b></div>
+      <div className="muted kr-check">How to check: {kr.howToCheck}</div>
+      {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
+      {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
+      {(canFund && !judged) || canDelete ? (
+        <div className="actions">
+          {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}
+          {canDelete ? <Act small tone="bad" title="Refused while a grant names it" run={async () => {
+            if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
+            await api().deleteKeyResult(kr.id);
+            store.toast(`Key result ${n} deleted`, "ok");
+            onChanged();
+          }}>Delete</Act> : null}
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -119,15 +140,18 @@ export function GrantsTab({ b }: { b: SnapshotBuilding }) {
   const spend = useLoad(() => api().financeSpend(), [b.id]);
   const { proposals, funded, settled } = grantGroups(grants.data ?? []);
   const held = settled.filter((g) => g.status === "checkpoint"), closed = settled.filter((g) => g.status !== "checkpoint");
+  const hall = useTown((s) => s.buildings.find((x) => x.kind === "town-hall"));
+  const decideLink = hall ? <button className="link" onClick={() => store.open({ kind: "intray", id: hall.id })}>Decide in the Town Hall in-tray →</button> : undefined;
   const rows = (list: GrantView[]) => <div className="doc-list">{list.map((g) => <GrantTabRow key={g.id} g={g} steps={grantSteps(spend.data, b.id, g.id)} />)}</div>;
   return (
     <>
       {grants.loading && !grants.data ? <Loading /> : null}
       <ErrorLine error={grants.error} />
       {grants.data && !grants.data.length ? <Empty>No grants or proposals yet. The manager proposes one per key result; humans fund it in the Town Hall in-tray.</Empty> : null}
-      {proposals.length ? <Section title={<>Open proposals <Pill>{proposals.length}</Pill></>}>{rows(proposals)}</Section> : null}
+      {/* the grants waiting on a human link to the in-tray once per section, not once per row (gr_zak30564zh step 5) */}
+      {proposals.length ? <Section title={<>Open proposals <Pill>{proposals.length}</Pill></>} right={decideLink}>{rows(proposals)}</Section> : null}
       {funded.length ? <Section title={<>Funded <Pill>{funded.length}</Pill></>}>{rows(funded)}</Section> : null}
-      {held.length ? <Section title={<>At checkpoint <Pill>{held.length}</Pill></>}>{rows(held)}</Section> : null}
+      {held.length ? <Section title={<>At checkpoint <Pill>{held.length}</Pill></>} right={proposals.length ? undefined : decideLink}>{rows(held)}</Section> : null}
       {/* closed grants are history: folded to their count, one click away (gr_zak30564zh step 4) */}
       {closed.length ? <details className="grant-fold settled-fold"><summary><b>Closed</b>{closed.length} grant{closed.length === 1 ? "" : "s"}</summary>{rows(closed)}</details> : null}
     </>
@@ -145,14 +169,16 @@ function grantStatusLine(g: GrantView): ReactNode {
   }
 }
 
-/** One grant: objective (opens the grant), status, spend, its key result, its steps as one line; a link to the in-tray when a human must decide. */
+/** Characters of a grant's objective on its Grants-tab row (about one line; the grant's page has it whole). */
+const GRANT_ROW = 84;
+
+/** One grant: objective (opens the grant), status, spend, its key result, its steps as one line (the in-tray link sits on its section). */
 function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
-  const hall = useTown((s) => s.buildings.find((x) => x.kind === "town-hall"));
   const live = g.status === "funded" || g.status === "checkpoint";
   return (
     <div className="doc-row grant-tab-row">
       <div className="kr-grant-head">
-        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(g.objective, 120).head}</button>
+        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(g.objective, GRANT_ROW).head}</button>
         <Pill tone={g.status === "checkpoint" || g.status === "proposed" ? "warn" : g.status === "funded" ? "ok" : g.status === "rejected" ? "bad" : ""}>{g.status}</Pill>
       </div>
       {live ? (
@@ -161,12 +187,10 @@ function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
           <span className="muted">{grantSpendLine(g)}</span>
         </div>
       ) : <div className="muted">{grantStatusLine(g)}</div>}
-      <div className="muted">{g.keyResult ? <>Key result: {clipText(g.keyResult.text, 60).head} · {krStatusLabel(g.keyResult.status)}</> : "Names no key result"}</div>
+      <div className="muted">{g.keyResult ? <>Key result: {clipText(g.keyResult.text, 48).head} · {krStatusLabel(g.keyResult.status)}</> : "Names no key result"}</div>
       {/* the steps as one line; each session is listed on the grant's page (gr_zak30564zh step 4: one control per row) */}
-      {steps.length ? <div className="muted" title={steps.map((s) => `${s.name} · ${fmtTokens(s.tokens)} ${ADJ}`).join("\n")}>{steps.length} step{steps.length === 1 ? "" : "s"} · {fmtTokens(steps.reduce((t, s) => t + s.tokens, 0))} {ADJ} · {steps.reduce((t, s) => t + s.sessions, 0)} sessions</div>
+      {steps.length ? <div className="muted" title={steps.map((s) => `${s.name} · ${fmtTokens(s.tokens)} ${ADJ}`).join("\n")}>{steps.length} step{steps.length === 1 ? "" : "s"}{live ? "" : ` · ${fmtTokens(steps.reduce((t, s) => t + s.tokens, 0))} ${ADJ}`} · {steps.reduce((t, s) => t + s.sessions, 0)} sessions</div>
         : live ? <div className="muted">No step sessions yet.</div> : null}
-      {/* only a grant waiting on a human links to the in-tray; the title opens every grant's page */}
-      {hall && (g.status === "proposed" || g.status === "checkpoint") ? <div className="doc-row-meta"><button className="link" onClick={() => store.open({ kind: "intray", id: hall.id })}>Decide in the Town Hall in-tray →</button></div> : null}
     </div>
   );
 }

@@ -86,8 +86,11 @@ function RequestCard({ doc, onOpen }: { doc: Doc; onOpen: () => void }) {
       <div className="actions">
         {doc.requestStatus === "open" ? <Act small tone="primary" run={act("claim", "Claimed. Report back when you're done.")}>Claim</Act> : null}
         {doc.requestStatus === "claimed" && (mine || canModerate) && !finishing ? <button className="btn sm ok" onClick={() => setFinishing(true)}>Report back…</button> : null}
-        {doc.requestStatus === "open" && canModerate ? <Act small tone="warn" title="It leaves the outbox; the author hears your note" run={async () => { const note = window.prompt(`Decline "${doc.title}"? Say why (the author hears it):`); if (note?.trim()) await act("decline", "Request declined; the author was told", note.trim())(); }}>Decline…</Act> : null}
-        {canModerate ? <Act small tone="bad" run={async () => { if (window.confirm(`Delete the request "${doc.title}"? This can't be undone.`)) await act("delete", "Request deleted")(); }}>Delete</Act> : null}
+        {/* a moderator's Decline and Delete fold under one line: the card opens on what a human would do, Claim (gr_zak30564zh step 5) */}
+        {canModerate ? <details className="kr-more request-moderate"><summary>{doc.requestStatus === "open" ? "Decline or delete" : "Delete"}</summary><div className="actions">
+        {doc.requestStatus === "open" ? <Act small tone="warn" title="It leaves the outbox; the author hears your note" run={async () => { const note = window.prompt(`Decline "${doc.title}"? Say why (the author hears it):`); if (note?.trim()) await act("decline", "Request declined; the author was told", note.trim())(); }}>Decline…</Act> : null}
+        <Act small tone="bad" run={async () => { if (window.confirm(`Delete the request "${doc.title}"? This can't be undone.`)) await act("delete", "Request deleted")(); }}>Delete</Act>
+        </div></details> : null}
       </div>
       {finishing ? (
         <div className="finish">

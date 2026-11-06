@@ -11,7 +11,7 @@
  *   live  a live town as a guest, through the hash routes a guest can open (route.ts): #/grant, #/doc, #/building,
  *         #/agent, #/meeting, #/assignment, #/session, #/kr, #/manual, #/connect, #/bank. The ids come from the town's API,
  *         plus any --grants=gr_a,gr_b and --docs=dc_a,dc_b you name.
- *           node scripts/disclosure-census.mjs live [https://muster.town/workshop/] [--grants=…] [--docs=…]
+ *           node scripts/disclosure-census.mjs live [https://muster.town/workshop/] [--grants=…] [--docs=…] [--buildings=…] [--agents=…]
  * The verdict is kr_p6l1w6tade's bar: first screen ≤12 controls and ≤200 words. Screens (>3 as it opens) print as a
  * "long" note on the row, not a fail: a list that scrolls is fine when its first screen is a summary.
  *
@@ -22,7 +22,11 @@
  * the sheet would fail on words either way.
  *
  * Decision (step 4): a meeting's transcript is its speakers' words, like a report's body: words inside .transcript are
- * not counted (its controls are). The panel opens on the latest 6 messages, the rest behind "Show N earlier".
+ * not counted, nor the links inside its lines (step 5: also an agent's Talk timeline, .chat.timeline). Every line shows, opened at the latest (Mitchell, 1:1 mt_pr3347g2w2: chat is never folded).
+ *
+ * Decision (step 5, as_hp1g7x0slm): since gr_4csjpgh346 a grant or agent opened by link or hash is a centred link sheet
+ * (.sheet.link-sheet): it counts like the side panel. A doc opened from the library, an in-tray or a filing cabinet is a
+ * centred doc sheet (.sheet.doc-sheet): a document body, excluded. In-trays and cabinets are measured as their sidebar list.
  *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
@@ -51,7 +55,7 @@ const SIZES = [{ n: "laptop", w: 1280, h: 800, touch: false }, { n: "phone", w: 
   .filter((s) => !flags.sizes || list(flags.sizes).includes(s.n));
 
 /** Why a panel is out of the census, or null. */
-const excluded = (t, part) => (t.kind === "goals" || t.kind === "kr") && part !== "detail" ? "map: the goal tree canvas; its detail row counts" : t.kind === "bank" ? "the Bank: Bank Transparency's grant" : (t.kind === "library" && t.docId) || t.kind === "manual" ? "document body" : null;
+const excluded = (t, part, m) => m?.docSheet ? "document body: an open doc sheet" : (t.kind === "goals" || t.kind === "kr") && part !== "detail" ? "map: the goal tree canvas; its detail row counts" : t.kind === "bank" ? "the Bank: Bank Transparency's grant" : (t.kind === "library" && t.docId) || t.kind === "manual" ? "document body" : null;
 
 // ---- targets ----
 let targets;
@@ -77,7 +81,8 @@ if (mode === "mock") {
   const docs = [...new Set(["dc_o0565x7thv", ...list(flags.docs), ...reports.map((d) => d.id)])];
   targets = [
     ...grants.map((id) => ({ kind: "grant", id })), ...docs.map((docId) => ({ kind: "library", docId })),
-    ...(bl ? [{ kind: "building", id: bl.id }] : []), ...(mgr ? [{ kind: "agent", id: mgr.id }] : []),
+    ...[...new Set([...(bl ? [bl.id] : []), ...list(flags.buildings)])].map((id) => ({ kind: "building", id })),
+    ...[...new Set([...(mgr ? [mgr.id] : []), ...list(flags.agents)])].map((id) => ({ kind: "agent", id })),
     ...(meetings[0] ? [{ kind: "meeting", id: meetings[0].id }] : []),
     ...list(flags.assignments).map((id) => ({ kind: "assignment", id })), ...list(flags.sessions).map((id) => ({ kind: "session", id })),
     ...[...new Set(["kr_p6l1w6tade", ...list(flags.krs)])].map((id) => ({ kind: "kr", id })),
@@ -96,7 +101,9 @@ const label = (t) => t.kind + (t.id ? ":" + t.id : "") + (t.docId ? ":" + t.docI
  */
 const measure = (page, part) => page.evaluate((part) => {
   document.querySelectorAll("[data-census]").forEach((el) => el.removeAttribute("data-census"));
-  let panel = document.querySelector("aside.panel") ?? document.querySelector(".sheet.goal-sheet") ?? document.querySelector(".paper.manual") ?? document.querySelector('.sheet[aria-label="The Bank"]');
+  // a link sheet (a grant or an agent opened from a link or a hash, gr_4csjpgh346 step 3) sits over any side panel: it is the panel;
+  // a doc sheet (a report, a rollup, an in-tray or cabinet item opened from its list) is a document body (excluded)
+  let panel = document.querySelector(".sheet.link-sheet") ?? document.querySelector(".sheet.doc-sheet") ?? document.querySelector("aside.panel") ?? document.querySelector(".sheet.goal-sheet") ?? document.querySelector(".paper.manual") ?? document.querySelector('.sheet[aria-label="The Bank"]');
   if (panel && part === "detail") panel = panel.querySelector(".sheet-side");
   if (!panel) return null;
   panel.setAttribute("data-census", "");
@@ -115,23 +122,26 @@ const measure = (page, part) => page.evaluate((part) => {
     const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && r.bottom > top && r.top < bottom;
   };
-  const ctrls = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => el.getClientRects().length && !folded(el));
+  // chat (a meeting's transcript, an agent's Talk timeline) is never folded (Mitchell, 1:1 mt_pr3347g2w2): its lines are the
+  // speakers', like a report's body, so its words and the links inside its lines are not counted; the panel's own controls are
+  const CHAT = ".transcript, .chat.timeline";
+  const ctrls = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => el.getClientRects().length && !folded(el) && !el.closest(CHAT));
   let words = 0, total = 0;
   const tw = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
   while (tw.nextNode()) {
     const n = tw.currentNode; const k = (n.textContent.match(/\S+/g) ?? []).length;
-    if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement) || n.parentElement.closest(".transcript")) continue;
+    if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement) || n.parentElement.closest(CHAT)) continue;
     total += k; if (shown(n.parentElement)) words += k;
   }
   // screens: the tallest scroller in the panel (itself or a scrolling box inside it, at least 120 px tall)
   const scrollers = [panel, ...panel.querySelectorAll("*")].filter((el) => el === panel || (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.clientHeight >= 120));
   const screens = Math.max(1, ...scrollers.map((el) => el.scrollHeight / Math.max(1, el.clientHeight)));
-  return { ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, screens: +screens.toFixed(1) };
+  return { docSheet: panel.matches(".sheet.doc-sheet"), ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, screens: +screens.toFixed(1) };
 }, part);
 
 const verdict = (t, m, part) => {
   if (!m) return "no panel";
-  const ex = excluded(t, part); if (ex) return `excluded (${ex})`;
+  const ex = excluded(t, part, m); if (ex) return `excluded (${ex})`;
   const why = [m.ctl > BAR.ctl && `ctl>${BAR.ctl}`, m.words > BAR.words && `words>${BAR.words}`].filter(Boolean);
   const long = m.screens > BAR.screens ? ` (long: ${m.screens} screens)` : "";
   return (why.length ? `FAIL ${why.join(" ")}` : "pass") + long;
@@ -168,7 +178,8 @@ for (const size of SIZES) {
       if (t.kind === "goals" || t.kind === "kr") { const d = await measure(page, "detail"); if (d) rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab: "(selected goal's detail)", ...d, verdict: verdict(t, d, "detail") }); }
       if (i === 0 && flags.shots) await page.screenshot({ path: `${flags.shots}/${size.n}-${label(t).replace(/[:/]/g, "_")}.png` }).catch(() => {});
     }
-    if (mode === "mock") await page.evaluate(() => window.__muster.open(null));
+    // close the side panel and any link or doc sheet (store.sheet), which a side panel's open(null) leaves up
+    if (mode === "mock") await page.evaluate(() => { window.__muster.open(null); window.__muster.openSheet?.(null); });
   }
   await ctx.close();
 }
@@ -177,6 +188,7 @@ await browser.close();
 if (flags.json) console.log(JSON.stringify(rows, null, 1));
 else {
   console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words (over ${BAR.screens} screens is noted as long)`);
+  console.log("In-trays and filing cabinets are measured as their sidebar list; an item opened from them is a centred doc sheet, a document body (excluded, like the Bank). Grants and agents opened by link or hash are centred link sheets and count.");
   console.log("| size | panel | tab | ctl | ctl total | words | words total | screens | verdict |\n|---|---|---|---|---|---|---|---|---|");
   for (const r of rows) console.log(`| ${r.size} | ${r.panel} | ${r.tab ?? ""} | ${r.ctl ?? ""} | ${r.ctlAll ?? ""} | ${r.words ?? ""} | ${r.total ?? ""} | ${r.screens ?? ""} | ${r.verdict} |`);
   const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
