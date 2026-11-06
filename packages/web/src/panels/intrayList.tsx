@@ -11,9 +11,9 @@ import { fmtTokens, Pill, timeAgo } from "./ui";
 import { VERDICT_TONE } from "./DocView";
 
 /** One in-tray line. Hook-free: `lead` (building tag, portrait) is rendered by the caller. */
-export function CompactLine({ lead, title, at, pill, onOpen }: { lead?: ReactNode; title: string; at: string | null | undefined; pill?: ReactNode; onOpen: () => void }) {
+export function CompactLine({ lead, title, at, pill, onOpen, selected }: { lead?: ReactNode; title: string; at: string | null | undefined; pill?: ReactNode; onOpen: () => void; /** the line whose item is open (or was last open) in the sheet */ selected?: boolean }) {
   return (
-    <button className="doc-row intray-line" onClick={onOpen} title={title}>
+    <button className={selected ? "doc-row intray-line on" : "doc-row intray-line"} aria-current={selected || undefined} onClick={onOpen} title={title}>
       {lead ? <span className="intray-line-lead">{lead}</span> : null}
       <span className="intray-line-title">{title}</span>
       <span className="intray-line-end">{pill}<span className="muted">{timeAgo(at)}</span></span>

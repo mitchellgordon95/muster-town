@@ -1,7 +1,7 @@
 import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
 import { guessedTimesWarning } from "../time.ts";
-import { agentsDrafting, attachmentLine, clearAgentDrafting, currentSlide, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
+import { agentsDrafting, attachmentLine, clearAgentDrafting, currentSlide, decisionTarget, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -36,7 +36,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         id: m.id, title: m.title, kind: m.kind, phase: m.phase, agenda: m.agenda, facilitator: m.facilitatorId ? name(m.facilitatorId) : null,
         attendees: m.attendeeIds.map((id) => ({ id, name: name(id), summary: m.summaries[id] ?? null })),
         transcript: m.transcript.slice(-30).map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at, ...(u.attachment ? { presented: attachmentLine(u.attachment) } : {}) })),
-        decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d })),
+        decisions: m.decisions.map((d, i) => ({ n: i + 1, ...d, ...(d.assigneeId ? { to: decisionTarget(world, d) } : {}) })),
         humanTyping: humanTyping(world, m.id),
         drafting: agentsDrafting(world, m.id).map(name),
         ...slideOut(world, m),
@@ -86,7 +86,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
       {
         const decided = meetingDecide(world, me, m.id, input.decisions);
         clearAgentDrafting(world, me.id, m.id);
-        return { decisions: decided.decisions.map((d, i) => ({ n: i + 1, ...d })) };
+        return { decisions: decided.decisions.map((d, i) => ({ n: i + 1, ...d, ...(d.assigneeId ? { to: decisionTarget(world, d) } : {}) })) };
       }
     case "end": {
       if (me.kind !== "human" && m.kind === "one-on-one") throw new AppError("conflict", "The human ends a 1:1. Answer them; your turn ends when you stop, and their next message wakes you.");

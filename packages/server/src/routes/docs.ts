@@ -1,8 +1,8 @@
-import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { AppError, bulletinNotesFor, markBulletinRead, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
+import { actorOf, parse, requireAuth, requireUser, viewerId, type Params } from "../context.ts";
 
 const DocsQuery = z.object({
   state: DocState.optional(),
@@ -12,9 +12,12 @@ const DocsQuery = z.object({
   limit: z.coerce.number().int().positive().max(200).default(50),
 });
 const PromoteBody = z.object({ state: z.enum(["building", "library"]) });
-const RequestBody = z.object({ action: z.enum(["claim", "done", "delete"]), body: z.string().optional() });
+/** `body`: the report for done, the note for withdraw / decline (`note` is accepted as an alias). */
+const RequestBody = z.object({ action: RequestAction, body: z.string().optional(), note: z.string().optional() });
 const MeetingsQuery = z.object({ buildingId: z.string().optional(), phase: MeetingPhase.optional() });
 const EditBoardNoteBody = z.object({ title: z.string().max(300).optional(), body: z.string().max(100_000).optional() });
+const BulletinQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(50) });
+const BulletinBody = z.object({ title: z.string(), body: z.string() });
 const EndBody = z.object({ closing: z.string().optional() });
 
 /** Library/board docs, reviews, outbox lifecycle; meetings. */
@@ -72,6 +75,16 @@ export async function docRoutes(app: FastifyInstance) {
   /** Take a town-wide FYI off the Town Hall board (back to its author's drafts): its author or a town admin. */
   app.post<{ Params: Params }>("/api/docs/:id/unpublish", async (req) => ({ doc: unpublishTownFyi(world, actorOf(world, req), req.params.id) }));
 
+  /** The bulletin board in the town square (flag dc_52njv3shp8): its notes newest first (anyone, guests too); a signed-in human pins one; its author or an admin takes it down. */
+  app.get("/api/bulletin", async (req) => bulletinNotesFor(world, req.auth?.kind === "user" ? req.auth.user.id : null, parse(BulletinQuery, req.query).limit));
+  /** Read / unread per signed-in human (flag dc_04q4h8s229): mark one note read, or `all` of them. → { unread }. */
+  app.post<{ Params: Params }>("/api/bulletin/:id/read", async (req) => ({ unread: markBulletinRead(world, requireUser(req).id, req.params.id) }));
+  app.post("/api/bulletin", async (req, reply) => {
+    requireUser(req);
+    return reply.code(201).send({ doc: postBulletin(world, actorOf(world, req), parse(BulletinBody, req.body)) });
+  });
+  app.post<{ Params: Params }>("/api/bulletin/:id/take-down", async (req) => ({ doc: takeDownBulletin(world, actorOf(world, req), req.params.id) }));
+
   /** Edit a board note's title/body (the board panel's Edit): its author, a town admin or the building's manager. */
   app.patch<{ Params: Params }>("/api/docs/:id", async (req) => {
     requireAuth(req);
@@ -86,8 +99,8 @@ export async function docRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/docs/:id/request", async (req) => {
-    const { action, body } = parse(RequestBody, req.body);
-    const r = world.ops.requestAction(actorOf(world, req), req.params.id, action, body);
+    const { action, body, note } = parse(RequestBody, req.body);
+    const r = world.ops.requestAction(actorOf(world, req), req.params.id, action, body ?? note);
     return { doc: r.request, deleted: r.request === null, humanReport: r.humanReport };
   });
 

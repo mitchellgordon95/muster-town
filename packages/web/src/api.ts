@@ -12,6 +12,7 @@ import type {
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { visitorId } from "./visitor";
+import { knownNames } from "./names";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
@@ -151,7 +152,10 @@ export interface FinanceCash {
   plans: number; apiKeys: number; hosting: number; total: number;
   listUsd: number; perDollar: number | null;
   planRows: { id: string; label: string; usdPerMonth: number; activeDays: number; usd: number }[];
-  apiKeySessions: number; pricedAt: "cash";
+  apiKeySessions: number;
+  /** a hosted collective: runs on API keys only, so plans is $0 by design (absent from an older server) */
+  hosted?: boolean;
+  pricedAt: "cash";
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
@@ -358,6 +362,9 @@ export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | 
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
 export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
+/** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
+export interface EngagementCounts { humans: number; spoke: number; oneOnOnes: number; flags: number; decisions: number; asked: number; letIn: number; declined: number; acted: number }
+export interface EngagementView { days: number; from: string; to: string; daily: ({ day: string } & EngagementCounts)[]; totals: EngagementCounts; medianDecisionMs: number | null }
 /** One collective's funnel: the days with any count (UTC), its totals and its median wait to decision. */
 interface JoinFunnelCollective {
   slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
@@ -405,7 +412,7 @@ export interface Board {
 }
 
 export interface WriteDocInput { type?: DocType; title: string; body: string; state?: "draft" | "building"; tags?: string[]; /** FYIs only: the board to post to ("town-hall" = a town-wide FYI) */ buildingId?: string }
-export type RequestAction = "claim" | "done" | "delete";
+export type RequestAction = "claim" | "done" | "delete" | "withdraw" | "decline";
 
 export interface Socket { send(msg: ClientMessage): void; close(): void }
 export interface SocketHandlers { onMessage(msg: unknown): void; onOpen(): void; onClose(): void }
@@ -490,6 +497,7 @@ export interface Api {
   deleteObjective(id: string): Promise<void>;
   /** GET /api/join-funnel: the public join funnel counts */
   joinFunnel(): Promise<JoinFunnelView>;
+  engagement(): Promise<EngagementView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load; with this browser's visitor id, once per day as a visitor) */
   countGuestCardView(): Promise<void>;
   /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
@@ -562,6 +570,16 @@ export interface Api {
   promote(docId: string, state: DocState): Promise<Doc>;
   /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
   unpublish(docId: string): Promise<Doc>;
+  /** GET /api/bulletin — the bulletin board in the town square: humans' notes, newest first (anyone reads) */
+  bulletin(limit?: number): Promise<Doc[]>;
+  /** GET /api/bulletin with read state (flag dc_04q4h8s229): for a signed-in human each note carries `unread` and the board an `unread` count; guests get neither */
+  bulletinBoard(limit?: number): Promise<BulletinBoard>;
+  /** POST /api/bulletin/:id/read — mark one note read for the signed-in human, or `all` of them; returns the unread count left */
+  readBulletin(docId: string | "all"): Promise<number>;
+  /** POST /api/bulletin — pin a note on it (a signed-in human) */
+  postBulletin(input: { title: string; body: string }): Promise<Doc>;
+  /** POST /api/bulletin/:id/take-down — take a note down (back to its author's drafts; its author or a town admin) */
+  takeDownBulletin(docId: string): Promise<Doc>;
   /** PATCH /api/docs/:id — edit a board note's title/body in place (its author, a town admin or the building's manager) */
   editBoardNote(docId: string, input: { title: string; body: string }): Promise<Doc>;
   // skills (docs/skills.md): written with writeDoc type "skill"
@@ -646,6 +664,12 @@ export interface Api {
   health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
+  /** a hosted collective's admin renames it, its address (slug) unchanged (`PATCH /<slug>/api/collective`) */
+  renameCollective(name: string): Promise<{ collective: { name: string; slug: string; url: string } }>;
+  /** the root homepage's list (GET /api/collectives): the Workshop first, then the active hosted collectives */
+  collectives(): Promise<{ slug: string; name: string; goal: string; url: string; started: boolean }[]>;
+  /** a Workshop admin retires any hosted collective (`POST /api/collectives/:slug/retire`, root only) */
+  retireHostedCollective(slug: string): Promise<{ collective: { slug: string; state: "active" | "retired" } }>;
   /** the humans' operating manual: the Town Hall article tagged `manual` (GET /api/manual); the HUD "?" opens it */
   manual(): Promise<{ doc: Doc; author: string }>;
   connect(handlers: SocketHandlers): Socket;
@@ -677,6 +701,11 @@ export const tokenStore = {
 };
 
 /** Single-object endpoints aren't pinned down in the contract: accept `{doc}` or the bare object. */
+/** A bulletin board note with its read state for the signed-in human (= core's BulletinNote; absent for guests). */
+export type BulletinNote = Doc & { unread?: boolean };
+/** GET /api/bulletin: the notes, plus `unread` (how many the signed-in human hasn't opened) when signed in. */
+export interface BulletinBoard { docs: BulletinNote[]; unread?: number }
+
 function unwrap<T>(r: unknown, key: string): T {
   if (r && typeof r === "object" && key in (r as Record<string, unknown>)) return (r as Record<string, T>)[key];
   return r as T;
@@ -779,6 +808,7 @@ class HttpApi implements Api {
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
+  engagement() { return this.get<EngagementView>("/api/engagement"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
@@ -810,9 +840,21 @@ class HttpApi implements Api {
   publishSettings(patch: { repoUrl: string; token?: string }) { return this.call<{ publish: TownPublish }>("PUT", "/api/town/publish", patch); }
   clearPublish() { return this.call<{ cleared: boolean }>("DELETE", "/api/town/publish"); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
-  async doc(id: string) { return unwrap<Doc>(await this.get(`/api/docs/${id}`), "doc"); }
+  async doc(id: string) {
+    const r = await this.get(`/api/docs/${id}`);
+    const doc = unwrap<Doc>(r, "doc");
+    // the server resolves the author's name (a retired fork is not in the snapshot): keep it so the byline isn't an id
+    const author = (r as { author?: unknown }).author;
+    if (typeof author === "string" && author && author !== doc.authorId) knownNames.set(doc.authorId, author);
+    return doc;
+  }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
+  async bulletin(limit = 50) { return (await this.bulletinBoard(limit)).docs; }
+  async bulletinBoard(limit = 50) { return await this.get<BulletinBoard>(`/api/bulletin${qs({ limit })}`); }
+  async readBulletin(id: string) { return (await this.post<{ unread: number }>(`/api/bulletin/${id}/read`, {})).unread; }
+  async postBulletin(i: { title: string; body: string }) { return unwrap<Doc>(await this.post("/api/bulletin", i), "doc"); }
+  async takeDownBulletin(id: string) { return unwrap<Doc>(await this.post(`/api/bulletin/${id}/take-down`, {}), "doc"); }
   async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
@@ -887,6 +929,9 @@ class HttpApi implements Api {
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
   async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
+  async renameCollective(name: string) { return this.call<{ collective: { name: string; slug: string; url: string } }>("PATCH", "/api/collective", { name }); }
+  async collectives() { return (await this.get<{ collectives?: { slug: string; name: string; goal: string; url: string; started: boolean }[] }>("/api/collectives")).collectives ?? []; }
+  async retireHostedCollective(slug: string) { return this.post<{ collective: { slug: string; state: "active" | "retired" } }>(`/api/collectives/${encodeURIComponent(slug)}/retire`); }
   async manual() { return this.get<{ doc: Doc; author: string }>("/api/manual"); }
   async blocked() { return (await this.get<{ agents?: Record<string, BlockedAssignment[]> }>("/api/blocked")).agents ?? {}; }
   async scheduled() { return (await this.get<{ schedules?: ScheduleView[] }>("/api/scheduled")).schedules ?? []; }

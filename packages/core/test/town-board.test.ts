@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boardWithTownDocs, buildingRoleId, editBoardNote, sessionMemory, unpublishTownFyi, workSystemPrompt, TOWN_HALL_ID } from "../src/index.ts";
+import { boardWithTownDocs, fixedParts, workStateBlock, buildingRoleId, editBoardNote, sessionMemory, unpublishTownFyi, workSystemPrompt, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -26,7 +26,9 @@ describe("Town Hall board (town-wide FYIs)", () => {
     expect(boardWithTownDocs(world, TOWN_HALL_ID, 20).map((d) => d.id)).toEqual([byAdmin.id, rule.id]);
 
     const b = world.buildings.require(LAB, "building");
-    const prompt = workSystemPrompt(mei, b, world.town.get(), sessionMemory(world, mei, b));
+    // live, so in the first message, never the cached system prompt (docs/prompt-caching.md)
+    expect(workSystemPrompt(mei, b, world.town.get(), fixedParts(sessionMemory(world, mei, b)))).not.toContain("Town-wide FYIs");
+    const prompt = workStateBlock(mei, sessionMemory(world, mei, b));
     expect(prompt).toContain("Town-wide FYIs");
     expect(prompt).toContain("Commit straight to main.");
   });
@@ -35,7 +37,7 @@ describe("Town Hall board (town-wide FYIs)", () => {
     const { world, by } = seededWorld();
     const mei = by("Mei");
     const b = world.buildings.require(LAB, "building");
-    expect(workSystemPrompt(mei, b, world.town.get(), sessionMemory(world, mei, b))).not.toContain("Town-wide FYIs");
+    expect(workStateBlock(mei, sessionMemory(world, mei, b))).not.toContain("Town-wide FYIs");
   });
 
   it("the Town Hall has a board place everyone sees in `look`", async () => {

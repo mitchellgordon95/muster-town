@@ -388,9 +388,6 @@ const EVENT_TONE: Partial<Record<Event["type"], string>> = {
   "meeting.utterance": "said", "meeting.phase": "status",
 };
 
-/** The Talk tab opens on its latest lines; the earlier ones are one click away (gr_zak30564zh step 4). */
-const TALK_SHOWN = 5;
-
 function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; agentName: string }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -399,13 +396,11 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
     while (el && !(el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement;
     if (el) el.scrollTop = el.scrollHeight; else end.current?.scrollIntoView({ block: "end" });
   }, [items.length]);
-  const [all, setAll] = useState(false);
   if (!items.length) return <Empty>{empty}</Empty>;
-  const earlier = all ? 0 : Math.max(0, items.length - TALK_SHOWN);
+  // the whole timeline shows, pinned to its latest line (Mitchell, mt_pr3347g2w2 decision 8: no "Show N earlier lines" fold)
   return (
     <div className="chat timeline talk">
-      {earlier ? <button type="button" className="link show-earlier" onClick={() => setAll(true)}>Show {earlier} earlier line{earlier === 1 ? "" : "s"}</button> : null}
-      {items.slice(earlier).map((it) => {
+      {items.map((it) => {
         if (it.kind === "tell") return <div key={it.key} className={`msg ${it.mine ? "me" : "them"}`}><Markdown text={it.text} className="bubble" breaks /><small>{it.mine ? "you" : agentName} · {clock(it.ts)}</small></div>;
         const e = it.ev, p = (e.payload ?? {}) as { interrupt?: boolean; now?: boolean; text?: string; sessionId?: string | null };
         if (p.interrupt) {

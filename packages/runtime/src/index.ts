@@ -271,7 +271,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
   try {
-    reconciled = world.ops.reconcile(ctx.live.keys());
+    reconciled = world.ops.reconcile([...ctx.live.values()].map((l) => l.sessionId));
     if (reconciled.orphanedSessions.length || reconciled.requeuedAssignments.length) {
       console.log(`[runtime] reconcile: ended ${reconciled.orphanedSessions.length} orphaned session(s), ${reconciled.requeuedAssignments.length} assignment(s) back to pending`);
     }
@@ -699,7 +699,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
       timed("reconcile", () => void track(reconcileDue(ctx, d)).catch(log("bank reconcile")), "bank reconcile");
-      // gr_lwgus14rd2 step 2: after a session ends, the day's 1 h cache-write share and first turns per purpose (`alert: cache-miss`)
+      // gr_lwgus14rd2 step 2: after a session ends, the share of the day's sessions per purpose that bust their prompt prefix (`alert: cache-miss`)
       timed("cacheMiss", () => void cacheMissDue(world, d), "cache-miss check");
       if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; timed("presence", () => void presenceTick()); }
       timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");

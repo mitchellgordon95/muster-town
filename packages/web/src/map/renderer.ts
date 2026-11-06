@@ -54,6 +54,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
   stats: () => ({ kind: "stats", verb: "Read the user stats" }),
+  bulletin: () => ({ kind: "bulletin", verb: "Read the bulletin board" }),
   help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
   // the vault opens Balance; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
@@ -763,6 +764,12 @@ export class MapRenderer {
       const p = s.places.find((x) => x.kind === "outbox");
       const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
       if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.outbox);
+    }
+    // the bulletin board's badge: notes the signed-in human hasn't opened (flag dc_04q4h8s229), on the board (the tile above its standing spot)
+    if (s.bulletinUnread && s.me) {
+      const p = s.places.find((x) => x.kind === "bulletin");
+      const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
+      if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.bulletinUnread);
     }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];

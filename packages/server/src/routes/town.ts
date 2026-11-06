@@ -595,7 +595,7 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.require(actor, "town.redeploy");
     const input = parse(RedeployInput, req.body);
     if (!app.runtime?.redeploy) throw new AppError("internal", "runtime not available", 503);
-    const r = await app.runtime.redeploy({ image: input.image, requestedBy: actor.name });
+    const r = await app.runtime.redeploy({ image: input.image, ...(input.restart ? { restart: input.restart } : {}), requestedBy: actor.name });
     return reply.code(r.started ? 202 : 200).send(r);
   });
 

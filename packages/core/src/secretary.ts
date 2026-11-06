@@ -70,7 +70,7 @@ export class Secretary {
   }
 
   /**
-   * The Secretary, created on first call (server boot, after the seed): a Town Hall resident at a free desk there (else
+   * The Secretary, created on first call (server boot, after the seed): a Town Hall resident holding a mod-station desk slot, drawn beside the Town Hall in-tray (TOWN_HALL_RESTS) (else
    * by the door). Not the manager (the Planner stays it) and no role: it acts on decisions only with the human as actor.
    * A stopped Secretary stays stopped (a human stopped it on purpose).
    */
@@ -249,6 +249,8 @@ const idsIn = (text: string, prefix: string) => [...new Set([...text.matchAll(ne
 const GO_NO_GO = /\bgo\s*(\/|-|or)\s*no[- ]?go\b/i;
 const MARK_MET = /\bmark(ed|ing)?\b[^.]*\b(met|missed)\b/i;
 const FUND_ASK = /\b(fund|counter|reject|proposal|retainer|approve)\b/i;
+/** A call that asks the money question of a checkpoint or proposal (its row's Money line asks it already). */
+const MONEY_CALL = /\b(continue|adjust|cut|top[- ]?up|fund|counter|reject)\b/i;
 
 /**
  * Why a pending rollup's "Your call" is already overtaken (null = it still asks): its frozen text names a key result
@@ -323,8 +325,9 @@ const DIGEST_GROUPS = { money: "Money", goNoGo: "Go / no-go", questions: "Questi
 
 /**
  * "Decisions needed" grouped by the kind of yes/no (Mitchell, 1:1 mt_i50xwu4z2t), from the data the review deck reads,
- * zero tokens and current at every read: Money (checkpoints with their top-up, proposals at their ask, retainer asks,
- * and the rollup calls about them); Go / no-go (a rollup's call that says so); Questions in words (every other real
+ * zero tokens and current at every read: Money (checkpoints with their top-up, proposals at their ask, retainer asks;
+ * a rollup's call about one of them, or its checkpoint report's continue / cut, is not repeated but named on that line as
+ * "Also asked in dc_…"); each other in-tray rollup gives at most one line (its first live call, "and N more"); Go / no-go (a rollup's call that says so); Questions in words (every other real
  * "Your call" or Needs line); Already overtaken (calls whose grant, key result or retainer has since been decided: one Approve-all,
  * `docIds`); Errands (open outbox requests). `count` is the yes/no lines (errands aside), for the card's title.
  */
@@ -332,16 +335,12 @@ export function digestDecisions(world: World): { decisions: DigestGroup[]; count
   const intray = townHallIntray(world);
   const grants = grantsAwaitingDecision(world).filter((g) => g.status !== "countered");
   const rows = waitingRowIds(world);
-  const money = [
-    ...grants.filter((g) => g.status === "checkpoint").map((g) => grantLine(world, g)),
-    ...grants.filter((g) => g.status === "proposed").map((g) => grantLine(world, g)),
-    ...intray.retainers.filter((v) => v.retainer === "asked").map((v) => `Approve ${v.buildingName ?? world.buildings.get(v.buildingId)?.name ?? v.buildingId}'s retainer "${oneLine(v.title, 60)}" (${v.id}): ${fmt(v.tokensPerRun)} per run, ${fmt(v.askTokens)} in all?`),
-  ];
-  const questions = [
-    ...intray.goalProposals.map((p) => `Accept ${world.buildings.get(p.buildingId ?? "")?.name ?? p.proposedByName}'s goal proposal ${p.id} (${p.action}${p.fields.text ? `: "${oneLine(p.fields.text, 90)}"` : p.targetId ? ` ${p.targetId}` : ""})?`),
-    ...intray.captains.map((r) => `Make ${r.githubLogin ? `@${r.githubLogin}` : r.name} captain of "${oneLine(r.goalText, 80)}" (${r.goalId}; request ${r.id})?`),
-  ];
+  // a rollup's live calls first, so a call that a grant or retainer row's own Money line already carries is left out
+  // (as_6gnydlwpf7): each in-tray row gives at most one line, and the row names the rollups that also asked it
+  const askedIn = new Map<string, string[]>();
+  const noteAsk = (id: string, docId: string) => { const l = askedIn.get(id) ?? []; if (!l.includes(docId)) askedIn.set(id, [...l, docId]); };
   const goNoGo: string[] = [];
+  const questions: string[] = [];
   const overtaken: string[] = [];
   const overtakenIds: string[] = [];
   for (const d of intray.reports.filter((r) => r.tags.includes("rollup"))) {
@@ -353,14 +352,32 @@ export function digestDecisions(world: World): { decisions: DigestGroup[]; count
       overtaken.push(`${b} (${d.id}, "${oneLine(calls[0]!.title || calls[0]!.call, 50)}"${calls.length > 1 ? ` and ${calls.length - 1} more` : ""}): ${calls.map((c) => c.overtaken).filter((r, i, a) => a.indexOf(r) === i).join("; ")}.`);
       continue;
     }
-    for (const c of calls) {
-      if (c.overtaken) continue;
-      const line = c.title ? `${b} asks (${d.id}, "${oneLine(c.title, 60)}"): ${oneLine(c.call, 160)}` : `${b} asks (${d.id}): ${oneLine(c.call, 160)}`;
-      if (idsIn(`${c.title} ${c.call}`, "gr").concat(idsIn(c.call, "sc")).some((id) => rows.has(id))) money.push(line);
-      else if (GO_NO_GO.test(`${c.title} ${c.call}`)) goNoGo.push(line);
-      else questions.push(line);
-    }
+    // the rows this rollup is about: the grant it is the checkpoint report of, and the waiting rows its title names
+    const own = [...grants.filter((g) => g.checkpointDocId === d.id).map((g) => g.id), ...idsIn(d.title, "gr").concat(idsIn(d.title, "sc")).filter((id) => rows.has(id))];
+    const left = calls.filter((c) => {
+      if (c.overtaken) return false;
+      const named = idsIn(`${c.title} ${c.call}`, "gr").concat(idsIn(c.call, "sc")).filter((id) => rows.has(id));
+      if (named.length) { named.forEach((id) => noteAsk(id, d.id)); return false; }
+      if (own.length && MONEY_CALL.test(c.call)) { own.forEach((id) => noteAsk(id, d.id)); return false; }
+      return true;
+    });
+    if (!left.length) continue;
+    const c = left[0]!;
+    const more = left.length > 1 ? ` (and ${left.length - 1} more ask${left.length > 2 ? "s" : ""} in ${d.id})` : "";
+    const line = `${b} asks (${d.id}${c.title ? `, "${oneLine(c.title, 60)}"` : ""}): ${oneLine(c.call, 160)}${more}`;
+    if (left.some((x) => GO_NO_GO.test(`${x.title} ${x.call}`))) goNoGo.push(line);
+    else questions.push(line);
   }
+  const asked = (id: string) => (askedIn.has(id) ? ` Also asked in ${askedIn.get(id)!.join(", ")}.` : "");
+  const money = [
+    ...grants.filter((g) => g.status === "checkpoint").map((g) => grantLine(world, g) + asked(g.id)),
+    ...grants.filter((g) => g.status === "proposed").map((g) => grantLine(world, g) + asked(g.id)),
+    ...intray.retainers.filter((v) => v.retainer === "asked").map((v) => `Approve ${v.buildingName ?? world.buildings.get(v.buildingId)?.name ?? v.buildingId}'s retainer "${oneLine(v.title, 60)}" (${v.id}): ${fmt(v.tokensPerRun)} per run, ${fmt(v.askTokens)} in all?${asked(v.id)}`),
+  ];
+  questions.unshift(
+    ...intray.goalProposals.map((p) => `Accept ${world.buildings.get(p.buildingId ?? "")?.name ?? p.proposedByName}'s goal proposal ${p.id} (${p.action}${p.fields.text ? `: "${oneLine(p.fields.text, 90)}"` : p.targetId ? ` ${p.targetId}` : ""})?`),
+    ...intray.captains.map((r) => `Make ${r.githubLogin ? `@${r.githubLogin}` : r.name} captain of "${oneLine(r.goalText, 80)}" (${r.goalId}; request ${r.id})?`),
+  );
   const open = world.docs.where("type = 'request' AND requestStatus = 'open'", [], "ORDER BY createdAt");
   const errands = open.slice(0, 6).map((r) => `"${oneLine(r.title, 80)}" (${r.id})`);
   if (open.length > 6) errands.push(`… and ${open.length - 6} more in the outbox.`);

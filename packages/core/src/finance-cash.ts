@@ -17,6 +17,8 @@ import type { FinanceFly } from "./finance-fly.ts";
  *   in counts by the share of it inside the window. A hosted collective counts its desks only (financeFly's townPaidBy).
  *
  * listUsd is the list-price value of all sessions started in the window; perDollar = listUsd / total (null when total is 0).
+ * `hosted` says the collective runs on API keys only (docs/hosted-collectives.md): plans is $0 there by design, so the
+ * page never reads an empty plans list as a plan missing.
  */
 export interface FinanceCash {
   windowDays: number;
@@ -35,6 +37,8 @@ export interface FinanceCash {
   planRows: { id: string; label: string; usdPerMonth: number; activeDays: number; usd: number }[];
   /** sessions started in the window on an API-key credential */
   apiKeySessions: number;
+  /** a hosted collective: it runs on API keys only, so plans is $0 by design (never a plan missing) */
+  hosted: boolean;
   pricedAt: "cash";
 }
 
@@ -46,6 +50,8 @@ export interface CashInputs {
   inputs: Pick<BankInput, "id" | "source">[];
   /** GET /api/finance/fly's days (at least 31 back, so the window's first day is covered) */
   fly: Pick<FinanceFly, "days">;
+  /** a hosted collective (docs/hosted-collectives.md): no plans by design */
+  hosted?: boolean;
 }
 
 export const CASH_WINDOW_DAYS = 30;
@@ -98,7 +104,7 @@ export function financeCash(inp: CashInputs, now = new Date()): FinanceCash {
     windowDays: CASH_WINDOW_DAYS, from: new Date(from).toISOString(), to: now.toISOString(),
     plans: p, apiKeys: a, hosting: h, total, listUsd: list,
     perDollar: total > 0 ? Math.round((list / total) * 100) / 100 : null,
-    planRows, apiKeySessions, pricedAt: "cash",
+    planRows, apiKeySessions, hosted: !!inp.hosted, pricedAt: "cash",
   };
 }
 

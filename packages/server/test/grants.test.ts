@@ -25,7 +25,13 @@ describe("grants routes", () => {
     expect((await json(app, "POST", `/api/buildings/${LAB}/key-results`, { headers: auth, body: KRS[0] })).status).toBe(404);
 
     // create: needs auth and building.manage; bad input is a 400; it carries its own 1-5 key results
-    const body = { objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 10_000_000, keyResults: KRS };
+    const steps = [{ title: "Ship the banner", description: "One PR" }, { title: "Check it live", description: "Open the lab", model: "nope-model" }];
+    const body = { objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [steps[0]!, { title: steps[1]!.title, description: steps[1]!.description }], stopCondition: "two failed tries", askTokens: 10_000_000, keyResults: KRS };
+    // grant B (gr_b5fyqibfx2): a proposal carries 1-5 steps, each on a model the building's forks run
+    const { steps: _none, ...noSteps } = body;
+    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: noSteps })).status).toBe(400);
+    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, steps: [] } })).status).toBe(400);
+    expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, steps } })).status).toBe(400);
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { body })).status).toBe(401);
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: stranger, body })).status).toBe(403);
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { ...body, keyResults: [] } })).status).toBe(400);
@@ -53,6 +59,7 @@ describe("grants routes", () => {
     expect(pub.body.grant.estimate).toMatchObject({ askTokens: 8_000_000, sample: expect.any(Number), similar: expect.any(Array) });
     expect(pub.body.grant.estimate.sentence).toMatch(/^ask 8,000,000 · /);
     expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.status).toBe("proposed");
+    expect(pub.body.grant.steps).toEqual([{ title: "Ship the banner", description: "One PR" }, { title: "Check it live", description: "Open the lab" }]);
 
     // the board carries the goal, the open proposals and the exploration allowance
     const board = await json(app, "GET", `/api/buildings/${LAB}/board`);
@@ -72,6 +79,8 @@ describe("grants routes", () => {
     await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr, body: { note: "ok, half" } });
     const funded = await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
     expect(funded.body.grant).toMatchObject({ status: "funded", grantTokens: 5_000_000 });
+    // grant C: a funded grant holds at its tokens minus min(150k, a third), served with the grant
+    expect((await json(app, "GET", `/api/grants/${id}`)).body.grant.holdAtTokens).toBe(4_850_000);
     expect((await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } })).status).toBe(409);
     expect((await json(app, "GET", `/api/buildings/${LAB}/grants?status=funded`)).body.grants.map((g: any) => g.id)).toEqual([id]);
     expect((await json(app, "GET", `/api/buildings/${LAB}/board`)).body).toMatchObject({ proposals: [], grants: [{ id }] });
@@ -101,6 +110,37 @@ describe("grants routes", () => {
     expect((await json(app, "GET", `/api/grants/gr_missing`)).status).toBe(404);
     expect((await json(app, "GET", `/api/buildings/nowhere/grants`)).status).toBe(404);
   });
+  it("POST /api/verbs/submit_report: a grant-lane fork files its own grant's key-result evidence and top-up; another lane is refused (grant C, kr_13txlz2pnc)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const fork = world.agents.first("homeBuildingId = ? AND kind != 'human' AND id != ?", [LAB, manager.id])!;
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
+    world.grantDesk.decide(null, g.id, { action: "fund", tokens: 1_000_000 });
+    const [k1] = world.grantDesk.get(g.id).keyResults;
+    const auth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", fork.id)}` };
+    const body = { title: "Step 1", body: "## What I did\nx", verdict: "continue", keyResults: [{ id: k1!.id, status: "claimed", evidence: "PR #9" }], topUp: { tokens: 100_000, buys: "KR 2" } };
+    const startIn = (lane: "grant" | "exploration") => {
+      const a = world.ops.createWork(null, fork.id, lane === "grant" ? { title: "w", lane, grantId: g.id } : { title: "w", lane, gap: "g" });
+      world.ops.startSession(fork.id, { purpose: "work", model: "m", assignmentId: a.id });
+    };
+    startIn("exploration");
+    const refused = await json(app, "POST", "/api/verbs/submit_report", { headers: auth, body });
+    expect(refused.status).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/only from a grant-lane session/);
+    for (const x of world.sessions.where("agentId = ? AND status = 'running'", [fork.id])) world.ops.endSession(x.id, { status: "done", tokens: 0 });
+    for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [fork.id])) world.assignments.patch(a.id, { status: "cancelled" });
+    world.agents.patch(fork.id, { currentAssignmentId: null });
+    startIn("grant");
+    const ok = await json(app, "POST", "/api/verbs/submit_report", { headers: auth, body });
+    expect(ok.status).toBe(200);
+    expect(world.keyResults.require(k1!.id)).toMatchObject({ status: "claimed", statusBy: fork.id, statusNote: `PR #9 (report ${ok.body.result.id})` });
+    const view = (await json(app, "GET", `/api/grants/${g.id}`)).body;
+    expect(view.grant.topUpTokens).toBe(100_000);
+  });
+
   it("a checkpoint grant in the Town Hall in-tray and the review deck carries its evidence: per key result verdict and note, spend, the top-up line (mt_7b4zc7yja3)", async () => {
     const s = await seededApp();
     cleanups.push(s.close);
@@ -108,11 +148,12 @@ describe("grants routes", () => {
     const admin = null; // the system decides (no session needed for a funding decision here)
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
+    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
     world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(g.id, { status: "checkpoint", history: [...world.grants.require(g.id).history, { at: new Date().toISOString(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     const [k1] = world.grantDesk.get(g.id).keyResults;
-    world.grantDesk.fileCheckpoint(manager, g.id, { status: "claimed", note: "live on the banner", keyResultId: k1!.id, whatTopUpBuys: "KR 2: the board", topUpTokens: 200_000 });
+    world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "live on the banner" });
+    world.grants.patch(g.id, { topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board" });
     const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
     const row = intray.body.grants.find((x: { id: string }) => x.id === g.id);
     expect(row.evidence).toMatchObject({
@@ -132,7 +173,7 @@ describe("grants routes", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
-    const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
+    const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { objective: "Banner", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
     await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
     await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
     expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "done", note: "live on the banner" } })).status).toBe(200);
@@ -157,7 +198,7 @@ describe("grants routes", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
-    const body = { objective: "Banner", approach: "", stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
+    const body = { objective: "Banner", approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
     const propose = async () => {
       const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body })).body.grant.id as string;
       await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });

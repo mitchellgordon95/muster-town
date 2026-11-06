@@ -3,7 +3,7 @@
  * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
  * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
-import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, bankPlaces } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, BULLETIN_PLACE, TILE, WALKABLE, bankPlaces } from "@muster-town/schema";
 import type { Agent, Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 
@@ -99,7 +99,10 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
         { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 9 } },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
+        // = core's bulletin board (flag dc_52njv3shp8): outside, three tiles left of the Town Hall's door, read from the road
+        { id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: door.x - 3, y: roadY } },
       );
+      set(door.x - 3, roadY - 1, TILE.BULLETIN);
     } else {
       // residents first, then visitors registered into the building (they claim free desks too)
       const residents = [

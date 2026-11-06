@@ -1,12 +1,13 @@
 /**
- * The Secretary's digest card (gr_kdlogzzo5s step 3): first in the Town Hall in-tray with its live decisions, Shipped
- * lines and the covered rollups under a fold; a decision made in a 1:1 reads "<Human> via Secretary in mt_…".
+ * The Secretary's digest (gr_kdlogzzo5s step 3): first in the Town Hall in-tray as one line like every other item that
+ * opens the full doc (Mitchell, 1:1 mt_pr3347g2w2), the overtaken rollups' Approve-all under the opened doc; a decision
+ * made in a 1:1 reads "<Human> via Secretary in mt_…".
  */
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DigestCard, GrantView } from "@muster-town/schema";
 import { store } from "../src/state";
-import { DigestCardView, GrantRow } from "../src/panels/Places";
+import { DigestLine, DigestOvertaken, GrantRow } from "../src/panels/Places";
 import { grants } from "../src/mock/fixture";
 
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
@@ -24,20 +25,22 @@ const card: DigestCard = {
 };
 
 describe("the digest card", () => {
-  it("Decisions needed first, grouped by kind with one Approve-all on the overtaken group, then Shipped by theme, then the covered rollups folded, archived or still asking", () => {
-    const html = renderToStaticMarkup(<DigestCardView card={card} onOpen={() => undefined} />);
-    const dec = html.indexOf("Decisions needed"), ship = html.indexOf("Shipped since last digest"), fold = html.indexOf("<details");
-    expect(dec).toBeGreaterThan(-1);
-    expect(ship).toBeGreaterThan(dec);
-    expect(fold).toBeGreaterThan(ship);
-    expect(html).toContain("<b>Money (1)</b>");
-    expect(html).toContain("at its 300k ask?");
-    expect(html).toContain("<b>Already overtaken (2)</b><span class=\"muted\"> Approve these 2 and they drop out; nothing to decide.</span>");
+  it("one line like any other in-tray item: title and date, nothing of the groups or Shipped list inline; the click opens the doc", () => {
+    let opened: string | null = null;
+    const html = renderToStaticMarkup(<DigestLine card={card} onOpen={(id) => { opened = id; }} />);
+    expect(html).toContain("Digest 2026-11-05: 1 decision, 2 rollups");
+    expect(html).toMatch(/<button class="doc-row intray-line"/);
+    expect(html).toContain(">digest<");
+    for (const inline of ["Decisions needed", "Shipped since last digest", "Money (1)", "at its 300k ask?", "**Bank and speed**", "Covered rollups", "Approve all"]) expect(html).not.toContain(inline);
+    expect(html.match(/<button/g)?.length).toBe(1);
+    expect(opened).toBeNull();
+  });
+
+  it("under the opened doc, one Approve-all for the overtaken rollups; nothing when no group is overtaken", () => {
+    const html = renderToStaticMarkup(<DigestOvertaken card={card} />);
+    expect(html).toContain("2 covered rollups ask only what the town has since decided.");
     expect(html).toMatch(/<button[^>]*>Approve all 2<\/button>/);
-    expect(html).toContain("**Bank and speed**");
-    expect(html).toContain("Covered rollups (2)");
-    expect(html).toContain("Workshop: Rollup 44</button> <span class=\"muted\">archived");
-    expect(html).toContain("still asks a call");
+    expect(renderToStaticMarkup(<DigestOvertaken card={{ ...card, decisions: [card.decisions[0]!] }} />)).toBe("");
   });
 
   it("a 1:1 decision shows \"<Human> via Secretary in mt_…\" and the human's words, not the prefix twice", () => {

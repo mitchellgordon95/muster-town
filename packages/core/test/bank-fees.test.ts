@@ -38,5 +38,21 @@ describe("bank fees (plans paid for)", () => {
     const { world, seed } = seededWorld();
     world.host.hosted = true;
     expect(() => world.bank.addFee(seed.admin.id, { label: "Max", usdPerMonth: 100, from: "2026-10-01" })).toThrow(/API key only/);
+    expect(world.bank.seedFees(seed.admin.id, [{ label: "Max", usdPerMonth: 100, from: "2026-10-01" }])).toEqual([]);
+    expect(world.bank.fees()).toEqual([]);
+  });
+
+  // collective.json `plans` (1:1 mt_pr3347g2w2): the Workshop's own plan is seeded on boot, once
+  it("seedFees records each collective.json plan once, keyed on its label and first day", () => {
+    const { world, seed } = seededWorld();
+    const plan = { label: 'Claude Max 20x (now "Ultra")', usdPerMonth: 200, from: "2026-10-25" };
+    const added = world.bank.seedFees(seed.admin.id, [plan]);
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ label: plan.label, usdPerMonth: 200, fromDate: "2026-10-25", toDate: null, paidBy: seed.admin.id });
+    expect(world.bank.seedFees(seed.admin.id, [plan])).toEqual([]); // the next boot: already there
+    world.bank.addFee(seed.admin.id, { label: "Max 5x", usdPerMonth: 100, from: "2026-09-01", to: "2026-10-24" });
+    expect(world.bank.seedFees(seed.admin.id, [plan, { label: "Max 5x", usdPerMonth: 100, from: "2026-09-01" }])).toEqual([]); // a hand-recorded one counts
+    expect(world.bank.fees()).toHaveLength(2);
+    expect(world.events.list({ types: ["bank.fee"] }).filter((e) => (e.payload as { seeded?: boolean }).seeded)).toHaveLength(1);
   });
 });

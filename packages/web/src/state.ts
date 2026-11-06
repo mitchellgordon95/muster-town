@@ -10,6 +10,7 @@ import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
 import { founderStale } from "./founder";
+import { knownNames } from "./names";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
@@ -18,8 +19,21 @@ import { founderStale } from "./founder";
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
  * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
+/**
+ * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant
+ * or an agent in a centred sheet over the map and over whatever side panel is open; closing it leaves that panel where it was.
+ */
+export interface SheetRef { kind: "doc" | "grant" | "agent"; id: string; tab?: string }
+/** The sheet a panel ref names: a doc in the library (`docId`) and a grant are content, so they open as a sheet, not a side panel. */
+export function sheetOf(p: PanelRef | null): SheetRef | null {
+  if (p?.kind === "library" && p.docId) return { kind: "doc", id: p.docId };
+  if (p?.kind === "grant" && p.id) return { kind: "grant", id: p.id };
+  return null;
+}
+/** A phone: a sheet is full screen there, so a side panel opened from it would sit hidden under it. */
+const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 760px)").matches;
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
 interface TownState {
@@ -34,6 +48,8 @@ interface TownState {
   flags: MapFlag[];
   /** outbox requests nobody has claimed yet: the snapshot's count, then kept by `outbox` frames (the map's outbox badge) */
   outbox: number;
+  /** bulletin board notes the signed-in human hasn't opened (flag dc_04q4h8s229): from GET /api/bulletin, refetched on bulletin `doc` frames; 0 for guests (the map's red badge on the board) */
+  bulletinUnread: number;
   grid: Grid | null;
   gridVersion: number;
   meetings: Record<string, Meeting>;
@@ -41,9 +57,14 @@ interface TownState {
   docs: Record<string, Doc>;
   assignments: Record<string, Assignment>;
   panel: PanelRef | null;
+  /** the link sheet over the map and the panel (SheetRef); null when none */
+  sheet: SheetRef | null;
   toasts: Toast[];
   /** bumps whenever a doc/assignment/meeting arrives so panels can refetch lists */
   rev: number;
+  /** bumps only when the Outbox's lists can have changed: an `outbox` frame, a request or human-report `doc` frame, a snapshot,
+   * or the panel's own move on a request (OutboxPanel keys its loads on it, not on `rev`, so a busy town doesn't cancel its fetch) */
+  outboxRev: number;
   /** `GET /api/bank`, shown on the Bank's sign; null until the first fetch */
   bank: Bank | null;
   /** the snapshot's `health` (docker up?); live changes arrive as `alert` system events */
@@ -60,8 +81,8 @@ const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
+    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -112,8 +133,11 @@ class Store {
         return;
       }
       case "event": return this.applyEvent(m.event);
-      case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
-      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1 });
+      case "doc":
+        this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), ...this.outboxWith([m.doc]), rev: s.rev + 1 });
+        if (m.doc.type === "bulletin") this.onBulletinChanged?.();
+        return;
+      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1, outboxRev: s.outboxRev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
         this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
@@ -148,9 +172,11 @@ class Store {
   onAccessDecided?: () => void;
   /** a hosted collective: refetch `health.funding` / `health.founder` (a key added, an exploration, a proposal or funding; set at boot) */
   onFounderChanged?: () => void;
+  /** refetch `bulletinUnread`: a note was pinned or taken down (set at boot) */
+  onBulletinChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
-  readonly names = new Map<string, string>();
+  readonly names = knownNames;
   private dropAgent(id: string) {
     if (!this.state.agents[id]) return;
     this.names.set(id, this.state.agents[id].name);
@@ -174,7 +200,7 @@ class Store {
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
       town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], outbox: m.outbox ?? 0, grid: m.grid, meetings, health: m.health ?? this.state.health,
-      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
+      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1,
     });
   }
 
@@ -236,13 +262,17 @@ class Store {
     if (!list.length) return;
     const docs = { ...this.state.docs };
     for (const d of list) docs[d.id] = d;
-    this.set({ docs, ...this.flagsWith(list) });
+    this.set({ docs, ...this.flagsWith(list), ...this.outboxWith(list) });
   }
   /** A doc was deleted (an admin removed an outbox request): forget it and let lists refetch. */
   dropDoc(id: string) {
     const docs = { ...this.state.docs };
     delete docs[id];
-    this.set({ docs, rev: this.state.rev + 1 });
+    this.set({ docs, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1 });
+  }
+  /** `outboxRev` bumped when one of these docs is a request or a human report (the Outbox's two lists) */
+  private outboxWith(list: Doc[]): Partial<TownState> {
+    return list.some((d) => d.type === "request" || d.type === "human-report") ? { outboxRev: this.state.outboxRev + 1 } : {};
   }
   /** `flags` after these docs changed: a flag doc stands on the map while it is pending and not picked up. */
   private flagsWith(list: Doc[]): Partial<TownState> {
@@ -261,7 +291,15 @@ class Store {
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
   /** Always a fresh ref, so re-opening a panel that's already open (e.g. E twice on one target) counts as a new open (app.tsx openSeq). */
-  open(panel: PanelRef | null) { const p = redirectPanel(panel); this.set({ panel: p ? { ...p } : null }); }
+  open(panel: PanelRef | null) {
+    const p = redirectPanel(panel);
+    const sheet = sheetOf(p);
+    if (sheet) return this.openSheet(sheet);
+    // on a phone the sheet covers the panel: a side panel opened from it (a building, a 1:1) replaces it
+    this.set(p && this.state.sheet && isPhone() ? { panel: { ...p }, sheet: null } : { panel: p ? { ...p } : null });
+  }
+  /** Open a doc, grant or agent in the link sheet (over the side panel, which stays); null closes it. */
+  openSheet(sheet: SheetRef | null) { this.set({ sheet: sheet ? { ...sheet } : null }); }
   /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
   walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {

@@ -159,12 +159,27 @@ describe("reconcile", () => {
     const s1 = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: a1.id });
     const a2 = world.ops.createWork(admin, noor.id, { title: "Two" });
     const s2 = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: a2.id });
-    const r = world.ops.reconcile([noor.id]); // Noor's child is live, Mei's isn't
+    const r = world.ops.reconcile([s2.id]); // Noor's session is live, Mei's isn't
     expect(r.orphanedSessions).toEqual([s1.id]);
     expect(world.sessions.require(s1.id)).toMatchObject({ status: "interrupted", error: "cut by restart" });
     expect(world.assignments.require(a1.id).status).toBe("pending");
     expect(world.agents.require(mei.id)).toMatchObject({ status: "idle", currentAssignmentId: null });
     expect(world.sessions.require(s2.id).status).toBe("running");
     expect(world.assignments.require(a2.id).status).toBe("active");
+  });
+
+  it("cuts a stale host manage row even when the same agent's desk work session was adopted (per session, not per agent)", () => {
+    const { world, by, admin } = seededWorld();
+    const noor = by("Noor");
+    const a = world.ops.createWork(admin, noor.id, { title: "Desk work" });
+    const work = world.ops.startSession(noor.id, { purpose: "work", model: "m", assignmentId: a.id });
+    const manage = world.ops.startSession(noor.id, { purpose: "manage", model: "m" });
+    const r = world.ops.reconcile([work.id]); // the desk work session was adopted; the host manage session died with the old process
+    expect(r.orphanedSessions).toEqual([manage.id]);
+    expect(world.sessions.require(manage.id)).toMatchObject({ status: "interrupted", error: "cut by restart" });
+    expect(world.sessions.require(work.id).status).toBe("running");
+    expect(world.assignments.require(a.id).status).toBe("active");
+    expect(world.agents.require(noor.id).status).toBe("working");
+    expect(r.requeuedAssignments).toEqual([]);
   });
 });

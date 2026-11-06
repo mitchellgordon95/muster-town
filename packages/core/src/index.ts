@@ -39,7 +39,7 @@ export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
 export { EXPLORE_CEILING_SHARE, EXPLORE_MIN_GAP_MS, assignmentSpent, exploreBlock, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
-export { Ops, type Actor, type RequestAction, type ThreadMessage } from "./ops.ts";
+export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { forkManager, retireFork, nextForkN, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, requestForkStop, stopOverdueForks, STOP_FORK_TIMEOUT_MS, type ForkSummary, type ReportChain } from "./forks.ts";
@@ -50,6 +50,7 @@ export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, des
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { engagement } from "./engagement.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";
@@ -57,15 +58,16 @@ export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
   setAssignmentStatus, pendingQueue, nextPending, nextStartable, buildingQueue, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
-  managerAgentOf, forkableManagerOf, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
+  managerAgentOf, forkableManagerOf, decisionQueue, queueLabel, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
 } from "./domain.ts";
 export { archiveReport, type ArchiveResult } from "./archive.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";
 export { canDirect, canGrantDirect, defaultDirectGoal, directGrantsOf, grantDirect, revokeDirect, membersView, type DirectGrant, type MemberView } from "./direct.ts";
-export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
+export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, decisionTarget, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
+export { bulletinNotes, bulletinNotesFor, bulletinUnreadCount, markBulletinRead, postBulletin, takeDownBulletin, type BulletinNote } from "./bulletin.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
@@ -74,7 +76,7 @@ export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";
 export {
-  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
+  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES, TOWN_HALL_RESTS,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { defaultSide, deriveRoads, doorOf, doorstepOf, type Roads, type Side } from "./world/road.ts";
@@ -89,4 +91,4 @@ export { digestCard, digestRunView, pressDigest } from "./secretary.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
-export { CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, firstTurnUsage, storedFirstTurn, type FirstTurn } from "./cache-miss.ts";
+export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";

@@ -1,47 +1,18 @@
 /**
  * The homepage's pitch: the paper card (PagedCard, same as the in-town overlay) on a stranger's first visit, three
- * pages: collectively funded → publicly legible → projects you care about (the collectives as square tiles, each with
- * a live preview of its town). Picking a tile opens that collective. Seen once per browser (its own localStorage key);
- * the page's "How this works" button and `/#about` reopen it.
+ * pillars: collectively funded → publicly legible → goal-directed (one goal tree, workers assigned to its subtrees, plans
+ * funded by humans). The collectives' tiles are on the page behind the card, so the card doesn't repeat them; its last button
+ * opens the first collective. Seen once per browser (its own localStorage key); the page's "How this works" button and
+ * `/#about` reopen it.
  */
-import { useEffect, useRef } from "react";
 import { Arrow, Head, PagedCard, Scene } from "../panels/PagedCard";
 import type { HomeCollective } from "./collectives";
-import { mountPreview } from "./preview";
 
 const SEEN_KEY = "musterTown.home.seen";
 export function homeCardSeen(): boolean {
   try { return localStorage.getItem(SEEN_KEY) === "1"; } catch { return true; }
 }
 export function markHomeCardSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
-
-/** What a never-run collective's tile says under its name (server/src/home.ts `NOT_STARTED`, the same words). */
-const NOT_STARTED = "Not started yet: waiting for its founder's key.";
-
-/** One square tile, the same markup the server renders behind the card (server/src/home.ts `tile`). */
-function Tile({ c }: { c: HomeCollective }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => { if (ref.current && c.preview) mountPreview(ref.current, c.preview); }, [c.preview]);
-  if (c.placeholder || !c.url) {
-    return (
-      <li className="tile-item">
-        <div className="tile placeholder"><span className="tile-soon">Coming soon</span><span className="tile-name">{c.name}</span></div>
-        {c.goal ? <p className="tile-tag">{c.goal}</p> : null}
-      </li>
-    );
-  }
-  return (
-    <li className="tile-item">
-      <a className="tile" href={c.url} onClick={markHomeCardSeen}>
-        {c.preview ? <canvas className="tile-map" ref={ref} aria-hidden="true" /> : null}
-        {c.preview && c.started !== false ? <span className="tile-live" /> : null}
-        <span className="tile-name">{c.name}</span>
-      </a>
-      {c.started === false ? <p className="tile-tag tile-wait">{NOT_STARTED}</p> : null}
-      {c.goal ? <p className="tile-tag">{c.goal}</p> : null}
-    </li>
-  );
-}
 
 function Funded() {
   return (
@@ -69,17 +40,24 @@ function Legible() {
   );
 }
 
-export function HomeCard({ collectives, onClose }: { collectives: HomeCollective[]; onClose: () => void }) {
-  const close = () => { markHomeCardSeen(); onClose(); };
-  const Projects = () => (
+function GoalDirected() {
+  return (
     <div className="hiw-page">
-      <Head pre="Muster Town is" big="Projects you care about" sub="Each collective works toward one goal. Pick one to watch." />
-      <ul className="tiles">{collectives.map((c) => <Tile key={c.slug} c={c} />)}</ul>
+      <Head pre="Muster Town is" big="Goal-directed" sub="One goal tree: every agent works under a goal." />
+      <Scene kind="goals" />
+      <Arrow n={1}>Humans set goals and assign workers to subtrees</Arrow>
+      <Scene kind="tasks" />
+      <Arrow n={2}>Agents propose budgeted plans; humans fund them</Arrow>
+      <Scene kind="work" />
     </div>
   );
+}
+
+export function HomeCard({ collectives, onClose }: { collectives: HomeCollective[]; onClose: () => void }) {
+  const close = () => { markHomeCardSeen(); onClose(); };
   const first = collectives.find((c) => !c.placeholder && c.url);
   return (
-    <PagedCard label="What Muster Town is" pages={[Funded, Legible, Projects]} onClose={close}
+    <PagedCard label="What Muster Town is" pages={[Funded, Legible, GoalDirected]} onClose={close}
       last={{ primary: first ? { label: `Open ${first.name}`, onClick: () => { markHomeCardSeen(); location.assign(first.url!); } } : null }} />
   );
 }

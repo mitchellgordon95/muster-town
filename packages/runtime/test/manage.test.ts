@@ -84,7 +84,7 @@ describe("manager team-lead session", () => {
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000 });
+    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
     const kr = world.keyResults.require(draft.keyResultId!);
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();

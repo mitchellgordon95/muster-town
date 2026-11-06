@@ -47,7 +47,7 @@ export class Reorgs {
   }
 
   /**
-   * The Planner, created on first use: a Town Hall resident seated at a free mod-station seat (else by the door), and
+   * The Planner, created on first use: a Town Hall resident holding a mod-station desk slot (else by the door) whose desk is drawn beside the goal tree (TOWN_HALL_RESTS), and
    * the Town Hall's manager (`managerAgentId`; Mitchell, 1:1 mt_wql34b8gkl). It manages in name only: `managerAgentOf`
    * leaves the Town Hall out, so its in-tray stays the humans' and the Planner only answers 1:1s and facilitates reorgs.
    * A stopped Planner is resumed (`stopped` → `idle`): it is the Town Hall's only agent, and every caller is a human

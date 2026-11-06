@@ -27,7 +27,7 @@ describe("the Town Hall in-tray's stopped grants and digest", () => {
   });
   it('renders "Stopped: for the record"', () => {
     store.state = { ...store.state, me: { isAdmin: true, roles: [], user: { id: "us_m", name: "Mitchell" } } as never };
-    const html = renderToStaticMarkup(<TownHallIntray onFocus={() => undefined} reports={[]} grants={[]} goalProposals={[]} access={[]} captains={[]} retainers={[]} blocked={[]} stopped={[stopped]} onOpen={() => undefined} onDecided={() => undefined} />);
+    const html = renderToStaticMarkup(<TownHallIntray onFocus={() => undefined} reports={[]} grants={[]} goalProposals={[]} access={[]} captains={[]} retainers={[]} blocked={[]} stopped={[stopped]} onOpen={() => undefined} />);
     expect(html).toContain("Stopped: for the record");
     expect(html).toContain("Throwaway grant");
   });

@@ -30,6 +30,25 @@ describe("fresh seed", () => {
     expect(world.permissions.can(seed.manager!, "town.redeploy")).toBe(true);
   });
 
+  // collective.json `plans` (gr_qggxximtru, 1:1 mt_pr3347g2w2): the plan the collective pays for lands in "Plans paid for" at seed and on every later boot, once
+  it("seeds collective.json's plans into Plans paid for, once, and never for a hosted collective", () => {
+    const dir = tempDir();
+    const path = join(dir, "collective.json");
+    const cfg = { ...JSON.parse(readFileSync(WORKSHOP, "utf8")), workspace: undefined, plans: [{ label: "Max 20x", usdPerMonth: 200, from: "2026-10-25" }] };
+    writeFileSync(path, JSON.stringify(cfg));
+    const { world } = freshWorld();
+    const seed = world.seedDefaults({ collectivePath: path, townJsonPath: path });
+    expect(world.bank.fees()).toMatchObject([{ label: "Max 20x", usdPerMonth: 200, fromDate: "2026-10-25", toDate: null, paidBy: seed.admin.id }]);
+    world.seedDefaults({ collectivePath: path, townJsonPath: path }); // the next boot
+    expect(world.bank.fees()).toHaveLength(1);
+    const hosted = freshWorld();
+    hosted.world.host.hosted = true;
+    hosted.world.seedDefaults({ collectivePath: path, townJsonPath: path });
+    expect(hosted.world.bank.fees()).toEqual([]);
+    // the Workshop's own file names its plan
+    expect(CollectiveConfig.parse(JSON.parse(readFileSync(WORKSHOP, "utf8"))).plans.length).toBeGreaterThan(0);
+  });
+
   it("collective.json carries no residents, reviewer or moderators keys", () => {
     const raw = JSON.parse(readFileSync(WORKSHOP, "utf8")) as { moderators?: unknown; buildings: Record<string, unknown>[] };
     expect(raw.moderators).toBeUndefined();

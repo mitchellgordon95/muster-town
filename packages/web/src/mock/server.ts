@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -316,6 +316,18 @@ export class MockApi implements Api {
   async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { await wait(); return clone(this.sim.createObjective(buildingId, i)); }
   async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { await wait(); return clone(this.sim.updateObjective(id, i)); }
   async deleteObjective(id: string) { await wait(); this.sim.deleteObjective(id); }
+  async engagement(): Promise<EngagementView> {
+    await wait();
+    const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+    const zero = { humans: 0, spoke: 0, oneOnOnes: 0, flags: 0, decisions: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const daily = [
+      { ...zero, day: day(6), humans: 2, spoke: 5, oneOnOnes: 1, decisions: 3 },
+      { ...zero, day: day(2), humans: 3, spoke: 9, flags: 2, decisions: 6, asked: 1, letIn: 1, acted: 1 },
+      { ...zero, day: day(0), humans: 1, spoke: 2, oneOnOnes: 1, decisions: 1 },
+    ];
+    const totals = Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, daily.reduce((n, r) => n + r[k], 0)])) as typeof zero;
+    return { days: 30, from: day(29), to: day(0), daily, totals: { ...totals, humans: 4 }, medianDecisionMs: 3 * 3_600_000 };
+  }
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {
     await wait();
@@ -550,6 +562,36 @@ export class MockApi implements Api {
     if (d.buildingId !== hall?.id || d.state !== "building" || !BOARD_TYPES.includes(d.type)) throw new ApiError("Only a town-wide FYI on the Town Hall board can be taken off it here.", "bad_request", 400);
     return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
   }
+  async bulletin(limit = 50) {
+    await wait(60);
+    return clone([...this.sim.docs.values()].filter((d) => d.type === "bulletin" && d.state === "building").sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit));
+  }
+  /** = core bulletinNotesFor: the mock is signed in as Mitchell (`?guest` never reaches the API's read state), so every note carries `unread`. */
+  async bulletinBoard(limit = 50) {
+    const docs = (await this.bulletin(limit)).map((d) => ({ ...d, unread: d.authorId !== "us_mitchell" && !this.bulletinRead.has(d.id) }));
+    return { docs, unread: docs.filter((d) => d.unread).length };
+  }
+  async readBulletin(docId: string) {
+    await wait();
+    if (docId === "all") for (const d of this.sim.docs.values()) { if (d.type === "bulletin" && d.state === "building") this.bulletinRead.add(d.id); }
+    else if (this.need(this.sim.docs.get(docId), "doc").type !== "bulletin") throw new ApiError("Only a bulletin board note is marked read here.", "bad_request", 400);
+    else this.bulletinRead.add(docId);
+    return (await this.bulletinBoard(200)).unread;
+  }
+  /** notes the mock's signed-in human (Mitchell) has opened */
+  private readonly bulletinRead = new Set<string>();
+  async postBulletin(i: { title: string; body: string }) {
+    await wait();
+    const title = i.title.trim(), body = i.body.trim();
+    if (!title || !body) throw new ApiError("A note needs a title and a body.", "bad_request", 400);
+    return clone(this.sim.putDoc({ id: newId("dc"), type: "bulletin", state: "building", title, body, authorId: "us_mitchell", authorKind: "user", buildingId: null, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() }));
+  }
+  async takeDownBulletin(docId: string) {
+    await wait();
+    const d = this.need(this.sim.docs.get(docId), "doc");
+    if (d.type !== "bulletin" || d.state !== "building") throw new ApiError("Only a note on the bulletin board can be taken down here.", "bad_request", 400);
+    return clone(this.sim.putDoc({ ...d, state: "draft", updatedAt: now() }));
+  }
   async editBoardNote(docId: string, i: { title: string; body: string }) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
@@ -622,6 +664,10 @@ export class MockApi implements Api {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
     if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
+    if (action === "withdraw" || action === "decline") {
+      d.requestStatus = action === "withdraw" ? "withdrawn" : "declined"; d.requestNote = body || "(no note)"; d.requestDecidedById = "us_mitchell";
+      this.sim.putDoc(d); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return d;
+    }
     d.requestStatus = action === "claim" ? "claimed" : "done";
     if (action === "claim") d.claimedByUserId = "us_mitchell";
     if (action === "done") {
@@ -995,6 +1041,9 @@ export class MockApi implements Api {
   async redeployLive() { await wait(60); return { ...this.live }; }
   async health() { return { ok: true, commit: "mock" }; }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
+  async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
+  async collectives() { return []; }
+  async retireHostedCollective(): Promise<{ collective: { slug: string; state: "active" | "retired" } }> { throw new Error("The mock server hosts no collectives."); }
   async manual() {
     await wait(60);
     const body = manualMd.replace(/^# .*\n+/, "");

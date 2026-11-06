@@ -1,7 +1,7 @@
 import { isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
 import { countMemberAct } from "./access.ts";
 import { canDirect } from "./direct.ts";
-import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, type Holder } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
@@ -59,7 +59,18 @@ export function previousMeeting(world: World, m: Pick<Meeting, "id" | "buildingI
     : world.meetings.first("phase = 'done' AND buildingId IS NULL AND id != ?", [m.id], "ORDER BY endedAt DESC, rowid DESC");
 }
 
-export interface DecisionOutcome { n: number; text: string; assigneeId: string | null; outcome: string }
+/** Who a decision went to: the agent, or "<building> queue (a fork of <manager>)" when it went on a building's queue. */
+export function decisionTarget(world: World, d: { assigneeId?: string | null; queueBuildingId?: string }): string {
+  if (!d.assigneeId) return "";
+  return d.queueBuildingId ? queueLabel(world, d.queueBuildingId, d.assigneeId) : world.nameOf(d.assigneeId);
+}
+
+/** The decision's assignee is the agent on its assignment, or that agent's manager when a fork took it off the queue. */
+function sameAssignee(world: World, assigneeId: string | null | undefined, agentId: string): boolean {
+  return !!assigneeId && (assigneeId === agentId || world.agents.get(agentId)?.forkOf === assigneeId);
+}
+
+export interface DecisionOutcome { n: number; text: string; assigneeId: string | null; queueBuildingId?: string; outcome: string }
 
 /**
  * A meeting's decisions (superseded ones dropped; `agentId` keeps only those assigned to that agent) with what became
@@ -73,7 +84,7 @@ export function decisionOutcomes(world: World, m: Meeting, agentId?: string): De
     const a = d.assignmentId ? world.assignments.get(d.assignmentId) : undefined;
     const report = a?.reportId ? world.docs.get(a.reportId) : undefined;
     const outcome = !a ? "no assignment" : a.status !== "done" ? a.status : `done${report ? `: "${oneLine(report.title, 100)}" (verdict ${report.verdict ?? "?"}, decision ${report.decision ?? "pending"})` : ""}`;
-    out.push({ n: i + 1, text: d.text, assigneeId: d.assigneeId ?? null, outcome });
+    out.push({ n: i + 1, text: d.text, assigneeId: d.assigneeId ?? null, ...(d.queueBuildingId ? { queueBuildingId: d.queueBuildingId } : {}), outcome });
   });
   return out;
 }
@@ -525,7 +536,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
     if (old.supersededBy || replaced.has(n)) throw new AppError("conflict", `Decision ${n} was already superseded${old.supersededBy ? ` by decision ${old.supersededBy}` : ""}; supersede the newer one.`);
     replaced.add(n);
     const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
-    if (prev?.status === "active" && d.assigneeId !== prev.agentId) {
+    if (prev?.status === "active" && !sameAssignee(world, d.assigneeId, prev.agentId)) {
       throw new AppError("conflict", `${world.nameOf(prev.agentId)} is already working on "${prev.title}"; amend it for the same assignee, or stop them first.`);
     }
   }
@@ -540,25 +551,29 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
       old.supersededBy = num;
       const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
       if (prev && (prev.status === "pending" || prev.status === "active")) {
-        if (d.assigneeId === prev.agentId) {
+        if (sameAssignee(world, d.assigneeId, prev.agentId)) {
           world.assignments.upsert({ ...prev, title, ...(prev.status === "pending" ? { waitFor: d.waitFor ? validateWait(world, d.waitFor) : null } : {}), description: `${d.text}\n\nDecided in meeting "${m.title}" (amended; replaces: ${old.text.split("\n")[0].slice(0, 160)}).`, updatedAt: nowIso() });
           if (prev.status === "active") sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: prev.agentId, body: `Your current assignment was amended in meeting "${m.title}": ${d.text}` });
-          out = { ...d, assignmentId: prev.id };
+          out = { ...d, assignmentId: prev.id, ...(old.queueBuildingId ? { queueBuildingId: old.queueBuildingId } : {}) };
         } else {
           setAssignmentStatus(world, prev.id, "cancelled");
         }
       }
     }
     if (out.assigneeId && !out.assignmentId) {
+      // a decision naming a manager whose building forks goes on that building's queue: a fork runs it (1:1 mt_peubjyoo0k)
+      const toQueue = decisionQueue(world, out.assigneeId);
       // A meeting decision that assigns an agent acknowledges (approve) its pending reports as superseded, so the
-      // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports.
-      for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
+      // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports. Work for a fork
+      // supersedes none of the manager's own reports: those stay for its in-tray.
+      if (!toQueue) for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
       const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null,
-        lane: { lane: d.lane, grantId: d.grantId, gap: d.gap, sourceId: d.sourceId } });
-      if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
-      out = { ...out, assignmentId: a.id };
+        lane: { lane: d.lane, grantId: d.grantId, gap: d.gap, sourceId: d.sourceId }, ...(toQueue ? { queue: toQueue.queue } : {}) });
+      const assigneeId = out.assigneeId;
+      if (world.agents.get(assigneeId)?.status === "stopped") world.setStatus(assigneeId, "idle", `${world.nameOf(assigneeId)} was resumed by a decision in "${m.title}"`);
+      out = { ...out, assignmentId: a.id, ...(toQueue ? { queueBuildingId: toQueue.building.id } : {}) };
     }
     all.push(out);
     made.push(out);
@@ -570,7 +585,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
   if (late && m.notesDocId) {
     // the notes were written at close; append what came in during the grace window so nothing is lost
     const notes = world.docs.get(m.notesDocId);
-    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${world.agents.get(d.assigneeId)?.name ?? d.assigneeId})` : ""}`).join("\n")}\n` });
+    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${decisionTarget(world, d)})` : ""}`).join("\n")}\n` });
   }
   return updated;
 }
@@ -593,7 +608,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
     "", "## Agenda", "", m.agenda || "(none)",
     "", "## Summaries", "", ...(Object.entries(m.summaries).map(([id, s]) => `**${name(id)}:** ${s}`)), Object.keys(m.summaries).length ? "" : "(none)",
     "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}${u.attachment ? ` (presented: ${attachmentLine(u.attachment)})` : ""}`), m.transcript.length ? "" : "(none)",
-    "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${name(d.assigneeId)}` : ""}`), m.decisions.length ? "" : "(none)",
+    "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${decisionTarget(world, d)}` : ""}`), m.decisions.length ? "" : "(none)",
     ...(closing ? ["## Closing", "", closing] : []),
   ].join("\n");
   const authorAgent = actor ?? (m.facilitatorId ? world.agents.get(m.facilitatorId) ?? null : null);

@@ -503,11 +503,14 @@ export function ProjectionView({ f }: { f: Finance }) {
 export function cashLines(c: FinanceCash, check?: { ok: boolean; text: string }): { total: string; parts: string; ratio: string; check: { ok: boolean; text: string } } {
   const sum = c.plans + c.apiKeys + c.hosting;
   const ok = check ? check.ok : Math.abs(sum - c.total) <= 0.01;
+  // a hosted collective runs on API keys only (1:1 mt_pr3347g2w2): no plans is its normal case, never a plan missing
   return {
     total: dollars(c.total),
-    parts: `plans ${dollars(c.plans)} · API keys ${dollars(c.apiKeys)} · hosting ${dollars(c.hosting)}`,
+    parts: c.hosted
+      ? `API keys ${dollars(c.apiKeys)} · hosting ${dollars(c.hosting)} (no plans: a hosted collective runs on API keys)`
+      : `plans ${dollars(c.plans)} · API keys ${dollars(c.apiKeys)} · hosting ${dollars(c.hosting)}`,
     ratio: c.perDollar == null
-      ? "No plan recorded yet: add one on Inputs (\u201cPlans paid for\u201d)."
+      ? (c.hosted ? `Nothing paid in cash in these ${c.windowDays} days yet.` : "No plan recorded yet: add one on Inputs (\u201cPlans paid for\u201d).")
       : `Each $1 paid bought ≈ ${dollars(c.perDollar)} of work at list price (${dollars(c.listUsd)} of work in the same ${c.windowDays} days).`,
     check: ok
       ? { ok: true, text: `The server checked that plans + API keys + hosting = ${dollars(c.total)}.` }
