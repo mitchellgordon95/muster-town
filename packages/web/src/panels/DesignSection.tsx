@@ -31,14 +31,17 @@ const CONTACT = "/api/media/mf_5ke5yff43d.png";
 
 const cssVar = (name: string) => (typeof document === "undefined" ? "" : getComputedStyle(document.documentElement).getPropertyValue(name).trim());
 
+/** 360 wide: a phone sheet (~330 px) scales it to ~0.9, so the 11 px step still reads (560 shrank it to ~6 px). */
+const W = 360;
+
 function specimen(steps: { name: string; px: number }[], ink: string): string {
   let y = 0;
   const rows = steps.map(({ name, px }) => {
     y += Math.round(px * 1.35) + 6;
     return `<text x="0" y="${y}" font-size="${px}" fill="${ink}" font-family="system-ui, sans-serif">Muster Town</text>`
-      + `<text x="560" y="${y}" font-size="13" fill="${ink}" font-family="ui-monospace, monospace" text-anchor="end">${name} ${px}px</text>`;
+      + `<text x="${W}" y="${y}" font-size="13" fill="${ink}" font-family="ui-monospace, monospace" text-anchor="end">${name} ${px}px</text>`;
   }).join("");
-  return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="560" height="${y + 10}" viewBox="0 0 560 ${y + 10}">${rows}</svg>`)}`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y + 10}" viewBox="0 0 ${W} ${y + 10}">${rows}</svg>`)}`;
 }
 
 export function DesignSection() {
