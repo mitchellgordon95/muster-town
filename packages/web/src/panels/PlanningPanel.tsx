@@ -127,9 +127,23 @@ function ThisCollective() {
   const funding = useTown((s) => s.health?.funding);
   const me = useTown((s) => s.me);
   const [sure, setSure] = useState(false);
+  const town = useTown((s) => s.town);
+  const [name, setName] = useState("");
   const admin = !!me?.isAdmin;
+  const address = `${location.host}${API_BASE}`;
+  const next = name.trim();
   return (
     <Section title="This collective">
+      {admin ? (
+        <>
+          <Field label="Name" hint={`Shown on the homepage and at the top of the town. The address ${address} stays.`}>
+            <input value={name} placeholder={town?.name ?? ""} maxLength={80} onChange={(e) => setName(e.target.value)} aria-label="Collective name" />
+          </Field>
+          <div className="actions">
+            <Act disabled={!next || next === town?.name} run={async () => { await api().renameCollective(next); location.reload(); }}>Rename</Act>
+          </div>
+        </>
+      ) : null}
       <p className="direction">
         {funding === "api-key" ? "Runs on its own Anthropic API key (at the Bank)." : "No key yet: its agents are held until an admin adds an Anthropic API key at the Bank."}
         {" "}Muster Town never spends its own credentials here.
@@ -147,14 +161,39 @@ function ThisCollective() {
   );
 }
 
+/**
+ * The Workshop's admins see every hosted collective and may retire one (a test, an abandoned one): the same retire as
+ * its own admin's (the address shows a retired notice and is never reused; its data stays on the server).
+ */
+function HostedCollectives() {
+  const r = useLoad(() => api().collectives(), []);
+  const [sure, setSure] = useState<string | null>(null);
+  const hosted = (r.data ?? []).filter((c, i) => i > 0 && c.url === `/${c.slug}/`);
+  if (!hosted.length) return null;
+  return (
+    <Section title="Hosted collectives">
+      <p className="direction">Retiring one stops it at once; its address shows a retired notice and is never reused. Its data stays on the server.</p>
+      {hosted.map((c) => (
+        <div key={c.slug} className="actions">
+          <a href={c.url}>{c.name}</a> <code>{location.host}{c.url}</code>
+          {sure === c.slug
+            ? <><Act tone="bad" run={async () => { await api().retireHostedCollective(c.slug); store.toast(`${c.name} retired`, "ok"); setSure(null); r.reload(); }}>Retire {c.name} for good</Act><button className="btn" onClick={() => setSure(null)}>Keep it</button></>
+            : <button className="btn" onClick={() => setSure(c.slug)}>Retire…</button>}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 function System() {
   const [commit, setCommit] = useState<string | null>(null);
   const conn = useTown((s) => s.conn);
-  useTown((s) => s.me);
+  const admin = useTown((s) => !!s.me?.isAdmin);
   return (
     <>
       {store.can("town.redeploy") ? <Redeploy /> : null}
       {API_BASE ? <ThisCollective /> : null}
+      {!API_BASE && admin ? <HostedCollectives /> : null}
       <Slots />
       <Section title="Git export">
         <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>

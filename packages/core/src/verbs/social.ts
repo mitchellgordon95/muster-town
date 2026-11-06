@@ -3,6 +3,7 @@ import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/sch
 import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
+import { mainRedLine } from "../main-fix.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { interruptNow, isWorking, relayWake } from "../wakes.ts";
@@ -32,13 +33,14 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     [`%"${me.id}"%`, home ?? "-"], "ORDER BY scheduledAt");
   const mine = (p: { buildingId: string | null }) => p.buildingId === here?.id || p.buildingId === home;
   const visible = world.layout.places.filter((p) =>
-    p.kind === "door" || p.kind === "plaza" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
+    p.kind === "door" || p.kind === "plaza" || p.kind === "bulletin" || p.kind === "bank" || p.kind === "bank-map" || p.id === "library" || p.id === "outbox" ||
     // Town Hall stations everyone can walk to
     p.kind === "mod-station" || p.kind === "planning" || p.kind === "town-map" || p.kind === "goal-tree" || p.id === "schedule-board" || p.kind === "bench" || p.id === "intray:town-hall" || p.id === "board:town-hall" ||
     // the board, schedule board, filing cabinet, in-tray (manager's desk) and help sign of the building I'm in / my home building
     ((p.kind === "board" || p.kind === "schedule" || p.kind === "cabinet" || p.kind === "intray" || p.kind === "help") && mine(p)) ||
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
+  const red = mainRedLine(world);
   return {
     me: { id: me.id, name: me.name, status: me.status, buildingId: me.buildingId, place: place?.id ?? null, pos: me.pos },
     building: here ? { id: here.id, name: here.name, goal: world.goalTree.purposeOf(here) } : null,
@@ -50,6 +52,8 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
       currentAssignment: current?.title ?? null,
       nextMeeting: meeting ? { id: meeting.id, title: meeting.title, at: meeting.scheduledAt, phase: meeting.phase } : null,
       ...digestFor(world, me),
+      // gr_7op2v8fjcl step 2: while main is red, who holds its one fix assignment
+      ...(red ? { mainRed: red } : {}),
     },
     places: visible.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
     town: `${world.buildings.count()} buildings in town: \`town\` lists them with their managers and who is in each now.`,

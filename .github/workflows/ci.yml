@@ -10,10 +10,12 @@ on:
     branches: [main]
   pull_request:
 
-# a burst of pushes to main tests only the newest commit (keeps us inside the free Actions minutes)
+# PRs: a new push cancels the running check. main: pushes queue instead (GitHub keeps one running + the newest pending run
+# per group, so a burst still costs at most two full runs). With cancel-in-progress on main, a merge every 1-2 min cancelled
+# every run before promote could move `prod` (11-04: 12 merges in 17 min, 20 commits never deployed, 8 no-op redeploys).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -39,6 +41,9 @@ jobs:
         run: |
           line=$(grep -E '^check( --fast)?: .*total ' check.log | tail -1 || true)
           echo "\`${line:-check: no timing line (stopped before the first step finished)}\`" >> "$GITHUB_STEP_SUMMARY"
+      # web CSS stays on one type scale and one palette (packages/web/src/type.css): no font size off var(--fs-*), no colour
+      # literal outside the palette's :root block (grant gr_kvmwutmybu); prints file:line for each stray
+      - run: npm run check:css
       - run: npm run build --workspace packages/web
 
   promote:
@@ -93,8 +98,9 @@ jobs:
   # The published self-host image (docs/self-host.md path B, gr_q1jrelx2ty): every green main is built from
   # deploy/fly/Dockerfile with plain docker and pushed as ghcr.io/mitchellgordon95/muster-town:<sha> and :prod.
   # Runs beside promote (not after it); a .github/-only change doesn't redeploy the town (promote's docs/CI filter).
+  # On a PR it builds and smoke-tests the PR's merge commit but pushes nothing, so a change that breaks the image or
+  # path B shows red before it is merged (public repo: Actions minutes are free).
   image:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest # amd64 only
     timeout-minutes: 30
@@ -112,6 +118,7 @@ jobs:
         run: |
           git clone -q --branch main https://github.com/mitchellgordon95/muster-town.git ctx
           cd ctx
+          git fetch -q origin "$GITHUB_REF" # a PR's merge commit (refs/pull/N/merge) is not on main
           git reset -q --hard "$GITHUB_SHA"
           git remote set-url origin https://github.com/mitchellgordon95/muster-town.git
           mv .git gitdir
@@ -122,7 +129,62 @@ jobs:
           start=$(date +%s)
           docker build -f deploy/fly/Dockerfile -t "$IMAGE:$GITHUB_SHA" .
           echo "docker build took $(( $(date +%s) - start ))s"
+      # docs/self-host.md path B as a stranger runs it (kr_emrv9hzs47): the page's compose against the image just built, a
+      # fresh collective.json and an empty .env. Before the push, so an image that can't boot or keep its state is never
+      # published. Checks: health ok, the seeded admin token (inside the volume) is an admin on /api/me, /api/town carries
+      # the collective's name; then `docker compose restart` and the same checks with the same token (state survived).
+      - name: image smoke (self-host path B)
+        run: |
+          mkdir -p smoke/mytown && cd smoke
+          printf '{"name":"Smoke Town","goal":"Boot from the published image","port":4322,"buildings":[]}\n' > mytown/collective.json
+          : > mytown/.env
+          cat > docker-compose.yml <<YAML
+          services:
+            town:
+              image: $IMAGE:$GITHUB_SHA
+              pull_policy: never
+              restart: unless-stopped
+              ports: ["127.0.0.1:4322:4322"]
+              volumes: ["town_data:/data", "./mytown/collective.json:/data/mytown/collective.json:ro"]
+              env_file: ./mytown/.env
+              environment:
+                MUSTER_TOWN_COLLECTIVE: /data/mytown
+                PORT: "4322"
+                HOST: 0.0.0.0
+                MUSTER_TOWN_DESKS: '{"backend":"host"}'
+          volumes:
+            town_data:
+          YAML
+          up() {
+            for i in $(seq 1 90); do
+              if curl -fsS -m 5 http://127.0.0.1:4322/api/health > health.json 2>/dev/null && [ "$(jq -r .ok health.json)" = true ]; then
+                echo "$1: health ok after ${i}x2s, commit $(jq -r .commit health.json)"; return 0
+              fi
+              sleep 2
+            done
+            echo "$1: no healthy /api/health in 180s"; docker compose logs --tail 200 town; return 1
+          }
+          check() {
+            [ "$(jq -r .commit health.json)" = "$GITHUB_SHA" ] || { echo "$1: health commit is not $GITHUB_SHA"; return 1; }
+            token=$(docker compose exec -T town cat /data/mytown/data/admin-token)
+            [ -n "$token" ] || { echo "$1: no admin token in /data/mytown/data"; return 1; }
+            [ "$(curl -fsS -H "authorization: Bearer $token" http://127.0.0.1:4322/api/me | jq -r .isAdmin)" = true ] || { echo "$1: admin token is not an admin on /api/me"; return 1; }
+            name=$(curl -fsS http://127.0.0.1:4322/api/town | jq -r .town.name)
+            [ "$name" = "Smoke Town" ] || { echo "$1: /api/town names '$name', not the collective's 'Smoke Town'"; return 1; }
+            echo "$1: admin token ok, /api/town names $name"
+            echo "$token" | sha256sum | cut -c1-16 > "token.$1"
+          }
+          docker compose up -d
+          up first-boot
+          check first-boot
+          docker compose restart
+          up after-restart
+          check after-restart
+          cmp token.first-boot token.after-restart || { echo "the admin token changed across the restart: state did not survive"; exit 1; }
+          echo "\`image smoke: path B compose boots $GITHUB_SHA, admin token works, survives docker compose restart\`" >> "$GITHUB_STEP_SUMMARY"
+          docker compose down -v
       - name: push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

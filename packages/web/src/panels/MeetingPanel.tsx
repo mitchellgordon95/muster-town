@@ -14,6 +14,7 @@ import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl, grantUrl } from "../route";
 import type { PanelRef } from "../state";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MeetingSlide } from "./MeetingSlide";
 import { GoalProposalItem } from "./GoalTreePanel";
@@ -83,9 +84,6 @@ function CallMeeting({ building, again }: { building: SnapshotBuilding; again?: 
 /** under the server's HUMAN_TYPING_MS (30 s) so a held draft never lapses */
 const TYPING_PING_MS = 10_000;
 
-/** Messages a transcript shows before "Show N earlier messages". */
-const TRANSCRIPT_SHOWN = 6;
-
 function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
@@ -93,9 +91,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
   const media = useMediaPaste(setText);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);
-  // the transcript opens on its latest messages; the earlier ones are one click away (gr_zak30564zh step 4)
-  const [allLines, setAllLines] = useState(false);
-  const earlier = allLines ? 0 : Math.max(0, m.transcript.length - TRANSCRIPT_SHOWN);
+  // the whole transcript shows, opened at its latest line (Mitchell, mt_pr3347g2w2 decision 8: no "Show N earlier messages" fold)
   const buildings = useTown((s) => s.buildings);
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
@@ -155,9 +151,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
       <Section title="Transcript">
         {!m.transcript.length ? <Empty>{m.phase === "collecting" ? "Discussion starts as soon as every summary is in." : oneOnOne && open ? `Say what's on your mind; ${nameOf(m.facilitatorId)} answers here.` : "Nobody has spoken."}</Empty> : (
           <div className="transcript">
-            {earlier ? <button type="button" className="link show-earlier" onClick={() => setAllLines(true)}>Show {earlier} earlier message{earlier === 1 ? "" : "s"}</button> : null}
-            {m.transcript.slice(earlier).map((u, j) => {
-              const i = earlier + j;
+            {m.transcript.map((u, i) => {
               const isMe = u.speakerKind === "user" && u.speakerId === me?.user.id;
               return (
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>
@@ -177,6 +171,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
           <textarea {...media.props} rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
+          <AttachButton media={media} disabled={!discussing} />
           <button className="btn primary" disabled={!discussing || !text.trim() || media.uploading > 0}>Say</button>
           {canRun ? <Act tone="bad" run={async () => { const ask = endMeetingConfirm(m); if (ask && !confirm(ask)) return; store.putMeeting(await api().endMeeting(m.id)); }}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />
@@ -188,7 +183,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : oneOnOne ? `${nameOf(m.facilitatorId)} records the work you agree on here.` : "The facilitator records decisions at the end."}</Empty> : (
           <ol className="decisions">
             {m.decisions.map((d, i) => (
-              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>
+              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {d.queueBuildingId ? `${buildings.find((b) => b.id === d.queueBuildingId)?.name ?? d.queueBuildingId} queue (a fork of ${nameOf(d.assigneeId)})` : nameOf(d.assigneeId)}</button></> : null}</li>
             ))}
           </ol>
         )}

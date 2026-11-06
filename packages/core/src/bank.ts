@@ -1,4 +1,4 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
@@ -9,6 +9,7 @@ import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
+import { cashCheck, financeCash, CASH_FLY_DAYS, type CashCheck, type FinanceCash } from "./finance-cash.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
@@ -459,6 +460,55 @@ export class Bank {
     if (inp?.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can clear its limit.");
     if (l.clearedAt) return l;
     return this.availability.clear(l, new Date(), `${this.repos.users.get(userId)?.name ?? userId} cleared it by hand`);
+  }
+
+  // ---- Plans paid for (gr_qggxximtru step 1; docs/bank.md "Plans paid for") ----
+
+  /** Every plan fee the town recorded, newest first by its first day. Public. */
+  fees(): BankFee[] {
+    return this.repos.bankFees.all("ORDER BY fromDate DESC, createdAt DESC");
+  }
+
+  /** An admin records what the town pays in cash for a subscription plan. A hosted collective has no plans. */
+  addFee(userId: string, input: AddBankFee): BankFee {
+    if (this.permissions.isHosted()) throw badRequest(HOSTED_KEY_ONLY_HOLD);
+    this.requireAdmin(userId, "record a plan fee");
+    const f = AddBankFee.parse(input);
+    if (f.to && f.to < f.from) throw badRequest("A plan can't end before it starts.");
+    const user = this.repos.users.require(userId, "user");
+    const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: userId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+    this.events.append({ type: "bank.fee", text: `${user.name} recorded a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate } });
+    return fee;
+  }
+
+  /**
+   * collective.json `plans` at boot (seed.ts): each plan the file spells out is recorded once, by the admin, unless a
+   * fee with its label and first day is already there (a plan an admin recorded by hand, or an earlier boot). A hosted
+   * collective has no plans, so nothing is recorded there. Returns the fees it added.
+   */
+  seedFees(adminId: string, plans: AddBankFee[]): BankFee[] {
+    if (!plans.length || this.permissions.isHosted()) return [];
+    const have = new Set(this.fees().map((f) => `${f.label}\n${f.fromDate}`));
+    const added: BankFee[] = [];
+    for (const raw of plans) {
+      const f = AddBankFee.parse(raw);
+      if (have.has(`${f.label}\n${f.from}`)) continue;
+      const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: adminId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+      this.events.append({ type: "bank.fee", text: `collective.json records a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate, seeded: true } });
+      added.push(fee);
+    }
+    return added;
+  }
+
+  /** An admin sets a plan fee's last paid day (an ended plan can be moved). */
+  endFee(userId: string, feeId: string, to: string): BankFee {
+    this.requireAdmin(userId, "end a plan fee");
+    const fee = this.repos.bankFees.require(feeId, "plan fee");
+    const day = EndBankFee.parse({ to }).to;
+    if (day < fee.fromDate) throw badRequest("A plan can't end before it starts.");
+    const row = this.repos.bankFees.patch(feeId, { toDate: day });
+    this.events.append({ type: "bank.fee", text: `Plan paid for ended: ${fee.label}, last day ${day}`, payload: { feeId, toDate: day } });
+    return row;
   }
 
   /**
@@ -937,6 +987,16 @@ export class Bank {
     // a hosted collective's creation = its first event (the window starts no earlier than that day)
     const createdAt = o.hosted ? this.events.list({ limit: 1 })[0]?.ts ?? null : null;
     return townFly(this.repos, desks, townOnFly, { ...o, createdAt }, now);
+  }
+
+  /**
+   * GET /api/finance `cash` + `cashCheck`: what the last 30 days cost in cash (plan fees prorated, API-key sessions at
+   * list price, the Fly estimate) next to the list-price value of the same work (finance-cash.ts). Read-only.
+   */
+  cash(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt" | "windowDays"> = {}, now = new Date()): { cash: FinanceCash; cashCheck: CashCheck } {
+    const fly = this.fly(desks, townOnFly, { ...o, windowDays: CASH_FLY_DAYS }, now);
+    const cash = financeCash({ fees: this.fees(), sessions: this.repos.sessions.all(), inputs: this.repos.bankInputs.all(), fly, hosted: !!o.hosted }, now);
+    return { cash, cashCheck: cashCheck(cash) };
   }
 
   summary(): BankSummary {

@@ -85,7 +85,7 @@ describe("schedules", () => {
 
   it("a lane that no longer holds ends the schedule with a town-written report in the in-tray", async () => {
     const { world, b, me, made, admin } = lab();
-    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "Schedules work", howToCheck: "Run the tests" }], objective: "o", stopCondition: "s", askTokens: 1000 }).id);
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "Schedules work", howToCheck: "Run the tests" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
     const r = await world.verbs.schedule(me(), { title: "Explore it", description: "d", lane: "grant", grantId: g.id, runsAt: new Date(Date.now() + H).toISOString() });
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "no" }); // rejected: work can't be charged to it any more
     expect(fireSchedules(world, new Date(Date.now() + 2 * H)).fired).toEqual([]);

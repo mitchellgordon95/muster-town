@@ -3,7 +3,7 @@ import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
-import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
+import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_ID, TOWN_HALL_RESTS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
 import type { Side } from "./road.ts";
 import type { Plaza } from "./tree.ts";
@@ -73,8 +73,11 @@ export class WorldMap {
       if (!occupancy.has(r.buildingId)) occupancy.set(r.buildingId, new Map());
       occupancy.get(r.buildingId)!.set(r.n, r.agentId);
     }
-    const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout);
+    const agents = this.repos.agents.all();
+    const names = new Map(agents.map((a) => [a.id, a.name]));
+    // the Planner and the Secretary rest by the goal tree and the Town Hall in-tray (flag dc_r7u6bkaei4)
+    const rests = new Map(agents.filter((a) => a.homeBuildingId === TOWN_HALL_ID && a.kind === "resident" && !a.forkOf && a.title && TOWN_HALL_RESTS[a.title]).map((a) => [a.id, TOWN_HALL_RESTS[a.title!]]));
+    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests);
   }
 
   /**

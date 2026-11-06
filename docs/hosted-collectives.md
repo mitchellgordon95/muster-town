@@ -55,6 +55,14 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      (post-mortem 2026-10-31 item 8).
    - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
      and the GitHub/Fly tokens are never read.
+   - **No repo, no deploy/PR machinery** (1:1 mt_1vs893enaw, findings dc_ogpz8cgzow). Core `World.repoMode()` is `none`
+     (no `Town.workspace`: every hosted collective), `own` (a repo that is not the one the server runs from; runtime sets
+     `host.repoUrl` from its checkout's origin) or `muster` (muster.town's own). `none`: nobody holds `town.redeploy` in a
+     hosted World (admins included, so Planning → System has no "Pull main & redeploy"; `/api/me.canRedeploy`), MCP lists
+     no `redeploy` tool, `{deploy}` and `{pr}` waits are refused and left out of the prompts and tool texts (schema
+     `verbToolFor`), the manager's in-tray has no "Live:" line and rolls up when reports were decided, and the web hides the
+     Live-build row and the code-access rows. `own`: `{pr}` waits and code access stay; `{deploy}` waits and the redeploy
+     line go, and only admins and the deployer role redeploy. `muster`: unchanged.
    - **First building.** Done 2026-11-01 (gr_5ltmbf3a2f, kr_god7otzibq): `hub.open` (`ensureFirstBuilding`, hub.ts)
      gives a World with no building besides the Town Hall one goal-directed building, **Workshop**, on the root goal
      (the founder's), made as Planning → New building makes one: its manager (forks do the work) at one of its desks,

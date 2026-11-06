@@ -1,14 +1,14 @@
 /** Why a queued assignment can't start (Mitchell's 1:1 mt_ryw7ejayvu): blockedBy on each, townBlocked for the map. */
 import { describe, expect, it } from "vitest";
 import { blockedBy, buildingRoleId, buildingStats, newId, nowIso, createSchedule, townBlocked, waitsOnTime } from "../src/index.ts";
-import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
+import { creditBank, fundGoalOf, musterWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
 
 describe("blockedBy", () => {
   it("waits: a colleague's assignment (line to them), a deploy (the building's door, with the live sha), a decision (the in-tray); a time (parked work) is not a block", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     creditBank(world); // directed work needs free tokens since 2026-11-02; these tests are about waits
     const mei = by("Mei"), noor = by("Noor");
     world.host.commit = "abcdef1234567";
@@ -40,7 +40,7 @@ describe("blockedBy", () => {
   });
 
   it("a wait on a time (work parked with resumeWhen {after}) is not a block, before or after the time", () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     creditBank(world);
     const mei = by("Mei");
     const late = world.ops.createWork(admin, mei.id, { title: "Late", waitFor: { after: new Date(Date.now() + 120 * 60_000).toISOString() } });
@@ -53,7 +53,7 @@ describe("blockedBy", () => {
   });
 
   it("buildingStats (town planning's side bar): running, queued (blocked among them), the building's active schedules; agents, forks, working; the live build", async () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     creditBank(world);
     const mei = by("Mei"), noor = by("Noor");
     world.host.commit = "abcdef1234567"; world.host.startedAt = "2026-10-29T16:30:00.000Z";
@@ -72,13 +72,13 @@ describe("blockedBy", () => {
   });
 
   it("lane holds point at the Town Hall in-tray: grant at checkpoint, exploration at its goal's cap (used of cap, reset time)", () => {
-    const { world, by, admin } = seededWorld();
+    const { world, by, admin } = musterWorld();
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     fundGoalOf(world, LAB, { exploreCapTokensPerDay: 6_385_714 });
     creditBank(world, 20_000_000);
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor sees the spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor sees the spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000_000 }).id).id, { action: "fund" });
     const grantWork = world.ops.createWork(admin, noor.id, { title: "Grant step", lane: "grant", grantId: g.id });
     const ex = world.ops.createWork(admin, noor.id, { title: "Explore", lane: "exploration", gap: "gap" });
     expect(blockedBy(world, grantWork)).toBeNull();

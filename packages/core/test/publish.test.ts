@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PUBLISH_TOKEN_SECRET } from "../src/index.ts";
+import { PUBLISH_TOKEN_SECRET, REPO_TOKEN_SECRET } from "../src/index.ts";
 import { maskTokens, worldSource, writeExport } from "../src/export.ts";
 import { freshWorld, tempDir } from "./helpers.ts";
 
@@ -87,8 +87,9 @@ describe("publish: the World's setting", () => {
     const { world } = freshWorld();
     const resident = world.agents.first("kind = 'resident'");
     const p = world.setPublish({ repoUrl: "https://github.com/acme/town-docs", token: TOKEN });
-    expect(p).toEqual({ repoUrl: "https://github.com/acme/town-docs", tokenSet: true, lastPushAt: null, lastPushCommit: null, lastPushError: null });
-    expect(world.town.get().publish).toEqual(p);
+    expect(p).toEqual({ repoUrl: "https://github.com/acme/town-docs", tokenSet: true, lastPushAt: null, lastPushCommit: null, lastPushError: null, tokenSource: "own" });
+    const { tokenSource: _live, ...stored } = p;
+    expect(world.town.get().publish).toEqual(stored); // tokenSource is read live, never stored
     expect(world.secrets.value(PUBLISH_TOKEN_SECRET)).toBe(TOKEN);
     expect(world.secrets.list()).toEqual([]);
     expect(world.secrets.get(PUBLISH_TOKEN_SECRET)).toBeNull();
@@ -149,5 +150,21 @@ describe("publish: the World's setting", () => {
     expect(a.town.get().publish?.lastPushCommit).toBe(xa.commit);
     expect(b.town.get().publish?.lastPushCommit).toBe(xb.commit);
     expect(b.publishTarget()?.token).toBe("tok-beta-456");
+  });
+
+  it("without its own token the push uses the collective's GH_TOKEN (1:1 mt_z1b38bwg98); tokenSource says which, live", () => {
+    const { world } = freshWorld();
+    world.setPublish({ repoUrl: "https://github.com/acme/town-docs" });
+    expect(world.publishTarget()).toMatchObject({ token: null });
+    expect(world.snapshot().town.publish?.tokenSource).toBe("none");
+    world.secrets.put(REPO_TOKEN_SECRET, { value: "gh-collective-789" }, null);
+    expect(world.publishTarget()?.token).toBe("gh-collective-789");
+    expect(world.snapshot().town.publish).toMatchObject({ tokenSet: false, tokenSource: "collective" });
+    expect(world.town.get().publish?.tokenSource).toBeUndefined();
+    // its own token wins over GH_TOKEN
+    expect(world.setPublish({ repoUrl: "https://github.com/acme/town-docs", token: TOKEN }).tokenSource).toBe("own");
+    expect(world.publishTarget()?.token).toBe(TOKEN);
+    world.clearPublish();
+    expect(world.snapshot().town.publish).toBeUndefined();
   });
 });

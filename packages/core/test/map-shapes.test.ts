@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BANK_FIXTURES, MapLayout, TILE, labSize, type Building, type Lot } from "@muster-town/schema";
+import { BANK_FIXTURES, BULLETIN_PLACE, MapLayout, TILE, labSize, type Building, type Lot } from "@muster-town/schema";
 import { computeLayout, deriveRoads, MAX_HEADCOUNT, migrate, piecesFor, validateLayout, openDb, TownMeta, doorstepOf, findPath, treeLayout, type Grid, type TreeBuilding, type TreeGoal } from "../src/index.ts";
 
 /** The live tree on 2026-10-31 (GET /api/goals and /api/town on muster.town): 19 active goals, the Town Hall and 6 labs. */
@@ -81,6 +81,18 @@ describe.each(MapLayout.options)("the %s map of the live tree", (shape) => {
     for (const p of a.places) expect(findPath(a.grid, plaza.pos, p.pos), p.id).not.toBeNull();
     expect(a.places.find((p) => p.id === "stats")?.kind).toBe("stats"); // the Town Hall's user stats stand, in every shape
     if (shape === "fountain") expect(a.grid.tiles.filter((t) => t === TILE.FOUNTAIN).length).toBeGreaterThan(0);
+    // the humans' bulletin board (flag dc_52njv3shp8): in every shape, outside, its board tile right above the place, near the Town Hall's door
+    const bulletin = a.places.find((p) => p.id === BULLETIN_PLACE)!;
+    expect(bulletin).toMatchObject({ kind: "bulletin", buildingId: null });
+    expect(a.grid.tiles.filter((t) => t === TILE.BULLETIN)).toHaveLength(1);
+    expect(a.grid.tiles[(bulletin.pos.y - 1) * a.grid.w + bulletin.pos.x]).toBe(TILE.BULLETIN);
+    const door = a.doors.get("town-hall")!;
+    expect(Math.abs(bulletin.pos.x - door.x) + Math.abs(bulletin.pos.y - door.y)).toBeLessThanOrEqual(12);
+    if (shape === "fountain") {
+      // on the square, three tiles left of the door, on the row under the flower beds
+      const sq = treeLayout(goals, buildings, shape).paving![0];
+      expect(bulletin.pos).toEqual({ x: door.x - 3, y: sq.y + 2 });
+    }
   });
 });
 

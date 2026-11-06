@@ -96,16 +96,8 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
 }
 
 /**
- * The manager's checkpoint-report assignment (lane grant without a key result, created by the system): it may run while
- * its grant is at checkpoint. Other grant work stores its grant's key result, and a grant can't be funded without one.
- */
-export function isCheckpointAssignment(a: Pick<Assignment, "lane" | "grantId" | "keyResultId" | "createdBy">): boolean {
-  return a.lane === "grant" && !!a.grantId && !a.keyResultId && a.createdBy === "system";
-}
-
-/**
  * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
- * grant → the grant is funded (its checkpoint assignment also runs at checkpoint); exploration → there are free tokens
+ * grant → the grant is funded (at checkpoint every new session on it waits for a human); exploration → there are free tokens
  * under the building's goal and the optional exploration cap it inherits isn't reached (docs/how-work-gets-done.md §8);
  * directed → there are free tokens under the building's goal (Mitchell, 2026-11-02: directed work draws free tokens like
  * exploration; before, it was never held for money and ate the balance ahead of grant work); retainer → its schedule's
@@ -140,7 +132,7 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
       }
       return null;
     }
-    if (g.status === "checkpoint") return isCheckpointAssignment(a) ? null : { kind: "grant", grantId, reason: "held: grant at checkpoint" };
+    if (g.status === "checkpoint") return { kind: "grant", grantId, reason: "held: grant at checkpoint" };
     if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return { kind: "grant", grantId, reason: "held: grant not funded yet" };
     return { kind: "grant", grantId, reason: `held: grant ${g.status}` };
   }

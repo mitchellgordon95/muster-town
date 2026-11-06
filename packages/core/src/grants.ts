@@ -1,11 +1,12 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, krVerdict, parseRollup,
-  type Building, type Grant, type GrantHistoryEntry, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
+  StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
+  type Assignment, type Building, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
-import { interruptFork } from "./forks.ts";
+import { checkForkModel, interruptFork } from "./forks.ts";
+import { attachablePages } from "./schedules.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
@@ -19,10 +20,32 @@ import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
 /**
- * Spend fractions at which a funded grant pauses for a human checkpoint: only 100% ("a grant is good for the number
- * granted", Mitchell, town hall mt_rjhwj2qggm). The 50% one is gone; `releaseHalfway` frees grants it still holds.
+ * The holds of a funded grant (grant C gr_95svkzi4l6, plan dc_nqgbjho18g), as `checkpointsDone` records them: 0 = the
+ * reserve hold, at grantTokens − `reserveOf` (the reserve covers the sessions already running at the hold, which finish
+ * and book); 1 = the 100% hold, reached only after a human continues past the reserve hold ("a grant is good for the
+ * number granted", town hall mt_rjhwj2qggm). The retired 50% one (0.5) is freed by `releaseHalfway`.
  */
-export const CHECKPOINTS = [1] as const;
+export const CHECKPOINTS = [0, 1] as const;
+const HOLD_RESERVE = 0;
+const HOLD_FULL = 1;
+
+/** The reserve a funded grant keeps for its in-flight sessions: min(150k, ⌊grantTokens / 3⌋). Computed, never stored. */
+function reserveOf(grantTokens: number): number {
+  return Math.min(150_000, Math.floor(grantTokens / 3));
+}
+
+/** The spend at which hold `h` (HOLD_RESERVE or HOLD_FULL) fires for a grant of `tokens`. */
+const holdPoint = (h: number, tokens: number) => (h === HOLD_RESERVE ? tokens - reserveOf(tokens) : tokens);
+
+/**
+ * A grant's next hold point: grantTokens − reserve until the reserve hold fired, then grantTokens (after a continue);
+ * null when both fired or the grant has no tokens.
+ */
+function holdAtTokens(g: Pick<Grant, "grantTokens" | "checkpointsDone">): number | null {
+  const tokens = g.grantTokens ?? 0;
+  if (!tokens || g.checkpointsDone.includes(HOLD_FULL)) return null;
+  return g.checkpointsDone.includes(HOLD_RESERVE) ? tokens : holdPoint(HOLD_RESERVE, tokens);
+}
 
 const LIVE: GrantStatus[] = ["funded", "checkpoint"];
 const TERMINAL: GrantStatus[] = ["closed", "rejected"];
@@ -79,8 +102,19 @@ export class Grants {
     return {
       ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, keyResults: this.keyResultsOf(g.id), spentTokens: this.adjustedSum(sessions), spentCounts,
       fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
-      evidence: this.evidenceFor(g),
+      holdAtTokens: g.status === "funded" ? holdAtTokens(g) : null,
+      evidence: this.evidenceFor(g), stepStates: this.stepStates(g),
     };
+  }
+
+  /** Per step of the plan, its latest assignment (`grantStep`): queued, running, done or cancelled; null while none was queued. */
+  stepStates(g: Grant): (GrantStepState | null)[] {
+    if (!g.steps.length) return [];
+    const out: (GrantStepState | null)[] = g.steps.map(() => null);
+    for (const a of this.world.assignments.where("grantId = ? AND grantStep IS NOT NULL", [g.id], "ORDER BY createdAt, rowid")) {
+      if (a.grantStep! < out.length) out[a.grantStep!] = { assignmentId: a.id, status: a.status, reportId: a.reportId };
+    }
+    return out;
   }
 
   /**
@@ -103,17 +137,66 @@ export class Grants {
     return p.id;
   }
 
-  /** One grant's checkpoint evidence: per key result its verdict and the manager's note, spend, the top-up line, the report's Shipped titles. */
+  /**
+   * One grant's checkpoint evidence (grant C, gr_95svkzi4l6: it assembles itself, no manager session): per key result its
+   * verdict, the latest note and who set it (the forks file it with `submit_report`), spend, the latest top-up line a fork
+   * filed, the grant's own reports, and a close report's Shipped titles. `filed` is false when no agent set a key result.
+   */
   evidence(g: Grant): CheckpointEvidence {
     const report = g.checkpointDocId ? this.world.docs.get(g.checkpointDocId) : undefined;
+    const krs = this.keyResultsOf(g.id);
+    const reportIds = [...new Set(this.world.sessions.where("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY startedAt, rowid").map((x) => x.reportId!))];
+    const reports = reportIds.flatMap((id) => {
+      const d = this.world.docs.get(id);
+      return d ? [{ id: d.id, title: d.title, authorName: this.world.nameOf(d.authorId), verdict: d.verdict ?? null, at: d.createdAt }] : [];
+    });
     return {
       grantId: g.id, objective: g.objective,
-      keyResults: this.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote })),
+      keyResults: krs.map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote, by: k.statusBy && k.statusNote ? this.world.nameOf(k.statusBy) : null })),
       spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
       topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
       reportId: report ? report.id : null,
       shipped: report ? parseRollup(report.body).items.map((i) => i.title) : [],
+      reports, filed: krs.some((k) => !!k.statusBy && !!this.world.agents.get(k.statusBy)),
     };
+  }
+
+  /**
+   * Check the key-result evidence and top-up a report carries (grant C, kr_13txlz2pnc) before the report is filed: only a
+   * session in the grant lane, for its own grant, and only that grant's open key results. Throws a refusal naming why;
+   * returns the grant.
+   */
+  checkReportEvidence(lane: string | null | undefined, grantId: string | null | undefined, krs: ReportKrEvidence[]): Grant {
+    const what = krs.length ? "keyResults" : "topUp";
+    if (lane !== "grant" || !grantId) throw badRequest(`${what} is filed only from a grant-lane session, for its own grant: this session's lane is ${lane ?? "none"}. Leave ${what} out and say it in the report body.`);
+    const g = this.world.grants.require(grantId, "grant");
+    if (g.status !== "funded" && g.status !== "checkpoint") throw badRequest(`Grant ${g.id} is ${g.status}: ${what} is filed only on a funded or held grant.`);
+    const seen = new Set<string>();
+    for (const e of krs) {
+      const k = this.world.keyResults.get(e.id);
+      if (!k || k.grantId !== g.id) throw badRequest(`Key result ${e.id} is not a key result of your session's grant ${g.id}: file evidence only for its own (${this.keyResultsOf(g.id).map((x) => x.id).join(", ") || "none"}).`);
+      if (!isOpenKr(k)) throw badRequest(`Key result ${e.id} is ${k.status}: a human decided it, so it takes no more evidence.`);
+      if (seen.has(e.id)) throw badRequest(`Key result ${e.id} is named twice.`);
+      seen.add(e.id);
+    }
+    return g;
+  }
+
+  /**
+   * File a checked report's evidence (inside submit_report's transaction, after the report exists): each key result gets
+   * the status, a note naming the report and statusBy = the fork; the top-up replaces the grant's (the latest wins).
+   */
+  fileReportEvidence(me: { id: string; name: string }, g: Grant, reportId: string, krs: ReportKrEvidence[], topUp: ReportTopUp | undefined): void {
+    const now = nowIso();
+    for (const e of krs) {
+      const k = this.world.keyResults.require(e.id, "key result");
+      const next = this.world.keyResults.upsert({ ...k, status: e.status, statusNote: `${e.evidence} (report ${reportId})`.slice(0, 2000), statusBy: me.id, updatedAt: now });
+      this.world.events.append({
+        type: "kr.updated", agentId: me.id, buildingId: k.buildingId, text: `Key result ${next.status}: ${next.text}`,
+        payload: { grantId: g.id, keyResultId: k.id, status: next.status, from: k.status, by: me.id, byKind: "agent", edited: false, reportId },
+      });
+    }
+    if (topUp) this.world.grants.upsert({ ...this.world.grants.require(g.id, "grant"), topUpTokens: topUp.tokens, whatTopUpBuys: topUp.buys, updatedAt: now });
   }
 
   /**
@@ -376,9 +459,10 @@ export class Grants {
     this.world.buildings.require(buildingId, "building");
     if (actor) this.world.permissions.require(actor, "building.manage", buildingId);
     const goalId = this.requireGoal(buildingId, inp.goalId);
+    const steps = this.requireSteps(buildingId, inp.steps);
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
-      id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [],
+      id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
       stopCondition: inp.stopCondition, askTokens: inp.askTokens, continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, createdAt: now, updatedAt: now,
@@ -395,6 +479,7 @@ export class Grants {
     this.requireStatus(g, ["draft", "countered"], "edited");
     const goal = goalId ? this.requireGoal(g.buildingId, goalId) : g.goalId;
     if (fields.continues !== undefined) fields.continues = this.requireContinues(g.buildingId, fields.continues, g.id) ?? undefined;
+    if (fields.steps) fields.steps = this.requireSteps(g.buildingId, fields.steps);
     const next = this.world.transaction(() => {
       const history = g.status === "countered" ? [...g.history, this.entry(actor, "edit", fields.askTokens ?? null, note ?? "")] : g.history;
       const saved = this.world.grants.upsert({ ...g, ...fields, goalId: goal, history, updatedAt: nowIso() });
@@ -434,12 +519,68 @@ export class Grants {
     return goalId;
   }
 
+  /** A proposal's steps (1-5): each step's model is one the building's forks run on, its pages topic pages of the building. */
+  private requireSteps(buildingId: string, steps: GrantStep[]): GrantStep[] {
+    const b = this.world.buildings.require(buildingId, "building");
+    if (steps.length < 1 || steps.length > 5) throw badRequest("A grant carries 1-5 steps.");
+    return steps.map((s, i) => {
+      try {
+        const model = checkForkModel(b, s.model);
+        const pages = s.pages?.length ? attachablePages(this.world, buildingId, s.pages) : [];
+        return { title: s.title, description: s.description, ...(model ? { model } : {}), ...(pages.length ? { pages } : {}) };
+      } catch (e) {
+        throw badRequest(`Step ${i + 1}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+  }
+
+  /**
+   * Queue step `k` (0-based) of a funded grant (grant B gr_b5fyqibfx2): funding queues step 1, a step's report the next
+   * one (`queueNextStep`). It goes on the building queue (lane grant, charged to the grant; a fork of the manager runs
+   * it on the step's model with its pages); a visitor manager is offered it. Null when the grant has no step `k`, is not
+   * live, or the building has no manager agent (a human works its in-tray). No manager session in between.
+   */
+  queueStep(g: Grant, k: number, by: Actor, from?: { assignmentId: string; reportId: string }, note = ""): Assignment | null {
+    const step = g.steps[k];
+    if (!step || !LIVE.includes(g.status)) return null;
+    const building = this.world.buildings.require(g.buildingId, "building");
+    const manager = managerAgentOf(this.world, building);
+    if (!manager) return null;
+    const forkable = manager.kind === "resident";
+    // re-checked at queue time: a model the building no longer allows falls back to its default, a page gone is dropped
+    let model: string | null = null;
+    try { model = forkable ? checkForkModel(building, step.model) : null; } catch { model = null; }
+    const pages = (step.pages ?? []).filter((id) => { const d = this.world.docs.get(id); return d?.type === "wiki" && d.topicOf === g.buildingId; });
+    const n = g.steps.length;
+    const nextLine = g.steps[k + 1] ? `When you submit your report, step ${k + 2} ("${g.steps[k + 1]!.title}") is queued by itself unless your verdict is pivot (a pivot stops the chain for the manager's review).` : `This is the grant's last step: say in your report whether its key results can be claimed (the manager closes the grant with close_grant).`;
+    const a = createAssignment(this.world, {
+      agentId: manager.id, buildingId: g.buildingId, title: step.title.slice(0, 160),
+      createdBy: by && by.kind === "human" ? holderOf(by) : { kind: "system", id: "system" },
+      laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
+      ...(forkable ? { queue: "building" as const, model } : {}),
+      ...(from ? { fromAssignmentId: from.assignmentId, fromReportId: from.reportId } : {}),
+      description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
+    });
+    return this.world.assignments.patch(a.id, { grantStep: k, ...(pages.length ? { pages } : {}) });
+  }
+
+  /**
+   * A step's report was filed (submit_report, not parked): queue the grant's next step unless the verdict is pivot (the
+   * manager's review decides then). The manager's review stop / redirect of that report cancels it while it waits.
+   */
+  queueNextStep(done: Assignment, reportId: string, verdict: string): Assignment | null {
+    if (done.grantStep == null || !done.grantId || verdict === "pivot") return null;
+    const g = this.world.grants.get(done.grantId);
+    return g ? this.queueStep(g, done.grantStep + 1, null, { assignmentId: done.id, reportId }) : null;
+  }
+
   /** draft / countered → proposed (`building.manage`). Several can be open per building, each decided on its own. Tells the humans who can fund. */
   propose(actor: Actor, id: string, note = ""): GrantView {
     const g = this.world.grants.require(id, "grant");
     if (actor) this.world.permissions.require(actor, "building.manage", g.buildingId);
     this.requireStatus(g, ["draft", "countered"], "proposed");
     if (!this.keyResultsOf(g.id).length) throw badRequest("A grant carries 1-5 key results: give keyResults (text, howToCheck, due) first.");
+    if (!g.steps.length) throw badRequest("A grant carries 1-5 steps: give steps (title, description; one session each) first. Funding queues step 1.");
     // the estimate is recorded at (each) propose so the close can compare it with what the grant spent
     const next = this.save(g, actor, { status: "proposed", estimate: this.estimateFor(g) }, "propose", g.askTokens, note);
     this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens)`);
@@ -476,7 +617,8 @@ export class Grants {
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note, via);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
         this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
-        this.decisionAssignment(next, actor, "funded", inp.note);
+        // grant B (gr_b5fyqibfx2): funding runs the plan, step 1 straight onto the building queue; no manager kickoff session
+        this.queueStep(next, 0, actor, undefined, inp.note);
         break;
       }
       case "counter": {
@@ -500,7 +642,8 @@ export class Grants {
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
-        next = this.save(g, actor, { status: "funded" }, "continue", null, inp.note, via);
+        // the top-up line was about the tokens just granted: the next hold asks the forks for a new one
+        next = this.save(g, actor, { status: "funded", topUpTokens: null, whatTopUpBuys: "" }, "continue", null, inp.note, via);
         this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
         break;
       case "adjust": {
@@ -508,7 +651,7 @@ export class Grants {
         const tokens = inp.tokens ?? g.grantTokens ?? 0;
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
-        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone }, "adjust", tokens, inp.note, via);
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone, topUpTokens: null, whatTopUpBuys: "" }, "adjust", tokens, inp.note, via);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
         break;
       }
@@ -715,29 +858,27 @@ export class Grants {
   }
 
   /**
-   * After a charge (`Budget.afterCharge`): every funded grant of the building whose derived spend crossed a checkpoint
-   * fraction (100%) not yet done goes to `checkpoint`: new sessions on it are held, `grant.checkpoint` is appended,
-   * the humans who can fund are told, and the building's manager agent gets the checkpoint assignment (lane grant, which
-   * runs while the grant is at checkpoint). Each fraction fires once per grantTokens value. Returns the grants it held.
+   * After a charge (`Budget.afterCharge`): every funded grant of the building whose derived spend reached its next hold
+   * point (`holdAtTokens`: grantTokens − reserve, or grantTokens after a continue) goes to `checkpoint`: new sessions on it
+   * are held (running ones finish and book), `grant.checkpoint` is appended and the humans who can fund are told. No
+   * assignment is created: the checkpoint card assembles itself from the grant's reports. Each hold fires once per
+   * grantTokens value. A grant already at checkpoint is untouched. Returns the grants it held.
    */
   checkpoints(buildingId: string): Grant[] {
     const held: Grant[] = [];
     for (const g of this.world.grants.where("buildingId = ? AND status = 'funded'", [buildingId])) {
       const tokens = g.grantTokens ?? 0;
       const spent = this.spent(g.id);
+      const at = holdAtTokens(g);
+      if (!tokens || at === null || spent < at) continue;
       const crossed = passed(spent, tokens).filter((f) => !g.checkpointsDone.includes(f));
-      if (!tokens || !crossed.length) continue;
       const pct = Math.round((spent / tokens) * 100);
-      const at = Math.max(...crossed);
-      const next = this.world.transaction(() => {
-        // a new hold asks for a new top-up line: the last one was about the tokens a human already granted
-        const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort(), topUpTokens: null, whatTopUpBuys: "" }, "checkpoint", spent,
-          `Spend crossed ${at * 100}% (${fmt(spent)} of ${fmt(tokens)} tokens, ${pct}%): new sessions on it are held until a human decides.`);
-        this.checkpointAssignment(next, spent, at);
-        return next;
-      });
-      this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${at * 100}%: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, fraction: at, spentTokens: spent, grantTokens: tokens } });
-      this.notifyFunders(next, null, `"${g.objective}" crossed ${at * 100}% of its ${fmt(tokens)}-token grant (${fmt(spent)} spent): its sessions are held. The manager is writing the checkpoint; continue, adjust or cut it in the Town Hall in-tray.`);
+      const what = crossed.includes(HOLD_FULL) ? "its full grant" : `its hold point (grant minus a ${fmt(reserveOf(tokens))}-token reserve for the sessions still running)`;
+      // the top-up line the forks filed since the last continue stays: it is what the card asks about (continue/adjust clear it)
+      const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
+        `Spend reached ${what}: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
+      this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: crossed.includes(HOLD_FULL) ? 1 : at / tokens, spentTokens: spent, grantTokens: tokens } });
+      this.notifyFunders(next, null, `"${g.objective}" reached ${what} (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; continue, adjust or cut it in the Town Hall in-tray.`);
       held.push(next);
     }
     return held;
@@ -752,7 +893,7 @@ export class Grants {
     const released: Grant[] = [];
     for (const g of this.world.grants.where("status = 'checkpoint'", [])) {
       const tokens = g.grantTokens ?? 0;
-      if (g.checkpointsDone.includes(1) || !tokens || this.spent(g.id) >= tokens) continue;
+      if (!g.checkpointsDone.includes(0.5) || g.checkpointsDone.includes(HOLD_FULL) || g.checkpointsDone.includes(HOLD_RESERVE) || !tokens || this.spent(g.id) >= tokens) continue;
       const next = this.save(g, null, { status: "funded" }, "continue", null, "The 50% checkpoint was removed: a grant runs to its full number and is held only at 100%.");
       this.event("grant.funded", next, null, `Released from the 50% checkpoint: ${next.objective}`);
       released.push(next);
@@ -760,38 +901,13 @@ export class Grants {
     return released;
   }
 
-  /** The manager's "Write the checkpoint for …" assignment (none when the building has no manager agent: humans decide from the in-tray). */
-  private checkpointAssignment(g: Grant, spent: number, at: number): void {
-    const building = this.world.buildings.require(g.buildingId, "building");
-    const manager = managerAgentOf(this.world, building);
-    if (!manager) return;
-    const krs = this.krLines(g);
-    const reports = this.world.assignments.where("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY updatedAt").map((a) => a.reportId!);
-    createAssignment(this.world, {
-      agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system", id: "system" },
-      laneOverride: { lane: "grant", grantId: g.id, keyResultId: null, gap: null, sourceId: null },
-      title: `Write the checkpoint for ${g.objective}`.slice(0, 160),
-      description: `Grant ${g.id} "${g.objective}" crossed ${at * 100}% of its tokens: ${fmt(spent)} of ${fmt(g.grantTokens ?? 0)} spent. New sessions on it are held until a human continues, adjusts or cuts it in the Town Hall in-tray; this assignment runs anyway, charged to the grant.
-
-Write the checkpoint for ${g.objective}: each key result's status with evidence a human can check in the live town (its how-to-check says how), spend so far, and whether to continue.
-
-Key results (the grant's own):
-${krs}
-
-Stop condition: ${g.stopCondition}
-
-1. \`checkpoint_grant\` with grantId ${g.id}, a status (not-started, on-track, at-risk or claimed; close_grant marks them met, only a human marks missed) and a note with the evidence: one key result at a time with keyResultId, since the checkpoint card shows each one's note on its line (claimed = "✓ shipped", on-track / at-risk = "~ partly", not-started = "✗ not shipped"). Say what shipped and where a human sees it, or what did not and why. Once, give whatTopUpBuys and topUpTokens: what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see); the card shows "A top-up of N tokens buys: …" next to Continue / Adjust / Cut.
-2. \`submit_report\` with \`rollup: true\` as your checkpoint report (it lands in the Town Hall in-tray and is linked to the grant). The usual rollup format (the four sections; Shipped items with **What it is:**, **What you'd see:** and **Your call:**); Key results carries each of the grant's key results, its status, how to check it and what the check showed, ${fmt(spent)} / ${fmt(g.grantTokens ?? 0)} tokens; Needs from Mitchell asks to continue, adjust or cut, and why. Put the reports the grant's work produced in provenance.sourceIds${reports.length ? `: ${reports.join(", ")}` : " (none yet; leave it empty)"}.`,
-    });
-  }
-
   /**
    * A human's decision on a proposal wakes the manager the way a reply to a report does (Mitchell, 1:1 mt_f45m8hbmct):
-   * one front-of-queue assignment, the same hook as the checkpoint one. Funded → lane grant on the grant ("assign its
-   * first step or take it yourself", the plan in the description); countered → directed ("Answer the counter", with the
-   * note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its in-tray.
+   * one front-of-queue assignment. Countered → directed ("Answer the counter", with
+   * the note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its
+   * in-tray. Funding wakes no manager: it queues the plan's step 1 itself (`queueStep`, grant B gr_b5fyqibfx2).
    */
-  private decisionAssignment(g: Grant, actor: Actor, decision: "funded" | "countered" | "rejected", note: string): void {
+  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string): void {
     const building = this.world.buildings.require(g.buildingId, "building");
     const manager = managerAgentOf(this.world, building);
     if (!manager) return;
@@ -799,25 +915,7 @@ Stop condition: ${g.stopCondition}
     const krs = this.krLines(g);
     const said = note.trim() ? `\n\nThe note: ${note.trim()}` : "";
     const base = { agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system" as const, id: "system" } };
-    if (decision === "funded") {
-      createAssignment(this.world, {
-        ...base, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
-        title: `Grant ${g.id} funded: assign its first step or take it yourself`.slice(0, 160),
-        description: `${who} funded grant ${g.id} "${g.objective}" with ${fmt(g.grantTokens ?? 0)} tokens.${said}
-
-Nothing starts by itself: funding runs the plan only once its steps are assignments. This session is charged to the grant.
-
-The plan (the grant page ${g.id} has the history):
-Key results (the grant's own):
-${krs}
-Approach: ${g.approach || "(none written)"}
-Stop condition: ${g.stopCondition}${g.findingsDocIds.length ? `\nFindings it draws on: ${g.findingsDocIds.join(", ")}` : ""}
-
-1. Cut the plan into steps, each one session's worth with a check a human can make in the live town.
-2. \`assign\` the first step in lane grant with grantId ${g.id}: with no agentId (the building queue; a fork runs it), attaching the topic pages that cover it (pages, at most 3), or to yourself when it is yours (one owner per step). Sessions on it are charged to the grant and held at its 100% checkpoint.
-3. Say in your report who got what and what the next step is.`,
-      });
-    } else if (decision === "countered") {
+    if (decision === "countered") {
       createAssignment(this.world, {
         ...base, laneOverride: DIRECTED,
         title: `Answer the counter on ${g.objective}`.slice(0, 160),
@@ -845,38 +943,6 @@ ${krs}
 3. Say in your report what you decided and why.`,
       });
     }
-  }
-
-  /**
-   * \`checkpoint_grant\` (the manager, \`building.manage\`): set the status of the grant's open key results, or one (up to \`claimed\`) and
-   * link the checkpoint report (\`reportId\`, else the rollup this session submits links itself). The grant stays at checkpoint.
-   * A funded grant whose checkpoint already fired is accepted too: a human may adjust (top up) or continue it from the in-tray before
-   * the manager's checkpoint session files (gr_iq5m7dug56, 2026-10-26: continued 4 min after the 50% hold).
-   */
-  fileCheckpoint(actor: Actor, grantId: string, input: { reportId?: string | null; status?: KeyResult["status"] | null; note?: string; keyResultId?: string | null; whatTopUpBuys?: string | null; topUpTokens?: number | null }): GrantView {
-    const g = this.world.grants.require(grantId, "grant");
-    if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId)) throw forbidden("building.manage");
-    if (!(g.status === "funded" && g.history.some((h) => h.action === "checkpoint"))) this.requireStatus(g, ["checkpoint"], "checkpointed");
-    if (input.status === "met" || input.status === "missed") throw badRequest(`Only a human marks a key result ${input.status}; claim it instead.`);
-    const open = this.keyResultsOf(g.id).filter(isOpenKr);
-    const targets = input.keyResultId ? open.filter((k) => k.id === input.keyResultId) : open;
-    if (input.keyResultId && !targets.length) throw badRequest(`${input.keyResultId} is not an open key result of grant ${g.id}.`);
-    if (input.status && !targets.length) throw badRequest("This grant has no open key result, so there is no status to set.");
-    if (input.reportId) {
-      const d = this.world.docs.get(input.reportId);
-      if (!d || d.type !== "report" || d.buildingId !== g.buildingId) throw badRequest(`${input.reportId} is not a report of this building.`);
-    }
-    // the top-up line (mt_7b4zc7yja3): required once per checkpoint, both halves together; a later call may restate it
-    const buys = input.whatTopUpBuys?.trim() ?? "";
-    if (!!buys !== !!input.topUpTokens) throw badRequest("Give whatTopUpBuys and topUpTokens together: what the next tokens would deliver, and how many tokens that is.");
-    // (a human who already continued or topped it up has decided: no top-up line to ask for)
-    if (!buys && g.status === "checkpoint" && !g.whatTopUpBuys.trim()) throw badRequest("whatTopUpBuys and topUpTokens are required at a checkpoint: say what a top-up of how many more tokens would deliver (which key results it finishes, what a human would then see). The checkpoint card shows it next to Continue / Adjust / Cut.");
-    return this.world.transaction(() => {
-      if (input.status) for (const k of targets) this.updateKeyResult(actor, k.id, { status: input.status, note: input.note ?? "" });
-      if (buys) this.world.grants.upsert({ ...this.world.grants.require(g.id), topUpTokens: input.topUpTokens!, whatTopUpBuys: buys, updatedAt: nowIso() });
-      if (input.reportId) this.world.grants.upsert({ ...this.world.grants.require(g.id), checkpointDocId: input.reportId, updatedAt: nowIso() });
-      return this.get(g.id);
-    });
   }
 
   /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */
@@ -1024,9 +1090,9 @@ ${krs}
 }
 
 
-/** Checkpoint fractions already behind a grant of `tokens` with `spent` so far (they won't fire again). */
+/** Holds already behind a grant of `tokens` with `spent` so far (they won't fire again). */
 function passed(spent: number, tokens: number): number[] {
-  return CHECKPOINTS.filter((f) => spent >= f * tokens);
+  return CHECKPOINTS.filter((h) => spent >= holdPoint(h, tokens));
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");

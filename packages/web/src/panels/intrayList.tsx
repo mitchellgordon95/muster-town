@@ -1,7 +1,8 @@
 /**
  * The in-tray as a list (Mitchell's flag dc_2hllscunfx): one line per item, its title truncated with the full title in
  * the tooltip, a time-ago and at most one short pill; clicking the line opens the item (the report with its review, or
- * the grant / retainer / request row with its decision buttons). "Cards" keeps the full rows; the pick is remembered.
+ * the grant / retainer / request row with its decision buttons). It is the only view: the Cards view was removed for
+ * everyone (1:1 mt_i50xwu4z2t, "that view was basically impossible to read").
  */
 import type { ReactNode } from "react";
 import type { AccessRequestView, CaptainRequestView, Doc, GrantView, ScheduleView } from "@muster-town/schema";
@@ -9,31 +10,10 @@ import type { GoalProposalView } from "../api";
 import { fmtTokens, Pill, timeAgo } from "./ui";
 import { VERDICT_TONE } from "./DocView";
 
-export type IntrayMode = "list" | "cards";
-const MODE_KEY = "muster.intrayMode";
-
-/** The remembered pick; a first visit gets the list. */
-export function readIntrayMode(): IntrayMode {
-  try { return typeof localStorage !== "undefined" && localStorage.getItem(MODE_KEY) === "cards" ? "cards" : "list"; } catch { return "list"; }
-}
-export function saveIntrayMode(m: IntrayMode): void {
-  try { localStorage.setItem(MODE_KEY, m); } catch { /* private window */ }
-}
-
-/** List / Cards, beside "Review as deck". */
-export function IntrayModeToggle({ mode, set }: { mode: IntrayMode; set: (m: IntrayMode) => void }) {
-  return (
-    <span className="intray-view" role="group" aria-label="Layout">
-      <button className={`btn sm ${mode === "list" ? "primary" : ""}`} onClick={() => set("list")} title="One line per item: click a line to open it">List</button>
-      <button className={`btn sm ${mode === "cards" ? "primary" : ""}`} onClick={() => set("cards")} title="Every item in full, with its cards and decision buttons">Cards</button>
-    </span>
-  );
-}
-
 /** One in-tray line. Hook-free: `lead` (building tag, portrait) is rendered by the caller. */
-export function CompactLine({ lead, title, at, pill, onOpen }: { lead?: ReactNode; title: string; at: string | null | undefined; pill?: ReactNode; onOpen: () => void }) {
+export function CompactLine({ lead, title, at, pill, onOpen, selected }: { lead?: ReactNode; title: string; at: string | null | undefined; pill?: ReactNode; onOpen: () => void; /** the line whose item is open (or was last open) in the sheet */ selected?: boolean }) {
   return (
-    <button className="doc-row intray-line" onClick={onOpen} title={title}>
+    <button className={selected ? "doc-row intray-line on" : "doc-row intray-line"} aria-current={selected || undefined} onClick={onOpen} title={title}>
       {lead ? <span className="intray-line-lead">{lead}</span> : null}
       <span className="intray-line-title">{title}</span>
       <span className="intray-line-end">{pill}<span className="muted">{timeAgo(at)}</span></span>

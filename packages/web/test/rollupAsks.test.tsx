@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Agent, GrantView, ScheduleView } from "@muster-town/schema";
 import { store } from "../src/state";
-import { GrantRow, askedOnOf } from "../src/panels/Places";
+import { GrantRow } from "../src/panels/Places";
 
 // sprites draw on a canvas and grant links read location, which node lacks
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
@@ -25,8 +25,4 @@ describe("a rollup's ask on the grant's own row (1:1 mt_7b4zc7yja3)", () => {
     expect(renderToStaticMarkup(<GrantRow grant={{ ...grant([ask("dc_r1", false)]), status: "checkpoint" }} onDecided={() => undefined} onOpenDoc={() => undefined} />)).toContain("asks you to continue this:");
   });
 
-  it("maps each still-pending rollup to the rows that carry its ask", () => {
-    const retainer = { id: "sc_1", asks: [ask("dc_r2", false)] } as unknown as ScheduleView;
-    expect(askedOnOf([grant([ask("dc_r1", true), ask("dc_r2", false)])], [retainer])).toEqual(new Map([["dc_r1", ["gr_abc"]], ["dc_r2", ["gr_abc", "sc_1"]]]));
-  });
 });

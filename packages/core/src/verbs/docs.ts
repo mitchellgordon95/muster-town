@@ -1,19 +1,18 @@
 import {
-  BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
-import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
 import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
-import { ftsQuery } from "../text.ts";
+import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { linkPostmortem } from "../postmortems.ts";
@@ -24,7 +23,7 @@ import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
 import { guessedTimesWarning } from "../time.ts";
 
-const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes"]);
+const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin"]);
 
 export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
@@ -178,7 +177,7 @@ export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
-  if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : "the dedicated flow"} for ${input.type} docs.`);
+  if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : input.type === "bulletin" ? "the bulletin board in the square (humans post there)" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   if (input.buildingId && input.type !== "fyi") throw badRequest("`buildingId` is only for FYIs (type \"fyi\"): it picks the board to post to, e.g. \"town-hall\" for a town-wide FYI.");
   if (input.buildingId) world.buildings.require(input.buildingId, "building");
@@ -274,17 +273,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY (purpose = 'work') DESC, startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
-  // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
-  const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
   // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
-  const closedGrants = input.rollup && isManager && session && !checkpointGrantId
+  const closedGrants = input.rollup && isManager && session
     ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
       .filter((g) => g.history.at(-1)?.byId === me.id)
     : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -292,17 +289,32 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   // the rollup format (1:1 mt_vcn0e66r1t): the four headings are required; a Shipped item without its labels is only warned
   const format = input.rollup ? parseRollup(input.body) : null;
-  if (format?.missingSections.length) throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from Mitchell. Missing: ${format.missingSections.map((s) => `## ${s}`).join(", ")}.`);
+  if (format?.missingSections.length) {
+    const captain = world.captainName();
+    throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from ${captain}. Missing: ${format.missingSections.map((s) => `## ${s === "Needs from Mitchell" ? `Needs from ${captain}` : s}`).join(", ")}.`);
+  }
   const formatWarnings = [...(format ? rollupWarnings(format) : []), ...(timeWarn(input.body).warnings ?? [])];
   // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
   // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
   if (format) {
-    // a checkpoint or close rollup asks about its own grant: that is what the rollup is for
-    const own = new Set([checkpointGrantId, ...closedGrants.map((g) => g.id)]);
+    // a close rollup asks about its own grant: that is what the rollup is for
+    const own = new Set(closedGrants.map((g) => g.id));
     const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
-    if (dup.length) throw badRequest(`Needs from Mitchell names what already waits for him elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${ROLLUP_NEEDS_RULE}`);
+    if (dup.length) {
+      const captain = world.captainName();
+      throw badRequest(`Needs from ${captain} names what already waits for ${captain === "Mitchell" ? "him" : captain} elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${rollupNeedsRule(captain)}`);
+    }
     const needs = rollupNeedsCount(input.body);
     if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
+  }
+  // grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence and the top-up line with its
+  // report, for its own grant only; the held grant's checkpoint card assembles from them (no manager checkpoint session)
+  const krEvidence = input.keyResults ?? [];
+  const lane = session?.lane ?? current?.lane;
+  const laneGrantId = session?.grantId ?? current?.grantId;
+  const evidenceGrant = krEvidence.length || input.topUp ? world.grantDesk.checkReportEvidence(lane, laneGrantId, krEvidence) : null;
+  if (!evidenceGrant && lane === "grant" && laneGrantId && !input.rollup) {
+    formatWarnings.push(`a grant-lane report with no keyResults or topUp: if your work moved a key result of ${laneGrantId}, file it with keyResults [{id, status, evidence}] next time (the checkpoint card shows what the forks filed)`);
   }
   const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
@@ -321,17 +333,14 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
-    if (checkpointGrantId) {
-      const g = world.grants.get(checkpointGrantId);
-      if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
-    }
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
-    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A checkpoint or close rollup is
+    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
     // its grant's report and stays.
-    const rowIds = format && !checkpointGrantId && !closedGrants.length ? waitingRowIds(world) : null;
+    const rowIds = format && !closedGrants.length ? waitingRowIds(world) : null;
     const asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
     const folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
@@ -351,8 +360,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
         createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
         description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
       });
+      // a parked step stays the same step of its grant's plan: its continuation's report queues the next one
+      if (current.grantStep != null) world.assignments.patch(next.id, { grantStep: current.grantStep });
       parked = { assignmentId: next.id, waitingOn: what };
     }
+    // grant B (gr_b5fyqibfx2): a plan step's report queues the grant's next step by itself (not on a pivot verdict, not
+    // when the step was cancelled under it); the manager's review stop / redirect of this report cancels it while it waits
+    const nextStep = !resumeWhen && current && world.assignments.get(current.id)?.status === "done"
+      ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
+    const stepNote = nextStep ? ` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
     const decision: Doc["decision"] = folded ? "approve" : "pending";
@@ -365,10 +381,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
+      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
         note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), note: `Report submitted to ${where}.${formatNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
@@ -411,18 +427,54 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
-  return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
+  const a = res.assignment;
+  return { docId: doc.id, decision: input.decision, assignmentId: a?.id ?? null, ...(a?.queue === "building" ? { queue: "building" as const, to: queueLabel(world, a.buildingId, a.agentId) } : {}) };
 }
 
+/** The request ids a request's text says it replaces: every dc_… in a sentence with "replaces" or "supersedes". */
+function replacedRequestIds(text: string): string[] {
+  const ids = new Set<string>();
+  for (const m of text.matchAll(/\b(?:replaces|supersedes)\b([^.\n]*)/gi)) for (const id of m[1]!.matchAll(/\bdc_[a-z0-9]+\b/g)) ids.add(id[0]);
+  return [...ids];
+}
+
+/**
+ * `request_human`: an open outbox request at once. One that replaces an older open request (`replaces`, or "replaces
+ * dc_…" in the body; 1:1 mt_pr3347g2w2 decision 7) withdraws the old one with a note pointing here, if the caller may
+ * withdraw it (its author, or its building's manager or fork); an explicit `replaces` that can't be withdrawn refuses.
+ */
 export async function request_human(world: World, me: Agent, input: VerbIn<"request_human">) {
   const bid = homeOf(me);
   if (!world.permissions.can(me, "doc.request_human", bid)) throw forbidden("doc.request_human");
   const holder = world.holderOf(me);
+  if (input.replaces) {
+    const old = world.docs.get(input.replaces);
+    if (!old || old.type !== "request") throw badRequest(`${input.replaces} is not an outbox request.`);
+    if (old.requestStatus !== "open") throw badRequest(`${input.replaces} is ${old.requestStatus}, not open: only an open request is replaced.`);
+    if (!world.ops.canWithdrawRequest(me, old)) throw forbidden("building.manage", `${input.replaces} is not yours (nor your building's) to replace.`);
+  }
   const doc = createDoc(world, {
     type: "request", state: "building", title: input.title, body: input.body, location: input.location,
     requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
+    ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
-  return { id: doc.id, requestStatus: doc.requestStatus, note: "It is in the town outbox now; a human decides whether to do it and reports back." };
+  const withdrew: string[] = [];
+  for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
+    const old = world.docs.get(id);
+    if (!old || old.type !== "request" || old.requestStatus !== "open" || old.id === doc.id || !world.ops.canWithdrawRequest(me, old)) continue;
+    world.ops.requestAction(me, id, "withdraw", `Replaced by ${doc.id} ("${oneLine(doc.title, 80)}").`);
+    withdrew.push(id);
+  }
+  if (withdrew.length && !doc.requestReplaces) updateDoc(world, doc.id, { requestReplaces: withdrew[0] });
+  return { id: doc.id, requestStatus: doc.requestStatus, ...(withdrew.length ? { withdrew } : {}), note: `It is in the town outbox now; a human decides whether to do it and reports back.${withdrew.length ? ` Withdrew ${withdrew.join(", ")} (replaced by this one).` : ""}` };
+}
+
+/** `withdraw_request` (1:1 mt_pr3347g2w2 decision 7): the author (or its building's manager or fork) takes an open request back with a note. */
+export async function withdraw_request(world: World, me: Agent, input: VerbIn<"withdraw_request">) {
+  const d = world.docs.get(input.docId);
+  if (!d || d.type !== "request") throw badRequest(`${input.docId} is not an outbox request.`);
+  const { request } = world.ops.requestAction(me, input.docId, "withdraw", input.note);
+  return { id: input.docId, requestStatus: request?.requestStatus, note: "Withdrawn: it left the outbox (listed under Declined or withdrawn, your note on it). File a new request_human if something else is needed." };
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {

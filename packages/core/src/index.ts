@@ -2,7 +2,7 @@
  * @muster-town/core — SQLite-backed world: store, layout/pathfinding/tick, verbs, permissions,
  * budgets, events, git export, v0 import, seed. No framework imports.
  */
-export { World, type HostHooks, type MainCi, type PrChecks, type SnapshotMessage } from "./world.ts";
+export { World, repoKey, type HostHooks, type MainCi, type PrChecks, type SnapshotMessage } from "./world.ts";
 export { AppError, forbidden, notFound, badRequest, isAppError, type ErrorCode } from "./errors.ts";
 export { openDb, migrate, integrityCheck, sealCopy, type DB } from "./db.ts";
 export { Table, whereOf, type ObjSchema, type SqlFragment, type TableOptions } from "./table.ts";
@@ -28,16 +28,18 @@ export { MODEL_ESTIMATE_SYSTEM, modelEstimatePrompt, parseModelEstimate } from "
 export { bankTokensUsd, cents, dailyInflowOf, financeSummary, sessionListUsd, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS, type FinanceInputs, type FinanceSession, type FinanceSummary, type FinanceUsd, type OverdrawnBreakdown } from "./finance.ts";
 export { goalSpend, worldGoalSpend, type GoalSpendInputs } from "./goal-spend.ts";
 export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts";
+export { queueMainFix, type RedCommit } from "./main-fix.ts";
 export { linkPostmortem, postmortemBuilding, postmortemNote, postmortemTag, queuePostmortem } from "./postmortems.ts";
 export { intrayRoutes } from "./intray-routes.ts";
 export { bankConvertedAt, countersSince, financeSpend, grantTitle, spendGrants, spendOutcome, GRANTS_IDENTITY, ledgerBookedBeforeConversion, notFundedUsage, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, NOT_FUNDED_MATCH_MS, NOT_FUNDED_SPLIT_REASON, NOT_FUNDED_UNATTRIBUTED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type NotFundedBuilding, type SpendInputs, type SpendKind, type SpendNode, type SpendGrants, type SpendOutcome, type KrCounts } from "./finance-spend.ts";
 export { spendByLaneKind, laneKindRow, LANE_KIND_WINDOWS, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type FinanceSources, type SourceCredit, type SourceDonation, type SourceInput, type SourcesInputs } from "./finance-sources.ts";
+export { cashCheck, financeCash, CASH_FLY_DAYS, CASH_IDENTITY, CASH_WINDOW_DAYS, type CashCheck, type CashInputs, type FinanceCash } from "./finance-cash.ts";
 export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_NOT_COUNTED, FLY_PRICES, TOWN_MACHINE, type FinanceFly, type FlyBuilding, type FlyDay, type FlyDayBuilding, type FlyInputs, type FlyOptions, type FlyRate } from "./finance-fly.ts";
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
 export { EXPLORE_CEILING_SHARE, EXPLORE_MIN_GAP_MS, assignmentSpent, exploreBlock, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
-export { Ops, type Actor, type RequestAction, type ThreadMessage } from "./ops.ts";
+export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { forkManager, retireFork, nextForkN, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, requestForkStop, stopOverdueForks, STOP_FORK_TIMEOUT_MS, type ForkSummary, type ReportChain } from "./forks.ts";
@@ -48,6 +50,7 @@ export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, des
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, FUNNEL_DAYS, FUNNEL_STEPS, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { engagement } from "./engagement.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { decideRetainer, scheduleView } from "./retainers.ts";
@@ -55,15 +58,16 @@ export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
   setAssignmentStatus, pendingQueue, nextPending, nextStartable, buildingQueue, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
-  managerAgentOf, forkableManagerOf, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
+  managerAgentOf, forkableManagerOf, decisionQueue, queueLabel, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
 } from "./domain.ts";
 export { archiveReport, type ArchiveResult } from "./archive.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";
 export { canDirect, canGrantDirect, defaultDirectGoal, directGrantsOf, grantDirect, revokeDirect, membersView, type DirectGrant, type MemberView } from "./direct.ts";
-export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
+export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, decisionTarget, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
+export { bulletinNotes, bulletinNotesFor, bulletinUnreadCount, markBulletinRead, postBulletin, takeDownBulletin, type BulletinNote } from "./bulletin.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";
 export { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
@@ -72,7 +76,7 @@ export * as prompts from "./prompts.ts";
 export * from "./prompts.ts";
 export * from "./memory.ts";
 export {
-  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES,
+  computeLayout, labSize, tileAt, TOWN_HALL_ID, TOWN_HALL_SIZE, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_FIXTURES, TOWN_HALL_RESTS,
   type Grid, type DeskSlot, type LayoutResult,
 } from "./world/layout.ts";
 export { defaultSide, deriveRoads, doorOf, doorstepOf, type Roads, type Side } from "./world/road.ts";
@@ -83,7 +87,7 @@ export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";
 export { Emitter, newId, newToken, nowIso, chebyshev, slugify, parseFrontmatter, stringifyFrontmatter, extractSection, firstLine } from "./util.ts";
 export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine, rollupHistoryLine } from "./review-deck.ts";
-export { digestCard } from "./secretary.ts";
+export { digestCard, digestRunView, pressDigest } from "./secretary.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";

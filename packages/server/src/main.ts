@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
-import { BackupJob } from "./backup/index.ts";
+import { BackupJob, backupSources } from "./backup/index.ts";
 import { restoreOnFirstBoot } from "./backup/restore.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
@@ -77,7 +77,11 @@ async function main() {
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
-  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF });
+  // each run also copies the hosted collectives' databases and uploads every town's new transcripts (backupSources)
+  const backup = new BackupJob({
+    db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF,
+    sources: () => backupSources(DATA_DIR, HOSTED_DIR), transcriptDays: () => world.desksConfig().transcriptDays ?? 90,
+  });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
@@ -112,7 +116,7 @@ async function main() {
     const app = await buildApp({
       world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
       auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-      retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
+      retire: (): unknown => hub.retire(row.slug), rename: (i) => hub.rename(row.slug, i), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
     app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });

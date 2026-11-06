@@ -1,4 +1,4 @@
-import { parseRollup, rollupHasCards, rollupNeedsIds, rollupWarnings, withNeedsLine } from "@muster-town/schema";
+import { parseRollup, rollupAsks, rollupHasCards, rollupNeedsIds, rollupWarnings, withNeedsLine } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, managerIntrayBlock } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
@@ -20,6 +20,20 @@ describe("the rollup format (1:1 mt_vcn0e66r1t)", () => {
     expect(p.after.startsWith("## Decided")).toBe(true);
     expect(rollupHasCards(p)).toBe(true);
     expect(rollupWarnings(p)).toEqual([]);
+  });
+  it("splits the record into sections and lists what the rollup asks (1:1 mt_i50xwu4z2t: the calls first, the rest folded)", () => {
+    const p = parseRollup(ROLLUP);
+    expect(p.sections).toEqual({ decided: "- dc_a → approved", keyResults: "| KR | status |\n|---|---|\n| kr_x | on-track |", needs: "Nothing needed.", other: "" });
+    expect(rollupAsks(p)).toEqual([]);
+    const asked = parseRollup(ROLLUP.replace("**Your call:** None.\n\n**In flight", "**Your call:** Merge PR #9 or wait?\n\n**In flight").replace("Nothing needed.", "1. Decide whether methane gets its own goal.\n- None new.\n\n_Already waiting in your in-tray: 1 proposal (gr_y)._"));
+    expect(rollupAsks(asked)).toEqual([
+      { n: 2, title: "Cards", call: "Merge PR #9 or wait?" },
+      { n: null, title: "", call: "Decide whether methane gets its own goal." },
+    ]);
+    expect(parseRollup(OLD).sections.keyResults).toBe("on-track");
+    // a long "What it is" warns (the detail belongs in the covered reports)
+    const long = parseRollup(ROLLUP.replace("a spend chart.", Array.from({ length: 81 }, (_, i) => `w${i}`).join(" ")));
+    expect(rollupWarnings(long)).toEqual([expect.stringMatching(/Shipped item 1 \("Spend chart"\): "What it is" is 81 words; keep it under 80/)]);
   });
   it("accepts plain labels (rollup 16, dc_55a4u8lzn4) and other numbering", () => {
     const p = parseRollup("## Shipped\n1. **Pictures**\nWhat it is: uploads.\nWhat you'd see: thumbnails.\nYour call: none.\n## Decided\nx");
@@ -88,7 +102,7 @@ describe("Needs from Mitchell carries only what has no other channel (1:1 mt_uf1
     // nothing waiting yet
     const first = await roll("Nothing needed.");
     expect(world.docs.require(first.id).body).toBe(`${body("Nothing needed.")}\n\n_Nothing else waiting in your in-tray._`);
-    const g = await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", stopCondition: "s", askTokens: 1000 });
+    const g = await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const req = await world.verbs.request_human(mei, { title: "Look outside", body: "b", kind: "observation" });
     await expect(roll(`- Fund ${g.grantId}, please.`)).rejects.toThrow(new RegExp(`${g.grantId} \\(a grant proposal in the Town Hall in-tray\\)`));
     await expect(roll(`- Do ${req.id}`)).rejects.toThrow(/an open outbox request/);

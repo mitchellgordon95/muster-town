@@ -6,12 +6,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedule, digestCard, fireSchedules, grantHistoryLine, nowIso, reviewDeck, townHallIntray } from "../src/index.ts";
-import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, fileDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
+import { decideRetainer } from "../src/retainers.ts";
+import { laneBlock } from "../src/lanes.ts";
+import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, digestRunView, fileDigest, pressDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
-const rollupBody = (calls: string[]) => `## Shipped\n${calls.map((c, i) => `**${i + 1}. Item ${i + 1}**\n**What it is:** thing ${i + 1}\n**What you'd see:** the board\n![shot](/api/media/mf_x${i}.png)\n**Your call:** ${c}\n`).join("\n")}\n## Decided\n- none\n## Key results\n(none)\n## Needs from Mitchell\nNothing needed.`;
+const rollupBody = (calls: string[], needs = "Nothing needed.") => `## Shipped\n${calls.map((c, i) => `**${i + 1}. Item ${i + 1}**\n**What it is:** thing ${i + 1}\n**What you'd see:** the board\n![shot](/api/media/mf_x${i}.png)\n**Your call:** ${c}\n`).join("\n")}\n## Decided\n- none\n## Key results\n(none)\n## Needs from Mitchell\n${needs}`;
 
 function setup() {
   const s = seededWorld();
@@ -21,12 +23,12 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
   const th = world.buildings.first("kind = 'town-hall'")!;
-  const rollup = (calls: string[], createdAt = nowIso()) => createDoc(world, {
-    type: "report", title: `Rollup ${createdAt}`, body: rollupBody(calls), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
+  const rollup = (calls: string[], createdAt = nowIso(), needs?: string) => createDoc(world, {
+    type: "report", title: `Rollup ${createdAt}`, body: rollupBody(calls, needs), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
     tags: ["rollup"], decision: "pending", createdAt,
   });
   const proposal = (objective: string, askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", stopCondition: "two failed tries", askTokens,
+    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
   }).id);
   return { ...s, world, admin, manager, sec, th, rollup, proposal };
 }
@@ -92,6 +94,33 @@ describe("the Secretary", () => {
     expect(digestIdleReason(world, new Date("2030-01-01T10:00:00.000Z"))).toMatch(/already filed today/);
   });
 
+  it("the in-tray's Daily digest button: a human who can decide the retainer runs one digest now, booked on the retainer; the once-a-day rule doesn't hold it, a live run or nothing new does", () => {
+    const { world, sec, th, admin, manager, rollup } = setup();
+    const s = world.secretary.ensureDigestSchedule(new Date())!;
+    expect(digestRunView(world, manager)).toBeNull(); // an agent never sees the button
+    expect(() => pressDigest(world, manager)).toThrow(/Only a human/);
+    expect(() => pressDigest(world, admin)).toThrow(/retainer is asked, not approved/);
+    expect(digestRunView(world, admin)).toMatchObject({ scheduleId: s.id, runningId: null, refused: expect.stringMatching(/not approved/) });
+    decideRetainer(world, admin, s.id, { action: "approve", note: "" });
+    expect(() => pressDigest(world, admin)).toThrow(/Nothing to digest: no new rollup/);
+    // today's card was filed: the schedule would skip, a press still runs once a new rollup arrived
+    rollup(["None"], new Date(Date.now() - 60_000).toISOString());
+    fileDigest(world, sec, []);
+    rollup(["None"]);
+    expect(digestIdleReason(world)).toMatch(/already filed today/);
+    expect(digestRunView(world, admin)!.refused).toBeNull();
+    const nextRun = world.schedules.require(s.id).nextRunAt;
+    const a = pressDigest(world, admin);
+    expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: th.cheapModel, description: s.description, origin: { userId: world.holderOf(admin).id } });
+    expect(laneBlock(world, a)).toBeNull(); // the approved retainer pays for it
+    expect(world.schedules.require(s.id)).toMatchObject({ nextRunAt: nextRun, lastAssignmentId: a.id, runs: 0 });
+    expect(digestRunView(world, admin)).toMatchObject({ runningId: a.id, refused: expect.stringMatching(/under way/) });
+    expect(() => pressDigest(world, admin)).toThrow(/already under way/);
+    // the pressed run files a second card today, which supersedes the first
+    const second = fileDigest(world, sec, []);
+    expect(digestCard(world)!.doc.id).toBe(second.id);
+  });
+
   it("Decisions needed, grouped by kind: Money (checkpoint with top-up, proposal at its ask, retainer ask, a rollup call about one of them), Questions in words (a rollup call), Errands (outbox)", () => {
     const { world, admin, proposal, rollup, manager } = setup();
     const p = proposal("Banner shows Usage", 350_000);
@@ -102,18 +131,36 @@ describe("the Secretary", () => {
     rollup(["Merge PR #12?", "None", `Continue ${held.id} with the top-up: the web step is half built.`]);
     createDoc(world, { type: "request", title: "Photograph the sign", body: "x", authorId: manager.id, authorKind: "agent", state: "building", requestStatus: "open" });
     const { decisions, count } = digestDecisions(world);
-    expect(decisions.map((g) => g.heading)).toEqual(["Money (4)", "Questions in words (1)", "Errands (1)"]);
+    expect(decisions.map((g) => g.heading)).toEqual(["Money (3)", "Questions in words (1)", "Errands (1)"]);
     const money = decisions[0]!.lines;
-    expect(money[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\?$`));
+    // the rollup's call naming the checkpoint is not a line of its own: the checkpoint's line names the rollup
+    expect(money[0]).toMatch(new RegExp(`^Continue ${held.id} \\(Carbon.*"Stop a grant cleanly"\\) with a 200k top-up \\(spent \\d+k? of 600k; a top-up buys: the web step\\)\\? Also asked in dc_\\w+\\.$`));
     expect(money).toContain(`Fund ${p.id} (${world.buildings.require(LAB).name}: "Banner shows Usage") at its 350k ask?`);
     expect(money.some((l) => /^Approve Town Hall's retainer "Daily in-tray digest" \(sc_\w+\): 10k per run, \d+k in all\?$/.test(l))).toBe(true);
-    // a rollup's call naming an item that waits on its own row sits under Money with it
-    expect(money.some((l) => new RegExp(`asks \\(dc_\\w+, "Item 3"\\): Continue ${held.id} with the top-up`).test(l))).toBe(true);
+    expect(money.some((l) => /Item 3/.test(l))).toBe(false);
     expect(decisions[1]!.lines).toEqual([expect.stringMatching(/asks \(dc_\w+, "Item 1"\): Merge PR #12\?$/)]);
     expect(JSON.stringify(decisions)).not.toMatch(/Item 2/); // a None call is no decision
     expect(decisions[2]).toMatchObject({ note: "1 open outbox request: do or decline when you have time.", lines: [expect.stringMatching(/^"Photograph the sign" \(dc_\w+\)$/)] });
-    expect(count).toBe(5); // errands aside
-    expect(groupsText(decisions)).toMatch(/^\*\*Money \(4\)\*\*\n\n- Continue/);
+    expect(count).toBe(4); // errands aside
+    expect(groupsText(decisions)).toMatch(/^\*\*Money \(3\)\*\*\n\n- Continue/);
+  });
+
+  it("each in-tray row gives one line: a checkpoint's own rollup (a call and a Needs line both asking to continue) adds no Questions line, its other asks fold into one", () => {
+    const { world, admin, proposal, rollup } = setup();
+    const held = proposal("Stop a grant cleanly", 600_000);
+    world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 600_000 });
+    const cp = rollup(["Continue, adjust or cut (Needs below)."], nowIso(), "- Continue this checkpoint with the 200k top-up, or cut it.");
+    world.grants.patch(held.id, { status: "checkpoint", spentTokens: 610_000, topUpTokens: 200_000, whatTopUpBuys: "the web step", checkpointDocId: cp.id } as never);
+    const { decisions, count } = digestDecisions(world);
+    expect(decisions.map((g) => g.heading)).toEqual(["Money (1)"]);
+    expect(decisions[0]!.lines).toEqual([expect.stringMatching(new RegExp(`^Continue ${held.id} .*\\? Also asked in ${cp.id}\\.$`))]);
+    expect(count).toBe(1);
+    // a rollup with three questions in words gives one line, the rest counted on it
+    const many = rollup(["Merge PR #12?", "Keep the 1 h default?"], nowIso(), "- Should visitors see the Bank?");
+    const after = digestDecisions(world);
+    expect(after.decisions.map((g) => g.heading)).toEqual(["Money (1)", "Questions in words (1)"]);
+    expect(after.decisions[1]!.lines).toEqual([expect.stringMatching(new RegExp(`asks \\(${many.id}, "Item 1"\\): Merge PR #12\\? \\(and 2 more asks in ${many.id}\\)$`))]);
+    expect(after.count).toBe(2);
   });
 
   it("Already overtaken: a call naming a key result since met, a grant since closed or funded, or a retainer since approved; one Approve-all; filing archives such a rollup", () => {
@@ -151,6 +198,22 @@ describe("the Secretary", () => {
     for (const id of [askFund.id, askMet.id, askRetainer.id, askClosed.id]) expect(world.docs.require(id).decision).toBe("approve");
     for (const id of [live.id, goNoGo.id]) expect(world.docs.require(id).decision).toBe("pending");
     expect(townHallIntray(world).reports.map((d) => d.id)).toEqual(expect.arrayContaining([live.id, goNoGo.id]));
+  });
+
+  it("a rollup's Needs lines are asks too (read through rollupAsks): one about a grant since funded is overtaken, one in words is a question", () => {
+    const { world, admin, proposal, rollup } = setup();
+    const g = proposal("Banner shows Usage", 350_000);
+    const earlier = new Date(Date.now() - 2 * H).toISOString();
+    const needsFund = rollup(["None"], earlier, `- Fund ${g.id} once the banner PR lands.\n- Already waiting in your in-tray: ${g.id}.`);
+    const needsWords = rollup(["None"], earlier, "- Should visitors see the Bank before they sign in?");
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 350_000 });
+    const { decisions, overtakenIds } = digestDecisions(world);
+    expect(decisions.map((x) => x.heading)).toEqual(["Questions in words (1)", "Already overtaken (1)"]);
+    expect(decisions[0]!.lines).toEqual([expect.stringMatching(new RegExp(`asks \\(${needsWords.id}\\): Should visitors see the Bank before they sign in\\?$`))]);
+    expect(decisions[1]!.lines[0]).toContain(`${g.id} was funded after this ask`);
+    expect(overtakenIds).toEqual([needsFund.id]);
+    expect(stillAsks(world, world.docs.require(needsFund.id))).toBe(false);
+    expect(stillAsks(world, world.docs.require(needsWords.id))).toBe(true);
   });
 
   it("files the card: doc type digest in the Town Hall, covered rollups in provenance; the ones that ask nothing are archived, a real call stays pending", () => {

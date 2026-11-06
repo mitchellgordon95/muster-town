@@ -155,7 +155,9 @@ describe("agent-scoped desk API", () => {
   });
 
   it("session-end ends the session, writes the fallback report and charges the budget (idempotent)", async () => {
-    const { app, as, world, start } = await setup();
+    const { app, as, world, by, start } = await setup();
+    const tomas = by("Tomas");
+    world.agents.patch(tomas.id, { model: world.buildings.require(tomas.buildingId!).model }); // price the session at the building's Opus, as these figures assume
     const { agent, sessionId } = await start("Tomas");
     const body = { session: sessionId, tokens: 1500, costUsd: 0.5, turns: 7, sdkSessionId: "sdk-9", finalText: "Land sink is 3.1 ± 0.6 GtC/yr", error: null, reportSubmitted: false };
     const r = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });

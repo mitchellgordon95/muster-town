@@ -50,7 +50,8 @@ describe("work session", () => {
     expect(opts.allowedTools).toEqual(expect.arrayContaining(["mcp__town__look", "mcp__town__submit_report", "WebSearch", "WebFetch"]));
     expect(opts.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"]));
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
-    expect(opts.model).toBe(lab.model);
+    expect(opts.model).toBe("claude-fable-5-1"); // a resident's own session runs on its own model (new residents: Fable), not the lab's
+    expect(noor.model).toBe("claude-fable-5-1");
     expect(opts.permissionMode).toBeUndefined();
     // house allocation has no key of its own: the Bank's subscription token, and nothing from the host env (post-mortem 2026-10-30)
     expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(TEST_TOKEN);
@@ -219,7 +220,7 @@ describe("waiting assignments", () => {
 });
 
 describe("agent memory", () => {
-  test("a work session's system prompt carries the wiki and log, its prompt the recent-work block, and the session is logged", async () => {
+  test("a work session's first message carries the wiki and log (live: docs/prompt-caching.md) and the recent-work block; the session is logged", async () => {
     const { world, runtime, sdk, by } = setup(happyWork);
     const noor = by("Noor");
     await world.verbs.write(noor.id, { type: "wiki", title: "Dashboard", body: "Waiting on Mitchell: 0.44 or the 2024 value.", state: "draft" });
@@ -227,10 +228,13 @@ describe("agent memory", () => {
     const asg = world.ops.createWork(null, noor.id, { title: "Reply to Mitchell", description: "Which number did you pick?" });
     await runtime.runWorkSession(noor.id, asg.id);
     const system = JSON.stringify(sdk.sessions[0].options.systemPrompt);
-    expect(system).toContain("## What you know (your wiki)");
-    expect(system).toContain("### Dashboard (dc_");
-    expect(system).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
+    expect(system).not.toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
     expect(system).toContain("Your memory between sessions is your wiki and your log");
+    const first = sdk.sessions[0].received[0];
+    expect(first).toMatch(/^Clock: it is /);
+    expect(first).toContain("## What you know (your wiki)");
+    expect(first).toContain("### Dashboard (dc_");
+    expect(first).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
     const log = world.docs.first("authorId = ? AND type = 'log'", [noor.id]);
     expect(log?.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Assignment "Reply to Mitchell" \(as_[\w-]+\): done, report "/);
     const prompt = sdk.sessions[0].received[0];

@@ -25,7 +25,7 @@ describe("session slots (desks.maxRunning)", () => {
     const full = world.events.recent({ limit: 50 }).find((e) => (e.payload as { alert?: string }).alert === "slots-full")!;
     expect(full.text).toBe(`All 1 session slots are in use: holding queued work for ${heldAgent.name}`);
     expect(full.payload).toMatchObject({ running: 0, max: 1, held: [heldAgent.id] });
-    expect(world.snapshot().health).toEqual({ docker: true, slots: { running: 0, max: 1 } });
+    expect(world.snapshot().health).toEqual({ docker: true, repoMode: "none", slots: { running: 0, max: 1 } });
     // next pass: the slot is free, the held agent runs; the notice says so once
     await runtime.tickOnce();
     await runtime.whenIdle();
@@ -63,7 +63,7 @@ describe("the scheduler and the gate (Budget.canStart)", () => {
     creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const admin = world.ops.ensureAvatar(seed.admin.id);
     const noor = by("Noor");
-    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", stopCondition: "s", askTokens: 1_000_000 }).id);
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000_000 }).id);
     const a = world.ops.createWork(admin, noor.id, { title: "grant work", lane: "grant", grantId: g.id });
     expect(world.budget.canStart(noor.id, world.assignments.require(a.id))).toBe(false);
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }

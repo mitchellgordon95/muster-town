@@ -18,7 +18,7 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const admin = s.admin;
-  const draft = (keyResults = [KRS[0]!]) => world.grantDesk.create(manager, LAB, { keyResults, objective: "Visitors can tell what the lab is for", approach: "a banner line", stopCondition: "two failed tries", askTokens: 10_000_000 });
+  const draft = (keyResults = [KRS[0]!]) => world.grantDesk.create(manager, LAB, { keyResults, objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 10_000_000 });
   const charge = (grantId: string, tokens: number, lane: "grant" | "exploration" = "grant") => world.sessions.upsert({
     id: newId("se"), agentId: manager.id, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
     sdkSessionId: null, output: tokens, costUsd: 0, startedAt: nowIso(), endedAt: nowIso(), lane, grantId: lane === "grant" ? grantId : null,
@@ -46,7 +46,7 @@ describe("grants service", () => {
     expect(edited.keyResultId).toBe(edited.keyResults[0]!.id);
     expect(world.keyResults.get(g.keyResultId!)).toBeUndefined();
     expect(() => world.grantDesk.update(manager, g.id, { keyResults: [] })).toThrow();
-    expect(() => world.grantDesk.create(manager, LAB, { keyResults: [1, 2, 3, 4, 5, 6].map((i) => ({ text: `k${i}`, howToCheck: "h" })), objective: "o", stopCondition: "s", askTokens: 1 })).toThrow();
+    expect(() => world.grantDesk.create(manager, LAB, { keyResults: [1, 2, 3, 4, 5, 6].map((i) => ({ text: `k${i}`, howToCheck: "h" })), objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 })).toThrow();
     const p = world.grantDesk.propose(manager, g.id);
     expect(p.status).toBe("proposed");
     expect(p.history.map((h) => h.action)).toEqual(["propose"]);
@@ -232,7 +232,7 @@ describe("grants service", () => {
   it("a grant carries its own key results under its goal; one with none can't be proposed or funded", () => {
     const { world, manager, admin, draft } = setup();
     const child = world.goalTree.create(admin, { parentId: world.goalTree.attachmentOf(LAB), text: "A child goal" });
-    const filed = world.grantDesk.create(manager, LAB, { goalId: child.id, keyResults: [{ ...KRS[0]!, due: "2026-12-31" }, KRS[1]!], objective: "o", stopCondition: "s", askTokens: 1000 });
+    const filed = world.grantDesk.create(manager, LAB, { goalId: child.id, keyResults: [{ ...KRS[0]!, due: "2026-12-31" }, KRS[1]!], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     expect(world.grants.require(filed.id)).toMatchObject({ goalId: child.id, keyResultId: filed.keyResults[0]!.id });
     expect(world.grantDesk.get(filed.id).keyResults.map((k) => [k.text, k.howToCheck, k.due, k.grantId, k.goalId])).toEqual([
       [KRS[0]!.text, KRS[0]!.howToCheck, "2026-12-31", filed.id, child.id], [KRS[1]!.text, KRS[1]!.howToCheck, null, filed.id, child.id],

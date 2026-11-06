@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile, type TownPublish } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -20,7 +20,7 @@ import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
-import { PUBLISH_TOKEN_SECRET, Secrets } from "./secrets.ts";
+import { PUBLISH_TOKEN_SECRET, REPO_TOKEN_SECRET, Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
 import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
@@ -54,10 +54,18 @@ export interface PrChecks {
   checkedAt: string;
 }
 
+/** "git@github.com:O/agent-town.git", "https://github.com/o/agent-town" → "github.com/o/agent-town": one repo, however it is cloned. */
+export function repoKey(url: string): string {
+  const u = url.trim().toLowerCase().replace(/\/+$/, "").replace(/\.git$/, "");
+  const scp = /^[\w.-]+@([\w.-]+):(.+)$/.exec(u);
+  if (scp) return `${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  return u.replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, "").replace(/:\d+\//, "/");
+}
+
 /**
  * Main's CI (gr_7op2v8fjcl): `green` once every check on main's head finished and passed, `red` once one failed
  * (`failedStep` names the failed check runs), `pending` while they run. `since` is the first read that saw this state
- * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent fixing a red main (null until step 2 sets it).
+ * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent holding the fix assignment (the building's manager while it is queued; core/main-fix.ts).
  */
 export interface MainCi {
   state: "green" | "red" | "pending";
@@ -65,6 +73,10 @@ export interface MainCi {
   failedStep: string | null;
   since: string;
   fixer: string | null;
+  /** the last red sha a fix assignment covers (core/main-fix.ts `queueMainFix`): one fix assignment per red sha */
+  fixSha?: string | null;
+  /** the red episode's fix assignment: while it is open, a new red sha gets no second one */
+  fixAssignmentId?: string | null;
   /** when this was read (ISO) */
   checkedAt: string;
 }
@@ -72,7 +84,7 @@ export interface MainCi {
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
-  redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
+  redeploy?(o: { image: boolean; restart?: string; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
   /** Whether the agent has a live (or starting) work session. Without it, a running work Session row counts. */
   isWorking?(agentId: string): boolean;
   /** Hand `text` to the agent's in-process session. False = not in-process (the caller queues it for a desk). */
@@ -103,6 +115,8 @@ export interface HostHooks {
   quiesce?(ms: number): Promise<void>;
   /** A hosted collective (docs/hosted-collectives.md): runs only on its own API key, never the host's credentials. */
   hosted?: boolean;
+  /** The repo the running server was built from (`git remote get-url origin` of its checkout), set by the runtime: `repoMode` compares the collective's repo with it. */
+  repoUrl?: string;
 }
 
 /** A hosted collective's work waits on this until an admin adds an Anthropic API key at its Bank (HUD: "No key yet"). */
@@ -196,7 +210,7 @@ export class World {
     this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
-    this.permissions = new Permissions(repos, () => !!this.host.hosted);
+    this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
     this.bank = new Bank(repos, this.events, this.permissions);
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
@@ -447,17 +461,41 @@ export class World {
   }
 
   /** Same shape as the WS `snapshot` message and `GET /api/town`. */
+  /**
+   * What code this collective works on (schema `RepoMode`; Mitchell, 1:1 mt_1vs893enaw: "collectives that aren't developing
+   * Muster Town must not get the redeploy/PR machinery"). `none`: no `Town.workspace`. `own`: a repo that is not the one this
+   * server runs from. `muster`: this server's own repo, or a repo with no known URL on either side (as before this mode).
+   */
+  repoMode(): RepoMode {
+    const ws = this.town.get().workspace;
+    if (!ws) return "none";
+    if (!ws.repoUrl || !this.host.repoUrl) return "muster";
+    return repoKey(ws.repoUrl) === repoKey(this.host.repoUrl) ? "muster" : "own";
+  }
+
+  /**
+   * Who the collective's prompts and rollup heading address ("## Needs from <name>"; 1:1 mt_1vs893enaw decision 5): on
+   * muster.town "Mitchell", unchanged; a collective on another repo or none, the root goal's captain (its founder, else
+   * the first admin), or "your captain" while it has none.
+   */
+  captainName(): string {
+    if (this.repoMode() === "muster") return "Mitchell";
+    const root = this.goalTree.get(ROOT_GOAL_ID);
+    const id = root?.ownerId ?? this.goalTree.firstAdminId();
+    return (id ? this.users.get(id)?.name?.trim() : "") || "your captain";
+  }
+
   snapshot(): SnapshotMessage {
     return {
       type: "snapshot",
-      town: this.town.get(),
+      town: this.townView(),
       buildings: this.buildingsWithIntray(),
       agents: this.agents.where(NOT_GONE),
       places: this.layout.places,
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
-      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
+      health: { docker: this.host.docker ?? true, repoMode: this.repoMode(), ...(this.host.slots ? { slots: this.host.slots() } : {}),
         ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress(), started: this.hasRun() } : {}) },
       outbox: this.outboxOpen(),
     };
@@ -506,7 +544,22 @@ export class World {
    */
   publishTarget(): PublishTarget | null {
     const p = this.town.get().publish;
-    return p?.repoUrl ? { repoUrl: p.repoUrl, token: this.secrets.value(PUBLISH_TOKEN_SECRET), lastPushCommit: p.lastPushCommit } : null;
+    if (!p?.repoUrl) return null;
+    // its own token first; else the collective's GH_TOKEN (1:1 mt_z1b38bwg98: one all-repos token can serve both)
+    const token = this.secrets.value(PUBLISH_TOKEN_SECRET) ?? this.secrets.value(REPO_TOKEN_SECRET);
+    return { repoUrl: p.repoUrl, token, lastPushCommit: p.lastPushCommit };
+  }
+
+  /** Which token the next push uses: Publish's own, the collective's GH_TOKEN secret (the fallback), or none. Read live, never stored. */
+  publishTokenSource(): PublishTokenSource {
+    if (this.secrets.hasOwn(PUBLISH_TOKEN_SECRET)) return "own";
+    return this.secrets.hasOwn(REPO_TOKEN_SECRET) ? "collective" : "none";
+  }
+
+  /** The town as GET /api/town and the snapshot show it: `publish.tokenSource` filled in live. */
+  townView(): Town {
+    const t = this.town.get();
+    return t.publish ? { ...t, publish: { ...t.publish, tokenSource: this.publishTokenSource() } } : t;
   }
 
   /** One finished export: append its `export.done` and write the push outcome into `Town.publish` (when a repo is set and a push was due). */
@@ -532,7 +585,8 @@ export class World {
       lastPushAt: same ? cur.lastPushAt : null, lastPushCommit: same ? cur.lastPushCommit : null, lastPushError: same ? cur.lastPushError : null,
     };
     this.town.set({ publish });
-    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet } });
+    publish.tokenSource = this.publishTokenSource();
+    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet, tokenSource: publish.tokenSource } });
     return publish;
   }
 

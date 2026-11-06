@@ -17,7 +17,7 @@ function setup() {
   const mei = by("Mei");
   world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
-  const proposal = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", approach: "a banner", stopCondition: "two tries", askTokens: 500_000 }).id);
+  const proposal = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", approach: "a banner", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 500_000 }).id);
   /** a human says a line in the 1:1; returns its `at` */
   const say = (human: typeof admin, meetingId: string, text: string) => {
     world.ops.meetingSay(human, meetingId, text);
@@ -97,6 +97,35 @@ describe("act_in_1on1", () => {
     await expect(act("approve", g.id)).rejects.toMatchObject({ code: "bad_request" });
     await expect(act("fund", "dc_abc123")).rejects.toMatchObject({ code: "bad_request" });
     expect(world.grants.require(g.id).status).toBe("funded");
+  });
+
+  it("declines an outbox request as the human: the request records them via the agent and 1:1, the author hears why; their gate applies", async () => {
+    const { world, admin, by, mei, say } = setup();
+    const ingrid = by("Ingrid");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Run the drill v1", body: "x" });
+    // a member without town.approve_request is refused as the button refuses them
+    const ana = world.ops.createUser("Ana");
+    world.permissions.grant({ kind: "user", id: ana.user.id }, townRoleId("member"));
+    grantDirect(world, admin, ana.user.id, world.goalTree.attachmentOf(LAB));
+    const anaAvatar = world.ops.ensureAvatar(ana.user.id);
+    const am = world.ops.openOneOnOne(anaAvatar, LAB);
+    const anaAt = say(anaAvatar, am.id, `decline ${id}`);
+    await expect(world.verbs.act_in_1on1(mei, { meetingId: am.id, utteranceAt: anaAt, action: "decline", targetId: id })).rejects.toMatchObject({ code: "forbidden" });
+    expect(world.docs.require(id).requestStatus).toBe("open");
+    // the admin's word does it; only decline fits a request
+    const m = world.ops.openOneOnOne(admin, LAB);
+    const at = say(admin, m.id, `decline ${id}, it was replaced`);
+    await expect(world.verbs.act_in_1on1(mei, { meetingId: m.id, utteranceAt: at, action: "reject", targetId: id })).rejects.toMatchObject({ code: "bad_request" });
+    const r = await world.verbs.act_in_1on1(mei, { meetingId: m.id, utteranceAt: at, action: "decline", targetId: id, note: "Superseded by v2." });
+    expect(r).toMatchObject({ targetId: id, status: "declined" });
+    const d = world.docs.require(id);
+    expect(d).toMatchObject({ requestStatus: "declined", requestDecidedById: world.holderOf(admin).id, requestViaAgentId: mei.id, requestViaMeetingId: m.id });
+    expect(d.requestNote).toBe(`by ${admin.name} via Mei in ${m.id}: "decline ${id}, it was replaced"\nSuperseded by v2.`);
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((x) => x.body.includes(`via Mei in ${m.id} declined your outbox request`))).toBe(true);
+    expect(world.events.list({ types: ["grant.decided-via"] })[0]!.payload).toMatchObject({ docId: id, action: "decline", meetingId: m.id });
+    expect(world.meetings.require(m.id).transcript.at(-1)!.text).toMatch(/Mei did this for .*decline the request/);
+    await expect(world.verbs.act_in_1on1(mei, { meetingId: m.id, utteranceAt: at, action: "decline", targetId: id })).rejects.toThrow(/declined/);
   });
 
   it("approves a retainer as the human", async () => {

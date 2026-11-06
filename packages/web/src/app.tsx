@@ -22,11 +22,12 @@ import { StatsPanel } from "./panels/StatsPanel";
 import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { BoardPanel, BulletinPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { BankSheet } from "./panels/BankSheet";
 import { GrantPanel } from "./panels/GrantPanel";
+import { LinkSheet } from "./panels/LinkSheet";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
@@ -130,6 +131,15 @@ async function boot(): Promise<Phase> {
   };
   loadBlocked();
   setInterval(loadBlocked, 30_000);
+  // the bulletin board's unread count for a signed-in human (flag dc_04q4h8s229): on connect, when a note is pinned or taken down, and when `me` changes
+  const loadBulletinUnread = () => {
+    if (!store.state.me) { if (store.state.bulletinUnread) store.set({ bulletinUnread: 0 }); return; }
+    a.bulletinBoard(200).then((b) => store.set({ bulletinUnread: b.unread ?? 0 }), () => undefined);
+  };
+  store.onBulletinChanged = loadBulletinUnread;
+  let bulletinFor = store.state.me?.user.id;
+  store.subscribe(() => { const id = store.state.me?.user.id; if (id !== bulletinFor) { bulletinFor = id; loadBulletinUnread(); } });
+  loadBulletinUnread();
   return { k: "ready" };
 }
 
@@ -195,12 +205,13 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
     case "building": return <BuildingPanel key={panel.tab ? `${panel.id}:${panel.tab}:${openSeq(panel)}` : `${panel.id}:`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
-    case "library": return <LibraryPanel docId={panel.docId} />;
+    case "library": return <LibraryPanel />;
     case "outbox": return <OutboxPanel />;
     case "stats": return <StatsPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
+    case "bulletin": return <BulletinPanel />;
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
@@ -220,6 +231,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
 export function App() {
   const [phase, setPhase] = useState<Phase>({ k: "booting" });
   const open = useTown((s) => s.panel);
+  const linkSheet = useTown((s) => s.sheet);
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
   const helpSign = open?.kind === "help" && open.id ? open.id : null;
@@ -326,6 +338,8 @@ export function App() {
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
       {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
+      {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
+      {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );
