@@ -133,7 +133,7 @@ jobs:
       # fresh collective.json and an empty .env. Before the push, so an image that can't boot or keep its state is never
       # published. Checks: health ok, the seeded admin token (inside the volume) is an admin on /api/me, /api/town carries
       # the collective's name; then `docker compose restart` and the same checks with the same token (state survived).
-      # Backup (kr_nlbywt1hi4): the .env carries the five backup variables against a MinIO in the same compose, so the boot
+      # Backup (kr_nlbywt1hi4): the .env carries the five backup variables against a throwaway S3 (moto) in the same compose, so the boot
       # catch-up copies town.db to the bucket; the step waits for health backup.verifiedAt, then boots a second container on
       # an empty volume with the same .env: its first-boot restore (server backup/restore.ts) must bring back the same agent
       # count, the collective's name and the first container's admin token.
@@ -143,7 +143,7 @@ jobs:
           printf '{"name":"Smoke Town","goal":"Boot from the published image","port":4322,"buildings":[]}\n' > mytown/collective.json
           cat > mytown/.env <<ENV
           BUCKET_NAME=smoke
-          AWS_ENDPOINT_URL_S3=http://minio:9000
+          AWS_ENDPOINT_URL_S3=http://s3:5000
           AWS_ACCESS_KEY_ID=smokeuser
           AWS_SECRET_ACCESS_KEY=smokesecret
           AWS_REGION=us-east-1
@@ -151,11 +151,9 @@ jobs:
           ENV
           cat > docker-compose.yml <<YAML
           services:
-            minio:
-              image: minio/minio:latest
-              command: server /data
-              ports: ["127.0.0.1:9000:9000"]
-              environment: { MINIO_ROOT_USER: smokeuser, MINIO_ROOT_PASSWORD: smokesecret }
+            s3: # a throwaway S3 (moto; minio/minio is gone from Docker Hub): in memory, so only the town is restarted below
+              image: motoserver/moto:5.2.5
+              ports: ["127.0.0.1:9000:5000"]
             town2: # the same town on a new, empty volume: restores itself from the bucket on first boot
               image: $IMAGE:$GITHUB_SHA
               pull_policy: never
@@ -203,14 +201,14 @@ jobs:
             echo "$1: admin token ok, /api/town names $name"
             echo "$token" | sha256sum | cut -c1-16 > "token.$1"
           }
-          docker compose up -d minio
-          for i in $(seq 1 30); do curl -fsS -m 2 http://127.0.0.1:9000/minio/health/live && break; sleep 1; done
-          curl -fsS --aws-sigv4 "aws:amz:us-east-1:s3" --user smokeuser:smokesecret -X PUT http://127.0.0.1:9000/smoke
-          echo "minio up, bucket smoke created"
+          docker compose up -d s3
+          for i in $(seq 1 30); do curl -fsS -m 2 --aws-sigv4 "aws:amz:us-east-1:s3" --user smokeuser:smokesecret -X PUT http://127.0.0.1:9000/smoke > /dev/null && break; sleep 1; done
+          curl -fsS --aws-sigv4 "aws:amz:us-east-1:s3" --user smokeuser:smokesecret http://127.0.0.1:9000/smoke > /dev/null
+          echo "s3 up, bucket smoke created"
           docker compose up -d town
           up first-boot
           check first-boot
-          docker compose restart
+          docker compose restart town
           up after-restart
           check after-restart
           cmp token.first-boot token.after-restart || { echo "the admin token changed across the restart: state did not survive"; exit 1; }
@@ -233,7 +231,7 @@ jobs:
           agents2=$(curl -fsS http://127.0.0.1:4323/api/town | jq '.agents | length')
           [ "$name" = "Smoke Town" ] && [ "$agents2" = "$agents" ] || { echo "restored: /api/town names '$name' with $agents2 agents, expected Smoke Town with $agents"; docker compose logs --tail 100 town2; exit 1; }
           echo "restored: second container on an empty volume came back from the bucket with $agents2 agents, Smoke Town, the first town's admin token"
-          echo "\`image smoke: path B compose boots $GITHUB_SHA, admin token works, survives docker compose restart; backup to MinIO verified and restored into a second container with the same $agents agents\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`image smoke: path B compose boots $GITHUB_SHA, admin token works, survives docker compose restart; backup to S3 verified and restored into a second container with the same $agents agents\`" >> "$GITHUB_STEP_SUMMARY"
           docker compose --profile restore down -v
       - name: push
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
