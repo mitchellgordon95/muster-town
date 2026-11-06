@@ -10,6 +10,10 @@ const EventsQuery = z.object({
   since: z.coerce.number().int().nonnegative().optional(),
   agentId: z.string().optional(),
   buildingId: z.string().optional(),
+  /** only system events whose payload.alert is this (e.g. `cache-miss`): the HUD reads the day's alerts that scrolled out of its last 300 events */
+  alert: z.string().min(1).max(40).optional(),
+  /** only events at or after this ISO time */
+  from: z.string().datetime().optional(),
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
 const SessionsQuery = z.object({ agentId: z.string().optional(), grantId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
@@ -151,7 +155,7 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.get("/api/events", async (req) => {
     const q = parse(EventsQuery, req.query);
-    const base = { agentId: q.agentId, buildingId: q.buildingId, limit: q.limit };
+    const base = { agentId: q.agentId, buildingId: q.buildingId, limit: q.limit, from: q.from, ...(q.alert ? { alert: q.alert, types: ["system" as const] } : {}) };
     const events = q.since !== undefined ? world.events.list({ ...base, since: q.since }) : world.events.recent(base);
     return { events };
   });

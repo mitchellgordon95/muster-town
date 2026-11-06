@@ -478,6 +478,18 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(since.body.events[0].id).toBe(ev.body.events[0].id + 1);
   });
 
+  it("GET /api/events?alert=&from= returns only that alert's system events since then (the HUD's day of cache-miss alerts)", async () => {
+    const { app, world } = await setup();
+    const a = world.events.append({ type: "system", text: "Cache miss: manage", payload: { alert: "cache-miss", purpose: "manage" } });
+    world.events.append({ type: "system", text: "Funding alert", payload: { alert: "funding-mismatch" } });
+    for (let i = 0; i < 5; i++) world.events.append({ type: "system", text: `noise ${i}`, payload: {} });
+    const r = await json(app, "GET", "/api/events?alert=cache-miss&limit=50");
+    expect(r.body.events.map((e: { id: number }) => e.id)).toEqual([a.id]);
+    const later = await json(app, "GET", `/api/events?alert=cache-miss&from=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}`);
+    expect(later.body.events).toEqual([]);
+    expect((await json(app, "GET", "/api/events?from=yesterday")).status).toBe(400);
+  });
+
   it("desks per subtree (gr_yu6qw3j9x5): a goal's desksTotal shows on GET /api/goals; raising desks past it is a 409 naming it, admins too", async () => {
     const { app, auth } = await setup();
     const own = (await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "Carbon's goal" } })).body.goal.id;

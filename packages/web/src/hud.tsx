@@ -64,6 +64,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
   const events = useTown((s) => s.events);
+  const cacheAlerts = useTown((s) => s.cacheAlerts);
   const health = useTown((s) => s.health);
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
@@ -153,7 +154,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       });
     }
     // too many of a purpose's sessions re-wrote their prompt prefix turn after turn today (gr_lwgus14rd2 step 2)
-    const cm = cacheMissAlert(events);
+    const cm = cacheMissAlert(events, Date.now(), cacheAlerts);
     if (cm) {
       out.push({
         key: `cache-miss:${cm.id}`, icon: "planning", tone: "warn", cta: "Bank →",
@@ -219,7 +220,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, cacheAlerts, agents, health, redeployLive, access, town]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
     <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""} ${view ? `g-${view}` : ""}`}>

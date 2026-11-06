@@ -87,6 +87,7 @@ async function boot(): Promise<Phase> {
   connect(token);
   store.onLayoutChanged = () => { a.town().then((s) => store.applySnapshot(s), () => undefined); };
   a.events({ limit: 300 }).then((ev) => store.mergeEvents(ev), () => undefined);
+  loadCacheAlerts();
   // the Bank's sign: refetch on bank events and spends (at most every 5 s), and each minute as daily tokens expire
   let bankTimer: ReturnType<typeof setTimeout> | null = null;
   const loadBank = () => { a.bank().then((bank) => store.set({ bank }), () => undefined); };
@@ -150,7 +151,7 @@ function connect(token: string | null, attempt = 0) {
   socket = api().connect({
     onOpen: () => {
       opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" });
-      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); checkBuild(); store.onAssignmentChanged?.(); }
+      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); loadCacheAlerts(); checkBuild(); store.onAssignmentChanged?.(); }
       wasOpen = true;
     },
     onMessage: (m) => store.receive(m),
@@ -167,6 +168,12 @@ function connect(token: string | null, attempt = 0) {
  * came from, the tab is stale and would keep showing old UI (and old bugs) until someone reloads by hand. Reload it,
  * unless a person is mid-sentence in a text box: then tell them and leave the text alone.
  */
+/** The last day's cache-miss alerts from the server (gr_lwgus14rd2 step 2): kept apart from `events`, which holds only the latest few hundred. */
+function loadCacheAlerts() {
+  const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+  api().events({ alert: "cache-miss", from, limit: 50 }).then((cacheAlerts) => store.set({ cacheAlerts }), () => undefined);
+}
+
 function checkBuild() {
   api().health().then(({ commit }) => {
     if (!commit || !loadedCommit || commit === loadedCommit) return;

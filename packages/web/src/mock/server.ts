@@ -161,7 +161,8 @@ export class MockApi implements Api {
   async town(): Promise<Snapshot> { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
     await wait(80);
-    let ev = this.sim.events.filter((e) => (q.since === undefined || e.id > q.since) && (!q.agentId || e.agentId === q.agentId) && (!q.buildingId || e.buildingId === q.buildingId));
+    let ev = this.sim.events.filter((e) => (q.since === undefined || e.id > q.since) && (!q.agentId || e.agentId === q.agentId) && (!q.buildingId || e.buildingId === q.buildingId)
+      && (!q.alert || (e.type === "system" && e.payload.alert === q.alert)) && (!q.from || e.ts >= q.from));
     ev = ev.slice(-(q.limit ?? 100));
     return clone(ev);
   }
