@@ -10,6 +10,8 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/lanes.test.ts` › `goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work`
    - Test: `packages/core/test/lanes.test.ts` › `an agent creates directed work only when it cites a human source; it is stored and never held by the allowance`
    - Test: `packages/core/test/lanes.test.ts` › `every lab is lane-gated, even one created without budgetMode or with a stale open row; the Town Hall never is`
+   - Directed work carries the human its source names (`origin`, docs/wakes.md §2): when no explicit origin, human creator, human report, meeting or continuation gives one, `createAssignment` takes it from `sourceId` (`sourceOrigin`) at hops 0 and at the source's own time, so a stale source never passes the 24 h wake cap; an agent-only source gives none.
+   - Test: `packages/core/test/origin.test.ts` › `a directed assignment an agent queues takes its human origin from its sourceId, at the source's own time; an agent-only source gives none`
 2. **Grant-lane work can't name a closed, rejected or draft grant.** `resolveLane` refuses them, because no work may be charged to them. A proposed or countered grant is accepted, but the lane gate holds the work until the grant is funded.
    - Test: `packages/core/test/lanes.test.ts` › `a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)`
 3. **Exploration and directed work name no key result** (key results belong to grants, docs/how-work-gets-done.md §4): exploration names a gap, directed work may. Grant-lane work stores its grant's first key result.

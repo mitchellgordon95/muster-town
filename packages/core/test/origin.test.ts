@@ -1,6 +1,7 @@
 /** Wakes step 1 (docs/wakes.md): the human origin is stamped by the town, inherited by sessions, copied by relays. */
 import { describe, expect, it } from "vitest";
 import { createAssignment, pickUpFlag } from "../src/index.ts";
+import { DIRECTED } from "../src/lanes.ts";
 import { seededWorld } from "./helpers.ts";
 
 function setup() {
@@ -64,6 +65,30 @@ describe("origin", () => {
     expect(next.origin).toEqual(decided.origin);
     const plain = createAssignment(world, { agentId: noor.id, title: "Chores", description: "x", createdBy: { kind: "system", id: "system" } });
     expect(plain.origin).toBeNull();
+  });
+
+  it("a directed assignment an agent queues takes its human origin from its sourceId, at the source's own time; an agent-only source gives none", async () => {
+    const { world, mei, noor, userId, admin } = setup();
+    const agentMade = (sourceId: string) => createAssignment(world, { agentId: noor.id, title: "Directed", description: "x", createdBy: world.holderOf(mei), lane: { lane: "directed", sourceId } });
+    // a 1:1 with a human: the human, via the meeting, at their latest line
+    const m = world.ops.openOneOnOne(admin, "carbon-cycle");
+    world.ops.meetingSay(admin, m.id, "Noor should redo 2010");
+    const said = world.meetings.require(m.id).transcript.at(-1)!;
+    expect(agentMade(m.id).origin).toEqual({ userId, via: m.id, hops: 0, at: said.at });
+    // a human's tell: its own stamped origin
+    const t = await world.verbs.tell(world.ops.ensureAvatar(userId), { to: mei.id, text: "Redo 2010" });
+    expect(agentMade(t.messageId).origin).toEqual(world.messages.require(t.messageId).origin);
+    // a human-authored doc (a flag): its author, via the doc, at its creation
+    const flag = world.ops.plantFlag(admin, "carbon-cycle", "Look at the ocean sink");
+    expect(agentMade(flag.id).origin).toEqual({ userId, via: flag.id, hops: 0, at: flag.createdAt });
+    // an old meeting keeps its old time, so the 24 h relay cap (wakes.ts RELAY_MAX_AGE_MS) still measures from the human
+    const old = "2026-01-01T00:00:00.000Z";
+    world.meetings.upsert({ ...world.meetings.require(m.id), transcript: [{ ...said, at: old }] });
+    expect(agentMade(m.id).origin?.at).toBe(old);
+    // an agent-only source (system work that skips lane validation) and no source give none
+    const note = await world.verbs.write(mei, { title: "my note", body: "x", type: "note", state: "building" });
+    expect(createAssignment(world, { agentId: noor.id, title: "Sys", description: "x", createdBy: { kind: "system", id: "system" }, laneOverride: { ...DIRECTED, sourceId: note.id } }).origin).toBeNull();
+    expect(createAssignment(world, { agentId: noor.id, title: "Sys", description: "x", createdBy: { kind: "system", id: "system" }, laneOverride: DIRECTED }).origin).toBeNull();
   });
 
   it("origin is not a verb input: an agent can't put it on its tell", async () => {

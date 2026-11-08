@@ -2,7 +2,7 @@ import { isGone, Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQ
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
-import { humanOrigin, meetingOrigin } from "./origin.ts";
+import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
@@ -74,7 +74,9 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
   const origin = a.origin !== undefined ? a.origin
     : a.createdBy.kind === "user" ? humanOrigin(a.createdBy.id, a.fromMeetingId ?? a.fromReportId ?? null)
     : fromReport?.authorKind === "user" ? humanOrigin(fromReport.authorId, fromReport.id)
-    : (meeting && meetingOrigin(meeting)) ?? from?.origin ?? null;
+    : (meeting && meetingOrigin(meeting)) ?? from?.origin
+    // directed work traces to the human source it cites (meeting, tell, human doc, notes), at the source's own time
+    ?? (lane.lane === "directed" && lane.sourceId ? sourceOrigin(world, lane.sourceId) : null);
   const ts = nowIso();
   const id = newId("as");
   const assignment = world.assignments.upsert({

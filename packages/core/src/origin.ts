@@ -20,6 +20,31 @@ export function meetingOrigin(m: Meeting): Origin | null {
   return userId ? humanOrigin(userId, m.id, last?.at ?? m.createdAt) : null;
 }
 
+/**
+ * The human a directed assignment's `sourceId` (validated by lanes.ts `humanSource`) traces to, at hops 0 and at the
+ * source's own time (so the 24 h relay cap in wakes.ts still measures from when the human acted, not from when the
+ * work was queued): a meeting with a human → `meetingOrigin`; a human's tell → its stamped origin (else its sender,
+ * via the message); a human-authored doc → its author, via the doc; notes of a meeting with a human → that meeting's.
+ * Null for anything else.
+ */
+export function sourceOrigin(world: World, sourceId: string): Origin | null {
+  const meeting = world.meetings.get(sourceId);
+  if (meeting) return meetingOrigin(meeting);
+  const msg = world.messages.get(sourceId);
+  if (msg) {
+    if (msg.kind !== "tell") return null;
+    if (msg.origin && msg.origin.hops === 0) return msg.origin;
+    const avatar = msg.fromKind === "agent" ? world.agents.get(msg.fromId) : undefined;
+    const userId = msg.fromKind === "user" ? msg.fromId : avatar?.kind === "human" ? avatar.ownerUserId : null;
+    return userId ? humanOrigin(userId, msg.id, msg.createdAt) : null;
+  }
+  const doc = world.docs.get(sourceId);
+  if (!doc) return null;
+  if (doc.authorKind === "user") return humanOrigin(doc.authorId, doc.id, doc.createdAt);
+  const notesOf = doc.type === "meeting-notes" ? world.meetings.first("notesDocId = ?", [doc.id]) : undefined;
+  return notesOf ? meetingOrigin(notesOf) : null;
+}
+
 /** The origin of the agent's acting session: its most recently started running session (null = none or no origin). */
 function sessionOrigin(world: World, agentId: string): Origin | null {
   return world.sessions.first("agentId = ? AND status = 'running'", [agentId], "ORDER BY startedAt DESC, rowid DESC")?.origin ?? null;
