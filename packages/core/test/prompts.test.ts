@@ -116,9 +116,10 @@ describe("no forced next step", () => {
     expect(p).toMatch(/becomes an assignment the moment it appears/);
     expect(p).toMatch(/run on forks in parallel/);
     expect(p).not.toMatch(/reassign/);
-    // town hall 2026-10-25, decision 6: delegate by default, self-assign when small, blocking or needing manager permissions
-    expect(p).toMatch(/The default is to delegate; assign a task to yourself/);
-    expect(p).toMatch(/small, blocking, or needs your manager permissions/);
+    // work routing (1:1 mt_lsyqj98z0w): every task goes to the building; the manager never runs a work session
+    expect(p).toMatch(/Every task goes to the building: you never run a work session/);
+    expect(p).toMatch(/arrive as in-tray rows/);
+    expect(p).not.toMatch(/assign a task to yourself/);
     expect(p).toMatch(/lands back in this in-tray/);
     expect(p).toMatch(/Roll up when something new is live and decided \(at least 4 h apart\), or sooner on escalation/);
     expect(p).not.toMatch(/One rollup per day/);

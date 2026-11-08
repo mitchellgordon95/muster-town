@@ -725,7 +725,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
       if (stopped) return;
       // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
-      // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
+      // Before scheduleWork, so the in-tray is offered first each tick (the manage session registers as live right away).
       timed("managers", () => withTickMemo(world.db, () => wakeManagers()), "manager sessions");
       // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
       timed("quiet1on1", () => closeQuietOneOnOnes(ctx), "quiet 1:1s");

@@ -2078,10 +2078,10 @@ export const VerbInputs = {
   }),
   // permissioned
   review: z.object({ docId: Id, decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent. A flag (a human's quick request): continue = its text becomes assigneeId's directed assignment verbatim, redirect = your note does"), note: z.string().default(""),
-    assigneeId: Id.optional().describe("a flag (continue/redirect): leave it out to queue it to the building (a fork of the manager runs it); or yourself, or a visitor of the building"),
+    assigneeId: Id.optional().describe("a flag (continue/redirect): leave it out to queue it to the building (a fork of the manager runs it); or a visitor of the building (naming the manager queues it to the building too)"),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts"),
     ...LaneFields.shape }),
-  assign: z.object({ agentId: Id.optional().describe("leave it out to queue it to the building (a fork of the manager runs it); or your own id to take it yourself, or a visitor's id to offer it to them"),
+  assign: z.object({ agentId: Id.optional().describe("leave it out to queue it to the building (a fork of the manager runs it); or a visitor's id to offer it to them (your own id queues it to the building too: a manager never runs a work session)"),
     title: z.string(), description: z.string(),
     pages: z.array(Id).max(3).optional().describe("topic pages (type wiki with topicOf) of this building that cover the work, at most 3: loaded into its fork's memory"),
     model: z.string().optional().describe("building-queue work only: the model its fork runs on, one the building allows (its model or cheapModel); default the building's model"),
