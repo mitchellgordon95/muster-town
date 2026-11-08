@@ -1,7 +1,7 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
   StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
-  type Assignment, type Building, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
+  type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
@@ -10,7 +10,7 @@ import { attachablePages } from "./schedules.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
-import { DIRECTED } from "./lanes.ts";
+import { intrayRow } from "./wakes.ts";
 import { freeTokens, goalFunding, grantGoalOf } from "./free-tokens.ts";
 import { estimateGrant, estimateVsActual, type EstimateVsActual } from "./grant-estimate.ts";
 import { holderOf } from "./permissions.ts";
@@ -625,9 +625,9 @@ export class Grants {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note, via);
-        this.event("grant.countered", next, actor, `Countered: ${next.objective}`, deck);
+        const countered = this.event("grant.countered", next, actor, `Countered: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
-        this.decisionAssignment(next, actor, "countered", inp.note);
+        this.decisionAssignment(next, actor, "countered", inp.note, countered);
         break;
       }
       case "reject":
@@ -635,9 +635,9 @@ export class Grants {
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note, via);
         // a rejected proposal's key results archive with it (goals keep no open ones)
         for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} rejected`, updatedAt: nowIso() });
-        this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`, deck);
+        const rejected = this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`, deck);
         this.notifyManager(next, actor, `A human rejected your proposal "${next.objective}"${inp.note ? `: ${inp.note}` : "."}`);
-        this.decisionAssignment(next, actor, "rejected", inp.note);
+        this.decisionAssignment(next, actor, "rejected", inp.note, rejected);
         break;
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
@@ -902,46 +902,29 @@ export class Grants {
   }
 
   /**
-   * A human's decision on a proposal wakes the manager the way a reply to a report does (Mitchell, 1:1 mt_f45m8hbmct):
-   * one front-of-queue assignment. Countered → directed ("Answer the counter", with
-   * the note); rejected → directed ("read the note"). None when the building has no manager agent: a human works its
-   * in-tray. Funding wakes no manager: it queues the plan's step 1 itself (`queueStep`, grant B gr_b5fyqibfx2).
+   * A human's decision on a proposal reaches the manager as a pending row in its building's in-tray (work routing step 2,
+   * 1:1 mt_lsyqj98z0w; continue / adjust / cut already are, `managerIntrayRow`): it is decided in the team-lead session,
+   * never as a fork's job. Countered → how to answer (`propose_grant` with grantId); rejected → read the note. None when
+   * the building has no manager agent: a human works its in-tray. Funding writes no row: it queues the plan's step 1
+   * itself (`queueStep`, grant B gr_b5fyqibfx2).
    */
-  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string): void {
-    const building = this.world.buildings.require(g.buildingId, "building");
-    const manager = managerAgentOf(this.world, building);
-    if (!manager) return;
+  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string, e: Event): void {
     const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
     const krs = this.krLines(g);
-    const said = note.trim() ? `\n\nThe note: ${note.trim()}` : "";
-    // the manager's own job (managerOnly) until work-routing step 2 makes a grant decision an in-tray row
-    const base = { agentId: manager.id, buildingId: g.buildingId, front: true, managerOnly: true, createdBy: { kind: "system" as const, id: "system" } };
+    const said = note.trim() ? `The note: ${note.trim()}` : "No note was given.";
     if (decision === "countered") {
-      createAssignment(this.world, {
-        ...base, laneOverride: DIRECTED,
-        title: `Answer the counter on ${g.objective}`.slice(0, 160),
-        description: `${who} countered your proposal ${g.id} "${g.objective}" (ask now ${fmt(g.askTokens)} tokens).${said}
-
-It is your move: nothing on it runs until this is settled.
-Key results (the grant's own):
-${krs}
-
-1. Read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask).
-2. Revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, withdraw it and say what you'd propose instead.
-3. Say in your report what changed and why.`,
+      intrayRow(this.world, g.buildingId, e, {
+        rule: "grant-countered", title: `Answer the counter on ${g.objective}`.slice(0, 160),
+        what: `${who} countered proposal ${g.id}`,
+        summary: `${who} countered your proposal ${g.id} "${g.objective}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
+        footer: `To answer: read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask); revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, \`withdraw_grant\` it and say what you'd propose instead. Then acknowledge this row with \`review\` approve.`,
       });
     } else {
-      createAssignment(this.world, {
-        ...base, laneOverride: DIRECTED,
-        title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
-        description: `${who} rejected your proposal ${g.id} "${g.objective}" (${fmt(g.askTokens)} tokens asked).${said || "\n\nNo note was given."}
-
-Its key results (they close with it):
-${krs}
-
-1. Read the note and the proposal (${g.id}).
-2. Decide what follows: a different plan (\`propose_grant\` with its own key results), exploration first (\`assign\` lane exploration with a gap), or nothing until your next 1:1 or rollup.
-3. Say in your report what you decided and why.`,
+      intrayRow(this.world, g.buildingId, e, {
+        rule: "grant-rejected", title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
+        what: `${who} rejected proposal ${g.id}`,
+        summary: `${who} rejected your proposal ${g.id} "${g.objective}" (${fmt(g.askTokens)} tokens asked).\n\n${said}\n\nIts key results (they close with it):\n${krs}`,
+        footer: "Read the note and the proposal, then decide what follows: a different plan (`propose_grant` with its own key results), exploration first (`assign` lane exploration with a gap), or nothing until your next 1:1 or rollup. Acknowledge this row with `review` approve.",
       });
     }
   }
@@ -1068,10 +1051,10 @@ ${krs}
     return this.world.grants.upsert({ ...g, ...patch, history: [...g.history, this.entry(actor, action, tokens, note, via)], updatedAt: nowIso() });
   }
 
-  private event(type: EventType, g: Grant, actor: Actor, text: string, extra: Record<string, unknown> = {}): void {
+  private event(type: EventType, g: Grant, actor: Actor, text: string, extra: Record<string, unknown> = {}): Event {
     // action: the history entry that made it (fund, continue, adjust, cut, close…); the manager in-tray rule reads it (core/src/wakes.ts)
     const action = g.history.at(-1)?.action ?? null;
-    this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
+    return this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
   }
 
   /** Inbox note to every human (avatar) who can fund the building. */

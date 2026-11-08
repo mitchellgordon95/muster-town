@@ -44,7 +44,7 @@ export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
 export { forkManager, retireFork, nextForkN, forkModels, checkForkModel, forkableQueue, freeDesks, liveForks, chainDesk, deskSlotRow, deskSlotRows, setDeskSlot, forkDeskSlot, type DeskSlotRow, forkSummary, forksOf, familySpend, type FamilySpend, reportChain, reportChains, requestForkStop, stopOverdueForks, STOP_FORK_TIMEOUT_MS, type ForkSummary, type ReportChain } from "./forks.ts";
-export { decisionKey, decisionWakes, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
+export { decisionKey, decisionWakes, intrayRow, managerIntrayRow, mentionKey, mentionWake, relayKey, relayWake, RELAY_MAX_AGE_MS, RELAY_MAX_HOPS, requestAnswerKey, requestAnswerWake, wakeKey } from "./wakes.ts";
 export { chainTip, checkWaits, describeWait, validateWait, waitMet } from "./waits.ts";
 export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.ts";
 export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, describeRepeat, editSchedule, endSchedule, fireSchedules, nextOccurrence, scheduleTaker, townSchedules, DEFAULT_SCHEDULE_DAYS, MAX_SCHEDULE_DAYS } from "./schedules.ts";
@@ -60,7 +60,7 @@ export { migrateRoles, type MigrateRolesResult } from "./migrate-roles.ts";
 export {
   applyDecision, createAssignment, createDoc, updateDoc, extractProposal, summarizeDoc, canSeeDoc, sendMessage,
   setAssignmentStatus, pendingQueue, nextPending, nextStartable, buildingQueue, moveToFront, intrayOf, intrayCount, intrayCounts, townHallIntray, grantsAwaitingDecision,
-  managerAgentOf, forkableManagerOf, decisionQueue, queueLabel, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
+  managerAgentOf, forkableManagerOf, isForkingManager, moveManagerRowsToBuildingQueue, decisionQueue, queueLabel, intrayWorker, isTownHallItem, requirePendingReport, plantFlag, pickUpFlag, flagPlaceId, type DocSummary,
 } from "./domain.ts";
 export { archiveReport, type ArchiveResult } from "./archive.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";

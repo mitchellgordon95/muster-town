@@ -356,8 +356,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       const what = describeWait(world, resumeWhen);
       const title = (input.next?.trim() || `Resume: ${current.title}`).slice(0, 160);
       const next = createAssignment(world, {
-        // a fork's continuation goes on the building queue (createAssignment); a manager's own parked session stays its own
-        agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true, managerOnly: true,
+        // routed like any job (createAssignment): a fork's continuation goes on the building queue; a non-forking
+        // manager's (the Secretary, a lab resident) stays its own. A forking manager never runs a work session, so never parks one.
+        agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true,
         createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
         description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
       });

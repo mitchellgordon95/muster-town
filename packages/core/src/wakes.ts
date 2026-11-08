@@ -4,12 +4,16 @@
  * building's in-tray (author "system", shown as Town); the runtime's `doc.created` branch then wakes (or feeds) the
  * manager's team-lead session, the same path as a resident's report. The manager acknowledges it with `review` approve.
  *
- * Events that already wake the manager with an assignment are left out: counter and reject (`Grants.decisionAssignment`)
- * and `grant.checkpoint`; fund wakes nobody, it queues the plan's step 1 (`Grants.queueStep`). Each row carries the tag `wake:<rule>:<eventId>:<buildingId>`,
- * so delivering the same event twice writes nothing the second time.
+ * Left out here: counter and reject write their own row when they happen (`Grants.decisionAssignment` → `intrayRow`);
+ * `grant.checkpoint` is its own Town Hall card; fund wakes nobody, it queues the plan's step 1 (`Grants.queueStep`).
+ * Each row carries the tag `wake:<rule>:<eventId>:<buildingId>`, so delivering the same event twice writes nothing the
+ * second time.
+ *
+ * Work routing step 2 (1:1 mt_lsyqj98z0w, design note dc_vxsq9g008a): what a forking manager must itself see and
+ * decide (a relayed tell, an @mention, an outbox answer, a grant countered or rejected) is such a row too, never a job.
  */
 import type { Agent, Assignment, Doc, Event, Grant } from "@muster-town/schema";
-import { createAssignment, createDoc, managerAgentOf, moveToFront } from "./domain.ts";
+import { createAssignment, createDoc, isForkingManager, managerAgentOf, moveToFront } from "./domain.ts";
 import { DIRECTED } from "./lanes.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -18,26 +22,42 @@ import { stamp } from "./time.ts";
 const RULE = "manager-intray";
 
 /** The tag that makes the row for `e` unique. */
-export const wakeKey = (e: Event, buildingId: string) => `wake:${RULE}:${e.id}:${buildingId}`;
+export const wakeKey = (e: Event, buildingId: string, rule = RULE) => `wake:${rule}:${e.id}:${buildingId}`;
 
 /** The in-tray row `e` calls for, written once; null when the event is not one (or it was already written). */
 export function managerIntrayRow(world: World, e: Event): Doc | null {
   const row = describe(world, e);
   if (!row || !e.buildingId) return null;
-  const building = world.buildings.get(e.buildingId);
+  return intrayRow(world, e.buildingId, e, { ...row, rule: RULE });
+}
+
+/**
+ * One town-written pending report in the building's in-tray (author "system", shown as Town), keyed by
+ * `wake:<rule>:<eventId>:<buildingId>`: written once per event and building; null when it already was, the building is
+ * the Town Hall or has no manager agent. Its `doc.created` wakes (or feeds) the manager's team-lead session.
+ */
+export function intrayRow(world: World, buildingId: string, e: Event, row: { rule: string; title: string; what: string; summary: string; footer?: string }): Doc | null {
+  const building = world.buildings.get(buildingId);
   if (!building || building.kind === "town-hall" || !managerAgentOf(world, building)) return null;
-  const key = wakeKey(e, building.id);
+  const key = wakeKey(e, building.id, row.rule);
   if (world.docs.first("authorId = 'system' AND buildingId = ? AND tags LIKE ?", [building.id, `%"${key}"%`])) return null;
   return createDoc(world, {
     type: "report", state: "building", decision: "pending", buildingId: building.id, authorId: "system", authorKind: "user",
-    tags: [RULE, key], title: row.title.slice(0, 200),
+    tags: [...new Set([RULE, row.rule]), key], title: row.title.slice(0, 200),
     body: [
       `Written by the town: ${row.what} (event ${e.id}, ${stamp(e.ts)}).`,
       `## Summary\n\n${row.summary}`,
-      "Acknowledge it with `review` approve once you've taken it in; give any work it calls for with `assign`.",
+      row.footer ?? "Acknowledge it with `review` approve once you've taken it in; give any work it calls for with `assign`.",
     ].join("\n\n"),
   }, `Town wrote "${row.title.slice(0, 100)}" in ${building.name}'s in-tray`);
 }
+
+/** The building whose in-tray takes what is addressed to `agent`: its home building when it is a forking manager, else null (it works its own queue). */
+function forkingManagerHome(world: World, agent: Agent): string | null {
+  return isForkingManager(world, agent) ? agent.homeBuildingId ?? agent.buildingId ?? null : null;
+}
+
+const ackFooter = (to: string) => `Acknowledge it with \`review\` approve once you've taken it in. ${to} Work it calls for: \`assign\` it to your building's queue.`;
 
 /** Title, one-line what and summary for a grant or key-result event a human caused; null for any other event. */
 function describe(world: World, e: Event): { title: string; what: string; summary: string } | null {
@@ -114,14 +134,26 @@ export const relayKey = (eventId: number | string, agentId: string) => `wake:rel
  * pending directed "Message from <human> (via <sender>)" assignment with the text, or is merged into the one already
  * waiting for the same human and path. Inbox only (null) when it has no origin, is more than RELAY_MAX_HOPS relays or
  * 24 h from the human, the recipient is not an idle resident or has a work session running, or it was already relayed.
- * The scheduler's `canStart` stays the only gate on whether it runs.
+ * The scheduler's `canStart` stays the only gate on whether it runs. To a forking manager (work routing step 2) it is
+ * a pending row in its building's in-tray instead (`intrayRow`, one per tell), whatever its status.
  */
-export function relayWake(world: World, from: Agent, told: Event): Assignment | null {
+export function relayWake(world: World, from: Agent, told: Event): Assignment | Doc | null {
   const p = told.payload as { toId?: string; text?: string; origin?: Assignment["origin"] };
   const origin = p.origin;
   const to = p.toId ? world.agents.get(p.toId) : undefined;
   if (!origin || !to || to.kind !== "resident" || typeof p.text !== "string") return null;
   if (origin.hops > RELAY_MAX_HOPS || Date.now() - Date.parse(origin.at) > RELAY_MAX_AGE_MS) return null;
+  const home = forkingManagerHome(world, to);
+  if (home) {
+    // work routing step 2: a forking manager reads it in its in-tray (team-lead session), not as a fork's job
+    const human = world.nameOf(origin.userId);
+    return intrayRow(world, home, told, {
+      rule: "relay", title: `Message from ${human} (via ${from.name}): ${firstLine(p.text)}`,
+      what: `${from.name} told ${to.name} something that traces to ${human} (${origin.hops} hop${origin.hops === 1 ? "" : "s"} from them)`,
+      summary: `${from.name} (id ${from.id}) wrote:\n\n${p.text}`,
+      footer: ackFooter(`Reply to ${from.name} with \`tell\` (id ${from.id}) if it asks for an answer.`),
+    });
+  }
   if (to.status !== "idle" && to.status !== "out-of-budget") return null;
   if (world.sessions.count("agentId = ? AND status = 'running' AND purpose = 'work'", [to.id]) > 0) return null;
   const key = relayKey(told.id, to.id);
@@ -161,7 +193,7 @@ const already = (world: World, agentId: string, key: string) => !!world.assignme
 
 const firstLine = (s: string, n = 80) => { const f = s.trim().split("\n")[0].trim(); return f.length > n ? f.slice(0, n - 1) + "…" : f; };
 
-type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | null;
+type StepFiveWake = { kind: "interrupt"; agentId: string } | { kind: "assignment"; agentId: string; assignment: Assignment } | { kind: "row"; agentId: string; row: Doc } | null;
 
 /** Rule `request-answer`: the line that makes the wake for `doc.updated` event `eventId` to `agentId` unique. */
 export const requestAnswerKey = (eventId: number | string, agentId: string) => `wake:request-answer:${eventId}:${agentId}`;
@@ -171,6 +203,8 @@ export const requestAnswerKey = (eventId: number | string, agentId: string) => `
  * with a running work session is interrupted with the answer; an idle (or out-of-budget) resident gets a pending
  * directed "Answer to your request <title>: <first line>" assignment at the front of its queue (sourceId = the
  * human-report). Anyone else (a visitor, a stopped agent) keeps the inbox line only. One per event and agent.
+ * Work routing step 2: a forking manager's answer is a pending row in its building's in-tray; a retired fork's is its
+ * building's job on the asking work's chain (hole B2).
  */
 export function requestAnswerWake(world: World, request: Doc, answer: Doc, done: Event): StepFiveWake {
   if (request.authorKind !== "agent") return null;
@@ -179,6 +213,29 @@ export function requestAnswerWake(world: World, request: Doc, answer: Doc, done:
   const human = world.nameOf(answer.authorId);
   const key = requestAnswerKey(done.id, to.id);
   const text = `${human} answered your request "${request.title}" (${request.id}) in ${answer.id}:\n\n${answer.body.trim()}`;
+  const home = forkingManagerHome(world, to);
+  if (home) {
+    const row = intrayRow(world, home, done, {
+      rule: "request-answer", title: `Answer to ${to.name}'s request ${firstLine(request.title, 60)}: ${firstLine(answer.body)}`,
+      what: `${human} answered ${to.name}'s outbox request ${request.id} in ${answer.id}`,
+      summary: text, footer: ackFooter("Pick up what waited on it."),
+    });
+    return row ? { kind: "row", agentId: to.id, row } : null;
+  }
+  // hole B2: a retired fork's answer is its building's job, on the chain of the work that asked (createAssignment routes it)
+  if (to.forkOf && to.status === "retired") {
+    if (world.assignments.first("description LIKE ?", [`%${key}%`])) return null;
+    // a fork runs one assignment (forkManager): the work that asked
+    const forkWork = world.assignments.first("agentId = ?", [to.id], "ORDER BY createdAt DESC, rowid DESC");
+    const assignment = createAssignment(world, {
+      agentId: to.id, createdBy: { kind: "user", id: answer.authorId }, front: true, fromAssignmentId: forkWork?.id ?? null,
+      origin: { userId: answer.authorId, via: answer.id, hops: 0, at: answer.createdAt },
+      laneOverride: { ...DIRECTED, sourceId: answer.id },
+      title: `Answer to ${to.name}'s request ${firstLine(request.title, 60)}: ${firstLine(answer.body)}`,
+      description: `${text}\n\n${to.name} asked for it and has retired (forks live for one session): pick up the work that waited on it.\n\n(${key})`,
+    });
+    return { kind: "assignment", agentId: assignment.agentId, assignment };
+  }
   if (isWorking(world, to.id)) {
     if (world.interrupts.first("agentId = ? AND text LIKE ?", [to.id, `%${key}%`])) return null;
     interruptNow(world, to.id, `${text}\n\n(${key})`, human);
@@ -249,9 +306,10 @@ const MENTION_PREFIX = "Mentioned by ";
  * RELAY_MAX_HOPS and 24 h from the human): an idle resident with no work session gets a pending directed
  * "Mentioned by <author> for <human>: …" assignment at the front (merged into a pending one for the same human and
  * path). Inbox only when there is no origin, it is past the caps, the target is busy or not a resident, or the mention
- * is in a live meeting the target attends (a meeting reply session, M, covers that).
+ * is in a live meeting the target attends (a meeting reply session, M, covers that). A forking manager gets a pending
+ * row in its building's in-tray instead (work routing step 2).
  */
-export function mentionWake(world: World, by: Agent, mentioned: Event, where: string): Assignment | null {
+export function mentionWake(world: World, by: Agent, mentioned: Event, where: string): Assignment | Doc | null {
   const p = mentioned.payload as { toId?: string; meetingId?: string; docId?: string; origin?: Assignment["origin"] };
   const origin = p.origin;
   const to = p.toId ? world.agents.get(p.toId) : undefined;
@@ -261,12 +319,21 @@ export function mentionWake(world: World, by: Agent, mentioned: Event, where: st
     const m = world.meetings.get(p.meetingId);
     if (m && m.attendeeIds.includes(to.id) && m.phase !== "done" && m.phase !== "cancelled") return null;
   }
+  const human = world.nameOf(origin.userId);
+  const at = p.docId ? ` (${p.docId})` : p.meetingId ? ` (${p.meetingId})` : "";
+  const home = forkingManagerHome(world, to);
+  if (home) {
+    return intrayRow(world, home, mentioned, {
+      rule: "mention", title: `${MENTION_PREFIX}${by.name}${by.kind === "human" ? "" : ` for ${human}`}: ${firstLine(mentioned.text.replace(/^.*? mentioned you in /, ""))}`,
+      what: `${by.name} mentioned ${to.name} in ${where}${at}; it traces to ${human}`,
+      summary: mentioned.text,
+      footer: ackFooter(`Reply to ${by.name} with \`tell\` (id ${by.id}) if it asks for an answer.`),
+    });
+  }
   if (to.status !== "idle" && to.status !== "out-of-budget") return null;
   if (isWorking(world, to.id)) return null;
   const key = mentionKey(mentioned.id, to.id);
   if (already(world, to.id, key)) return null;
-  const human = world.nameOf(origin.userId);
-  const at = p.docId ? ` (${p.docId})` : p.meetingId ? ` (${p.meetingId})` : "";
   const tail = `\n\nIt traces to ${human}${origin.hops ? ` (${origin.hops} hop${origin.hops === 1 ? "" : "s"} from them)` : ""}. Act on it, then reply to ${by.name} with \`tell\` (id ${by.id}) if it asks for an answer.\n\n(${key})`;
   const pending = world.assignments.where("agentId = ? AND status = 'pending' AND title LIKE ?", [to.id, `${MENTION_PREFIX}%`])
     .find((a) => a.origin?.userId === origin.userId && a.origin.via === origin.via);
