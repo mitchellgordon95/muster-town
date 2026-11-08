@@ -496,7 +496,7 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   // one named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1): an agent names only itself
   // (the manager taking the work) or a visitor; everything else is building-queue work
-  if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for taking the work yourself (${me.id}) or offering it to a visitor.`);
+  if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for offering it to a visitor (your own id, ${me.id}, queues it to the building too).`);
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const model = building ? checkForkModel(building, input.model) : null;
   const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;

@@ -72,8 +72,8 @@ interface ManageGate {
  * Offer the building's new in-tray reports and its open 1:1s to its manager agent: stream them into its running manage
  * session, or start one if the manager is idle and can. A no-op for the Town Hall, buildings without a working manager
  * agent, and reports already offered. The manager's rollups are Town Hall items, never in `intrayOf(building)`, so a
- * manage session can't wake itself; the manager's own work reports (self-assigned or meeting-decided work, town hall
- * 2026-10-25 decision 6) are in it and wake the session like a resident's. A 1:1 that ended is announced to the session it was fed
+ * manage session can't wake itself; its forks' reports and the town-written rows (tells, mentions, outbox answers,
+ * grant counter/reject: wakes.ts `intrayRow`) are in it and wake the session. A 1:1 that ended is announced to the session it was fed
  * into (which then ends once no 1:1 is open). While draining, a 1:1 is still answered (and started) but new reports
  * wait; the restart cuts the session, and a fresh one picks the 1:1 up after it. A resident a human opened a 1:1 with is
  * woken the same way, for its 1:1s only. Returns the started sessions' promises.

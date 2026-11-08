@@ -287,7 +287,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
     } else {
       assignee = world.agents.require(opts.assigneeId, "agent");
       const home = assignee.homeBuildingId ?? assignee.buildingId;
-      if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name the manager itself or a visitor of the building.`);
+      if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name a visitor of the building (naming the manager queues it to the building too).`);
       if (isGone(assignee)) throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
     }
   }
