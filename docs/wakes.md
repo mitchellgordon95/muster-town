@@ -84,7 +84,9 @@ now (`canStart`, `ManageGate`).
 Assignment and Session. It is stamped and passed on by the town, never claimed by an agent:
 
 1. **Stamped** when a human acts: a human's message, a 1:1 utterance, a decision in a meeting where a human spoke, a
-   human's `assign` / flag / review.
+   human's `assign` / flag / review, and directed work an agent queues citing a human source (`sourceId`: a meeting
+   with a human, a human's tell, a human-written doc, notes of a meeting with a human), stamped at the source's own
+   time so the 24 h cap below still counts from when the human acted.
 2. **Inherited by sessions**: a work session takes its assignment's `origin`. A manage session fed by a 1:1 takes the
    origin of the human's latest line.
 3. **Passed on** by `tell`, `assign` and @mentions: the town copies the acting session's origin with `hops + 1`, so a relay
@@ -133,7 +135,11 @@ become a rule later if it is touched anyway.
    messages, assignments and sessions (JSON columns). Stamped (hops 0): a human's tell (a human's
    avatar's `tell`, via the message id), an assignment a human creates (`createdBy` a user: assign, review, decisions;
    via its meeting or report), work from a human-written doc (a flag; via the doc), a decision in a meeting a human took
-   part in (via the meeting: the 1:1's human, else the last human who spoke). A session takes its assignment's origin,
+   part in (via the meeting: the 1:1's human, else the last human who spoke), and, when none of those applies, a
+   directed assignment's cited human source (`sourceOrigin`, core/src/origin.ts; added 2026-11-08 so a directed fork's
+   tells and @mentions can wake: a meeting → its human at their latest line; a tell → its stamped origin; a human doc →
+   its author at its createdAt; meeting notes → the meeting's). `at` is the source's time, not the queueing time, and
+   the 24 h / 3-hop caps are checked when a tell or @mention is relayed (`relayWake`, `mentionWake`). A session takes its assignment's origin,
    else its meeting's (a 1:1 manage session, a mention reply). `tell`, `assign` and @mentions copy the acting
    session's origin (the agent's latest running session) with `hops + 1`; a continuation inherits the assignment it
    continues. Shown in `agent.told`, `assignment.created`, `session.started` and `agent.mentioned` payloads and in the
