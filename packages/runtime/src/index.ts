@@ -4,7 +4,7 @@
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
 import { isAbsolute, resolve as resolvePath } from "node:path";
-import { AppError, type SubTimer, withTickMemo, checkWaits, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, type SubTimer, withTickMemo, checkWaits, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, isForkingManager, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -602,6 +602,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     // forks run only through spawnForks (below): the fork row exists from the spawn, before its session does
     for (const a of subTimed("work.residents", () => world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt"))) {
       if (ctx.live.has(a.id) || starting.has(a.id) || reaping.has(a.id)) continue;
+      // work routing step 2: a forking manager never runs a work session (its work is the building's, its own is the in-tray)
+      if (subTimed("work.residents", () => isForkingManager(world, a))) continue;
       // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
       const next = subTimed("work.residents", () => nextStartable(world, a.id));
       if (!next) continue;

@@ -434,7 +434,7 @@ describe("goal-directed budgets: the Key results block", () => {
   });
 });
 
-describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1 mt_f45m8hbmct)", () => {
+describe("goal-directed budgets: a decision on a proposal reaches the manager (1:1 mt_f45m8hbmct; in-tray rows since mt_lsyqj98z0w)", () => {
   const propose = (world: ReturnType<typeof setup>["world"], mei: ReturnType<typeof setup>["mei"]) =>
     world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, { text: "Banner shows Usage", howToCheck: "Open the banner" }], objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 4_000_000, findingsDocIds: [] }).id);
 
@@ -450,29 +450,29 @@ describe("goal-directed budgets: a decision on a proposal wakes the manager (1:1
     expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [not-started] ${KRS[0]!.text}`);
   });
 
-  it("countered: a directed 'Answer the counter' assignment with the note; rejected: 'read the note'", () => {
+  it("countered: an 'Answer the counter' in-tray row with the note and how to answer; rejected: 'read the note' (work routing step 2)", () => {
     const { world, admin, mei } = setup();
-    creditBank(world); // directed work needs free tokens (2026-11-02)
     const g = propose(world, mei);
+    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND decision = 'pending' AND tags LIKE '%wake:grant-%'", [LAB], "ORDER BY createdAt, rowid");
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
-    const c = world.assignments.first("agentId = ? AND status = 'pending'", [mei.id])!;
-    expect(c).toMatchObject({ lane: "directed", grantId: null, keyResultId: null, title: "Answer the counter on Visitors can tell what the lab is for" });
-    expect(c.description).toContain("The note: half, and a sharper plan");
-    expect(c.description).toContain("ask now 2,000,000 tokens");
-    expect(c.description).toContain("propose_grant");
-    expect(world.budget.canStart(mei.id, c)).toBe(true);
-    // the manager answers: the same proposal goes back; a rejection wakes it once more
+    const [c] = rows();
+    expect(c).toMatchObject({ state: "building", title: "Answer the counter on Visitors can tell what the lab is for" });
+    expect(c!.body).toContain("The note: half, and a sharper plan");
+    expect(c!.body).toContain("ask now 2,000,000 tokens");
+    expect(c!.body).toContain(`\`propose_grant\` and grantId ${g.id}`);
+    // no job: neither the manager's own queue nor the building's
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
+    // the manager answers: the same proposal goes back; a rejection writes one more row
     world.grantDesk.update(mei, g.id, { note: "sharpened" });
     world.grantDesk.propose(mei, g.id);
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "not this quarter" });
-    const pending = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
-    expect(pending).toHaveLength(2);
-    const r = pending.find((a) => a.id !== c.id)!;
-    expect(r).toMatchObject({ lane: "directed", title: `Grant ${g.id} rejected: read the note` });
-    expect(r.description).toContain("The note: not this quarter");
-    expect(r.description).toContain(`Its key results (they close with it):\n- ${g.keyResultId} [not-started]`);
+    expect(rows()).toHaveLength(2);
+    const r = rows()[1]!;
+    expect(r.title).toBe(`Grant ${g.id} rejected: read the note`);
+    expect(r.body).toContain("The note: not this quarter");
+    expect(r.body).toContain(`Its key results (they close with it):\n- ${g.keyResultId} [not-started]`);
     expect(world.keyResults.require(g.keyResultId!).archivedAt).toBeTruthy();
-    expect(world.budget.canStart(mei.id, r)).toBe(true);
+    expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
   });
 
   it("no manager agent: nothing is queued (a human works the in-tray)", () => {

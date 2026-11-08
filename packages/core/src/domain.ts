@@ -54,15 +54,15 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; managerOnly?: boolean; model?: string | null; reservationId?: string | null }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; model?: string | null; reservationId?: string | null }): Assignment {
   let agent = world.agents.require(a.agentId, "agent");
   // work routing (1:1 mt_lsyqj98z0w): work goes to a building, never to a forking manager as a worker. Callers don't
   // pick a queue: a fork's work (a park continuation, a review follow-up) and work naming a forking manager go on the
   // building queue, held by the manager until a fork takes it. Everyone else keeps it on its own queue: a manager whose
-  // building has no forks (the Town Hall's Secretary), a visitor (an offer). `managerOnly` is the manager's own job
-  // (the checkpoint, a grant decided, parking its own session) until step 2 makes those in-tray rows.
+  // building has no forks (the Town Hall's Secretary), a visitor (an offer). What a forking manager itself must
+  // decide (a tell, a mention, an outbox answer, a grant countered or rejected) is an in-tray row (wakes.ts), never a job.
   if (agent.forkOf) agent = world.agents.require(agent.forkOf, "agent");
-  const queue: AssignmentQueue = a.agentId !== agent.id || (!a.managerOnly && isForkingManager(world, agent)) ? "building" : "agent";
+  const queue: AssignmentQueue = a.agentId !== agent.id || isForkingManager(world, agent) ? "building" : "agent";
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
   const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
@@ -329,10 +329,30 @@ export function forkableManagerOf(world: World, building: Building | undefined):
   return m?.kind === "resident" ? m : undefined;
 }
 
-/** Whether the agent is the forkable manager of its home building: work naming it goes on that building's queue (createAssignment). */
-function isForkingManager(world: World, agent: Agent): boolean {
+/**
+ * Whether the agent is the forkable manager of its home building: work naming it goes on that building's queue
+ * (createAssignment), what it must decide is an in-tray row (wakes.ts), and no work session ever starts as it.
+ */
+export function isForkingManager(world: World, agent: Agent): boolean {
   if (agent.forkOf) return false;
   return forkableManagerOf(world, world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? ""))?.id === agent.id;
+}
+
+/**
+ * Boot repair (work routing step 2, idempotent): a pending row on a forking manager's own queue (left from before
+ * work went to buildings: a grant answer, a park, a relayed tell) moves to its building's queue, where a fork runs it.
+ * One system event (payload.queueRepair) per moved row. Returns the ids it moved.
+ */
+export function moveManagerRowsToBuildingQueue(world: World): string[] {
+  const moved: string[] = [];
+  for (const a of world.assignments.where("status = 'pending' AND queue = 'agent'", [])) {
+    const agent = world.agents.get(a.agentId);
+    if (!agent || !isForkingManager(world, agent)) continue;
+    world.assignments.upsert({ ...a, queue: "building", updatedAt: nowIso() });
+    world.events.append({ type: "system", agentId: agent.id, buildingId: a.buildingId, text: `"${a.title}" moved from ${agent.name}'s own queue to ${world.buildings.get(a.buildingId)?.name ?? a.buildingId}'s queue: work goes to the building, a fork runs it`, payload: { queueRepair: true, assignmentId: a.id, from: "agent", to: "building" } });
+    moved.push(a.id);
+  }
+  return moved;
 }
 
 /**

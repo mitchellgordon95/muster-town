@@ -155,6 +155,7 @@ export async function tell(world: World, me: Agent, input: VerbIn<"tell">) {
   }
   // wakes step 2: a tell that traces to a human queues work for an idle resident
   const woke = relayWake(world, me, told);
+  if (woke && "type" in woke) return { sent: true, to: to.id, messageId: msg.id, intrayRowId: woke.id, note: `${to.name} manages ${world.buildings.get(woke.buildingId ?? "")?.name ?? "its building"}: it traces to a human, so the town put it in that building's in-tray as a pending row (${woke.id}); ${to.name} reads it in its team-lead session.` };
   if (woke) return { sent: true, to: to.id, messageId: msg.id, assignmentId: woke.id, note: `${to.name} was ${to.status}: it traces to ${world.nameOf(woke.origin!.userId)}, so the town queued "${woke.title}" (${woke.id}) for ${to.name}.` };
   const note = [forwardedFrom && `${forwardedFrom} has retired (forks live for one session); delivered to ${to.name}, its manager.`, idleNote(world, me, to)].filter(Boolean).join(" ");
   return { sent: true, to: to.id, messageId: msg.id, ...(note && { note }) };
