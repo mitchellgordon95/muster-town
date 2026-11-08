@@ -68,7 +68,7 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
   return world.transaction(() => {
     const r = world.bankReservations.upsert({ id: newId("rs"), goalId, buildingId: b.id, assignmentId: null, tokens: rule.chunkTokens, openedAt: now.toISOString(), closedAt: null, spentTokens: null });
     const a = createAssignment(world, {
-      agentId: manager.id, buildingId: b.id, queue: "building", createdBy: { kind: "system", id: r.id },
+      agentId: manager.id, buildingId: b.id, createdBy: { kind: "system", id: r.id },
       title: `Explore under "${truncate(goal?.text ?? b.name, 70)}"`,
       description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, askTokens, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, funding queues step 1), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your ask to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
       lane: { lane: "exploration", gap: `Explore under: ${goalText}`.slice(0, 300) }, reservationId: r.id,

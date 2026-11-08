@@ -26,16 +26,17 @@ describe("manager forks: the building queue", () => {
   it("assign without an agentId queues to the building (held by the manager, never run by it); a named assign stays on the agent's queue", async () => {
     const { world, pix, b, queue } = forkLab();
     const id = await queue("Fix the thing");
-    expect(world.assignments.require(id)).toMatchObject({ agentId: pix.id, queue: "building", chainId: id, model: null, buildingId: b.id });
+    expect(world.assignments.require(id)).toMatchObject({ agentId: pix.id, chainId: id, model: null, buildingId: b.id });
     expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([id]);
     expect(nextStartable(world, pix.id)).toBeUndefined();
     await expect(queue("Live check", { model: "claude-sonnet-5-5" })).rejects.toThrow(/runs forks on claude-opus-5-5 or claude-haiku-5-5/);
     expect(world.assignments.require(await queue("Live check", { model: "claude-haiku-5-5" })).model).toBe("claude-haiku-5-5");
     await expect(world.verbs.assign(pix, { agentId: pix.id, title: "x", description: "d", model: "claude-haiku-5-5" })).rejects.toThrow(/building-queue work/);
 
-    // the manager taking work itself names its own agentId
+    // work routing (mt_lsyqj98z0w): naming itself still queues to the building; a fork runs it, the manager's session stays on the in-tray
     const named = await world.verbs.assign(pix, { agentId: pix.id, title: "Mine", description: "d", gap: "test gap" });
-    expect(world.assignments.require(named.assignmentId)).toMatchObject({ queue: "agent", agentId: pix.id, chainId: named.assignmentId });
+    expect(named).toMatchObject({ queue: "building" });
+    expect(world.assignments.require(named.assignmentId)).toMatchObject({ queue: "building", agentId: pix.id, chainId: named.assignmentId });
   });
 
   it("forks are the only mode: there is no forks setting to turn off (1:1 mt_wngibcr98b)", async () => {
@@ -54,7 +55,7 @@ describe("manager forks: forkManager and retireFork", () => {
     const f1 = forkManager(world, b.id, a1);
     expect(f1.fork).toMatchObject({ name: "Pix 1", forkOf: pix.id, forkN: 1, sprite: 5, model: "claude-opus-5-5", kind: "resident", homeBuildingId: b.id, currentAssignmentId: a1, inheritsOwner: false });
     expect(f1.desk).toBe(2); // Pix and Ann sit at 0 and 1
-    expect(world.assignments.require(a1)).toMatchObject({ agentId: f1.fork.id, queue: "building" });
+    expect(world.assignments.require(a1)).toMatchObject({ agentId: f1.fork.id });
     expect(nextStartable(world, f1.fork.id)?.id).toBe(a1);
     expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([a2]);
     const forked = world.events.list({ types: ["agent.forked"] }).at(-1)!;
@@ -107,10 +108,10 @@ describe("manager forks: forkManager and retireFork", () => {
     const a1 = await queue("One");
     const { fork } = forkManager(world, b.id, a1);
     const cont = createAssignment(world, { agentId: fork.id, title: "One (continued)", description: "d", createdBy: { kind: "system", id: "system" }, fromAssignmentId: a1 });
-    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id, queue: "building", chainId: a1 });
+    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id, chainId: a1 });
     world.assignments.upsert({ ...world.assignments.require(cont.id), agentId: fork.id });
     retireFork(world, fork.id, { reason: "died" });
-    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id, queue: "building" });
+    expect(world.assignments.require(cont.id)).toMatchObject({ agentId: pix.id });
     expect(world.events.list({ types: ["agent.retired"] }).at(-1)!.payload).toMatchObject({ reason: "died" });
     // its own assignment never started (the runtime starts it after the fork), so it is back on the queue as well
     expect((world.events.list({ types: ["agent.retired"] }).at(-1)!.payload.requeued as string[]).sort()).toEqual([a1, cont.id].sort());
@@ -119,7 +120,7 @@ describe("manager forks: forkManager and retireFork", () => {
 
   it("refuses without a manager, or for work not on the building queue", async () => {
     const { world, b, queue } = forkLab();
-    const named = (await world.verbs.assign(world.agents.require(b.managerAgentId!), { agentId: b.managerAgentId!, title: "Named", description: "d", gap: "test gap" })).assignmentId;
+    const named = createAssignment(world, { agentId: b.managerAgentId!, title: "Named", description: "d", managerOnly: true, createdBy: { kind: "system", id: "system" }, lane: { gap: "test gap" } }).id;
     expect(() => forkManager(world, b.id, named)).toThrow(/isn't on Forky's building queue/);
     const q = await queue("Q");
     updateBuilding(world, b.id, { managerAgentId: null });
@@ -202,10 +203,10 @@ describe("manager forks: the chain block in a fork's work prompt (step 2)", () =
       type: "report", state: "building", title, body, verdict: "continue", authorId: pix.id, authorKind: "agent", buildingId: b.id, assignmentId, ...(sessionId ? { sessionId } : {}),
     });
     const r1 = report("Hop one", a1, "## Findings\nfirst plan");
-    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id, queue: "building" });
+    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id });
     expect(a2.chainId).toBe(a1);
     const r2 = report("Hop two done", a2.id, "## Findings\nsecond plan: do X, then Y");
-    const a3 = createAssignment(world, { agentId: pix.id, title: "Hop three", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r2.id, queue: "building" });
+    const a3 = createAssignment(world, { agentId: pix.id, title: "Hop three", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r2.id });
     const block = chainBlock(world, a3);
     expect(block).toContain(`This work continues chain ${a1} (2 reports so far)`);
     expect(block).toContain(`"Hop two done" by Pix (${r2.id}, verdict continue`);
@@ -227,7 +228,7 @@ describe("manager forks: what the web shows (step 5)", () => {
     world.ops.startSession(f1.id, { purpose: "work", model: "m", assignmentId: a1 });
     const r1 = createDoc(world, { type: "report", state: "building", title: "Hop one", body: "b", verdict: "continue", authorId: f1.id, authorKind: "agent", buildingId: b.id, assignmentId: a1 });
     retireFork(world, f1.id, { reportId: r1.id });
-    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id, queue: "building" });
+    const a2 = createAssignment(world, { agentId: pix.id, title: "Hop two", description: "d", createdBy: { kind: "system", id: "system" }, fromReportId: r1.id });
     const f2 = forkManager(world, b.id, a2.id).fork;
     const r2 = createDoc(world, { type: "report", state: "building", title: "Hop two done", body: "b", verdict: "continue", authorId: f2.id, authorKind: "agent", buildingId: b.id, assignmentId: a2.id });
     expect(reportChain(world, r1)).toMatchObject({ chainId: a1, hop: 1, prevReportId: null });

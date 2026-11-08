@@ -234,7 +234,8 @@ describe("assignments", () => {
     await world.verbs.accept_assignment(moss, { id: assignmentId });
     expect(world.agents.require(moss.id).currentAssignmentId).toBe(assignmentId);
     expect((await world.verbs.look(moss, {})).notices.currentAssignment).toBe("Check Mauna Loa");
-    expect((await world.verbs.inbox(moss, {})).messages.some((m) => m.body.includes("Check Mauna Loa"))).toBe(true);
+    // the manager naming itself queues to its building (work routing, mt_lsyqj98z0w): no "New assignment" message to itself
+    expect(world.assignments.require(assignmentId).queue).toBe("building");
   });
 
   it("done and cancelled are terminal; a report on a cancelled assignment leaves it cancelled", async () => {

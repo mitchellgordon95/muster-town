@@ -335,6 +335,8 @@ export class Ops {
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
+      // the copy runs where the original did: a building-queue row stays on the building queue, a manager's own job stays its own
+      managerOnly: a.queue === "agent",
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
   }

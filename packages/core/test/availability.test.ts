@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockedBy, classifyFailure, createAssignment, createBuilding, createResident } from "../src/index.ts";
+import { blockedBy, classifyFailure, createAssignment, createBuilding, createResident, updateBuilding } from "../src/index.ts";
 import { backoffMs } from "../src/availability.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -34,10 +34,12 @@ function town() {
   creditBank(world);
   const b = createBuilding(world, { name: "Lab", model: OPUS, cheapModel: "claude-haiku-5-5" }, seed.admin.id);
   const pix = createResident(world, { buildingId: b.id, name: "Pix", title: "t", direction: "d", model: FABLE });
+  // Pix manages the lab, so work naming Pix goes on its building queue (a fork runs it) unless managerOnly
+  updateBuilding(world, b.id, { managerAgentId: pix.id });
   const sub = world.bank.subscriptionInput()!;
   const by = { kind: "system" as const, id: "system" };
-  const mine = createAssignment(world, { agentId: pix.id, title: "Fable work", description: "d", createdBy: by });
-  const forks = createAssignment(world, { agentId: pix.id, title: "Opus fork work", description: "d", createdBy: by, queue: "building" });
+  const mine = createAssignment(world, { agentId: pix.id, title: "Fable work", description: "d", createdBy: by, managerOnly: true });
+  const forks = createAssignment(world, { agentId: pix.id, title: "Opus fork work", description: "d", createdBy: by });
   /** a session on `model` that ended with `error` (or succeeded) on the subscription input */
   const session = (model: string, error?: string) => {
     const s = world.ops.startSession(pix.id, { purpose: "work", model, funding: "subscription", credentialInputId: sub.id });
