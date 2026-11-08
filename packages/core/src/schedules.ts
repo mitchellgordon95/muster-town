@@ -200,17 +200,18 @@ function residentTaker(world: World, b: Building, takerId: string): Agent | unde
 }
 
 /**
- * Who takes a fired schedule's work: its `takerId` (a resident of the building, on its own queue: the Town Hall's
- * Secretary, whose building has no forks; gr_kdlogzzo5s) when it names one who can still work; else the building queue
- * (held by the manager until a fork takes it); a building with no manager agent: nobody (null).
+ * Who takes a fired schedule's work: its `takerId` (a resident of the building: the Town Hall's Secretary, whose
+ * building has no forks, on its own queue; gr_kdlogzzo5s) when it names one who can still work; else the forkable
+ * manager, whose work createAssignment puts on the building queue; a building with no manager agent: nobody (null).
  */
-export function scheduleTaker(world: World, b: Building, s?: Pick<Schedule, "takerId">): { agentId: string; queue: "agent" | "building" } | null {
+export function scheduleTaker(world: World, b: Building, s?: Pick<Schedule, "takerId">): { agentId: string } | null {
+  // a takerId naming the forking manager still lands on the building queue (createAssignment routes by building)
   if (s?.takerId) {
     const r = residentTaker(world, b, s.takerId);
-    return r ? { agentId: r.id, queue: "agent" } : null;
+    return r ? { agentId: r.id } : null;
   }
   const manager = forkableManagerOf(world, b);
-  return manager ? { agentId: manager.id, queue: "building" } : null;
+  return manager ? { agentId: manager.id } : null;
 }
 
 /**
@@ -268,7 +269,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
           // a named taker runs on the schedule's model too (the Secretary's digest: the Town Hall's cheapModel)
-          origin: s.origin, queue: taker.queue, model: taker.queue === "building" || s.takerId ? s.model : null,
+          origin: s.origin, model: s.model,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;
       });
@@ -288,7 +289,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       continue;
     }
     advance({ runs: s.runs + 1, lastRunAt: at.toISOString(), lastAssignmentId: a.id, missedRuns: 0, missedSince: null });
-    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${taker.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: taker.queue, ...(s.missedRuns ? { afterMissed: s.missedRuns } : {}) } });
+    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${a.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: a.queue, ...(s.missedRuns ? { afterMissed: s.missedRuns } : {}) } });
     fired.push(a);
   }
   return { fired, ended };

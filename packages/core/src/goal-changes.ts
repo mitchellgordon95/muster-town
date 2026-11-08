@@ -165,7 +165,7 @@ export class Reorgs {
       });
       for (const { b, mgr } of managed) {
         createAssignment(this.world, {
-          agentId: mgr!.id, queue: "building", buildingId: b.id, createdBy: by,
+          agentId: mgr!.id, buildingId: b.id, createdBy: by,
           title: `Reorg prep: review your work against "${clip(inp.toText, 80)}"`,
           description: `A human is changing the goal "${goal.text}" (${goal.id}) to "${inp.toText}" (change ${id}; their note ${note.id}).\n\nWhy: ${inp.why}\n\nReview your work against the new goal. Bring proposals for what goes underneath: tree changes with propose_goal and reorgId ${id}; a new key result goes on a grant proposal (propose_grant with its keyResults, naming ${id} in its note). Say in your report which of your key results and grants still serve it. Your key results under this goal are marked "under review"; their grants keep running until a human cuts them. The planning meeting (${meeting.id}) opens when every attached building's prep report is in, or at ${deadline}, whichever comes first.`,
           lane: { lane: "directed", sourceId: note.id },

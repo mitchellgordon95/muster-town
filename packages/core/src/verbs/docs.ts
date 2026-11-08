@@ -356,7 +356,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       const what = describeWait(world, resumeWhen);
       const title = (input.next?.trim() || `Resume: ${current.title}`).slice(0, 160);
       const next = createAssignment(world, {
-        agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true,
+        // a fork's continuation goes on the building queue (createAssignment); a manager's own parked session stays its own
+        agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true, managerOnly: true,
         createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
         description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
       });
@@ -480,7 +481,8 @@ export async function withdraw_request(world: World, me: Agent, input: VerbIn<"w
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   // a timed job is a building schedule (Mitchell, 1:1 mt_w7z9k1z112): nothing is pinned to an agent before it fires
   if (input.waitFor && "after" in input.waitFor) throw badRequest("A timed job goes on the building's schedule: use `schedule` (title, description, runsAt, optional repeat); whoever is around when it fires takes it.");
-  // manager forks: no agentId = the building queue; the manager holds it until a fork takes it. agentId = a named agent (the manager taking work itself)
+  // no agentId = the building queue; the manager holds it until a fork takes it. agentId = the manager itself (also the
+  // building queue when it forks: createAssignment) or a visitor (an offer)
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
@@ -499,10 +501,11 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;
   // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
-    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { queue: "building" as const, model } : {}) });
+    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { model } : {}) });
   if (pages) world.assignments.patch(a.id, { pages });
-  if (!building) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
-  return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+  const queued = a.queue === "building";
+  if (!queued) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
+  return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(queued ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
 /** `schedule`: a timed job on my building (Mitchell, 1:1 mt_w7z9k1z112); whoever is around when it fires takes the work. */

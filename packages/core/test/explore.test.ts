@@ -37,7 +37,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     const { started } = exploreTick(world);
     expect(started).toHaveLength(1);
     const a = started[0]!;
-    expect(a).toMatchObject({ buildingId: LAB, lane: "exploration", queue: "building", status: "pending" });
+    expect(a).toMatchObject({ buildingId: LAB, lane: "exploration", status: "pending" });
     const r = world.bankReservations.require(a.reservationId!);
     expect(r).toMatchObject({ goalId, buildingId: LAB, assignmentId: a.id, tokens: 100_000, closedAt: null });
     expect(freeTokens(world, goalId)).toMatchObject({ reservedTokens: 100_000, freeTokens: before - 100_000 });
@@ -106,7 +106,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     world.grantDesk.propose(mei, g.id);
     expect(exploreBlock(world, lab())).toMatch(/proposal of this building is open/);
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "no" });
-    createAssignment(world, { agentId: mei.id, buildingId: LAB, queue: "building", title: "t", description: "d", createdBy: { kind: "system", id: "x" }, lane: { gap: "a gap" } });
+    createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "t", description: "d", createdBy: { kind: "system", id: "x" }, lane: { gap: "a gap" } });
     expect(exploreBlock(world, lab())).toMatch(/other work is queued/);
     const hall = world.buildings.first("kind = 'town-hall'")!;
     expect(exploreBlock(world, hall)).toMatch(/Town Hall never explores/);

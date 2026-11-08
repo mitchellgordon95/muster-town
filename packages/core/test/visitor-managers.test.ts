@@ -58,7 +58,7 @@ describe("gr_a5ct690l7a step 4: a visitor adopts a goal and manages its building
     const r = await world.verbs.assign(v, { agentId: v.id, title: "Mine", description: "x", lane: "exploration", gap: "nothing yet" });
     expect(r.assignmentId).toBeTruthy();
     // nothing the town queues there is ever forked
-    createAssignment(world, { agentId: v.id, queue: "building", buildingId: b.id, title: "Queued", description: "x", createdBy: { kind: "system", id: "system" }, laneOverride: { lane: "exploration", grantId: null, keyResultId: null, gap: "x", sourceId: null } });
+    createAssignment(world, { agentId: v.id, buildingId: b.id, title: "Queued", description: "x", createdBy: { kind: "system", id: "system" }, laneOverride: { lane: "exploration", grantId: null, keyResultId: null, gap: "x", sourceId: null } });
     expect(forkableManagerOf(world, b)).toBeUndefined();
     expect(forkableQueue(world, world.buildings.require(b.id))).toEqual([]);
   });

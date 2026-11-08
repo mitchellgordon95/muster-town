@@ -557,7 +557,7 @@ export class Grants {
       agentId: manager.id, buildingId: g.buildingId, title: step.title.slice(0, 160),
       createdBy: by && by.kind === "human" ? holderOf(by) : { kind: "system", id: "system" },
       laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
-      ...(forkable ? { queue: "building" as const, model } : {}),
+      ...(forkable ? { model } : {}),
       ...(from ? { fromAssignmentId: from.assignmentId, fromReportId: from.reportId } : {}),
       description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
     });
@@ -914,7 +914,8 @@ export class Grants {
     const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
     const krs = this.krLines(g);
     const said = note.trim() ? `\n\nThe note: ${note.trim()}` : "";
-    const base = { agentId: manager.id, buildingId: g.buildingId, front: true, createdBy: { kind: "system" as const, id: "system" } };
+    // the manager's own job (managerOnly) until work-routing step 2 makes a grant decision an in-tray row
+    const base = { agentId: manager.id, buildingId: g.buildingId, front: true, managerOnly: true, createdBy: { kind: "system" as const, id: "system" } };
     if (decision === "countered") {
       createAssignment(this.world, {
         ...base, laneOverride: DIRECTED,

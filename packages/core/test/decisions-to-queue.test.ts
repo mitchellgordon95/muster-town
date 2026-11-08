@@ -68,9 +68,16 @@ describe("decisions naming a forking manager go to the building queue", () => {
     expect(world.assignments.require(r3.assignmentId!)).toMatchObject({ agentId: ann.id, queue: "agent" });
   });
 
-  it("the town's own manager jobs stay on the manager (createAssignment keeps queue agent)", () => {
-    const { world, b, pix } = lab();
-    const a = createAssignment(world, { agentId: pix.id, buildingId: b.id, front: true, createdBy: { kind: "system", id: "system" }, laneOverride: { lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null }, title: "Write the checkpoint for X", description: "d" });
-    expect(a.queue).toBe("agent");
+  it("createAssignment routes by building: work naming a forking manager goes on its building queue; managerOnly keeps the manager's own job", () => {
+    const { world, b, pix, ann } = lab();
+    const lane = { lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null };
+    const by = { kind: "system" as const, id: "system" };
+    // any caller (a wake, a human's assign or POST /work, a schedule takerId, a retry) names the manager: a fork runs it
+    expect(createAssignment(world, { agentId: pix.id, createdBy: by, laneOverride: lane, title: "Message from Mitchell", description: "d" }).queue).toBe("building");
+    // the manager's own job (a grant decided, parking its own session) until step 2 makes it an in-tray row
+    const own = createAssignment(world, { agentId: pix.id, buildingId: b.id, front: true, managerOnly: true, createdBy: by, laneOverride: lane, title: "Answer the counter on X", description: "d" });
+    expect(own.queue).toBe("agent");
+    // anyone else keeps it on its own queue
+    expect(createAssignment(world, { agentId: ann.id, createdBy: by, laneOverride: lane, title: "t", description: "d" }).queue).toBe("agent");
   });
 });
