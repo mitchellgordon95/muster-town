@@ -222,7 +222,7 @@ export function pressDigest(world: World, actor: Agent, at: Date = new Date()): 
   return world.transaction(() => {
     const a = createAssignment(world, {
       agentId: sec.id, title: `${s.title} (run now)`, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
-      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: humanOrigin(by.id, s.id, at.toISOString()), queue: "agent", model: s.model,
+      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: humanOrigin(by.id, s.id, at.toISOString()), model: s.model,
     });
     // the schedule's next fire skips while this run is under way (fireSchedules checks lastAssignmentId)
     world.schedules.patch(s.id, { lastAssignmentId: a.id, updatedAt: at.toISOString() });

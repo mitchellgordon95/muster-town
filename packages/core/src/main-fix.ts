@@ -78,7 +78,7 @@ export function queueMainFix(world: World, ci: MainCi, commit: RedCommit, opts: 
   const lane = (): Assignment => {
     const g = world.grants.get(grantId);
     const make = (grant: boolean) => createAssignment(world, {
-      agentId: manager.id, title, description, buildingId: building.id, queue: "building", createdBy: { kind: "system", id: "main-ci" },
+      agentId: manager.id, title, description, buildingId: building.id, createdBy: { kind: "system", id: "main-ci" },
       lane: grant ? { lane: "grant", grantId } : { lane: "directed" },
     });
     if (g?.buildingId === building.id && g.status === "funded") {

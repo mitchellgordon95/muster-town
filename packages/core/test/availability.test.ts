@@ -36,8 +36,8 @@ function town() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix", title: "t", direction: "d", model: FABLE });
   const sub = world.bank.subscriptionInput()!;
   const by = { kind: "system" as const, id: "system" };
-  const mine = createAssignment(world, { agentId: pix.id, title: "Fable work", description: "d", createdBy: by });
-  const forks = createAssignment(world, { agentId: pix.id, title: "Opus fork work", description: "d", createdBy: by, queue: "building" });
+  const mine = createAssignment(world, { agentId: pix.id, title: "Fable work", description: "d", createdBy: by, managerOnly: true });
+  const forks = createAssignment(world, { agentId: pix.id, title: "Opus fork work", description: "d", createdBy: by });
   /** a session on `model` that ended with `error` (or succeeded) on the subscription input */
   const session = (model: string, error?: string) => {
     const s = world.ops.startSession(pix.id, { purpose: "work", model, funding: "subscription", credentialInputId: sub.id });

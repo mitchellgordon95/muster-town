@@ -49,7 +49,7 @@ describe("plant a flag", () => {
     await tickUntil(world, world.verbs.go(manager, { to: `flag:${flag2.id}` }));
     const r2 = await world.verbs.review(manager, { docId: flag2.id, decision: "redirect", note: "Open the board and report what you see", assigneeId: manager.id });
     const a2 = world.assignments.require(r2.assignmentId!);
-    expect(a2).toMatchObject({ agentId: manager.id, queue: "agent", title: "Open the board and report what you see", lane: "directed" });
+    expect(a2).toMatchObject({ agentId: manager.id, queue: "building", title: "Open the board and report what you see", lane: "directed" });
     expect(a2.description).toContain("Check the board loads");
 
     const flag3 = world.ops.plantFlag(admin, LAB, "Nothing to do here");

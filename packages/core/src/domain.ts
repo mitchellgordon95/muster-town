@@ -54,12 +54,15 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; queue?: AssignmentQueue; model?: string | null; reservationId?: string | null }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; managerOnly?: boolean; model?: string | null; reservationId?: string | null }): Assignment {
   let agent = world.agents.require(a.agentId, "agent");
-  let queue: AssignmentQueue = a.queue ?? "agent";
-  // a fork lives for one session: work made for it (a park continuation, a review follow-up) goes on the building queue,
-  // held by the manager until the next fork takes it
-  if (agent.forkOf) { agent = world.agents.require(agent.forkOf, "agent"); queue = "building"; }
+  // work routing (1:1 mt_lsyqj98z0w): work goes to a building, never to a forking manager as a worker. Callers don't
+  // pick a queue: a fork's work (a park continuation, a review follow-up) and work naming a forking manager go on the
+  // building queue, held by the manager until a fork takes it. Everyone else keeps it on its own queue: a manager whose
+  // building has no forks (the Town Hall's Secretary), a visitor (an offer). `managerOnly` is the manager's own job
+  // (the checkpoint, a grant decided, parking its own session) until step 2 makes those in-tray rows.
+  if (agent.forkOf) agent = world.agents.require(agent.forkOf, "agent");
+  const queue: AssignmentQueue = a.agentId !== agent.id || (!a.managerOnly && isForkingManager(world, agent)) ? "building" : "agent";
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
   const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
@@ -210,9 +213,8 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
       ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
     ].join("\n\n");
   }
-  // a manager's own report continued or redirected: the next step is a fork's, not the manager's own session
-  const toQueue = decisionQueue(world, author.id);
-  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane, ...(toQueue ? { queue: toQueue.queue } : {}) });
+  // a manager's own report continued or redirected: createAssignment makes the next step a fork's (building queue)
+  assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane });
   if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
 }
@@ -274,7 +276,6 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
   // an agent (the manager) walks to a flag standing on the map and picks it up before deciding it; a human decides from the in-tray
   if (decider.kind === "agent" && flag.flagPos && !flag.pickedUpAt) throw new AppError("bad_request", `Pick the flag up first: it stands on the map at (${flag.flagPos.x}, ${flag.flagPos.y}). \`go\` to ${flagPlaceId(flag.id)}, read it, then decide it.`);
   let assignee: Agent | undefined;
-  let queue: "building" | undefined;
   if (decision !== "approve") {
     const building = world.buildings.get(flag.buildingId ?? "");
     const manager = managerAgentOf(world, building);
@@ -283,7 +284,6 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
       if (visitor) throw visitor;
       if (!manager) throw new AppError("bad_request", `${building?.name ?? "The building"} has no manager agent to fork: approve the flag, or name a visitor of the building (assigneeId).`);
       assignee = manager;
-      queue = "building";
     } else {
       assignee = world.agents.require(opts.assigneeId, "agent");
       const home = assignee.homeBuildingId ?? assignee.buildingId;
@@ -299,8 +299,9 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
   const description = decision === "continue"
     ? `${by} planted a flag in your building (${flag.id}):\n\n${flag.body}${note ? `\n\nYour manager's note: ${note}` : ""}`
     : `Your manager ${world.nameOf(decider.id)} gave you ${by}'s flag (${flag.id}):\n\n${note}\n\nThe flag said:\n\n${flag.body}`;
-  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED, ...(queue ? { queue } : {}) });
-  if (!queue) sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
+  // the manager named (or not) → its building queue when it forks (createAssignment); a visitor gets an offer and a message
+  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED });
+  if (assignment.queue === "agent") sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
   if (assignee.status === "stopped") world.setStatus(assignee.id, "idle");
   return { doc, assignment };
 }
@@ -328,18 +329,22 @@ export function forkableManagerOf(world: World, building: Building | undefined):
   return m?.kind === "resident" ? m : undefined;
 }
 
+/** Whether the agent is the forkable manager of its home building: work naming it goes on that building's queue (createAssignment). */
+function isForkingManager(world: World, agent: Agent): boolean {
+  if (agent.forkOf) return false;
+  return forkableManagerOf(world, world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? ""))?.id === agent.id;
+}
+
 /**
- * Where work a decider gives an agent goes (a meeting decision, a review's continue/redirect): a manager whose building
- * forks has it on its building's queue, so a fork runs it and the manager's own session stays on the in-tray (1:1
- * mt_peubjyoo0k). Anyone else (a visitor, a non-forking manager, a fork: createAssignment already moves that) keeps it.
- * The town's own manager jobs (checkpoint, grant decided, explore, schedules) never come through here.
+ * Where work a decider gives an agent goes (a meeting decision names its line by it): a forking manager's is on its
+ * building's queue (createAssignment routes it), so a fork runs it and the manager's own session stays on the in-tray
+ * (1:1 mt_peubjyoo0k). Null for anyone else (a visitor, a non-forking manager, a fork).
  */
 export function decisionQueue(world: World, agentId: string): { queue: "building"; building: Building; manager: Agent } | null {
   const agent = world.agents.get(agentId);
-  if (!agent || agent.forkOf) return null;
-  const building = world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? "");
-  const manager = forkableManagerOf(world, building);
-  return building && manager?.id === agent.id ? { queue: "building", building, manager } : null;
+  if (!agent || !isForkingManager(world, agent)) return null;
+  const building = world.buildings.require(agent.homeBuildingId ?? agent.buildingId ?? "", "building");
+  return { queue: "building", building, manager: agent };
 }
 
 /** "Town Workshop queue (a fork of Pix)": how a decision line names building-queue work. */
