@@ -120,7 +120,8 @@ describe("manager forks: forkManager and retireFork", () => {
 
   it("refuses without a manager, or for work not on the building queue", async () => {
     const { world, b, queue } = forkLab();
-    const named = createAssignment(world, { agentId: b.managerAgentId!, title: "Named", description: "d", managerOnly: true, createdBy: { kind: "system", id: "system" }, lane: { gap: "test gap" } }).id;
+    // a row on the manager's own queue (only a pre-step-2 leftover can be one now)
+    const named = world.assignments.upsert({ ...createAssignment(world, { agentId: b.managerAgentId!, title: "Named", description: "d", createdBy: { kind: "system", id: "system" }, lane: { gap: "test gap" } }), queue: "agent" }).id;
     expect(() => forkManager(world, b.id, named)).toThrow(/isn't on Forky's building queue/);
     const q = await queue("Q");
     updateBuilding(world, b.id, { managerAgentId: null });

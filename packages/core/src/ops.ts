@@ -330,13 +330,11 @@ export class Ops {
   retryAssignment(actor: Actor, assignmentId: string, opts: { front?: boolean } = {}): Assignment {
     const { a, agent } = this.controlAssignment(actor, assignmentId);
     if (a.status !== "cancelled" && a.status !== "done") throw new AppError("conflict", `Only cancelled or done assignments can be retried; "${a.title}" is ${a.status}.`);
-    // a retired fork's work is retried on the building queue (createAssignment hands it to the manager)
+    // routed like any job (createAssignment): a fork's or a forking manager's work goes on the building queue, anyone else's stays its own
     if (isGone(agent) && !(agent.status === "retired" && agent.forkOf)) throw goneError(agent);
     return createAssignment(this.world, {
       agentId: agent.id, buildingId: a.buildingId, title: a.title, description: a.description,
       fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.id, front: !!opts.front,
-      // the copy runs where the original did: a building-queue row stays on the building queue, a manager's own job stays its own
-      managerOnly: a.queue === "agent",
       createdBy: actor ? this.world.holderOf(actor) : { kind: "system", id: "system" },
     });
   }

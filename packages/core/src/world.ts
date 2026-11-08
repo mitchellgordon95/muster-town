@@ -9,7 +9,7 @@ import { Secretary } from "./secretary.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
-import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
+import { intrayCount, intrayCounts, isTownHallItem, moveManagerRowsToBuildingQueue } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { AppError } from "./errors.ts";
@@ -286,6 +286,7 @@ export class World {
     this.layout.rebuild();
     this.repairDesks();
     this.grantDesk.releaseHalfway();
+    moveManagerRowsToBuildingQueue(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
