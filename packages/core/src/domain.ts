@@ -444,7 +444,7 @@ function stoppedGrants(world: World, now = Date.now()): GrantView[] {
     .map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
+/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
 export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
   // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts);
