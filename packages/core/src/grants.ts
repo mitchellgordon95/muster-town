@@ -875,12 +875,11 @@ export class Grants {
       if (!tokens || at === null || spent < at) continue;
       const crossed = passed(spent, tokens).filter((f) => !g.checkpointsDone.includes(f));
       const pct = Math.round((spent / tokens) * 100);
-      const what = "its ceiling";
       // the top-up line the forks filed since the last continue stays: it is what the card asks about (continue/adjust clear it)
       const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
-        `Spend reached ${what}: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
+        `Spend reached its ceiling: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
       this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: 1, spentTokens: spent, grantTokens: tokens } });
-      this.notifyFunders(next, null, `"${g.objective}" reached ${what} (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; continue, adjust or cut it in the Town Hall in-tray.`);
+      this.notifyFunders(next, null, `"${g.objective}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the Town Hall in-tray.`);
       held.push(next);
     }
     return held;

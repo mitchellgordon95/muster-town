@@ -103,8 +103,8 @@ export function stepCalibration(world: World, now = new Date()): StepCalibration
     if (a.status !== "done" || a.updatedAt < since) continue;
     if (!grants.has(a.grantId!)) grants.set(a.grantId!, world.grants.get(a.grantId!));
     const step = grants.get(a.grantId!)?.steps[a.grantStep!];
-    const size = step?.size ?? "M";
     if (!step) continue;
+    const size = step.size ?? "M";
     const spent = ids.get(k)!.reduce((s, id) => s + (spentBy.get(id) ?? 0), 0);
     const r = spent / table[size];
     all[size].push(r);
