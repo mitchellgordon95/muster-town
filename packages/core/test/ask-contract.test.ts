@@ -6,7 +6,7 @@
 import { checkAskContract, vetAsk } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, townHallIntray } from "../src/index.ts";
-import { asksFor } from "../src/asks.ts";
+import { asksFor, cardObjective } from "../src/asks.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -50,8 +50,19 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     // propose_grant: the town's card from the plan passes when the objective does
     const clean = await world.verbs.propose_grant(mei, plan("Show the lab's goal first on its board"));
     expect(asksFor(world, { kind: "grant", id: clean.grantId })[0]).toMatchObject({ tags: [], claims: [expect.objectContaining({ check: { kind: "kr", ref: expect.stringMatching(/^kr_/) } })] });
-    // an objective that breaks the linter is refused with the rule; the explorer's own card passes instead
-    await expect(world.verbs.propose_grant(mei, plan("Show the goal (see gr_abc123) first; then the grants"))).rejects.toThrow(/no-ids[\s\S]*no-semicolons|no-semicolons[\s\S]*no-ids/);
+    // the card carries the objective's first sentence only, parentheses dropped, clipped to 25 words: a long objective
+    // with asides and a snake_case word passes, and the grant keeps it whole
+    const long = "Make the lab board answer what the lab is for in one look (the goal, its grants and the open key results, read from db_path and the board API) for every guest who opens it, before anything else; then measure it. A second sentence the card leaves out.";
+    const passed = await world.verbs.propose_grant(mei, plan(long));
+    const longAsk = asksFor(world, { kind: "grant", id: passed.grantId })[0]!;
+    expect(longAsk.tags).toEqual([]);
+    expect(longAsk.body).toContain("\nMake the lab board answer what the lab is for in one look for every guest who opens it, before anything else.\n");
+    expect(longAsk.body).not.toContain("second sentence");
+    expect(world.grants.require(passed.grantId).objective).toBe(long);
+    expect(cardObjective(`${"word ".repeat(30)}end.`)).toBe(`${"word ".repeat(25).trim()}…`);
+    await world.verbs.propose_grant(mei, plan("Read the settings from db_path on boot"));
+    // an id in the first sentence is still refused with the rule; the explorer's own card passes instead
+    await expect(world.verbs.propose_grant(mei, plan("Show gr_abc123 first on the board"))).rejects.toThrow(/no-ids/);
     const card = {
       body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the goal shows first.\nIf you reject: the board stays as it is.",
       recommendation: "Fund: one session does it.", claims: [{ text: "The board API lists the goal", check: { kind: "api" as const, ref: "GET /api/buildings/carbon-cycle /building/goal" } }],

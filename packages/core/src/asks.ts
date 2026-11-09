@@ -240,14 +240,31 @@ export const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g
 /** The card fields a proposal's money ask carries. */
 type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
 
+/** Most words the card keeps of the objective: STE's limit for a description. */
+const CARD_OBJECTIVE_WORDS = 25;
+
+/**
+ * The objective as a proposal card says it: its first sentence (a semicolon ends one too), parenthesised asides
+ * dropped, clipped to CARD_OBJECTIVE_WORDS words (ending in an ellipsis when clipped, else a full stop).
+ */
+export function cardObjective(objective: string): string {
+  const plain = objective.replace(/\s*\([^()]*\)/g, "").replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+  const first = (plain.split(/(?<=[.!?])\s+|;\s*/)[0] ?? "").trim().replace(/[.!?]+$/, "");
+  const words = first.split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  if (words.length > CARD_OBJECTIVE_WORDS) return `${words.slice(0, CARD_OBJECTIVE_WORDS).join(" ").replace(/[,:]+$/, "")}…`;
+  return `${words.join(" ").replace(/[,:]+$/, "")}.`;
+}
+
 /**
  * The card the town writes for a proposal whose explorer gave none (`propose_grant` without `ask`, or a proposal made
- * over REST): the prior decision, the objective as written, the ask, what is spent, the steps, both branches, and the
- * first two key results as its claims (checked by their howToCheck when it is a curl or a URL). The objective is the
- * explorer's own words, so the linter judges it: an objective with ids, parentheses or long sentences fails.
+ * over REST): the prior decision, the objective, the ask, what is spent, the steps, both branches, and the first two
+ * key results as its claims (checked by their howToCheck when it is a curl or a URL). The objective is the explorer's
+ * own words: the card carries only its first sentence (`cardObjective`), and the linter judges that (an id there still
+ * fails). The full objective stays on the grant.
  */
 export function proposalCard(p: { objective: string; askTokens: number; steps: number; keyResults: { id?: string; text: string }[]; counteredAt?: string | null }): Card {
-  const objective = p.objective.trim().replace(/([^.!?])$/, "$1.");
+  const objective = cardObjective(p.objective);
   const prior = p.counteredAt ? `You countered it at ${stamp(p.counteredAt)}. This is the revised plan.` : "This is a new proposal. You have not decided on it before.";
   return {
     body: [

@@ -27,6 +27,9 @@ describe("the ask linter (docs/legible-delegation.md §5)", () => {
     // no ids
     expect(rules("The grant gr_q1jrelx2ty has spent 474k.")).toEqual(["no-ids"]);
     expect(rules("The self-host grant has spent 474k.")).toEqual([]);
+    // only the town's own id prefixes count: a snake_case word is no id
+    expect(rules("The server reads its settings from db_path at boot.")).toEqual([]);
+    expect(rules("The key result kr_ab12cd is claimed.")).toEqual(["no-ids"]);
     // no semicolons, no parentheses
     expect(rules("It has spent 474k; one step is left.")).toEqual(["no-semicolons"]);
     expect(rules("It has spent 474k. One step is left.")).toEqual([]);

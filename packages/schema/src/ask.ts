@@ -60,7 +60,9 @@ function isInstruction(s: string): boolean {
 /** The longest sentence STE allows: 20 words for an instruction, 25 for a description. */
 export const ASK_MAX_WORDS = { instruction: 20, description: 25 } as const;
 
-const ID = /\b[a-z]{2}_[a-z0-9]+\b/;
+/** The town's own ids (a known prefix, an underscore, lowercase letters and digits): not any two letters, so a word like db_path is no id. */
+const ASK_ID_PREFIXES = ["gr", "dc", "kr", "as", "mt", "sc", "cr", "ar", "ak", "nt", "us", "ag", "bl", "se", "ob", "gl", "mf", "ev"] as const;
+const ID = new RegExp(`\\b(?:${ASK_ID_PREFIXES.join("|")})_[a-z0-9]+\\b`);
 
 // ---- the linter ----
 
