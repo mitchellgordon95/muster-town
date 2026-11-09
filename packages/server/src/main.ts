@@ -120,12 +120,14 @@ async function main() {
     });
     // retire and shutdown close the app before its World: stop the runtime first
     app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    w.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
     await startHosted(app, w, row.slug, dir);
     return app;
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
   const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
+  world.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);

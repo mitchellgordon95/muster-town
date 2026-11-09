@@ -66,10 +66,10 @@ export async function runClaimChecks(world: World, ask: Ask, deps: CheckDeps = {
   return next;
 }
 
-/** Run the ask's checks in the background after a create (never blocks it; a failure is only logged). */
+/** Run the ask's checks in the background after a create (never blocks it; a failure is only logged). Only where the server turned them on (`world.host.claimChecks`). */
 export function queueClaimChecks(world: World, askId: string): void {
   const ask = world.asks.get(askId);
-  if (!ask || !ask.claims.some((c) => mechanical(world, c))) return;
+  if (!world.host.claimChecks || !ask || !ask.claims.some((c) => mechanical(world, c))) return;
   setImmediate(() => { runClaimChecks(world, ask).catch((e: unknown) => console.warn(`[asks] claim checks of ${askId} failed: ${e instanceof Error ? e.message : String(e)}`)); });
 }
 

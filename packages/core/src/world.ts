@@ -103,6 +103,8 @@ export interface HostHooks {
   prChecks?(pr: number): PrChecks | undefined;
   /** GET one of the town's own API paths in-process, as a signed-out reader (set by the server): an ask's `api` claim check (ask-checks.ts). */
   apiGet?(path: string): Promise<{ status: number; body: unknown }>;
+  /** Run an ask's claim checks in the background as it is filed (set by the server; unset in tests and scripts, which run no network). */
+  claimChecks?: boolean;
   /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
   mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
