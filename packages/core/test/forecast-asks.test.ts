@@ -55,7 +55,7 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
     const ask = asks[0]!;
     expect(ask).toMatchObject({ type: "money", status: "open", targetKind: "grant", targetId: g.id, sourceDocId: r.id, tags: [] });
     expect(ask.branches).toEqual([{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }]);
-    expect(ask.title).toBe('Adjust or cut A banner: projected 140k past its ceiling');
+    expect(ask.title).toBe('Adjust or cut "A banner": projected 140k past its ceiling');
     expect(ask.body).toContain("You funded this at 600,000 tokens on");
     expect(ask.body).toContain("It has spent 340,000 of its 600,000-token ceiling.");
     expect(ask.body).toContain("Two of 3 steps are done: one S, one M.");
@@ -90,7 +90,7 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
     expect(world.grants.require(g.id).status).toBe("checkpoint");
     const asks = gateAsks(g.id);
     expect(asks).toHaveLength(1);
-    expect(asks[0]!.title).toBe('A banner is held at its ceiling: adjust or cut it');
+    expect(asks[0]!.title).toBe('"A banner" is held at its ceiling: adjust or cut it');
     expect(asks[0]!.body).toContain("New sessions on it wait for you.");
     expect(asks[0]!.history.some((h) => h.action === "fold")).toBe(true);
     expect(asks[0]!.tags).toEqual([]);
@@ -111,7 +111,7 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
     expect(gateAsks(g.id).map((a) => a.id)).toEqual([yn.id]);
     expect(live[0]!.body.startsWith("From the rollup.\n\n")).toBe(true);
     expect(live[0]!.body).toContain("If you cut:");
-    expect(live[0]!.title).toBe('Adjust or cut A banner: projected 140k past its ceiling');
+    expect(live[0]!.title).toBe('Adjust or cut "A banner": projected 140k past its ceiling');
     expect(live[0]!.sources.map((s) => s.docId)).toContain(rollup.id);
     expect(live[0]!.sources.length).toBeGreaterThan(1);
   });
@@ -195,7 +195,7 @@ describe("the checkpoint ask's card", () => {
     } as never);
     world.grantDesk.checkpoints(g.buildingId);
     const ask = gateAsks(g.id)[0]!;
-    expect(ask.title).toBe('A banner is held at its ceiling: adjust or cut it');
+    expect(ask.title).toBe('"A banner" is held at its ceiling: adjust or cut it');
     expect(ask.tags).toEqual(["lint-failed"]);
     const lint = ask.history.find((h) => h.action === "lint")!.note;
     expect(lint).toContain("contract recommendation");

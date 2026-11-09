@@ -240,8 +240,14 @@ export const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g
 /** The card fields a proposal's money ask carries. */
 type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
 
-/** A proposal's money ask's title: the grant by its title, never its objective (docs/legible-delegation.md §5). */
-const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens">) => `Fund ${grantName(g)} at ${kTokens(g.askTokens)}`;
+/**
+ * A grant's name as an ask title or sentence quotes it: in double quotes, so it reads as a name and not as words of the
+ * sentence around it ("Fund "Town health on the Town Hall" at 150k", never "Fund Town health on the Town Hall at 150k").
+ */
+export const quotedGrantName = (g: Pick<Grant, "title" | "objective">) => `"${grantName(g)}"`;
+
+/** A proposal's money ask's title: the grant by its title, never its objective (docs/legible-delegation.md §5), quoted. */
+const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens">) => `Fund ${quotedGrantName(g)} at ${kTokens(g.askTokens)}`;
 
 /** A line a card may carry as it stands: every sentence passes the sentence rules of the linter and none has an ellipsis. */
 function lintsClean(line: string): boolean {
@@ -548,6 +554,28 @@ export function retitleClippedAsks(world: World): number {
   return done.length;
 }
 
+/**
+ * Boot repair (migration 107: grants made before 105 carry written titles, and ask titles quote a grant's name): every
+ * live ask on a grant whose card the town wrote (`townCardOf`) takes that card's title when it differs, keeping its body,
+ * id, sources, rank, status and history, with a "retitled" history entry. A card a manager wrote is untouched.
+ * Idempotent. Returns how many asks it retitled.
+ */
+export function retitleGrantAsks(world: World): number {
+  let n = 0;
+  world.transaction(() => {
+    for (const a of world.asks.where(`${LIVE_ASK} AND targetKind = 'grant'`, [], "ORDER BY createdAt, rowid")) {
+      const card = townCardOf(world, a);
+      if (!card) continue;
+      const title = clipWords(card.title, 200);
+      if (title === a.title) continue;
+      const at = nowIso();
+      world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
+      n++;
+    }
+  });
+  return n;
+}
+
 // ---- legible delegation step 7: the gate card (an over-ceiling forecast, a hold at the ceiling) ----
 
 const GATE_BRANCHES: AskBranch[] = [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }];
@@ -633,7 +661,7 @@ function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; rep
     ...(report ? [{ text: clipWords(`The latest step report, "${withoutEllipsis(report.title)}", says ${verdict ?? "continue"}.`, 400), check: kr ? { kind: "kr" as const, ref: kr.id } : { kind: "manual" as const, ref: report.id } }] : []),
     ...(g.topUpTokens && g.whatTopUpBuys.trim() ? [{ text: `The forks say ${fmt(g.topUpTokens)} more tokens finish it`, check: topUpReport ? { kind: "manual" as const, ref: topUpReport } : { kind: "manual" as const } }] : []),
   ];
-  const name = grantName(g);
+  const name = quotedGrantName(g);
   const title = o.held ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}: projected ${kTokens(need)} past its ceiling`;
   return { title, body, recommendation, claims };
 }

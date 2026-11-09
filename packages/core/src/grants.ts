@@ -931,7 +931,7 @@ export class Grants {
     const said = note.trim() ? `The note: ${note.trim()}` : "No note was given.";
     if (decision === "countered") {
       intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-countered", title: `Answer the counter on ${grantName(g)}`.slice(0, 160),
+        rule: "grant-countered", title: `Answer the counter on "${grantName(g)}"`.slice(0, 160),
         what: `${who} countered proposal ${g.id}`,
         summary: `${who} countered your proposal ${g.id} "${grantName(g)}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
         footer: `To answer: read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask); revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, \`withdraw_grant\` it and say what you'd propose instead. Then acknowledge this row with \`review\` approve.`,

@@ -463,7 +463,7 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND decision = 'pending' AND tags LIKE '%wake:grant-%'", [LAB], "ORDER BY createdAt, rowid");
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
     const [c] = rows();
-    expect(c).toMatchObject({ state: "building", title: "Answer the counter on Visitors can tell what the lab is for" });
+    expect(c).toMatchObject({ state: "building", title: 'Answer the counter on "Visitors can tell what the lab is for"' });
     expect(c!.body).toContain("The note: half, and a sharper plan");
     expect(c!.body).toContain("ask now 2,000,000 tokens");
     expect(c!.body).toContain(`\`propose_grant\` and grantId ${g.id}`);
