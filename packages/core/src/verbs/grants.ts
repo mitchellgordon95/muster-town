@@ -45,11 +45,12 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${g.objective.slice(0, 120)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
   }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
+  const flagged = world.asks.exists("targetKind = 'grant' AND targetId = ? AND status = 'open' AND tags LIKE '%\"lint-failed\"%'", [g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
     // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask stands as given
     estimate: g.estimate?.sentence ?? null,
-    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${flagged ? " Its ask card still fails the linter after three tries: it is filed flagged lint-failed, so the humans see that it was not cleaned up." : ""}`,
   };
 }
 

@@ -29,7 +29,7 @@ function mechanical(world: World, c: AskClaim): boolean {
 type Result = NonNullable<AskClaim["result"]>;
 
 /** What a check reaches the outside with; tests pass fakes. */
-export interface CheckDeps {
+interface CheckDeps {
   /** GitHub's REST API (default: global fetch) */
   fetch?: typeof fetch;
   /** a public https URL's status (default: core net-guard `safeGet`, status only) */

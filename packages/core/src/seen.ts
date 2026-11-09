@@ -11,7 +11,7 @@ import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
 /** What a human can have opened: a report (any doc), a grant, an ask. */
-export type SeenKind = "report" | "grant" | "ask";
+type SeenKind = "report" | "grant" | "ask";
 
 /** Record that a signed-in human opened a target now (the server's routes call it; never for an agent). */
 export function markSeen(world: World, userId: string, kind: SeenKind, id: string): void {
@@ -27,7 +27,7 @@ function seenAt(world: World, userId: string, kind: SeenKind, ids: string[]): Ma
 }
 
 /** One human's delta on one target: when they last opened it, last decided it, what they said about it, what they have not read. */
-export interface ReaderDelta {
+interface ReaderDelta {
   /** the last time they opened the target (for a grant: the grant or any ask on it), or null */
   lastSeen: string | null;
   /** their latest decision on it (a grant's fund, counter, reject, continue, adjust, cut, close or stop), or null */
