@@ -1,0 +1,27 @@
+# Invariants: asks
+
+What must always hold for asks (`packages/core/src/asks.ts`, the `asks` table from migration 097). An ask is something only a human can do, stored and typed instead of parsed out of a report's prose. Each invariant names the test that proves it. The design is in [docs/legible-delegation.md](../legible-delegation.md) §3-4 (build steps 1-2 in §11), and the map is in [docs/architecture.md](../architecture.md#map-the-system-in-10-minutes).
+
+**Citation format** (checked by `npm run check:docs`, see `scripts/check-doc-refs.ts`): each invariant has one or more lines like
+
+- Test: `packages/core/test/asks.test.ts` › `only a human who can fund decides an ask; a deferred ask stays listed until decided`
+
+The first code span is the test file. The second is the `it` text, copied exactly. If the file is missing or the text isn't in it, the check fails, so renaming a cited test means updating this doc in the same change.
+
+## Invariants
+
+1. **An ask is created in code where its source is created, never parsed later.** A grant proposal and a grant held at its checkpoint file a money ask on the grant (`Grants.event` and `Grants.checkpoints`); an asked retainer a money ask on its schedule (`askRetainer`); `request_human` a credential ask when it asks for a token or key, else a click (target the request); a captain ask and an access request a click. Each carries its type, target, building, record, title, body from the source's own words and the branches of its decision verbs.
+   - Test: `packages/core/test/asks.test.ts` › `a proposal files one money ask; a second ask on its grant folds in as a source line; funding retires it with the event's text`
+   - Test: `packages/core/test/asks.test.ts` › `a checkpoint, a retainer, an outbox request, a captain ask and an access request each file one ask, and the event that decides each retires it`
+2. **One live ask per target.** A second ask on a target (targetKind + targetId) that already has an open or deferred one folds into it as a source line (`ask.folded`); no second ask is made, and the same record and line again changes nothing.
+   - Test: `packages/core/test/asks.test.ts` › `a proposal files one money ask; a second ask on its grant folds in as a source line; funding retires it with the event's text`
+3. **The event that decides a target retires its live asks, with that event's text as `retiredBy`.** The hooks sit next to the state change, never on a timer: a grant funded, continued, adjusted, countered, rejected, cut, closed, withdrawn or stopping (`Grants.event`); access let in or declined; a captain ask accepted or declined; a request claimed, declined, withdrawn or deleted (`requestAction`); a retainer decided or ended; a key result whose status a human sets, or that is met or missed by anyone; and a reset account's pending requests.
+   - Test: `packages/core/test/asks.test.ts` › `a checkpoint, a retainer, an outbox request, a captain ask and an access request each file one ask, and the event that decides each retires it`
+4. **Every call the digest's `overtakenReason` labels overtaken has had its asks retired by a hook.** The regex in `packages/core/src/secretary.ts` only words the digest; the hooks are the mechanism.
+   - Test: `packages/core/test/asks.test.ts` › `every case overtakenReason detects is also retired by a hook`
+5. **Only a human decides an ask; nothing decides one by silence.** `decideAsk` needs a human who can fund the ask's building, and records who, when and what; `deferAsk` (a human or the Secretary) parks an open ask behind an event, and it stays listed in the Town Hall in-tray's `asks` until decided or retired. A decided ask is final.
+   - Test: `packages/core/test/asks.test.ts` › `only a human who can fund decides an ask; a deferred ask stays listed until decided`
+6. **A rollup's typed `asks` list covers what its prose asks.** `submit_report` with `rollup: true` and `asks` refuses (filing nothing) when an id its Needs section or a real "Your call" names is no ask's target, when it asks something in words with an empty list, when a money ask names no grant or retainer, or when a target does not exist. A money ask folds into its item's own ask; a rollup with no Shipped items whose every ask folded is acknowledged on submit. Without the list the prose is read as before and the rollup is tagged `untyped-asks` when it asks something.
+   - Test: `packages/core/test/asks.test.ts` › `a rollup's typed asks: refused when a Needs or Your call id is not a target; a money ask folds into its grant's ask; without the list it is tagged and reads the prose`
+7. **The boot backfill is idempotent.** `backfillAsks` (World construction) files the ask of every open proposal (not a countered one: it waits on its manager), held grant, asked retainer, open outbox request, pending captain and access request, and each pending rollup's live calls; a second run creates nothing.
+   - Test: `packages/core/test/asks.test.ts` › `backfill files the asks of everything already open, a pending rollup's calls included, and a second run creates nothing`
