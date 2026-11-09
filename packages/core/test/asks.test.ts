@@ -125,6 +125,32 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(world.asks.require(ask.id).history.map((h) => h.action)).toEqual(["create", "lint", "defer", "decide"]); // the town wrote this card from the request: vetted and flagged
   }, 30_000);
 
+  it("a deferred ask opens again when the ask or the target it waits behind is decided or retired", async () => {
+    const { world, admin, noor, propose } = await setup();
+    const asked = async (title: string) => {
+      const req = await world.verbs.request_human(noor, { title, body: "Ten minutes.", kind: "other" });
+      return asksFor(world, { kind: "request", id: req.id })[0]!;
+    };
+    const first = await asked("Hold a 1:1 about the deck");
+    const second = await asked("Book the deck review");
+    const g = propose();
+    // behind an ask: deciding that ask reopens it
+    deferAsk(world, admin, second.id, `after ${first.id} is answered`);
+    // behind a target: the grant's ask retiring (it is funded) reopens it; a deferral naming a longer id doesn't match
+    const third = await asked("Tell the lab what shipped");
+    deferAsk(world, admin, third.id, `${g.id} is decided`);
+    const fourth = await asked("Something unrelated");
+    deferAsk(world, admin, fourth.id, `${g.id}x ships`);
+    decideAsk(world, admin, first.id, "Done");
+    expect(world.asks.require(second.id)).toMatchObject({ status: "open", deferredUntil: null });
+    expect(world.asks.require(second.id).history.at(-1)).toMatchObject({ action: "reopen", by: "system" });
+    expect(world.asks.require(third.id).status).toBe("deferred");
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    expect(world.asks.require(third.id).status).toBe("open");
+    expect(world.asks.require(fourth.id).status).toBe("deferred");
+    expect(world.events.list({ types: ["ask.reopened"] })).toHaveLength(2);
+  }, 30_000);
+
   it("backfill files the asks of everything already open, a pending rollup's calls included, and a second run creates nothing", async () => {
     const { world, admin, noor, propose, roll, member } = await setup();
     const g = propose();

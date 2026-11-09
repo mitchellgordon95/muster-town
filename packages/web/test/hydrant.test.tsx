@@ -26,13 +26,13 @@ describe("the Town Hall hydrant", () => {
     expect(at(p.pos.x - 1, p.pos.y + 1)).toBe(TILE.MANAGER_DESK);
   });
 
-  it("counts open asks, today's notices and the last slate as the ranking time", () => {
+  it("counts live asks (a deferred one too), today's notices and the last slate as the ranking time", () => {
     const now = new Date("2026-11-08T15:00:00");
     const c = hydrantCounts({
       asks: [{ ...asks[0], status: "open" }, { ...asks[0], id: "ak_b", status: "open" }, { ...asks[0], id: "ak_c", status: "deferred" }],
       notices: [notice("nt_a", "shipped", new Date("2026-11-08T09:00:00").toISOString()), notice("nt_s", "slate", new Date("2026-11-08T08:00:00").toISOString()), notice("nt_old", "slate", new Date("2026-11-06T08:00:00").toISOString())],
     }, now);
-    expect(c).toEqual({ asks: 2, noticesToday: 2, rankedAt: new Date("2026-11-08T08:00:00").toISOString() });
+    expect(c).toEqual({ asks: 3, noticesToday: 2, rankedAt: new Date("2026-11-08T08:00:00").toISOString() });
     expect(hydrantCounts(null)).toEqual({ asks: 0, noticesToday: 0, rankedAt: null });
   });
 

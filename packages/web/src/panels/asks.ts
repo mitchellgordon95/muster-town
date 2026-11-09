@@ -11,8 +11,8 @@ export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank"
   return [...asks].sort((a, b) => Number(a.status === "deferred") - Number(b.status === "deferred") || r(a) - r(b) || a.createdAt.localeCompare(b.createdAt));
 }
 
-/** The in-tray badge: the asks still waiting on a human (deferred ones wait on an event). */
-export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open").length;
+/** The in-tray badge: every live ask, open or deferred (a deferred one still waits on a human; it opens again when what it waits behind settles). */
+export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open" || a.status === "deferred").length;
 
 /** The card's delta line (the body's first paragraph) and the prose after it. */
 export function deltaOf(body: string): { delta: string; rest: string } {

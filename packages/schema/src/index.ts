@@ -1955,7 +1955,7 @@ export type AskClaim = z.infer<typeof AskClaim>;
 export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
 export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* step 3: the card failed its contract or lint */ "lint"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**
@@ -2135,7 +2135,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
-  "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.refused", "ask.checked",
+  "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.reopened", "ask.refused", "ask.checked",
   "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
   "kr.verified", "calibration.adopted", // legible delegation steps 9-10 (core ask-checks.ts, planner.ts)
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.forecast", "grant.top-up-needed", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",

@@ -122,11 +122,41 @@ export function refuseOrFlag(world: World, me: Agent, what: string, problems: st
 /** Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired. */
 export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string): Ask[] {
   const at = nowIso();
-  return world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
+  const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
     const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: "system", note: reason }] });
     world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason } });
     return next;
   });
+  reopenDeferred(world, [id, ...retired.map((a) => a.id)], reason);
+  return retired;
+}
+
+const ID_CHARS = /[a-z0-9_]/;
+
+/**
+ * The wait of a deferred ask ended (§6 defer): what it waits behind (`deferredUntil` names an ask or a target id) was
+ * decided or retired, so it is open again, stamped `reopen` with `reason`, and `ask.reopened` is appended. A deferral
+ * in words that names no such id waits for a human or the Secretary. Returns the asks reopened.
+ */
+export function reopenDeferred(world: World, ids: (string | null | undefined)[], reason: string): Ask[] {
+  const want = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!want.length) return [];
+  const at = nowIso();
+  const names = (until: string, id: string) => {
+    for (let i = until.indexOf(id); i >= 0; i = until.indexOf(id, i + 1)) {
+      if (!ID_CHARS.test(until[i - 1] ?? "") && !ID_CHARS.test(until[i + id.length] ?? "")) return true;
+    }
+    return false;
+  };
+  const out: Ask[] = [];
+  for (const a of world.asks.where("status = 'deferred' AND deferredUntil IS NOT NULL", [], "ORDER BY createdAt, rowid")) {
+    const hit = want.find((id) => id !== a.id && names(a.deferredUntil!, id));
+    if (!hit) continue;
+    const next = world.asks.upsert({ ...a, status: "open", deferredUntil: null, updatedAt: at, history: [...a.history, { at, action: "reopen", by: "system", note: oneLine(`${hit}: ${reason}`, 500) }] });
+    world.events.append({ type: "ask.reopened", buildingId: a.buildingId, text: `"${oneLine(a.title, 80)}" is open again: ${hit} it waited behind was settled`, payload: { askId: a.id, behind: hit, reason } });
+    out.push(next);
+  }
+  return out;
 }
 
 /** Who answers an ask: a human who can fund its building (an admin anywhere). Never an agent. */
@@ -152,6 +182,8 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   onAskDecided(world, next);
   // step 9: a rule ask carrying the Planner's table change, decided "Adopt", applies it (planner.ts)
   onRuleAskDecided(world, actor!, next);
+  // asks deferred behind this ask (or behind its target) are open again
+  reopenDeferred(world, [a.id, a.targetId], `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`);
   return next;
 }
 

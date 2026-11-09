@@ -136,7 +136,7 @@ describe("the ask card", () => {
 
   it("the in-tray order, badge, records and helpers", () => {
     expect(sortAsks(asks).map((a) => a.id)).toEqual(["ak_hud", "ak_ocean", "ak_land", "ak_weekly", "ak_captain", "ak_req", "ak_policy", "ak_access", "ak_meet"]);
-    expect(openAskCount(asks)).toBe(8);
+    expect(openAskCount(asks)).toBe(9); // a deferred ask still counts: it waits on a human
     const ids = askedIds(asks);
     expect(ids.has("gr_hud") && ids.has("dc_keel_cp") && ids.has("cr_octo")).toBe(true);
     expect(mineAsks(asks, { gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);
