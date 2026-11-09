@@ -418,7 +418,7 @@ const sizesLine = (sizes: StepSize[]) => (["S", "M", "L"] as const).flatMap((z) 
  * What a top-up of `n` tokens rounds up to: the smallest step size of the collective's table that covers it, or past the
  * largest, `n` rounded up to a whole number of the smallest size.
  */
-export function roundUpToStep(n: number, table: Record<StepSize, number>): number {
+function roundUpToStep(n: number, table: Record<StepSize, number>): number {
   const sizes = Object.values(table).filter((s) => s > 0).sort((a, b) => a - b);
   if (n <= 0 || !sizes.length) return Math.max(0, n);
   return sizes.find((s) => s >= n) ?? Math.ceil(n / sizes[0]!) * sizes[0]!;
@@ -442,7 +442,7 @@ function latestStepReport(world: World, g: Grant): Doc | null {
  * ceiling now; `spent`: its spend now. Facts the town lacks are left out, never guessed: with no forecast and no top-up
  * line there is no recommendation, with no report no claim, and `vetAsk` tags the card lint-failed naming the field.
  */
-export function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): Card & { title: string } {
+function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): Card & { title: string } {
   const ceiling = g.grantTokens ?? 0;
   const f = g.forecast ?? null;
   const report = o.report === undefined ? latestStepReport(world, g) : o.report;
