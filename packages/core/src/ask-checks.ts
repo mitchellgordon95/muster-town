@@ -14,6 +14,7 @@
  */
 import type { Ask, AskClaim } from "@muster-town/schema";
 import { safeGet, type Fetcher } from "./net-guard.ts";
+import { verifiedNotice } from "./notices.ts";
 import { REPO_TOKEN_SECRET } from "./secrets.ts";
 import type { World } from "./world.ts";
 
@@ -57,6 +58,8 @@ export async function runClaimChecks(world: World, ask: Ask, deps: CheckDeps = {
   const byText = new Map(ask.claims.map((c, i) => [`${c.text}\n${c.check.kind}\n${c.check.ref ?? ""}`, results[i]]));
   const claims = cur.claims.map((c) => { const r = byText.get(`${c.text}\n${c.check.kind}\n${c.check.ref ?? ""}`); return r ? { ...c, result: r } : c; });
   const next = world.asks.upsert({ ...cur, claims });
+  // step 10: a passed kr check verifies its key result (once: a verified one is left alone)
+  for (const c of claims) if (c.check.kind === "kr" && c.result?.ok) verifyKeyResult(world, c.check.ref?.trim() ?? "", c.result.note ?? "");
   const ran = results.filter((r): r is Result & { at: string } => !!r);
   world.events.append({
     type: "ask.checked", buildingId: cur.buildingId,
@@ -91,6 +94,15 @@ async function checkClaim(world: World, c: AskClaim, deps: CheckDeps): Promise<O
   } catch (e) {
     return { ok: false, note: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }
+}
+
+/** A key result whose check the server ran and passed: evidence "verified" (status unchanged), `kr.verified` and a `verified` notice. */
+function verifyKeyResult(world: World, id: string, note: string): void {
+  const kr = world.keyResults.get(id);
+  if (!kr || kr.evidence === "verified") return;
+  const next = world.keyResults.upsert({ ...kr, evidence: "verified", updatedAt: new Date().toISOString() });
+  world.events.append({ type: "kr.verified", buildingId: kr.buildingId, text: `Key result verified by a check the server ran: ${kr.text}`, payload: { keyResultId: kr.id, grantId: kr.grantId, from: kr.evidence, note } });
+  verifiedNotice(world, next, "A check the server ran");
 }
 
 /** The URL a key result's howToCheck runs, when it is a curl command or a bare URL; else null (a manual check). */

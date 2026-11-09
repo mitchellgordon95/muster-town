@@ -16,6 +16,7 @@ import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
 import { policyLedgerBlock } from "./secretary.ts";
+import { dictionaryBlock } from "./dictionary.ts";
 
 export { docGist, sectionOf } from "./text.ts";
 
@@ -505,6 +506,7 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
     board,
     // the policy ledger (docs/legible-delegation.md §6): rules the humans set, so the manager doesn't ask them again
     policyLedgerBlock(world),
+    dictionaryBlock(world),
     memoryIndexBlock(world, agent.id, { now }),
   ].filter(Boolean).join("\n\n");
 }

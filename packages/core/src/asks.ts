@@ -9,11 +9,13 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind, type AskType,
+  parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type CalibrationProposal, type AskBranch, type AskClaim, type AskTargetKind, type AskType,
   type CaptainRequest, type Doc, type Event, type Grant, type Schedule,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { queueClaimChecks } from "./ask-checks.ts";
+import { dictionaryPairs } from "./dictionary.ts";
+import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
 import { onAskDecided, rollupCalls } from "./secretary.ts";
@@ -41,6 +43,8 @@ interface NewAsk {
   line?: string;
   /** who filed it (an agent or user id, "system" by default) */
   by?: string;
+  /** step 9: the Planner's table change on a rule ask (deciding "Adopt" applies it, planner.ts) */
+  proposal?: CalibrationProposal | null;
 }
 
 /** The live (open or deferred) ask on a target, if any. */
@@ -63,7 +67,7 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
     if (!source.length || have.sources.some((s) => s.docId === n.sourceDocId && s.line === line)) return { ask: have, folded: true };
     // step 3: a manager's card (one with a recommendation) replaces the town's own wording on an ask that has none yet
     const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED)) && !!n.recommendation?.trim();
-    const card = adopt ? vetted(have.type, { body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
+    const card = adopt ? vetted(world, have.type, { body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
     const next = world.asks.upsert({
       ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
       history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId}: ${line}` }, ...(card?.lint ?? [])],
@@ -72,11 +76,11 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
     if (card) queueClaimChecks(world, next.id);
     return { ask: next, folded: true };
   }
-  const card = vetted(n.type, { body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
+  const card = vetted(world, n.type, { body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
   const ask = world.asks.upsert(Ask.parse({
     id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
     title: oneLine(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
-    status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags,
+    status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
   queueClaimChecks(world, ask.id);
@@ -88,8 +92,8 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
  * tag "lint-failed" and a "lint" history entry with the failing rules: an author's third failing attempt
  * (`refuseOrFlag`), or a card the town wrote from a source's own words. No card reaches the in-tray unvetted.
  */
-function vetted(type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
-  const problems = vetAsk(type, card);
+function vetted(world: World, type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
+  const problems = vetAsk(type, { ...card, dictionary: dictionaryPairs(world) });
   return problems.length ? { tags: [LINT_FAILED], lint: [{ at, action: "lint", by, note: problems.join("\n").slice(0, 4000) }] } : { tags: [], lint: [] };
 }
 
@@ -138,11 +142,15 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `This ask is already ${a.status}.`);
   const said = decision.trim();
   if (!said) throw badRequest("Say what you decided (decision).");
+  // step 9: adopting the Planner's table change is an admin's (it is PUT /api/town/defaults' change)
+  requireRuleDecider(world, actor!, a, said);
   const at = nowIso();
   const next = world.asks.upsert({ ...a, status: "decided", decidedBy: by, decidedAt: at, decision: said.slice(0, 2000), updatedAt: at, history: [...a.history, { at, action: "decide", by, note: said.slice(0, 500) }] });
   world.events.append({ type: "ask.decided", agentId: actor?.id ?? null, buildingId: a.buildingId, text: `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`, payload: { askId: a.id, decision: said, by } });
   // step 5: a decided policy ask proposes its rule for the ledger; a decided "Add this rule?" ask appends it (secretary.ts)
   onAskDecided(world, next);
+  // step 9: a rule ask carrying the Planner's table change, decided "Adopt", applies it (planner.ts)
+  onRuleAskDecided(world, actor!, next);
   return next;
 }
 
@@ -229,7 +237,7 @@ export function setAskCard(world: World, kind: AskTargetKind, id: string, card: 
   const have = liveAskOn(world, kind, id);
   if (!have) return null;
   const at = nowIso();
-  const v = vetted(have.type, { ...card, branches: have.branches, targetKind: have.targetKind }, at, by);
+  const v = vetted(world, have.type, { ...card, branches: have.branches, targetKind: have.targetKind }, at, by);
   const next = world.asks.upsert({ ...have, ...card, tags: v.tags, updatedAt: at, history: [...have.history, ...v.lint] });
   queueClaimChecks(world, next.id);
   return next;

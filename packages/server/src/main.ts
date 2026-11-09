@@ -4,7 +4,7 @@
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { markBoot } from "./capacity.ts";
-import { World } from "@muster-town/core";
+import { World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -67,6 +67,9 @@ async function main() {
     const sched = world.secretary.ensureRankSchedule();
     const weekly = world.secretary.ensurePatternSchedule();
     world.secretary.ensurePolicyLedger();
+    // legible delegation steps 9-10: the town dictionary and the Planner's weekly calibration run (asks its retainer once)
+    ensureDictionary(world);
+    ensureCalibrationSchedule(world);
     if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, ranking schedule ${sched.id} (retainer ${sched.retainer})` : ""}${weekly ? `, pattern schedule ${weekly.id} (retainer ${weekly.retainer})` : ""}`);
   } catch (e) { console.warn(`[server] Secretary not set up: ${(e as Error).message}`); }
   const desksOverride = desksFromEnv(townEnv("DESKS"));

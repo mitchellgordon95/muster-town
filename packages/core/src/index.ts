@@ -100,5 +100,9 @@ export { tickMemo, withTickMemo } from "./tick-memo.ts";
 // legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
 export { decideAsk, deferAsk, openAsks } from "./asks.ts";
 export { markSeen } from "./seen.ts";
+// legible delegation steps 9-10: the measures, the Planner's calibration schedule, the town dictionary
+export { legibleMeasures } from "./measures.ts";
+export { ensureCalibrationSchedule } from "./planner.ts";
+export { ensureDictionary } from "./dictionary.ts";
 export { claimsStale, runClaimChecks } from "./ask-checks.ts";
 export { blockedAddress, safeGet, type Fetcher } from "./net-guard.ts";

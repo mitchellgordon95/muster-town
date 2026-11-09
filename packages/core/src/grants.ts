@@ -142,7 +142,7 @@ export class Grants {
     });
     return {
       grantId: g.id, objective: g.objective,
-      keyResults: krs.map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote, by: k.statusBy && k.statusNote ? this.world.nameOf(k.statusBy) : null })),
+      keyResults: krs.map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote, by: k.statusBy && k.statusNote ? this.world.nameOf(k.statusBy) : null, evidence: k.evidence })),
       spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
       topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
       reportId: report ? report.id : null,
@@ -180,7 +180,8 @@ export class Grants {
     const now = nowIso();
     for (const e of krs) {
       const k = this.world.keyResults.require(e.id, "key result");
-      const next = this.world.keyResults.upsert({ ...k, status: e.status, statusNote: `${e.evidence} (report ${reportId})`.slice(0, 2000), statusBy: me.id, updatedAt: now });
+      // step 10: a report that claims the key result makes its evidence "claimed" (a verified one stays verified)
+      const next = this.world.keyResults.upsert({ ...k, status: e.status, statusNote: `${e.evidence} (report ${reportId})`.slice(0, 2000), statusBy: me.id, evidence: evidenceAfter(k, e.status, false), updatedAt: now });
       this.world.events.append({
         type: "kr.updated", agentId: me.id, buildingId: k.buildingId, text: `Key result ${next.status}: ${next.text}`,
         payload: { grantId: g.id, keyResultId: k.id, status: next.status, from: k.status, by: me.id, byKind: "agent", edited: false, reportId },
@@ -496,7 +497,7 @@ export class Grants {
     const last = this.world.keyResults.first("1 = 1", [], "ORDER BY position DESC");
     const ids = krs.map((k, i) => this.world.keyResults.upsert({
       id: newId("kr"), buildingId: g.buildingId, position: (last?.position ?? 0) + 1 + i, text: k.text, howToCheck: k.howToCheck,
-      status: "not-started", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: [], objectiveId: null,
+      status: "not-started", statusNote: "", statusBy: null, evidence: "unknown", createdBy: by?.id ?? null, editedBy: null, sourceDocIds: [], objectiveId: null,
       goalId: g.goalId, grantId: g.id, due: k.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: now,
     }).id);
     for (const a of this.world.assignments.where("grantId = ? AND status IN ('pending', 'active') AND keyResultId IS NOT NULL", [g.id])) this.world.assignments.upsert({ ...a, keyResultId: ids[0]! });
@@ -983,7 +984,8 @@ export class Grants {
     const archive = inp.status ? { archivedAt: inp.status === "met" || inp.status === "missed" ? kr.archivedAt ?? now : null } : {};
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
     const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, updatedAt: now });
+    const evidence = inp.status ? { evidence: evidenceAfter(kr, inp.status, by?.kind === "user" && !opts.closing) } : {};
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, ...evidence, updatedAt: now });
     if (inp.status === "missed" && kr.status !== "missed") queuePostmortem(this.world, actor, next, inp.note);
     const patched = this.world.events.append({
       type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
@@ -1094,3 +1096,15 @@ function passed(spent: number, tokens: number): number[] {
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
+
+/**
+ * A key result's evidence class after its status is set (docs/legible-delegation.md §5, build step 10): a human marking
+ * it met verifies it; a claim makes unknown evidence claimed; a human taking back met drops it to what the new status
+ * says (claimed, else unknown). Anything else keeps it. A passed `kr` claim check also verifies it (ask-checks.ts).
+ */
+function evidenceAfter(kr: KeyResult, status: KeyResult["status"], byHuman: boolean): NonNullable<KeyResult["evidence"]> {
+  if (byHuman && status === "met") return "verified";
+  if (byHuman && kr.status === "met" && status !== "met") return status === "claimed" ? "claimed" : "unknown";
+  if (status === "claimed" && (kr.evidence ?? "unknown") === "unknown") return "claimed";
+  return kr.evidence ?? "unknown";
+}

@@ -25,6 +25,7 @@ import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
 import { guessedTimesWarning } from "../time.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 
 const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin"]);
 
@@ -337,7 +338,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   // legible delegation step 3: each typed ask's card passes its type's contract and the linter, or is refused with the
   // failing rules (the session's third failing attempt is filed, flagged lint-failed)
-  if (typedAsks?.length) refuseOrFlag(world, me, "rollup", typedAsks.flatMap((a, i) => vetAsk(a.type, { ...a, targetKind: a.targetKind ?? null }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
+  if (typedAsks?.length) refuseOrFlag(world, me, "rollup", typedAsks.flatMap((a, i) => vetAsk(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
   const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
