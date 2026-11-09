@@ -28,6 +28,8 @@ import { CompactLine, accessTitle, captainTitle, goalProposalTitle, grantPill, r
 import { AsksIntray, askedIds, mineAsks } from "./AsksIntray";
 import { openAskCount } from "./asks";
 import { StepStrip } from "./StepStrip";
+import { NoticesFeed } from "./NoticesPanel";
+import { hydrantCounts, type HydrantCounts } from "../map/hydrant";
 
 /** The Town Hall in-tray's "Mine / All" (docs/goals.md step 4): under Mine, only the items routed to the viewer. */
 export function mineOnly<T extends { id: string }>(items: T[], routes: Record<string, IntrayRoute>, view: IntrayView, funder?: FunderWeek | null): T[] {
@@ -145,6 +147,55 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
         </>
       )}
     </PanelShell>
+  );
+}
+
+/**
+ * The Town Hall hydrant (docs/legible-delegation.md §3, UI / UX A): the stream in three numbers, each with where it
+ * goes. Open asks open the in-tray (AsksIntray), notices today open the feed (NoticesFeed), and the last ranking
+ * offers "Rank now" to a human who may run it. Reads the same Town Hall in-tray the in-tray panel does.
+ */
+export function HydrantPanel() {
+  const hall = useTown((s) => s.buildings.find((b) => b.kind === "town-hall"));
+  const rev = useTown((s) => s.rev);
+  useTown((s) => s.me);
+  const list = useLoad(() => hall ? api().intray(hall.id) : Promise.resolve(null), [hall?.id, hall?.intray, rev]);
+  const [feed, setFeed] = useState(false);
+  if (!hall) return <PanelShell title="Hydrant"><Empty>No Town Hall on this map.</Empty></PanelShell>;
+  const c = hydrantCounts(list.data);
+  return (
+    <PanelShell icon={<Glyph kind="hydrant" />} title="Hydrant" subtitle="Town Hall · the stream: asks settle in the in-tray, notices flow to the feed">
+      <ErrorLine error={list.error} />
+      {list.loading && !list.data ? <Loading /> : (
+        <HydrantRows counts={c} onInTray={() => store.open({ kind: "intray", id: hall.id })} onFeed={() => setFeed(true)}
+          rank={<DailyDigestButton run={list.data?.digestRun ?? null} onStarted={list.reload} />} />
+      )}
+      {feed ? (
+        <Sheet label="Feed" title="Feed" sub="What shipped, closed and was verified" onClose={() => setFeed(false)} escFirst maxWidth={760}>
+          <NoticesFeed />
+        </Sheet>
+      ) : null}
+    </PanelShell>
+  );
+}
+
+/** The hydrant's three numbers, each with its button; `rank` is "Rank now" (or nothing, for a human who may not run it). */
+export function HydrantRows({ counts: c, onInTray, onFeed, rank }: { counts: HydrantCounts; onInTray: () => void; onFeed: () => void; rank: ReactNode }) {
+  return (
+    <div className="hydrant-counts">
+      <div className="hydrant-row">
+        <b className="hydrant-n">{c.asks}</b><span>open asks</span>
+        <button className="btn sm" onClick={onInTray} title="The ask cards, in the Secretary's order">In-tray</button>
+      </div>
+      <div className="hydrant-row">
+        <b className="hydrant-n">{c.noticesToday}</b><span>notices today</span>
+        <button className="btn sm" onClick={onFeed} title="What shipped, closed or was verified: nothing to decide">Feed</button>
+      </div>
+      <div className="hydrant-row">
+        <b className="hydrant-n">{c.rankedAt ? timeAgo(c.rankedAt) : "not yet"}</b><span>ranked</span>
+        {rank}
+      </div>
+    </div>
   );
 }
 

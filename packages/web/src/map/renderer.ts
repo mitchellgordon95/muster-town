@@ -23,6 +23,8 @@ import { TILE, bankTabOf } from "@muster-town/schema";
 import { defaultZoom, coarsePointer } from "./zoom";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 import { drawTour, spotBox, type Tour } from "./tour";
+import { HydrantStream, prefersReducedMotion, streamParticles } from "./hydrant";
+import { secretaryOf } from "../panels/oneOnOne";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -50,6 +52,7 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   schedule: (p) => p.id === "schedule-board" ? { kind: "schedule", verb: "Read the meeting schedule" }
     : { kind: "building", id: p.buildingId ?? undefined, tab: "Schedule", verb: `Read the ${bname(p)} schedule` },
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
+  hydrant: () => ({ kind: "hydrant", verb: "Look at the stream" }),
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
@@ -125,6 +128,8 @@ export class MapRenderer {
   hoverId: string | null = null;
   /** when each fork's ghost first appeared on the map (its 400 ms fade-in) */
   private ghostSince = new Map<string, number>();
+  /** the Town Hall hydrant's counts (the stream's particles) */
+  private stream = new HydrantStream();
   /** Building banners on screen, for click-to-open their building panel. */
   private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverSign: string | null = null;
@@ -551,6 +556,35 @@ export class MapRenderer {
     }
   }
 
+  /**
+   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as amber dots settling into the
+   * in-tray, today's notices as blue dots drifting to the Secretary (the feed). World px; nothing under reduced motion.
+   */
+  private drawStream(g: CanvasRenderingContext2D, now: number) {
+    const s = store.state, w = this.world!;
+    const hall = s.buildings.find((b) => b.kind === "town-hall");
+    if (!hall) return;
+    this.stream.sync(hall.id, hall.intray);
+    const place = (id: string) => s.places.find((p) => p.id === id);
+    /** the centre of the tile of kind `k` beside place `p` (the thing used from there), else of the place's own tile */
+    const beside = (p: Place, k: number, dy = 0) => {
+      const n = [[0, 1], [0, -1], [1, 0], [-1, 0]].find(([ax, ay]) => w.at(p.pos.x + ax, p.pos.y + ay) === k) ?? [0, 0];
+      return { x: (p.pos.x + n[0]) * T + T / 2, y: (p.pos.y + n[1]) * T + T / 2 + dy };
+    };
+    const hydrant = place(`hydrant:${hall.id}`);
+    if (!hydrant) return;
+    const tray = place(`intray:${hall.id}`);
+    const secretary = secretaryOf(s.agents, hall.id);
+    const feed = (secretary && place(`desk:${secretary.id}`)) || place(`board:${hall.id}`);
+    const dots = streamParticles(beside(hydrant, TILE.HYDRANT, -T / 2 + 1),
+      { ask: tray ? beside(tray, TILE.MANAGER_DESK, -3) : null, notice: feed ? { x: feed.pos.x * T + T / 2, y: feed.pos.y * T + 4 } : null },
+      this.stream.counts, now, prefersReducedMotion());
+    for (const d of dots) {
+      g.fillStyle = d.kind === "ask" ? "#ffcf5e" : "#7cc4ff";
+      g.fillRect(Math.round(d.x) - 1, Math.round(d.y) - 1, 2, 2);
+    }
+  }
+
   private draw(now: number) {
     const g = this.g, w = this.world!, s0 = store.state;
     const dpr = window.devicePixelRatio || 1;
@@ -609,6 +643,7 @@ export class MapRenderer {
     const s = store.state;
     // planted flags (dc_r40dq3znse): a pole on the tile it was planted on, until the building's manager picks it up
     for (const f of s.flags) drawFlag(g, f.x * T + T - 4, f.y * T + T - 2, now);
+    this.drawStream(g, now);
     // bodies, sorted by feet y
     // w/h: drawn body size, by the agent's model tier
     type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean; w: number; h: number };

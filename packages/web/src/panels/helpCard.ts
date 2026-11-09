@@ -29,6 +29,7 @@ const LAB: Partial<Record<Place["kind"], [string, string]>> = {
 const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   board: ["Board", "notices for the whole town."],
   intray: ["In-tray", "proposals and summaries for humans to decide."],
+  hydrant: ["Hydrant", "the stream: asks settle in the in-tray, notices flow to the feed."],
   "goal-tree": ["Goal tree", "the town's goals and the work funded under them."],
   library: ["Library", "the town's best documents, open to read."],
   outbox: ["Outbox", "things agents asked humans to do."],
@@ -39,7 +40,7 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   "town-map": ["Town map table", "where buildings go on the map."],
   "mod-station": ["Mod station", "where town moderators sit."],
 };
-const ORDER: Place["kind"][] = ["board", "goal-tree", "library", "cabinet", "intray", "outbox", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
+const ORDER: Place["kind"][] = ["board", "goal-tree", "library", "cabinet", "intray", "hydrant", "outbox", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
 
 export function helpCard(
   b: { id: string; name: string; kind: "lab" | "town-hall"; goal: string; managerAgentId?: string | null },

@@ -29,6 +29,16 @@ describe("furniture", () => {
     expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
   });
 
+  it("the Town Hall's hydrant stands right of the in-tray, used from a reachable tile (docs/legible-delegation.md §3)", () => {
+    const { world } = seededWorld();
+    const p = world.layout.requirePlace("hydrant:town-hall");
+    expect(p).toMatchObject({ kind: "hydrant", buildingId: "town-hall" });
+    expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
+    expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
+    expect(at(world, p.pos.x, p.pos.y + 1)).toBe(TILE.HYDRANT);
+    expect(at(world, p.pos.x - 1, p.pos.y + 1)).toBe(TILE.MANAGER_DESK);
+  });
+
   it("every building has a \"?\" help sign beside its door, read from a reachable tile (flag dc_8dwch9z5pi)", () => {
     const { world } = seededWorld();
     for (const b of world.buildings.all()) {

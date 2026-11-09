@@ -19,7 +19,7 @@ import { knownNames } from "./names";
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
  * and a session (`se_…`), reached from any link to its id.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "hydrant";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 /**
  * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant

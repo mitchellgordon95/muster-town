@@ -330,6 +330,27 @@ export function drawManagerDesk(g: CanvasRenderingContext2D, px: number, py: num
   g.fillStyle = "#e8b840"; g.fillRect(px + 12, py + 5, 3, 3);
   g.fillStyle = "#b8862a"; g.fillRect(px + 12, py + 7, 3, 1);
 }
+/**
+ * The Town Hall's hydrant (TILE.HYDRANT, place `hydrant:town-hall`, docs/legible-delegation.md §3): a red fire hydrant
+ * with a domed cap, two side outlets and a brass bolt, the stream of asks and notices pours from it. Draws on the floor.
+ */
+export function drawHydrant(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 10, 1);
+  // base flange
+  g.fillStyle = "#7a1f1f"; g.fillRect(px + 4, py + 13, 8, 2);
+  // barrel, lit from the left
+  g.fillStyle = "#c33a32"; g.fillRect(px + 5, py + 5, 6, 8);
+  g.fillStyle = "#e0584c"; g.fillRect(px + 5, py + 5, 2, 8);
+  g.fillStyle = "#8f2620"; g.fillRect(px + 10, py + 5, 1, 8);
+  // side outlets with caps
+  g.fillStyle = "#c33a32"; g.fillRect(px + 2, py + 7, 3, 3); g.fillRect(px + 11, py + 7, 3, 3);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 1, py + 7, 1, 3); g.fillRect(px + 14, py + 7, 1, 3);
+  // domed cap and its brass bolt
+  g.fillStyle = "#8f2620"; g.fillRect(px + 4, py + 4, 8, 1);
+  g.fillStyle = "#c33a32"; g.fillRect(px + 5, py + 2, 6, 2);
+  g.fillStyle = "#e0584c"; g.fillRect(px + 6, py + 2, 2, 1);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 7, py + 0, 2, 2);
+}
 /** A cork board hung on a wall face (the building board). Draw the wall first. */
 export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#5a3d22"; g.fillRect(px + 1, py + 2, T - 2, 11);
@@ -497,7 +518,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin";
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin" | "hydrant";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -522,6 +543,7 @@ export function iconUrl(kind: IconKind): string {
     case "goals": g.drawImage(tl.wallFace, 0, 0); drawGoalChart(g, 0, 0); break;
     case "stats": drawStats(g, 0, 0); break;
     case "help": drawHelpSign(g, 0, 0); break;
+    case "hydrant": drawHydrant(g, 0, 0); break;
     case "bulletin": drawBulletin(g, 0, 7); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {

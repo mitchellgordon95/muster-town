@@ -1052,6 +1052,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 
 /* ---------- asks, the funding slate, the feed (docs/legible-delegation.md §5-8; AskCard.tsx, FundingView.tsx, NoticesPanel.tsx) ---------- */
 .intray-asks-head { margin: 4px 0 8px; gap: 8px; }
+.hydrant-counts { display: flex; flex-direction: column; gap: 10px; margin: 6px 0; }
+.hydrant-row { display: grid; grid-template-columns: minmax(4.5em, auto) 1fr auto; align-items: baseline; gap: 10px; }
+.hydrant-n { font-size: 1.4em; font-variant-numeric: tabular-nums; }
 .intray-asks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 30%); gap: var(--gap); align-items: start; }
 .intray-asks:not(:has(.closed-loops)) { grid-template-columns: minmax(0, 1fr); }
 .intray-asks-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }

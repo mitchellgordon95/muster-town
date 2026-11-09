@@ -647,6 +647,8 @@ export const PlaceKind = z.enum([
   "help",
   /** bulletin:town — the town square, outside the Town Hall: the humans' bulletin board (notes by signed-in humans, read by everyone; core bulletin.ts) */
   "bulletin",
+  /** hydrant:town-hall — the Town Hall's hydrant beside the in-tray: the stream (asks settle in the in-tray, notices flow to the feed); using it opens the stream's counts (docs/legible-delegation.md §3) */
+  "hydrant",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -2625,6 +2627,8 @@ export const TILE = {
   BANK_CHEST: 35,
   /** the bulletin board in the town square (place `bulletin:town`, flag dc_52njv3shp8): humans' notes on a roofed board on two posts; not walkable */
   BULLETIN: 36,
+  /** the Town Hall's hydrant (place `hydrant:town-hall`, docs/legible-delegation.md §3): the stream of asks and notices pours from it, beside the in-tray the Secretary works; not walkable */
+  HYDRANT: 37,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
