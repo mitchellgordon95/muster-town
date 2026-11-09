@@ -81,7 +81,7 @@ describe("gates at step reports: the forecast", () => {
     const top = world.events.list({ types: ["grant.top-up-needed"] });
     expect(top).toHaveLength(1);
     expect(top[0]!.payload).toMatchObject({ grantId: g.id, shortfallTokens: 140_000, projected: 740_000, ceiling: 600_000 });
-    // no ask and no report of its own: the money ask that carries it is a later step
+    // no report of its own: the money ask carries it (forecast-asks.test.ts)
     expect(world.docs.where("type = 'report' AND authorId = 'system'", [])).toHaveLength(0);
     // the grant's row in the Town Hall in-tray (once it holds) carries the forecast
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [1] });

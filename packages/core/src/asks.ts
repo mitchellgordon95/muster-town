@@ -9,15 +9,16 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind, type AskType,
-  type CaptainRequest, type Doc, type Event, type Grant, type Schedule,
+  grantPricingOf, parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
+  type AskType, type CaptainRequest, type Doc, type Event, type Grant, type Schedule, type StepSize,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
-import { queueClaimChecks } from "./ask-checks.ts";
+import { queueClaimChecks, urlOfHowToCheck } from "./ask-checks.ts";
+import { managerAgentOf } from "./domain.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
 import { onAskDecided, rollupCalls } from "./secretary.ts";
-import { stamp } from "./time.ts";
+import { stamp, utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -235,18 +236,6 @@ export function setAskCard(world: World, kind: AskTargetKind, id: string, card: 
   return next;
 }
 
-/** A funded grant held at its checkpoint (`Grants.checkpoints`): the money ask to continue, adjust or cut it. */
-export function askAtCheckpoint(world: World, g: Grant, spent: number, line: string): void {
-  const tokens = g.grantTokens ?? 0;
-  const buys = g.topUpTokens && g.whatTopUpBuys.trim() ? `A top-up of ${fmt(g.topUpTokens)} tokens buys: ${g.whatTopUpBuys.trim()}` : "";
-  createAsk(world, {
-    type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: g.checkpointDocId ?? g.id,
-    title: `Raise or cut "${oneLine(g.objective, 120)}" at its checkpoint`, line,
-    body: [`It has spent ${fmt(spent)} of ${fmt(tokens)} tokens. New sessions on it wait for you.`, buys].filter(Boolean).join("\n\n"),
-    branches: [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }],
-  });
-}
-
 /** A retainer asked (`askRetainer`): approve / counter / reject. */
 export function askForRetainer(world: World, s: Schedule, why: string): void {
   const v = scheduleView(world, s);
@@ -414,6 +403,135 @@ export function backfillAsks(world: World): number {
     for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND tags LIKE '%\"rollup\"%'", [], "ORDER BY createdAt, rowid")) asksFromRollupProse(world, d);
   });
   return world.asks.count() - before;
+}
+
+// ---- legible delegation step 7: the gate card (an over-ceiling forecast, a hold at the ceiling) ----
+
+const GATE_BRANCHES: AskBranch[] = [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }];
+/** A live ask the town filed at a gate: its branches are exactly Adjust and Cut. A manager's own money ask on the grant is not one. */
+const isGateAsk = (a: Ask) => a.branches.length === 2 && a.branches[0]?.action === "adjust" && a.branches[1]?.action === "cut";
+const word = (n: number) => (["no", "one", "two", "three", "four", "five"][n] ?? String(n));
+const Word = (n: number) => word(n).replace(/^./, (c) => c.toUpperCase());
+const sizesLine = (sizes: StepSize[]) => (["S", "M", "L"] as const).flatMap((z) => { const n = sizes.filter((s) => s === z).length; return n ? [`${word(n)} ${z}`] : []; }).join(", ");
+
+/**
+ * What a top-up of `n` tokens rounds up to: the smallest step size of the collective's table that covers it, or past the
+ * largest, `n` rounded up to a whole number of the smallest size.
+ */
+export function roundUpToStep(n: number, table: Record<StepSize, number>): number {
+  const sizes = Object.values(table).filter((s) => s > 0).sort((a, b) => a - b);
+  if (n <= 0 || !sizes.length) return Math.max(0, n);
+  return sizes.find((s) => s >= n) ?? Math.ceil(n / sizes[0]!) * sizes[0]!;
+}
+
+/** The report of the grant's latest done step, else of its latest grant-lane session; null when it has none. */
+function latestStepReport(world: World, g: Grant): Doc | null {
+  const done = world.grantDesk.stepStates(g).filter((s) => s?.status === "done" && s.reportId);
+  const fromStep = done.length ? world.docs.get(done.at(-1)!.reportId!) : undefined;
+  if (fromStep) return fromStep;
+  const s = world.sessions.first("grantId = ? AND reportId IS NOT NULL", [g.id], "ORDER BY startedAt DESC, rowid DESC");
+  return (s?.reportId && world.docs.get(s.reportId)) || null;
+}
+
+/**
+ * The money card the town writes at a grant's gate (docs/legible-delegation.md §7.3 point 4), from the grant's history,
+ * its plan and its latest forecast: the human's prior decision and when, spent against the ceiling, steps done and left
+ * by size, the projection and the shortfall, what each branch does, a recommendation (adjust by the shortfall rounded up
+ * to a step size; cut when the latest step report's verdict is stop or pivot, or nothing is left), and one claim (the
+ * latest step report: checked by a key result whose howToCheck is a curl, else manual). `held`: the grant is at its
+ * ceiling now; `spent`: its spend now. Facts the town lacks are left out, never guessed: with no forecast and no top-up
+ * line there is no recommendation, with no report no claim, and `vetAsk` tags the card lint-failed naming the field.
+ */
+export function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): Card & { title: string } {
+  const ceiling = g.grantTokens ?? 0;
+  const f = g.forecast ?? null;
+  const report = o.report === undefined ? latestStepReport(world, g) : o.report;
+  const table = grantPricingOf(world.town.get()).stepSizes;
+  // the prior decision: the fund, then the latest adjust or continue
+  const funded = g.history.find((h) => h.action === "fund");
+  const since = [...g.history].reverse().find((h) => h.action === "adjust" || h.action === "continue");
+  const prior = [
+    `You funded this at ${fmt(funded?.tokens ?? g.askTokens)} tokens on ${utcDate(funded?.at ?? g.fundedAt ?? g.createdAt)}.`,
+    since ? (since.action === "adjust" ? `You last adjusted it to ${fmt(since.tokens ?? ceiling)} tokens on ${utcDate(since.at)}.` : `You last continued it on ${utcDate(since.at)}.`) : "",
+  ];
+  // steps done and left, by size
+  const states = world.grantDesk.stepStates(g);
+  const doneSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [s.size ?? "M"] : []));
+  const leftSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [] : [s.size ?? "M"]));
+  const steps = !g.steps.length ? ["It has no plan steps, so none are left to price."] : [
+    `${doneSizes.length ? Word(doneSizes.length) : "None"} of ${g.steps.length} steps ${doneSizes.length === 1 ? "is" : "are"} done${doneSizes.length ? `: ${sizesLine(doneSizes)}` : ""}.`,
+    leftSizes.length ? `${Word(leftSizes.length)} step${leftSizes.length === 1 ? " is" : "s are"} left: ${sizesLine(leftSizes)}.` : "No steps are left.",
+  ];
+  // the projection, and what a top-up needs: spent now + what the forecast expected of the steps left − the ceiling
+  const leftExpected = f ? Math.max(0, f.projected - f.spent) : null;
+  const need = leftExpected !== null ? Math.max(0, Math.round(o.spent + leftExpected - ceiling)) : g.topUpTokens ?? 0;
+  const raise = need ? roundUpToStep(need, table) : 0;
+  const projection = f && leftExpected !== null ? [
+    `${o.held ? "Its last forecast projects" : "At the sizes left, it is projected to spend"} ${fmt(Math.round(o.spent + leftExpected))} tokens in all.`,
+    need ? `That is ${fmt(need)} tokens past the ceiling.` : "That is within the ceiling.",
+  ] : [];
+  const verdict = report?.verdict ?? null;
+  const who = managerAgentOf(world, world.buildings.get(g.buildingId))?.name ?? "The town";
+  const recommendation = verdict === "stop" || verdict === "pivot" ? `${who} recommends cut: the latest step report says ${verdict}.`
+    : raise ? `${who} recommends adjust by ${fmt(raise)} tokens.`
+    : f && !leftSizes.length ? `${who} recommends cut: every step is done.`
+    : "";
+  const buys = g.topUpTokens && g.whatTopUpBuys.trim() ? `The forks say ${fmt(g.topUpTokens)} more tokens buy this: ${oneLine(g.whatTopUpBuys, 300).replace(/([^.!?])$/, "$1.")}` : "";
+  const body = [
+    ...prior,
+    `It has spent ${fmt(o.spent)} of its ${fmt(ceiling)}-token ceiling.${o.held ? " New sessions on it wait for you." : ""}`,
+    ...steps, ...projection, buys,
+    raise ? `If you adjust by ${fmt(raise)}: the ceiling becomes ${fmt(ceiling + raise)} tokens, and the work runs on.` : "If you adjust: the ceiling rises by what you give, and the work runs on.",
+    o.held ? "If you cut: the grant closes at what it spent, and nothing more runs on it." : "If you cut: the running step wraps up, and the grant closes at what it spent.",
+  ].filter(Boolean).join("\n");
+  const kr = report ? world.grantDesk.keyResultsOf(g.id).find((k) => urlOfHowToCheck(k.howToCheck)) : undefined;
+  const claims: AskClaim[] = report ? [{
+    text: oneLine(`The latest step report, "${report.title}", says ${verdict ?? "continue"}.`, 400),
+    check: kr ? { kind: "kr", ref: kr.id } : { kind: "manual", ref: report.id },
+  }] : [];
+  const title = o.held ? `"${oneLine(g.objective, 120)}" is held at its ceiling: adjust or cut it`
+    : `Adjust or cut "${oneLine(g.objective, 120)}": projected ${fmt(need)} tokens past its ceiling`;
+  return { title, body, recommendation, claims };
+}
+
+/**
+ * File the gate's money ask on the grant (Adjust / Cut), or fold into the live one: a gate ask already open (an earlier
+ * forecast's, or the hold's) takes the new card and title, vetted again; a manager's own money ask on the grant keeps
+ * its card and only gains the source line.
+ */
+function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sourceDocId: string, line: string): Ask {
+  const { ask, folded } = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId, line, ...card, branches: GATE_BRANCHES });
+  if (!folded || !isGateAsk(ask)) return ask;
+  const at = nowIso();
+  const v = vetted("money", { ...card, branches: ask.branches, targetKind: "grant" }, at, "system");
+  const next = world.asks.upsert({ ...ask, ...card, title: oneLine(card.title, 200), tags: [...ask.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...ask.history, ...v.lint] });
+  queueClaimChecks(world, next.id);
+  return next;
+}
+
+/**
+ * A step report's forecast projected the grant past its ceiling (`fileForecast`): the money ask that arrives before the
+ * hold, filed while the next step keeps running. Folds into the grant's live gate ask, so a later forecast or the hold
+ * at the ceiling updates one card.
+ */
+export function askAtForecast(world: World, g: Grant, report: Doc | null, line: string): Ask {
+  return fileGateAsk(world, g, gateCard(world, g, { held: false, spent: g.forecast?.spent ?? world.grantDesk.spent(g.id), report }), report?.id ?? g.id, line);
+}
+
+/** A later forecast is back within the ceiling: the open gate ask of a still-running grant retires with that line. */
+export function retireGateAsk(world: World, g: Grant, reason: string): Ask[] {
+  if (g.status !== "funded") return [];
+  const live = liveAskOn(world, "grant", g.id);
+  return live && isGateAsk(live) ? retireAsks(world, "grant", g.id, reason) : [];
+}
+
+/**
+ * A funded grant held at its ceiling (`Grants.checkpoints`): the money ask to adjust or cut it, its card from the grant's
+ * history and latest forecast (`gateCard`). When a forecast already filed the gate ask, the hold folds into it and its
+ * title says the grant is held.
+ */
+export function askAtCheckpoint(world: World, g: Grant, spent: number, line: string): void {
+  fileGateAsk(world, g, gateCard(world, g, { held: true, spent }), g.checkpointDocId ?? g.id, line);
 }
 
 // ---- legible delegation step 5: the Secretary's rank ----

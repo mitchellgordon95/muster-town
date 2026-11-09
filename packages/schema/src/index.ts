@@ -2654,7 +2654,8 @@ export const UpdateGrantInput = patchOf(CreateGrantInput).extend({ note: z.strin
 export type UpdateGrantInput = z.input<typeof UpdateGrantInput>;
 /**
  * POST /api/grants/:id/decide (`building.fund`). On a proposed grant: fund (tokens default to the ask), counter
- * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/stop condition), cut.
+ * (edits + note, back to the manager), reject. On a checkpoint grant: continue, adjust (tokens/stop condition), cut. On a
+ * funded grant (its forecast's money ask, docs/legible-delegation.md §7.3): adjust raises the ceiling, cut stops it.
  * A member without `building.fund` may fund a proposed grant with `fundWith`: their own active input with the tokens.
  */
 export const DecideGrantInput = z.object({

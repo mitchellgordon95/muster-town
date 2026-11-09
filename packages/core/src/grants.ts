@@ -651,15 +651,20 @@ export class Grants {
         this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
         break;
       case "adjust": {
-        this.requireStatus(g, ["checkpoint"], "adjusted");
+        // a running grant is adjusted too: its forecast's money ask arrives before the hold (docs/legible-delegation.md §7.3 point 4)
+        this.requireStatus(g, ["checkpoint", "funded"], "adjusted");
         const tokens = inp.tokens ?? g.grantTokens ?? 0;
         if (tokens <= spent) throw badRequest(`The grant has spent ${fmt(spent)} tokens: an adjusted grant must be more than that.`);
         const checkpointsDone = tokens === g.grantTokens ? g.checkpointsDone : passed(spent, tokens);
-        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone, topUpTokens: null, whatTopUpBuys: "" }, "adjust", tokens, inp.note, via);
+        // the forecast stays, measured against the new ceiling
+        const forecast = g.forecast ? { ...g.forecast, ceiling: tokens, overCeiling: g.forecast.projected > tokens, shortfall: Math.max(0, g.forecast.projected - tokens) } : g.forecast;
+        next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone, topUpTokens: null, whatTopUpBuys: "", forecast, needsTopUp: !!forecast?.overCeiling }, "adjust", tokens, inp.note, via);
         this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
         break;
       }
       case "cut":
+        // a running grant cut from its forecast's money ask stops: its forks wrap up, then it closes (`stop`)
+        if (g.status === "funded") return this.stop(actor, g.id, { reason: inp.note.trim() || "Cut at its forecast: projected past its ceiling." });
         this.requireStatus(g, ["checkpoint"], "cut");
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note, via);
         this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });

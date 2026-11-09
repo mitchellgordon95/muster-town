@@ -393,7 +393,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
     // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
     const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
-    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!);
+    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
