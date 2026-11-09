@@ -1968,7 +1968,7 @@ export type AskClaim = z.infer<typeof AskClaim>;
 export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
 export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled", /* a prose ask read as money only because its line named a grant: retyped a click */ "retyped"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**

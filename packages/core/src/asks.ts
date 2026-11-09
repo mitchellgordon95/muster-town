@@ -413,20 +413,32 @@ const POLICY = /\b(unless you['’]?d rather|say if you(?:['’]d)? want|veto|ke
 const ID = /\b(?:gr|sc|dc|cr|ar|kr)_[a-z0-9]+\b/g;
 
 /**
- * The asks of a rollup filed without a typed list, read from its prose (`rollupCalls`, overtaken ones skipped): a call
- * naming a grant (or retainer) is a money ask on it (folding into that item's own ask), a rule veto a policy ask, any
- * other a click (targeted at the request, captain, access request or key result it names, if any). Idempotent per rollup.
+ * The asks of a rollup filed without a typed list, read from its prose (`rollupCalls`, overtaken ones skipped), typed by
+ * `proseAskShape`: a call that asks for tokens on the grant or retainer it names is a money ask on it (folding into that
+ * item's own ask), a rule veto a policy ask, any other a click. Idempotent per rollup.
  */
 const PROSE_BRANCHES = { money: [{ label: "Yes" }, { label: "No" }], policy: [{ label: "Keep the rule" }, { label: "Change it" }], click: [{ label: "Done" }, { label: "Decline" }] } as const satisfies Record<string, AskBranch[]>;
+
+/** A call that asks for tokens: a grant or retainer decision (fund, counter, reject, adjust, cut, continue at a gate, raise a ceiling, top up, stop, close, approve a retainer) or a token figure ("150k", "200,000 tokens"). */
+const MONEY_CALL = /\b(?:fund(?:s|ed|ing)?|counter(?:ed)?|reject(?:ed)?|adjust(?:ed)?|cut|continue|raise|top[- ]?up|ceiling|stop|close[ds]?|approve)\b|\b\d[\d,.]*\s*[km]\b|\b\d[\d,.]*\s+tokens\b/i;
+
+/**
+ * How a call read from a rollup's prose is filed: a money ask on the grant (else retainer) it names only when the call
+ * asks for tokens (`MONEY_CALL`); otherwise a policy ask (a rule veto) or a click, targeted at the request, captain,
+ * access request or key result it names, else untargeted. A call that merely mentions a grant ("KR3 of gr_x cannot run
+ * until then") is not filed on that grant: there it would fold into the grant's own money row, or become its gate.
+ */
+function proseAskShape(world: World, c: { title: string; call: string }): { type: AskType; targetKind: AskTargetKind | null; targetId: string | null } {
+  const ids = [...new Set(`${c.title} ${c.call}`.match(ID) ?? [])].filter((id) => { const k = kindOf(world, id); return !!k && k !== "rule" && targetExists(world, k, id); });
+  const money = MONEY_CALL.test(c.call) ? ids.find((id) => id.startsWith("gr_")) ?? ids.find((id) => id.startsWith("sc_")) : undefined;
+  const targetId = money ?? ids.find((id) => !id.startsWith("gr_") && !id.startsWith("sc_")) ?? null;
+  return { type: money ? "money" : POLICY.test(c.call) ? "policy" : "click", targetKind: targetId ? kindOf(world, targetId) : null, targetId };
+}
 
 export function asksFromRollupProse(world: World, d: Doc): void {
   for (const c of rollupCalls(world, d)) {
     if (c.overtaken) continue;
-    const ids = [...new Set(`${c.title} ${c.call}`.match(ID) ?? [])].filter((id) => { const k = kindOf(world, id); return !!k && k !== "rule" && targetExists(world, k, id); });
-    const money = ids.find((id) => id.startsWith("gr_")) ?? ids.find((id) => id.startsWith("sc_"));
-    const targetId = money ?? ids[0] ?? null;
-    const targetKind = targetId ? kindOf(world, targetId) : null;
-    const type: AskType = money ? "money" : POLICY.test(c.call) ? "policy" : "click";
+    const { type, targetKind, targetId } = proseAskShape(world, c);
     const title = proseAskTitle(c.call);
     // idempotent: this rollup already filed this line (on its target, or untargeted with the same line or title: a title
     // written by an older rule, since repaired by `retitleProseAsks`, still counts)
@@ -611,6 +623,42 @@ export function retitleProseAsks(world: World): number {
       if (!title || title === a.title) continue;
       const at = nowIso();
       world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
+      n++;
+    }
+  });
+  return n;
+}
+
+/**
+ * Boot repair: a live ask read from a rollup's prose as a money ask on a grant (or retainer) only because its line named
+ * one, though the line asks for no tokens (`proseAskShape`: the repo to create, a key result to flip), is typed again from
+ * its source line: a click (or policy ask) with the prose branches, on the request, captain, access request or key result
+ * the line names, else untargeted, vetted again, with a "retyped" history entry. A target that already has a live ask of
+ * its own leaves it untargeted (no second row on one target). Its id, title, body, sources, rank and status stay.
+ * Idempotent. Returns how many it retyped.
+ */
+export function retypeProseAsks(world: World): number {
+  let n = 0;
+  world.transaction(() => {
+    for (const a of world.asks.where(`${LIVE_ASK} AND type = 'money'`, [], "ORDER BY createdAt, rowid")) {
+      if (!isProseAsk(world, a)) continue;
+      const line = a.sources.find((s) => s.docId === a.sourceDocId)?.line;
+      const d = line && world.docs.get(a.sourceDocId!);
+      if (!line || !d) continue;
+      const c = rollupCalls(world, d).find((x) => { const l = oneLine(x.call, 400); return l === line || withoutEllipsis(l) === withoutEllipsis(line); });
+      if (!c) continue;
+      const shape = proseAskShape(world, c);
+      if (shape.type === "money") continue;
+      const taken = shape.targetKind && shape.targetId ? liveAskOn(world, shape.targetKind, shape.targetId) : undefined;
+      const [targetKind, targetId] = taken && taken.id !== a.id ? [null, null] : [shape.targetKind, shape.targetId];
+      const branches = PROSE_BRANCHES[shape.type === "policy" ? "policy" : "click"];
+      const at = nowIso();
+      const v = vetted(world, shape.type, { title: a.title, body: a.body, recommendation: a.recommendation, claims: a.claims, branches, targetKind }, at, "system");
+      const was = `was: money on ${a.targetKind} ${a.targetId} (${a.branches.map((b) => b.label).join(" / ")})`;
+      world.asks.upsert({
+        ...a, type: shape.type, targetKind, targetId, branches: [...branches], tags: [...a.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at,
+        history: [...a.history, { at, action: "retyped", by: "system", note: was.slice(0, 500) }, ...v.lint],
+      });
       n++;
     }
   });
