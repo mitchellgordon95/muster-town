@@ -46,7 +46,8 @@ describe("MCP over Streamable HTTP", () => {
     let { tools } = await client.listTools();
     const report = tools.find((t) => t.name === "submit_report")!;
     expect(report.description).not.toMatch(/redeploy|\{pr/);
-    expect(JSON.stringify(report.inputSchema)).not.toMatch(/"deploy"|"pr"/);
+    // the wait (resumeWhen) offers no deploy or PR kind; a rollup ask's claim check may still be of kind "pr"
+    expect(JSON.stringify((report.inputSchema.properties as Record<string, unknown>).resumeWhen)).not.toMatch(/"deploy"|"pr"/);
     await client.close();
     ctx.world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main" } });
     try {

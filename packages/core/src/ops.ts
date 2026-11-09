@@ -6,6 +6,7 @@ import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
 import { archiveReport, type ArchiveResult } from "./archive.ts";
+import { retireAsks } from "./asks.ts";
 import { newId, nowIso } from "./util.ts";
 import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
@@ -523,7 +524,8 @@ export class Ops {
       case "delete": {
         this.world.permissions.require(actor, "town.approve_request");
         this.world.docs.delete(doc.id);
-        this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
+        const deleted = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
+        retireAsks(this.world, "request", doc.id, deleted.text);
         if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `An admin deleted your outbox request "${doc.title}".` });
         return { request: null, humanReport: null };
       }
@@ -547,6 +549,8 @@ export class Ops {
     }
     const request = updateDoc(this.world, doc.id, patch);
     const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "claim" && action !== "done" ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
+    // the request's ask (docs/legible-delegation.md §4) retires when a human claims or declines it, or it is withdrawn
+    retireAsks(this.world, "request", doc.id, updated.text);
     // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)
     if (humanReport) requestAnswerWake(this.world, request, humanReport, updated);
     return { request, humanReport };

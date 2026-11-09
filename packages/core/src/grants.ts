@@ -3,6 +3,7 @@ import {
   StopGrantInput, UpdateGrantInput, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
+import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
 import { checkForkModel, interruptFork } from "./forks.ts";
@@ -765,7 +766,8 @@ export class Grants {
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) {
         // a human is acting, so missed is allowed; no postmortem: the stop note is the why
         const kr = this.world.keyResults.upsert({ ...k, status: "missed", statusNote: `Grant stopped: ${reason}`.slice(0, 2000), statusBy: actor ? holderOf(actor).id : "system", archivedAt: k.archivedAt ?? now, updatedAt: now });
-        this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: k.buildingId, text: `Key result missed: ${kr.text}`, payload: { grantId: g.id, keyResultId: k.id, status: "missed", from: k.status, by: actor ? holderOf(actor).id : "system", byKind: actor ? holderOf(actor).kind : "system", edited: false, stopped: true } });
+        const missed = this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: k.buildingId, text: `Key result missed: ${kr.text}`, payload: { grantId: g.id, keyResultId: k.id, status: "missed", from: k.status, by: actor ? holderOf(actor).id : "system", byKind: actor ? holderOf(actor).kind : "system", edited: false, stopped: true } });
+        retireAsks(this.world, "keyResult", k.id, missed.text);
       }
       const cancelled = this.cancelQueued(g.id, reason);
       const asker = actor ?? (managerAgentOf(this.world, this.world.buildings.require(g.buildingId, "building")) ?? null);
@@ -877,7 +879,8 @@ export class Grants {
       // the top-up line the forks filed since the last continue stays: it is what the card asks about (continue/adjust clear it)
       const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
         `Spend reached ${what}: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
-      this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: crossed.includes(HOLD_FULL) ? 1 : at / tokens, spentTokens: spent, grantTokens: tokens } });
+      const hold = this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: crossed.includes(HOLD_FULL) ? 1 : at / tokens, spentTokens: spent, grantTokens: tokens } });
+      askAtCheckpoint(this.world, next, spent, hold.text);
       this.notifyFunders(next, null, `"${g.objective}" reached ${what} (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; continue, adjust or cut it in the Town Hall in-tray.`);
       held.push(next);
     }
@@ -978,7 +981,7 @@ export class Grants {
     const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
     const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, updatedAt: now });
     if (inp.status === "missed" && kr.status !== "missed") queuePostmortem(this.world, actor, next, inp.note);
-    this.world.events.append({
+    const patched = this.world.events.append({
       type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
       payload: {
         grantId: kr.grantId, keyResultId: kr.id, status: next.status, from: kr.status,
@@ -986,6 +989,8 @@ export class Grants {
         ...(edited && { text: next.text, howToCheck: next.howToCheck, sourceDocIds: next.sourceDocIds, fromText: kr.text }),
       },
     });
+    // asks on this key result retire when a human sets its status, or when it is met or missed by anyone (a close as done)
+    if (inp.status && (by?.kind === "user" || next.status === "met" || next.status === "missed")) retireAsks(this.world, "keyResult", kr.id, patched.text);
     return next;
   }
 
@@ -1054,7 +1059,10 @@ export class Grants {
   private event(type: EventType, g: Grant, actor: Actor, text: string, extra: Record<string, unknown> = {}): Event {
     // action: the history entry that made it (fund, continue, adjust, cut, close…); the manager in-tray rule reads it (core/src/wakes.ts)
     const action = g.history.at(-1)?.action ?? null;
-    return this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
+    const e = this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
+    // asks (docs/legible-delegation.md §4): a proposal files its money ask; a decision, close, withdraw or stop retires it
+    onGrantEvent(this.world, g, e);
+    return e;
   }
 
   /** Inbox note to every human (avatar) who can fund the building. */

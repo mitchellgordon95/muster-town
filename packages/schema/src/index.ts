@@ -1833,6 +1833,88 @@ export const RollupAsk = z.object({
   reportId: Id, buildingId: Id.nullable(), buildingName: z.string(), title: z.string(), line: z.string(), at: Iso, folded: z.boolean(),
 });
 export type RollupAsk = z.infer<typeof RollupAsk>;
+
+// ---------- asks (docs/legible-delegation.md §4, build step 1) ----------
+/**
+ * What the human does: money (fund / counter / reject, continue / adjust / cut, approve a retainer), click (an action
+ * only a human may take), credential (issue or scope a token or key), meeting (a 1:1 the manager wants), policy (keep
+ * or change a rule the manager applied).
+ */
+export const AskType = z.enum(["money", "click", "credential", "meeting", "policy"]);
+export type AskType = z.infer<typeof AskType>;
+/** open (waits for a human), decided (a human answered it), retired (its target's deciding event fired), folded (into another ask on the same target), deferred (parked behind an event). */
+export const AskStatus = z.enum(["open", "decided", "retired", "folded", "deferred"]);
+export type AskStatus = z.infer<typeof AskStatus>;
+/** What an ask is about: dedupe and retire key on (targetKind, targetId). */
+export const AskTargetKind = z.enum(["grant", "request", "captain", "access", "retainer", "keyResult", "rule", "meeting"]);
+export type AskTargetKind = z.infer<typeof AskTargetKind>;
+/** One branch of the decision, as a button label; `action` names the verb it maps to (fund, cut, approve…), when one does. */
+export const AskBranch = z.object({ label: z.string().trim().min(1).max(80), action: z.string().max(40).optional() });
+export type AskBranch = z.infer<typeof AskBranch>;
+/** A load-bearing claim and how to check it (§5); `result` is the last check's outcome (step 4 runs the mechanical ones). */
+export const AskClaim = z.object({
+  text: z.string().trim().min(1).max(400),
+  check: z.object({ kind: z.enum(["pr", "url", "api", "kr", "manual"]), ref: z.string().max(400).optional() }),
+  result: z.object({ ok: z.boolean(), at: Iso, note: z.string().max(400).optional() }).optional(),
+});
+export type AskClaim = z.infer<typeof AskClaim>;
+/** One place the ask was raised: a record (a rollup, a grant, a request…), its building, its own line, when. */
+export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
+export type AskSource = z.infer<typeof AskSource>;
+export const AskHistoryEntry = z.object({
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer"]), by: z.string(), note: z.string().default(""),
+});
+export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
+/**
+ * An ask: something only a human can do, stored and typed, never parsed from prose after the fact. Created in code where
+ * its source is created (a grant proposed or held, a retainer asked, an outbox request, a captain or access request, a
+ * rollup's typed `asks`), deduped by target (a second ask on the same target folds in as a source line), retired by the
+ * event that decides its target, and decided only by a human. `targetKind`/`targetId` are null for a question in words.
+ */
+export const Ask = z.object({
+  id: Id,
+  type: AskType,
+  targetKind: AskTargetKind.nullable().default(null),
+  targetId: z.string().nullable().default(null),
+  buildingId: Id.nullable().default(null),
+  /** the record it came from: a rollup or request doc, a grant, a schedule, a captain or access request */
+  sourceDocId: z.string().nullable().default(null),
+  title: z.string(),
+  body: z.string().default(""),
+  branches: z.array(AskBranch).default([]),
+  recommendation: z.string().default(""),
+  claims: z.array(AskClaim).default([]),
+  status: AskStatus.default("open"),
+  decidedBy: z.string().nullable().default(null),
+  decidedAt: Iso.nullable().default(null),
+  decision: z.string().nullable().default(null),
+  /** the event text that retired it */
+  retiredBy: z.string().nullable().default(null),
+  /** the ask it was folded into */
+  foldedInto: Id.nullable().default(null),
+  /** the event or id it waits behind */
+  deferredUntil: z.string().nullable().default(null),
+  sources: z.array(AskSource).default([]),
+  createdAt: Iso,
+  updatedAt: Iso,
+  history: z.array(AskHistoryEntry).default([]),
+});
+export type Ask = z.infer<typeof Ask>;
+/**
+ * One ask a manager files with its rollup (`submit_report` `asks`): the server stores it, dedupes it by target and
+ * retires it on the target's event. Money asks name their grant or retainer (targetId) and fold into that item's own ask.
+ */
+export const RollupAskInput = z.object({
+  type: AskType,
+  targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting)"),
+  targetId: z.string().trim().min(1).optional().describe("the grant, retainer, request, key result, rule or meeting it is about; required for money"),
+  title: z.string().trim().min(1).max(160).describe("the ask in one line"),
+  body: z.string().max(4000).default("").describe("the context the human needs to decide, in plain sentences"),
+  branches: z.array(AskBranch).min(1).max(5).describe("the choices, as button labels (e.g. Continue, Cut)"),
+  recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
+  claims: z.array(AskClaim.omit({ result: true })).max(3).optional().describe("the 1-2 load-bearing claims, each with how to check it"),
+});
+export type RollupAskInput = z.infer<typeof RollupAskInput>;
 /** Where one step of a funded grant's plan stands: its latest assignment (a parked step's continuation keeps the step). */
 export const GrantStepState = z.object({ assignmentId: Id, status: AssignmentStatus, reportId: Id.nullable() });
 export type GrantStepState = z.infer<typeof GrantStepState>;
@@ -1954,6 +2036,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
+  "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2057,6 +2140,7 @@ export const VerbInputs = {
     keyResults: z.array(ReportKrEvidence).min(1).max(5).optional().describe("lane grant only, your session's own grant: the key results your work moved, each with its status (at most claimed) and the evidence a human checks; the held grant's checkpoint card shows them"),
     topUp: ReportTopUp.optional().describe("lane grant only, your session's own grant: what a top-up of `tokens` more would deliver (the latest one filed shows on the checkpoint card)"),
     rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line. A rollup whose only ask is on an item with its own in-tray row (a proposal, checkpoint or retainer it names) is folded into that row on submit: the row shows your line about it, and the rollup is no card of its own."),
+    asks: z.array(RollupAskInput).max(8).optional().describe("rollup only: what you ask the humans, typed, one entry per ask (the prose Needs and \"Your call\" lines stay as the record). Each: type (money, click, credential, meeting, policy), targetId (the gr_/sc_/dc_/cr_/ar_/kr_/mt_ it is about; required for money, which folds into that grant's or retainer's own ask), title, body, branches (button labels), recommendation, claims (each with a check). Every id your Needs section names, and every id a real \"Your call\" names, must be the targetId of one of these (refused otherwise). A second ask on the same target adds your line to the open one instead of a new card."),
   }),
   request_human: z.object({
     title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation"),

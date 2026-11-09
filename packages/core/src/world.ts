@@ -6,6 +6,7 @@ import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
+import { backfillAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
@@ -186,6 +187,8 @@ export class World {
   readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly captainRequests: Repos["captainRequests"];
+  /** asks (docs/legible-delegation.md §4; core asks.ts) */
+  readonly asks: Repos["asks"];
   readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
@@ -207,7 +210,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
@@ -287,6 +290,8 @@ export class World {
     this.repairDesks();
     this.grantDesk.releaseHalfway();
     moveManagerRowsToBuildingQueue(this);
+    // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
+    backfillAsks(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */

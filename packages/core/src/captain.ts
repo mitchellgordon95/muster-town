@@ -8,6 +8,7 @@
  */
 import { type Agent, type CaptainRequest, type CaptainRequestView } from "@muster-town/schema";
 import { canInteract } from "./access.ts";
+import { askForCaptain, retireAsks } from "./asks.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { holderOf } from "./permissions.ts";
 import { newId, nowIso } from "./util.ts";
@@ -32,6 +33,7 @@ export function requestCaptain(world: World, userId: string, goalId: string, not
     type: "system", text: `${nameOf(world, userId, user.name)} asks to captain "${clip(goal.text, 80)}"${req.note ? `: "${req.note}"` : ""}`,
     payload: { captainRequestId: req.id, goalId, userId },
   });
+  askForCaptain(world, req);
   emitTownHall(world);
   return req;
 }
@@ -60,10 +62,11 @@ export function decideCaptain(world: World, actor: Agent, id: string, accept: bo
   });
   const goalText = clip(world.goalTree.get(req.goalId)?.text ?? req.goalId, 80);
   const who = nameOf(world, req.userId);
-  world.events.append({
+  const decided = world.events.append({
     type: "system", text: accept ? `${who} now captains "${goalText}"` : `${who}'s request to captain "${goalText}" was declined`,
     payload: { captainRequestId: id, goalId: req.goalId, userId: req.userId, accepted: accept },
   });
+  retireAsks(world, "captain", id, decided.text);
   emitTownHall(world);
   return out;
 }

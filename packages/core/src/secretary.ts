@@ -309,7 +309,7 @@ function needsOvertaken(world: World, line: string, d: Doc): string | null {
  * A pending rollup's asks as the review deck and in-tray read them (rollupAsks: each Shipped item's real "Your call",
  * then its Needs lines), each with why it is overtaken (null = it still asks). A Needs line has no title.
  */
-function rollupCalls(world: World, d: Doc): { title: string; call: string; overtaken: string | null }[] {
+export function rollupCalls(world: World, d: Doc): { title: string; call: string; overtaken: string | null }[] {
   const p = parseRollup(d.body);
   return rollupAsks(p).map((a) => {
     const it = a.n ? p.items[a.n - 1] : undefined;
