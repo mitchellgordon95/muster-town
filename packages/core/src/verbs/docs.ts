@@ -19,6 +19,7 @@ import { fileForecast } from "../grant-forecast.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseOrFlag } from "../asks.ts";
+import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -361,6 +362,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       asked = [...new Set(filedAsks.map((f) => f.ask.targetId!))];
       folded = foldRollup(world, doc, asked);
     } else if (format && !typedAsks) asksFromRollupProse(world, folded ?? doc);
+    // legible delegation step 5: shipped notices, the closed loop of a grant it closes, archived when it asks nothing of its own
+    const archived = format ? settleRollup(world, folded ?? doc, closedGrants) : false;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -394,10 +397,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = folded ? "approve" : "pending";
+    const decision: Doc["decision"] = folded || archived ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
     const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
+      : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
       : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`

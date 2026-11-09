@@ -19,6 +19,11 @@ export function stamp(iso: string | number | Date): string {
   return `${new Date(iso).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
+/** "2026-10-31": the UTC day of a server-read time (a notice's "funded on", a ledger line's origin, once-a-day rules). */
+export function utcDate(iso: string | number | Date): string {
+  return new Date(iso).toISOString().slice(0, 10);
+}
+
 /** "just now" | "5 min ago" | "in 5 min" | "3 h ago" | "in 2 d": a duration from `now`, the form a human reads. */
 export function fromNow(iso: string | number | Date, now: number | Date = Date.now()): string {
   const ms = new Date(iso).getTime() - new Date(now).getTime();

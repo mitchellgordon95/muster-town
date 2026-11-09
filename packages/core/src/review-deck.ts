@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -19,7 +19,8 @@ import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
-import { digestCard, groupsText } from "./secretary.ts";
+import { rankedAsks } from "./asks.ts";
+import { todaysSlate } from "./secretary.ts";
 
 const H = 3_600_000;
 const FLAG_AFTER_MS = 2 * H;
@@ -99,7 +100,7 @@ function proposalPicture(world: World, g: GrantView): { alt: string; src: string
   return null;
 }
 
-interface Draft { kind: ReviewSlideKind; group: number; itemId: string | null; buildingId: string | null; since: string | null; title: string; body: string; history: string; grantId?: string; docIds?: string[]; keySuffix?: string }
+interface Draft { kind: ReviewSlideKind; group: number; itemId: string | null; buildingId: string | null; since: string | null; title: string; body: string; history: string; grantId?: string; docIds?: string[]; keySuffix?: string; askId?: string }
 
 function card(fields: { whatItIs: string; steps?: string; whatYoudSee: string; picture: { alt: string; src: string } | null; pictures?: { alt: string; src: string }[]; yourCall: string }): string {
   const pics = fields.pictures ?? (fields.picture ? [fields.picture] : []);
@@ -284,7 +285,12 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
       yourCall: "Write its key results (Building → Settings), or ask its manager to propose them in a 1:1.",
     }) });
   }
+  // the live asks in the Secretary's order (docs/legible-delegation.md §11 step 5): a rollup any of them came from is
+  // read through its asks, so its own per-call slides would repeat them (the record stays one click down)
+  const asks = rankedAsks(world);
+  const askedIn = new Set(asks.flatMap((a) => [a.sourceDocId, ...a.sources.map((s) => s.docId)]).filter((id): id is string => !!id));
   for (const d of intray.reports) {
+    if (askedIn.has(d.id)) continue;
     const rollup = d.tags.includes("rollup");
     const parsed = rollup ? parseRollup(d.body) : null;
     const who = `${world.buildings.get(d.buildingId ?? "")?.name ?? "Town"}`;
@@ -316,20 +322,31 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const t = (s: string | null) => (s ? Date.parse(s) : 0);
   const goalLast = (d: Draft) => (d.kind === "goal-proposal" || d.kind === "captain" ? 1 : 0);
   drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || goalLast(a) - goalLast(b) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
+  // one slide per ask, in rank order: an ask on an item with its own slide (a grant, a retainer, a captain ask) is that
+  // slide (its buttons) under the ask's header; any other ask is a slide of its own. Then everything with no ask yet.
+  const used = new Set<Draft>();
+  const ordered: Draft[] = asks.map((a) => {
+    const d = a.targetId ? drafts.find((x) => !used.has(x) && x.itemId === a.targetId) : undefined;
+    if (!d) return askDraft(world, a);
+    used.add(d);
+    return { ...d, body: askHead(a) + d.body, askId: a.id };
+  });
+  ordered.push(...drafts.filter((d) => !used.has(d)));
 
   const slides: ReviewSlide[] = [];
-  const decisions = new Set(drafts.filter((d) => d.kind !== "stopped").map((d) => d.itemId)).size + record.length;
-  const oldest = [...drafts.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
+  const decisions = new Set(ordered.filter((d) => d.kind !== "stopped").map((d) => d.askId ?? d.itemId)).size + record.length;
+  const oldest = [...ordered.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
+  // the first slide is today's money slate when the Secretary filed one, then the state of the town
+  const slate = slateSlide(world, now);
+  if (slate) slides.push(slate);
   slides.push(townSlide(world, now, decisions, oldest, intray.access.length));
-  const digest = digestSlide(world, now);
-  if (digest) slides.push(digest);
-  for (const d of drafts) {
+  for (const d of ordered) {
     const w = waitersOf(d);
     const top = [d.since && d.kind !== "stopped" ? `Waiting ${waitedFor(d.since, now)}` : d.since ? `Stopped ${waitedFor(d.since, now)} ago` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
     const text = `${top ? `_${top}_\n\n` : ""}## ${d.title}\n\n${d.body}${d.history ? `\n\n_History: ${d.history}_` : ""}`;
     slides.push({ text, notes: "", title: d.title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
       key: `${d.kind}:${d.itemId}${d.keySuffix ? `:${d.keySuffix}` : ""}`, kind: d.kind, itemId: d.itemId, group: d.group, buildingId: d.buildingId,
-      since: d.since, waiters: w, history: d.history, ...(d.grantId ? { grantId: d.grantId } : {}), ...(d.docIds ? { docIds: d.docIds } : {}) });
+      since: d.since, waiters: w, history: d.history, ...(d.grantId ? { grantId: d.grantId } : {}), ...(d.docIds ? { docIds: d.docIds } : {}), ...(d.askId ? { askId: d.askId } : {}) });
   }
   if (record.length) {
     const names = record.map((d) => `${world.buildings.get(d.buildingId ?? "")?.name ?? "?"}: ${d.title} (${d.id})`);
@@ -340,20 +357,36 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   return { title: "Review deck", generatedAt: now.toISOString(), slides };
 }
 
-/** Slide 2: the Secretary's latest digest card (gr_kdlogzzo5s step 3), its decisions read live; nothing to decide on it. */
-function digestSlide(world: World, now: Date): ReviewSlide | null {
-  const c = digestCard(world);
-  if (!c) return null;
-  const title = `Digest: ${c.doc.title.replace(/^Digest /, "")}`;
-  const text = [
-    `_Filed by the Secretary ${waitedFor(c.doc.createdAt, now)} ago (${c.doc.id})_`,
-    `## ${title}`,
-    `### Decisions needed\n\n${groupsText(c.decisions)}`,
-    `### Shipped since last digest\n\n${c.shipped || "Nothing shipped."}`,
-    `### Covered rollups\n\n${c.covered.map((r) => `- ${r.buildingName}: ${r.title} (${r.id})${r.pending ? " · still asks a call" : ""}`).join("\n") || "_none_"}`,
-  ].join("\n\n");
-  return { text, notes: "", title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
-    key: `digest:${c.doc.id}`, kind: "digest", itemId: null, group: 0, buildingId: null, since: c.doc.createdAt, waiters: 0, history: "" };
+/** Slide 1 when the Secretary filed a money slate today (step 5): the slate notice; nothing to decide on it. */
+function slateSlide(world: World, now: Date): ReviewSlide | null {
+  const n = todaysSlate(world, now);
+  if (!n) return null;
+  const text = `_Filed by the Secretary ${waitedFor(n.createdAt, now)} ago (${n.id})_\n\n## ${n.title}\n\n${n.body}`;
+  return { text, notes: "", title: n.title, pictures: [], key: `slate:${n.id}`, kind: "slate", itemId: null, group: 0, buildingId: null, since: n.createdAt, waiters: 0, history: "" };
+}
+
+/** An ask's header on the item slide it is about: its rank, type and title, the recommendation, every place it was raised. */
+function askHead(a: Ask): string {
+  const raised = a.sources.length > 1 ? `**Raised ${a.sources.length} times:**\n\n${a.sources.map((s) => `- ${oneLine(s.line)} (${s.docId})`).join("\n")}\n\n` : "";
+  return `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}: ${oneLine(a.title)}_\n\n${a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}\n\n` : ""}${raised}`;
+}
+
+/** A slide of its own for an ask with no item slide (a rollup's ask, an outbox request, an access request, a policy ask). */
+function askDraft(world: World, a: Ask): Draft {
+  const who = a.buildingId ? world.buildings.get(a.buildingId)?.name ?? a.buildingId : "Town";
+  const record = a.sourceDocId ? `**The record:** ${a.sourceDocId}${world.docs.get(a.sourceDocId) ? ` ("${oneLine(world.docs.get(a.sourceDocId)!.title)}")` : ""}` : "";
+  return {
+    kind: "ask", group: a.type === "money" ? 4 : 5, itemId: a.id, askId: a.id, buildingId: a.buildingId, since: a.createdAt, history: "",
+    title: `${who}: ${a.title}`,
+    body: [
+      `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}: it waits behind that` : ""}_`,
+      a.body.trim(),
+      a.branches.length ? `**Choices:** ${a.branches.map((b) => b.label).join(" · ")}` : "",
+      a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}` : "",
+      a.sources.length ? `**Raised in:**\n\n${a.sources.map((s) => `- ${oneLine(s.line)} (${s.docId})`).join("\n")}` : "",
+      record,
+    ].filter(Boolean).join("\n\n"),
+  };
 }
 
 function townSlide(world: World, now: Date, decisions: number, oldest: string | null, asking: number): ReviewSlide {

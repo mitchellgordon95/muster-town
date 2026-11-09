@@ -100,8 +100,9 @@ describe("Needs from Mitchell carries only what has no other channel (1:1 mt_uf1
     const prov = { sourceIds: [r.id], urls: [] };
     const roll = (needs: string) => world.verbs.submit_report(mei, { title: "R", body: body(needs), verdict: "stop", rollup: true, provenance: prov });
     // nothing waiting yet
-    const first = await roll("Nothing needed.");
-    expect(world.docs.require(first.id).body).toBe(`${body("Nothing needed.")}\n\n_Nothing else waiting in your in-tray._`);
+    // a rollup that asks something in words stays in the Town Hall in-tray (one that asks nothing is archived on submit)
+    const first = await roll("- Should visitors see the Bank before they sign in?");
+    expect(world.docs.require(first.id).body).toBe(`${body("- Should visitors see the Bank before they sign in?")}\n\n_Nothing else waiting in your in-tray._`);
     const g = await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const req = await world.verbs.request_human(mei, { title: "Look outside", body: "b", kind: "observation" });
     await expect(roll(`- Fund ${g.grantId}, please.`)).rejects.toThrow(new RegExp(`${g.grantId} \\(a grant proposal in the Town Hall in-tray\\)`));
