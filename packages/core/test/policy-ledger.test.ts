@@ -8,6 +8,7 @@ import { buildingRoleId, createOneOnOne } from "../src/index.ts";
 import { createAsk, decideAsk } from "../src/asks.ts";
 import { policyLedgerBlock } from "../src/secretary.ts";
 import { managerStateBlock } from "../src/prompts.ts";
+import { ensureDictionary } from "../src/dictionary.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -73,5 +74,22 @@ describe("the policy ledger", () => {
     expect(add).toMatchObject({ targetId: `ledger:${m.id}` });
     expect(add!.body).toMatch(new RegExp(`^- .* in a 1:1: "fund it, small UI grants are always fine" \\(fund ${g.id}.*\\) \\(origin: ${m.id}, `));
     expect(world.docs.require(ledger.id).body).not.toContain("small UI grants");
+  });
+
+  it("no agent writes or rewrites the ledger or the dictionary, not even its author; the human Add still appends", async () => {
+    const { world, admin, manager, sec, ledger, ledgerAsks } = setup();
+    expect(ledger.authorId).toBe(sec.id);
+    const dict = ensureDictionary(world)!;
+    for (const type of ["policy", "dictionary"] as const) {
+      await expect(world.verbs.write(sec, { type, title: "x", body: "- anything goes", state: "building" })).rejects.toThrow(/humans only/);
+    }
+    // its author can't update it in place (as any type), and nor can a manager
+    await expect(world.verbs.write(sec, { id: ledger.id, type: "fyi", title: "Policy ledger", body: "- anything goes" })).rejects.toThrow(/humans only/);
+    await expect(world.verbs.write(manager, { id: dict.id, type: "fyi", title: "Town dictionary", body: "x" })).rejects.toThrow(/humans only/);
+    expect(world.docs.require(ledger.id).body).not.toContain("anything goes");
+    const { ask: p } = createAsk(world, { type: "policy", buildingId: LAB, sourceDocId: null, title: "Forks never push to main", branches: [{ label: "Keep" }] });
+    decideAsk(world, admin, p.id, "Keep");
+    decideAsk(world, admin, ledgerAsks()[0]!.id, "Add");
+    expect(world.docs.require(ledger.id).body).toContain("Forks never push to main: Keep");
   });
 });

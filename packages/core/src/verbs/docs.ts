@@ -27,7 +27,10 @@ import type { VerbIn } from "./types.ts";
 import { guessedTimesWarning } from "../time.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 
-const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin"]);
+const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin", "policy", "dictionary"]);
+/** Docs only humans change (the policy ledger through its "Add this rule?" ask, the dictionary through the admin paths): no agent writes or updates them, even their author. */
+const HUMAN_ONLY_TYPES = new Set<Doc["type"]>(["policy", "dictionary"]);
+const HUMAN_ONLY_NOTE = "The policy ledger and the town dictionary are changed by humans only (a rule is added when a human decides \"Add this rule to the ledger?\"). File a policy ask instead.";
 
 export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
@@ -181,6 +184,7 @@ export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
+  if (HUMAN_ONLY_TYPES.has(input.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
   if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : input.type === "bulletin" ? "the bulletin board in the square (humans post there)" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   if (input.buildingId && input.type !== "fyi") throw badRequest("`buildingId` is only for FYIs (type \"fyi\"): it picks the board to post to, e.g. \"town-hall\" for a town-wide FYI.");
@@ -215,6 +219,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
+    if (HUMAN_ONLY_TYPES.has(cur.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
