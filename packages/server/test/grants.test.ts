@@ -237,15 +237,26 @@ describe("grants routes", () => {
     expect(deck.slides.find((x: { kind: string }) => x.kind === "stopped")).toMatchObject({ grantId: id });
   });
 
-  it("GET /api/town shows the step-size table, oversell and calibration; an admin edits them with PUT /api/town/defaults (docs/legible-delegation.md §7.3)", async () => {
+  it("GET /api/town shows the step-size table and oversell; the calibration is on /api/health and admin-only GET /api/town/pricing; an admin edits them with PUT /api/town/defaults (docs/legible-delegation.md §7.3)", async () => {
     const s = await seededApp();
     cleanups.push(s.close);
     const { world, app, auth } = s;
     const town = (await json(app, "GET", "/api/town")).body;
     expect(town.town).toMatchObject({ stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0 });
-    expect(town.stepCalibration).toMatchObject({ days: 30, sizes: { S: { ratio: null, sample: 0 }, M: { ratio: null, sample: 0 }, L: { ratio: null, sample: 0 } } });
-    expect(town.stepCalibration.lines).toEqual(["S: no step completed in 30 days", "M: no step completed in 30 days", "L: no step completed in 30 days"]);
+    // the public, polled snapshot carries no calibration and no measures: those come from the health cache
+    expect(town.stepCalibration).toBeUndefined();
+    expect(town.legible).toBeUndefined();
+    const health = (await json(app, "GET", "/api/health")).body;
+    expect(health.stepCalibration).toMatchObject({ days: 30 });
+    expect(health.legible).toBeDefined();
     const member = { authorization: `Bearer ${world.ops.createUser("Member").token}` };
+    expect((await json(app, "GET", "/api/town/pricing")).status).toBe(401);
+    expect((await json(app, "GET", "/api/town/pricing", { headers: member })).status).toBe(403);
+    const pricing = await json(app, "GET", "/api/town/pricing", { headers: auth });
+    expect(pricing.status).toBe(200);
+    expect(pricing.body).toMatchObject({ stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0, figuresAt: expect.any(String) });
+    expect(pricing.body.stepCalibration).toMatchObject({ days: 30, sizes: { S: { ratio: null, sample: 0 }, M: { ratio: null, sample: 0 }, L: { ratio: null, sample: 0 } } });
+    expect(pricing.body.stepCalibration.lines).toEqual(["S: no step completed in 30 days", "M: no step completed in 30 days", "L: no step completed in 30 days"]);
     expect((await json(app, "PUT", "/api/town/defaults", { headers: member, body: { oversell: 0.5 } })).status).toBe(403);
     expect((await json(app, "PUT", "/api/town/defaults", { headers: auth, body: { oversell: 2 } })).status).toBe(400);
     const put = await json(app, "PUT", "/api/town/defaults", { headers: auth, body: { stepSizes: { S: 40_000, M: 120_000, L: 300_000 }, oversell: 0.25 } });

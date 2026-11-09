@@ -1,7 +1,7 @@
 /**
  * The planning desk's step sizes (docs/legible-delegation.md §7.3-7.4, UI / UX E): the collective's S / M / L table and
  * the oversell setting, editable by an admin and saved through PUT /api/town/defaults, with what steps really cost
- * beside them (GET /api/town `stepCalibration`). The Planner proposes changes as policy asks; a human decides.
+ * beside them (GET /api/town/pricing `stepCalibration`, an admin's). The Planner proposes changes as policy asks; a human decides.
  */
 import { useEffect, useState } from "react";
 import { grantPricingOf, type StepSize } from "@muster-town/schema";
@@ -15,7 +15,8 @@ const kOf = (n: number) => String(Math.round(n / 1000));
 export function PricingTab() {
   const town = useTown((s) => s.town);
   const admin = useTown((s) => !!s.me?.isAdmin);
-  const cal = useLoad(() => api().town().then((t) => t.stepCalibration ?? null), []);
+  // GET /api/town/pricing is an admin's: everyone else sees the table without the calibration lines
+  const cal = useLoad(() => (admin ? api().pricing().then((p) => p.stepCalibration ?? null) : Promise.resolve(null)), [admin]);
   const cur = grantPricingOf(town ?? {});
   const [sizes, setSizes] = useState<Record<StepSize, string>>({ S: kOf(cur.stepSizes.S), M: kOf(cur.stepSizes.M), L: kOf(cur.stepSizes.L) });
   const [oversell, setOversell] = useState(String(Math.round(cur.oversell * 100)));

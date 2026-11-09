@@ -189,7 +189,7 @@ describe("the funding view", () => {
   it("the live line follows the fund / hold toggle, and the toggle funds nothing", async () => {
     signIn();
     vi.spyOn(api(), "bank").mockResolvedValue({ free: { freeTokens: 10_000_000, openAsksTokens: 5_500_000 } } as never);
-    vi.spyOn(api(), "town").mockImplementation(() => mock.town());
+    vi.spyOn(api(), "health").mockImplementation(() => mock.health());
     const decide = vi.spyOn(api(), "decideGrant");
     const el = await mount(<FundingView asks={asks} grants={grants} notices={notices} onDecided={() => undefined} />);
     await flush();
@@ -232,10 +232,12 @@ describe("the planning desk's step sizes", () => {
   it("an admin edits the table and oversell and saves them through PUT /api/town/defaults", async () => {
     signIn(true);
     store.state = { ...store.state, town: { ...(store.state.town ?? {}), name: "T", goal: "", stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0.5 } as never };
-    vi.spyOn(api(), "town").mockImplementation(() => mock.town());
+    const pricing = vi.spyOn(api(), "pricing").mockImplementation(() => mock.pricing());
     const save = vi.spyOn(api(), "setGrantPricing").mockImplementation((p) => mock.setGrantPricing(p));
     const el = await mount(<PricingTab />);
     await flush();
+    // the calibration comes from the admin-only GET /api/town/pricing
+    expect(pricing).toHaveBeenCalled();
     expect(el.textContent).toContain("L: 1.6× over 12 steps");
     expect(el.textContent).toContain("policy asks");
     await act(async () => typeInto(el.querySelector("input[aria-label='S size']") as HTMLInputElement, "60"));
@@ -246,10 +248,14 @@ describe("the planning desk's step sizes", () => {
   });
   it("a non-admin reads the table, no Save", async () => {
     signIn(false);
-    vi.spyOn(api(), "town").mockImplementation(() => mock.town());
+    const pricing = vi.spyOn(api(), "pricing").mockImplementation(() => mock.pricing());
     const el = await mount(<PricingTab />);
+    await flush();
     expect(button(el, "Save")).toBeUndefined();
     expect((el.querySelector("input[aria-label='M size']") as HTMLInputElement).disabled).toBe(true);
+    // a non-admin never calls the admin-only pricing route: the table shows without the calibration lines
+    expect(pricing).not.toHaveBeenCalled();
+    expect(el.textContent).not.toContain("1.6×");
   });
 });
 

@@ -19,7 +19,8 @@ export function FundingView({ asks, grants, notices, onDecided, onOpenRecord }: 
   const town = useTown((s) => s.town);
   const sizes = grantPricingOf(town ?? {}).stepSizes;
   const bank = useLoad(() => api().bank().then((b) => b.free ?? null).catch(() => null), []);
-  const cal = useLoad(() => api().town().then((t) => t.stepCalibration ?? null).catch(() => null), []);
+  // the calibration from the health cache (public, never computed on a request)
+  const cal = useLoad(() => api().health().then((h) => h.stepCalibration ?? null).catch(() => null), []);
   // every card starts on fund when the slate says nothing; the toggle is the reader's scratch pad
   const [funded, setFunded] = useState<Set<string>>(() => new Set(items.map((x) => x.grant.id)));
   const line = slateLine(bank.data, items, funded, sizes, cal.data);

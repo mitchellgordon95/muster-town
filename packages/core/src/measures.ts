@@ -4,7 +4,7 @@
  * Pure reads over asks, seen, grants, assignments, sessions and events: nothing is written. `GET /api/health` and
  * `GET /api/town` carry them as `legible`.
  */
-import type { AskType, StepSize } from "@muster-town/schema";
+import type { AskType, StepCalibration, StepSize } from "@muster-town/schema";
 import { stepCalibration } from "./grant-estimate.ts";
 import type { World } from "./world.ts";
 
@@ -48,7 +48,7 @@ const ratio = (n: number, d: number) => (d ? Math.round((n / d) * 100) / 100 : n
 const hours = (from: string, to: number) => Math.round(((to - Date.parse(from)) / HOUR) * 10) / 10;
 
 /** The §9 measures of `world` at `now`. Read-only. */
-export function legibleMeasures(world: World, now: Date = new Date()): LegibleMeasures {
+export function legibleMeasures(world: World, now: Date = new Date(), cal: StepCalibration = stepCalibration(world, now)): LegibleMeasures {
   const t = now.getTime();
   const since = new Date(t - MEASURE_WINDOW_DAYS * DAY).toISOString();
 
@@ -86,7 +86,7 @@ export function legibleMeasures(world: World, now: Date = new Date()): LegibleMe
     retiredBeforeRead: { retired: retired.length, unread: retired.filter((a) => !read.has(a.id)).length },
     topUpsPerFundedGrant: { topUps: holdAsks.length + projected.size, funded, ratio: ratio(holdAsks.length + projected.size, funded) },
     holdShare: { held, closed: closed.length, share: ratio(held, closed.length) },
-    spentOverSize: stepCalibration(world, now).sizes,
+    spentOverSize: cal.sizes,
     sessionsPerStep: sessionsPerStep(world, since),
     heldAtGates: {
       grants: gates.length,

@@ -368,8 +368,12 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 
 /** An ask as the in-tray reads it (`rank`: the Secretary's order, 1 = first, null = unranked). */
 export type AskView = Ask;
-/** GET /api/town: the snapshot plus what steps really cost against the size table (older servers leave it out). */
-export type TownRead = Snapshot & { stepCalibration?: StepCalibration };
+/** GET /api/town: the snapshot (the step-size calibration is on GET /api/town/pricing and /api/health). */
+export type TownRead = Snapshot;
+/** GET /api/town/pricing (an admin): the step-size table, oversell, and the cached calibration beside them. */
+export interface PricingRead { stepSizes: StepSizeTable; oversell: number; stepCalibration: StepCalibration | null; figuresAt: string }
+/** GET /api/health as the web reads it: the town's funding, and the cached step-size calibration (the funding slate's expected spend). */
+export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null }
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
 export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
 
@@ -504,6 +508,8 @@ export interface Api {
   notices(q?: { building?: string; goal?: string; kind?: NoticeKind; limit?: number }): Promise<Notice[]>;
   /** PUT /api/town/defaults (admin): the step-size table and oversell */
   setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }): Promise<GrantPricing>;
+  /** GET /api/town/pricing: the table, oversell and the cached calibration (admins: the planning desk's Step sizes tab) */
+  pricing(): Promise<PricingRead>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
@@ -694,7 +700,7 @@ export interface Api {
   runRank(): Promise<{ id: string }>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
-  health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
+  health(): Promise<HealthRead>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
   /** a hosted collective's admin renames it, its address (slug) unchanged (`PATCH /<slug>/api/collective`) */
@@ -832,6 +838,7 @@ class HttpApi implements Api {
     try { return (await this.get<{ notices?: Notice[] }>(`/api/notices${qs({ building: q.building, goal: q.goal, kind: q.kind, limit: q.limit })}`)).notices ?? []; }
     catch (e) { if (e instanceof ApiError && e.status === 404) return []; throw e; }
   }
+  async pricing() { return this.get<PricingRead>("/api/town/pricing"); }
   async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
     const r = await this.call<Partial<GrantPricing>>("PUT", "/api/town/defaults", patch);
     return { stepSizes: r.stepSizes ?? patch.stepSizes ?? grantPricingOf({}).stepSizes, oversell: r.oversell ?? patch.oversell ?? 0 };
@@ -971,7 +978,7 @@ class HttpApi implements Api {
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
-  async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
+  async health() { return this.get<HealthRead>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async renameCollective(name: string) { return this.call<{ collective: { name: string; slug: string; url: string } }>("PATCH", "/api/collective", { name }); }
   async collectives() { return (await this.get<{ collectives?: { slug: string; name: string; goal: string; url: string; started: boolean }[] }>("/api/collectives")).collectives ?? []; }

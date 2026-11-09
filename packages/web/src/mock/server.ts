@@ -178,7 +178,7 @@ export class MockApi implements Api {
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
     return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: "gl_town", directBuildingIds: this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => b.id) });
   }
-  async town() { await wait(); return { ...this.sim.snapshot(), stepCalibration: clone(stepCalibration) }; }
+  async town() { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
     await wait(80);
     let ev = this.sim.events.filter((e) => (q.since === undefined || e.id > q.since) && (!q.agentId || e.agentId === q.agentId) && (!q.buildingId || e.buildingId === q.buildingId)
@@ -381,6 +381,8 @@ export class MockApi implements Api {
     return clone(this.noticeRows.filter((n) => (!q.building || n.buildingId === q.building) && (!q.goal || n.goalId === q.goal) && (!q.kind || n.kind === q.kind))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, Math.min(200, q.limit ?? 50)));
   }
+  /** GET /api/town/pricing (admin): the table, oversell and the calibration */
+  async pricing() { await wait(); return { ...clone(grantPricingOf(this.sim.town)), stepCalibration: clone(stepCalibration), figuresAt: now() }; }
   /** PUT /api/town/defaults with the step-size table and oversell (admin) */
   async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
     await wait(60);
@@ -1122,7 +1124,7 @@ export class MockApi implements Api {
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
-  async health() { return { ok: true, commit: "mock" }; }
+  async health() { return { ok: true, commit: "mock", stepCalibration: clone(stepCalibration) }; }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
   async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
   async collectives() { return []; }

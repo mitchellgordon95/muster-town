@@ -50,18 +50,23 @@ export async function townRoutes(app: FastifyInstance) {
    */
   // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
-  const figures = new HealthCache(() => ({
+  const figures = new HealthCache(() => {
+    // what steps really cost per size, last 30 days (grant-estimate.ts): computed here on the timer, never on a request
+    const cal = stepCalibration(world);
+    return {
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world), export: exportHealth(world),
     // legible delegation step 9: the §9 counts (core measures.ts), the Planner's calibration reads them too
-    legible: legibleMeasures(world),
+    legible: legibleMeasures(world, new Date(), cal),
+    stepCalibration: cal,
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
     ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
     ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress(), started: world.hasRun() } : {}),
-  }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+    };
+  }, app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
   app.get("/api/health", async () => {
@@ -86,10 +91,19 @@ export async function townRoutes(app: FastifyInstance) {
     });
   }
 
+  // public and polled: the snapshot only. The calibration and the §9 measures are on /api/health (cached) and, for the
+  // planning desk's Step sizes tab, GET /api/town/pricing
   app.get("/api/town", async () => {
     const { type: _type, ...snap } = world.snapshot();
-    // beside the step-size table (snap.town.stepSizes): what steps really cost per size, last 30 days (grant-estimate.ts)
-    return { ...snap, stepCalibration: stepCalibration(world), legible: legibleMeasures(world) };
+    return snap;
+  });
+
+  // the planning desk's Step sizes tab (an admin): the table, oversell, and the cached calibration beside them
+  app.get("/api/town/pricing", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin reads the step-size pricing here.");
+    const { figures: f, at } = figures.get();
+    return { ...grantPricingOf(world.town.get()), stepCalibration: f.stepCalibration, figuresAt: at };
   });
 
   app.get("/api/me", async (req): Promise<AuthMe> => {
