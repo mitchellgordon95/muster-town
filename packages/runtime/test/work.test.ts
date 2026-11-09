@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { callVerb, deferred, init, managerless, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
+import { cutFlaggedSessions } from "../src/work.ts";
 
 const REPORT = { title: "Mauna Loa growth rate", verdict: "continue", body: "## Summary\nGrowth 2.4 ± 0.1 ppm/yr.\n\n## Proposal for next session\nHow does the 13C record attribute the rise?\nBecause attribution matters." };
 
@@ -241,5 +242,30 @@ describe("agent memory", () => {
     expect(prompt).toContain("## Your recent work");
     expect(prompt).toMatch(/- note "Dashboard number" \(dc_[\w-]+, just now\): Use the 10-year mean 0\.44 ± 0\.03\./);
     expect(prompt).toContain("`read` the documents above that are relevant");
+  });
+});
+
+describe("the circuit breaker's cut", () => {
+  test("ends a flagged session only while it is still its agent's live session, after the drain's kill grace", () => {
+    vi.useFakeTimers();
+    try {
+      const kills: string[] = [];
+      const live = (agentId: string, sessionId: string) => ({
+        kind: "desk" as const, agentId, sessionId, purpose: "work" as const, input: { close: () => undefined }, q: null,
+        reportSubmitted: false, stopped: false, child: { kill: () => { kills.push(sessionId); } },
+      });
+      const ctx = { live: new Map([["ag_a", live("ag_a", "se_new")], ["ag_b", live("ag_b", "se_b")]]) };
+      // ag_a's flagged session already ended and a newer one runs: left alone; ag_c has nothing live
+      const cut = cutFlaggedSessions(ctx as never, [{ agentId: "ag_a", sessionId: "se_old" }, { agentId: "ag_b", sessionId: "se_b" }, { agentId: "ag_c", sessionId: "se_c" }], 10_000);
+      expect(cut).toEqual(["ag_b"]);
+      expect(ctx.live.get("ag_a")!.stopped).toBe(false);
+      expect(ctx.live.get("ag_b")!.stopped).toBe(true);
+      // the child is killed only after the grace, never at once
+      expect(kills).toEqual([]);
+      vi.advanceTimersByTime(10_000);
+      expect(kills).toEqual(["se_b"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

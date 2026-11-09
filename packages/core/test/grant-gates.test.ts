@@ -105,9 +105,25 @@ describe("the session circuit breaker", () => {
     expect(circuitBreakerTick(world)).toEqual([]); // asked once
     expect(warned()).toHaveLength(1);
     expect(warned()[0]!.payload).toMatchObject({ circuitBreaker: s.id, limitTokens: 500_000 });
+    expect(warned()[0]!.text).toContain("work session reached 90%");
     world.sessions.patch(s.id, { output: SESSION_CIRCUIT_BREAKER });
-    expect(circuitBreakerTick(world)).toEqual([pix.id]);
+    expect(circuitBreakerTick(world)).toEqual([{ agentId: pix.id, sessionId: s.id }]);
     expect(circuitBreakerTick(world)).toEqual([]); // cut once: the runtime ends it
     expect(cutEvents()).toHaveLength(1);
+  });
+
+  it("a manage session is asked to finish the decision in hand at 90% and is never cut", () => {
+    const { world, pix } = lab();
+    const s = world.sessions.upsert({
+      id: newId("se"), agentId: pix.id, assignmentId: null, meetingId: null, purpose: "manage", backend: "host", status: "running", model: "m",
+      sdkSessionId: null, output: SESSION_CIRCUIT_BREAKER * 0.95, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: null, funding: null, lane: null, grantId: null,
+    } as never);
+    expect(circuitBreakerTick(world)).toEqual([]);
+    const [w] = world.events.list({ types: ["system"], payloadKey: "circuitBreaker" });
+    expect(w).toMatchObject({ text: expect.stringContaining("manage session reached 90%"), payload: { circuitBreaker: s.id, purpose: "manage" } });
+    world.sessions.patch(s.id, { output: SESSION_CIRCUIT_BREAKER * 2 });
+    expect(circuitBreakerTick(world)).toEqual([]);
+    expect(world.events.list({ types: ["system"], payloadKey: "circuitBreakerCut" })).toHaveLength(0);
+    expect(world.events.list({ types: ["system"], payloadKey: "circuitBreaker" })).toHaveLength(1);
   });
 });

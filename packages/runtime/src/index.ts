@@ -22,7 +22,7 @@ import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
 import { cacheMissDue } from "./cache-miss.ts";
 export { reconcileDue } from "./reconcile.ts";
-import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
+import { abortWork, cutFlaggedSessions, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
 export { describeTool } from "./describe.ts";
@@ -709,8 +709,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
       timed("waits", () => checkWaits(world, d));
       timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
-      // the session circuit breaker (docs/legible-delegation.md §7.3): asked to file at 90%, cut at 100% the way a drain cuts a session
-      timed("circuitBreaker", () => { for (const agentId of circuitBreakerTick(world)) abortWork(ctx, agentId, 0); }, "circuit breaker");
+      // the session circuit breaker (docs/legible-delegation.md §7.3): asked to file at 90%, a work session cut at 100% the way a
+      // drain cuts one (its kill grace), only while the flagged session is still its agent's live one
+      timed("circuitBreaker", () => { cutFlaggedSessions(ctx, circuitBreakerTick(world), killGraceMs); }, "circuit breaker");
       // a stopped grant (Grants.stop) closes as stopped once no session runs on it
       timed("stoppingGrants", () => world.grantDesk.finishStopping(), "stopping grants");
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
