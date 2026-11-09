@@ -4,18 +4,20 @@ import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SecretsTab } from "./Secrets";
+import { PricingTab } from "./PricingTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { NEW_LAB_LOT, ROOT_GOAL_ID, desksForLot } from "@muster-town/schema";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, useLoad } from "./ui";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
+  const tabs = ["Buildings", "Step sizes", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
   return (
     <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}
+          {t === "Step sizes" ? <PricingTab /> : null}
           {t === "Roles" ? <RolesTab /> : null}
           {t === "Secrets" ? <SecretsTab /> : null}
           {t === "System" ? <System /> : null}
