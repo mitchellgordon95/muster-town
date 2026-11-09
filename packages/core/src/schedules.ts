@@ -194,6 +194,26 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
   return e;
 }
 
+/**
+ * Raise a retainer schedule's per-run amount from the code (no human actor: the town keeps a schedule it made in step
+ * with a constant, e.g. the Secretary's ranking run moving to Fable). The same path as an edit's: the retainer is asked
+ * again (`retainerAfterEdit`, `askRetainer`), so the new total runs only once a human approves it; `schedule.edited`
+ * says why. Never lowers it; a schedule that ended or isn't on a retainer is returned as it is.
+ */
+export function raiseRetainerPerRun(world: World, s: Schedule, tokensPerRun: number, why: string, at: Date = new Date()): Schedule {
+  if (s.status === "ended" || s.lane !== "retainer" || s.tokensPerRun >= tokensPerRun) return s;
+  const draft: Schedule = { ...s, tokensPerRun };
+  const ret = retainerAfterEdit(s, draft, at);
+  const e = world.schedules.upsert({ ...draft, retainer: ret.retainer, updatedAt: at.toISOString() });
+  world.events.append({
+    type: "schedule.edited", buildingId: s.buildingId,
+    text: `The town raised schedule "${truncate(e.title, 80)}" from ${s.tokensPerRun.toLocaleString("en-US")} to ${tokensPerRun.toLocaleString("en-US")} tokens per run (${why})${ret.reask ? "; its retainer is asked again" : ""}`,
+    payload: { scheduleId: s.id, changed: ["tokensPerRun"], from: s.tokensPerRun, tokensPerRun, retainer: e.retainer, why },
+  });
+  if (ret.reask) askRetainer(world, e, ret.reask, at);
+  return e;
+}
+
 /** `takerId` when it names a resident of `b` who can take work (not a fork, not stopped or gone), else undefined. */
 function residentTaker(world: World, b: Building, takerId: string): Agent | undefined {
   const a = world.agents.get(takerId);

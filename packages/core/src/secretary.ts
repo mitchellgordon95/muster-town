@@ -32,7 +32,7 @@ import { humanOrigin } from "./origin.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { foldRollup } from "./rollup-asks.ts";
-import { createSchedule } from "./schedules.ts";
+import { createSchedule, raiseRetainerPerRun } from "./schedules.ts";
 import { utcDate, whenFor } from "./time.ts";
 import { newId, nowIso, truncate } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -120,7 +120,8 @@ export class Secretary {
    * per run (asked in the Town Hall in-tray: its runs start once a human approves), on SECRETARY_MODEL. It is the
    * Secretary's first schedule: never made again once any exists (ended or rejected included). The live one (the old
    * "Daily in-tray digest") is kept in step with the code at boot: its title, its description (RANK_RUN_PROMPT) and its
-   * model; its per-run amount is not raised here (raising it asks the retainer again: a human edits it).
+   * model; a per-run amount below RANK_TOKENS_PER_RUN is raised to it through `raiseRetainerPerRun`, which asks the
+   * retainer again (the new total runs only once a human approves it).
    */
   ensureRankSchedule(at: Date = new Date()): Schedule | null {
     const sec = this.agent();
@@ -128,8 +129,13 @@ export class Secretary {
     if (!sec || !th) return null;
     const had = this.world.schedules.first("takerId = ? AND title != ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt");
     if (had) {
-      if (had.description === RANK_RUN_PROMPT && had.model === SECRETARY_MODEL && had.title === RANK_SCHEDULE_TITLE) return had;
-      return this.world.schedules.patch(had.id, { title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, model: SECRETARY_MODEL });
+      // a run on Fable needs RANK_TOKENS_PER_RUN: below it the retainer watch stops every run short, so it is raised and asked again
+      const cur = had.status !== "ended" && had.lane === "retainer" && had.tokensPerRun < RANK_TOKENS_PER_RUN
+        ? raiseRetainerPerRun(this.world, had, RANK_TOKENS_PER_RUN, `the ranking run moved to ${SECRETARY_MODEL} and needs ${RANK_TOKENS_PER_RUN.toLocaleString("en-US")} per run`, at)
+        : had;
+      if (cur !== had) console.log(`[secretary] raised "${cur.title}" (${cur.id}) from ${had.tokensPerRun} to ${cur.tokensPerRun} tokens per run; retainer ${cur.retainer}`);
+      if (cur.description === RANK_RUN_PROMPT && cur.model === SECRETARY_MODEL && cur.title === RANK_SCHEDULE_TITLE) return cur;
+      return this.world.schedules.patch(cur.id, { title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, model: SECRETARY_MODEL });
     }
     const s = createSchedule(this.world, th.id, { kind: "agent", id: sec.id }, {
       title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, repeat: { dailyAt: [RANK_AT] },

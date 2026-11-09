@@ -74,6 +74,26 @@ describe("the Secretary", () => {
     expect(world.budget.sessionModel(sec.id, fired[0])).toBe(SECRETARY_MODEL);
   });
 
+  it("a live ranking schedule below RANK_TOKENS_PER_RUN is raised at boot and its retainer asked again; a human approves the new total", () => {
+    const { world, admin } = setup();
+    const t0 = new Date("2030-01-01T06:00:00.000Z");
+    const s = world.secretary.ensureRankSchedule(t0)!;
+    decideRetainer(world, admin, s.id, { action: "approve", note: "" });
+    // the schedule as prod has it: funded at the old 10,000 per run
+    world.schedules.patch(s.id, { tokensPerRun: 10_000 });
+    expect(world.schedules.require(s.id).retainer).toBe("funded");
+    const asksBefore = world.asks.count("targetKind = 'retainer' AND targetId = ? AND status = 'open'", [s.id]);
+    const raised = world.secretary.ensureRankSchedule(t0)!;
+    expect(raised).toMatchObject({ id: s.id, tokensPerRun: RANK_TOKENS_PER_RUN, retainer: "asked" });
+    expect(world.asks.count("targetKind = 'retainer' AND targetId = ? AND status = 'open'", [s.id])).toBe(asksBefore + 1);
+    const ev = world.events.list({ types: ["schedule.edited"] }).at(-1)!;
+    expect(ev.text).toMatch(/raised schedule "Daily ask ranking" from 10,000 to 40,000 tokens per run.*asked again/);
+    expect(world.events.list({ types: ["retainer.asked"] }).at(-1)!.text).toMatch(/per-run amount raised/);
+    // at the constant already: nothing changes and nothing is asked
+    decideRetainer(world, admin, s.id, { action: "approve", note: "" });
+    expect(world.secretary.ensureRankSchedule(t0)!).toMatchObject({ tokensPerRun: RANK_TOKENS_PER_RUN, retainer: "funded" });
+  });
+
   it("a lab schedule with takerId goes to that resident's own queue, not the building queue", () => {
     const { world, admin } = setup();
     const ivy = createResident(world, { buildingId: LAB, name: "Ivy" });
