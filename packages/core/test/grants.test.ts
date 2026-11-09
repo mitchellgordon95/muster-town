@@ -71,12 +71,24 @@ describe("grants service", () => {
     expect(c.askTokens).toBe(6_000_000);
     expect(world.messages.where("toId = ?", [manager.id]).some((m) => m.body.includes("countered"))).toBe(true);
     world.grantDesk.update(manager, g.id, { note: "sharpened", keyResults: KRS });
-    world.grantDesk.propose(manager, g.id); // re-proposing prices the plan again: its ask is the sum of its steps' sizes
+    // re-proposing after a counter that named tokens keeps the human's price as the ask; the steps' sum shows beside it
+    const re = world.grantDesk.propose(manager, g.id);
+    expect(re.askTokens).toBe(6_000_000);
+    expect(re.history.at(-1)).toMatchObject({ action: "propose", tokens: 6_000_000, note: "(the counter's 6,000,000 tokens; priced at 150,000)" });
+    expect(world.events.list({ types: ["grant.proposed"] }).at(-1)!.text).toContain("(6,000,000 tokens, the counter's; priced at 150,000)");
     const f = world.grantDesk.decide(admin, g.id, { action: "fund" });
-    expect(f).toMatchObject({ status: "funded", grantTokens: 150_000, fundedBy: admin.ownerUserId, spentTokens: 0 });
+    expect(f).toMatchObject({ status: "funded", grantTokens: 6_000_000, fundedBy: admin.ownerUserId, spentTokens: 0 });
     expect(f.history.map((h) => [h.action, h.byKind])).toEqual([["propose", "agent"], ["counter", "user"], ["edit", "agent"], ["propose", "agent"], ["fund", "user"]]);
     expect(world.grantDesk.board(LAB)).toMatchObject({ proposals: [], grants: [{ id: g.id }] });
     expect(() => world.grantDesk.decide(admin, g.id, { action: "fund" })).toThrow(/funded grant/);
+  });
+
+  it("a counter without tokens: the re-proposal is priced by its steps again", () => {
+    const { world, manager, admin, draft } = setup();
+    const g = world.grantDesk.propose(manager, draft().id);
+    world.grantDesk.decide(admin, g.id, { action: "counter", note: "sharper KRs" });
+    world.grantDesk.update(manager, g.id, { note: "sharpened", keyResults: KRS });
+    expect(world.grantDesk.propose(manager, g.id).askTokens).toBe(150_000);
   });
 
   it("reject closes the proposal and frees the slot", () => {

@@ -586,10 +586,14 @@ export class Grants {
     if (!g.steps.length) throw badRequest("A grant carries 1-5 steps: give steps (title, description; one session each) first. Funding queues step 1.");
     // the estimate is recorded at (each) propose so the close can compare it with what the grant spent
     // the ask is the town's arithmetic: the sum of the steps' sizes from the table at propose time (docs/legible-delegation.md §7.3)
-    const priced = { ...g, askTokens: this.askOf(g.steps) };
-    const next = this.save(priced, actor, { status: "proposed", estimate: this.estimateFor(priced) }, "propose", priced.askTokens, note);
-    this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens)`);
-    this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${next.objective}" for ${fmt(next.askTokens)} tokens. Fund, counter or reject it on the board.`);
+    // re-proposed after a counter that named tokens: the counter is the human's price and stays the ask; the sum is shown beside it
+    const sum = this.askOf(g.steps);
+    const countered = counteredTokens(g);
+    const priced = { ...g, askTokens: countered ?? sum };
+    const pricedAt = countered !== null && countered !== sum ? `; priced at ${fmt(sum)}` : "";
+    const next = this.save(priced, actor, { status: "proposed", estimate: this.estimateFor(priced) }, "propose", priced.askTokens, countered !== null ? `${note ? `${note} ` : ""}(the counter's ${fmt(countered)} tokens${pricedAt})`.trim() : note);
+    this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens${countered !== null ? `, the counter's${pricedAt}` : ""})`);
+    this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${next.objective}" for ${fmt(next.askTokens)} tokens${countered !== null ? ` (your counter${pricedAt})` : ""}. Fund, counter or reject it on the board.`);
     return this.view(next);
   }
 
@@ -1101,6 +1105,16 @@ function passed(spent: number, tokens: number): number[] {
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
+
+/**
+ * The tokens a human's counter named, while the grant is countered and that counter is the latest decision since it was
+ * last proposed (edits after it don't count); null when the counter named none. A re-propose keeps them as the ask.
+ */
+export function counteredTokens(g: Pick<Grant, "status" | "history">): number | null {
+  if (g.status !== "countered") return null;
+  const last = [...g.history].reverse().find((h) => h.action === "counter" || h.action === "propose");
+  return last?.action === "counter" && last.tokens ? last.tokens : null;
+}
 
 /**
  * A key result's evidence class after its status is set (docs/legible-delegation.md §5, build step 10): a human marking

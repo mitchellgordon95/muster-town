@@ -2,6 +2,7 @@ import { grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/sch
 import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
+import { counteredTokens } from "../grants.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -32,7 +33,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
   const card = ask
     ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
-    : proposalCard({ objective: fields.objective, askTokens: fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+    : proposalCard({ objective: fields.objective, askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
   refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) }));
   const g = world.transaction(() => {
     const proposed = open
