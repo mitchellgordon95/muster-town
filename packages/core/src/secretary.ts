@@ -1,60 +1,81 @@
 /**
  * The Secretary (grant gr_kdlogzzo5s, design dc_8gbluwrdgi; town hall mt_v09cn7a8yr decision 3): a Town Hall resident
- * beside the Planner (who stays its manager) that keeps the humans' in-tray digestible. Mitchell: "can i get a secretary
- * resident in the town hall to help me with the intray? … rolling up the rollups into something more digestable".
+ * beside the Planner (who stays its manager) that keeps the humans' in-tray digestible. Since legible delegation step 5
+ * (docs/legible-delegation.md §6) it operates the stream of asks instead of writing a digest card, on Fable (Mitchell:
+ * "the secretary should be fable by default. this kind of high-level judgment work i think requires that level of
+ * competence."):
  *
- * The digest card: "Decisions needed" is assembled here in code from the same data as the review deck (checkpoints,
- * proposals, goal proposals, captain asks, retainer asks, rollup calls, open outbox requests), as yes/no lines grouped
- * by the kind of yes/no (Money, Go / no-go, Questions in words, Already overtaken, Errands; Mitchell, 1:1
- * mt_i50xwu4z2t). "Shipped since last digest" is written by the Secretary's run (a cheap-model session on a daily
- * retainer schedule it takes itself, `takerId`): one line per Shipped item of every rollup filed since the last digest,
- * grouped under 3-6 theme headings the run picks.
- * `fileDigest` files the card (doc type `digest` in the Town Hall, the covered rollups in provenance) and archives those
- * rollups that ask nothing (every call None), so they leave the in-tray's main list and stay one click away under the
- * card; a rollup with a real "Your call" stays pending (its call is a "Decisions needed" line until a human decides it). The schedule
- * files at most one card per UTC day, and only when a new rollup arrived: otherwise the due run is skipped before any
- * session (`digestIdleReason`). A human's "Daily digest" press (`pressDigest`) runs it now, once-a-day aside.
+ * - **Rank** (the daily run, `RANK_RUN_PROMPT`, a retainer schedule it takes itself): reads the open asks (`rank` with no
+ *   arguments), sets each one's `rank`, defers an ask that is moot until another resolves (`deferAsk`), and files the
+ *   money slate (fund now, hold until, skip) as a `slate` notice citing ask ids (`applyRank`). A human's "Rank now"
+ *   press (`pressRank`) runs the same job. The due run is skipped before any session when nothing changed since the
+ *   last ranking (`rankNothingNew`).
+ * - **Surface patterns** (the weekly run, `PATTERN_RUN_PROMPT`): reads the week's asks, rollups and events and files one
+ *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
+ * - **Propose a rule**: after a human decides a policy ask, or `act_in_1on1` records a decision, it files the policy ask
+ *   "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
+ *   of type `policy`, `policyLedgerBlock` pins it in managers' prompts). It never appends on its own.
+ * - **Settle a rollup** on submit (`settleRollup`): a `shipped` notice per Shipped item, the closed loop of a grant it
+ *   closes, and archiving a rollup that asks nothing of its own (every ask folded, or none), as the digest used to.
+ *
+ * It never funds, continues, cuts or approves anything: the humans decide every ask. The `digest` doc type stays
+ * readable for old cards; nothing writes one any more. `overtakenReason` and `rollupCalls` (the old digest's reading of a
+ * rollup's prose) stay: the asks backfill reads untyped rollups through them, and the hooks are tested against them.
  */
-import { isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Assignment, type DigestCard, type DigestGroup, type DigestRunView, type Doc, type GrantView, type Meeting, type Schedule } from "@muster-town/schema";
+import { isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
-import { createAssignment, createDoc, grantsAwaitingDecision, townHallIntray } from "./domain.ts";
-import { STARTER_MANAGER_MODEL } from "./entities.ts";
+import { createAsk, deferAsk, rankedAsks, setRank } from "./asks.ts";
+import { createAssignment, createDoc, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
+import { closedLoopNotice, fileNotice, shippedNotices } from "./notices.ts";
 import { humanOrigin } from "./origin.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
-import { waitingRowIds } from "./rollup-asks.ts";
+import { foldRollup } from "./rollup-asks.ts";
+import { createSchedule } from "./schedules.ts";
+import { utcDate, whenFor } from "./time.ts";
 import { newId, nowIso, truncate } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
-import { createSchedule } from "./schedules.ts";
 import type { World } from "./world.ts";
 
 const SECRETARY_TITLE = "Secretary";
-/** One digest run on the Town Hall's cheapModel reads 3-6 rollups and writes a handful of lines: est. 10,000 Bank tokens. */
-export const DIGEST_TOKENS_PER_RUN = 10_000;
+/** The Secretary and its runs: Fable (docs/legible-delegation.md §6, §10). Its judgment is the product; never the cheap model. */
+export const SECRETARY_MODEL = "claude-fable-5-1";
+/** One ranking run on Fable reads the open asks and the money history and writes ranks and a slate: est. 40,000 Bank tokens. */
+export const RANK_TOKENS_PER_RUN = 40_000;
+/** One weekly pattern run reads a week of asks, rollups and events and writes one notice: est. 60,000 Bank tokens. */
+const PATTERN_TOKENS_PER_RUN = 60_000;
 /** The daily run (UTC): before Mitchell's morning. */
-const DIGEST_AT = "07:00";
-const DIGEST_SCHEDULE_TITLE = "Daily in-tray digest";
-/** A Shipped line: at most this many words (the run is asked for ≤ 20; a few more pass, a paragraph does not). */
-const MAX_LINE_WORDS = 30;
-/** Theme headings on one card: the run is asked for 3-6. */
-const MAX_THEMES = 8;
+const RANK_AT = "07:00";
+const RANK_SCHEDULE_TITLE = "Daily ask ranking";
+const PATTERN_SCHEDULE_TITLE = "Weekly pattern note";
+/** The weekly schedule runs this long (a schedule is renewed on purpose; MAX_SCHEDULE_DAYS is 90). */
+const PATTERN_DAYS = 84;
+const WEEK_MS = 7 * 24 * 3_600_000;
 
-const DIRECTION = "Keep the humans' Town Hall in-tray digestible: a daily digest card of what needs their yes or no and what shipped, and a 1:1 that acts only on what the human said.";
+const DIRECTION = "Keep the humans' Town Hall in-tray in order: rank the open asks daily with a money slate (fund, hold, skip), note the week's patterns, propose rules for the policy ledger, and in a 1:1 act only on what the human said.";
 
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 const oneLine = (s: string, max = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
-const utcDay = (iso: string | Date) => new Date(iso).toISOString().slice(0, 10);
 
-/** The run's instructions: the schedule's description, so each fired assignment carries them. */
-const DIGEST_RUN_PROMPT = `Write today's in-tray digest card for the humans (you are the Secretary; grant gr_kdlogzzo5s).
-1. Call \`digest\` with no arguments. It returns the "Decisions needed" lines (built in code: leave them as they are) and every rollup filed since the last digest, each Shipped item with its id, title, what it is, what you'd see and its first picture. If it says there is nothing to digest, submit_report at once (verdict stop) and end.
-2. For every Shipped item write one plain line of at most 20 words: what a human would now see or can now do. No ids, no jargon, no "Your call". Keep its picture (the src it gave) when it has one. Sort the items into 3-6 plain theme headings of your own (e.g. "Joining and letting people in", "What a stranger sees", "Bank and speed", "Town Hall and in-tray"): a theme is what the items have in common for a human, not which building did them.
-3. Call \`digest\` with \`shipped\`: one entry per item, {rollupId, line, theme, picture?}. It files the card first in the Town Hall in-tray, the lines grouped under your themes, and archives the covered rollups under it.
-4. submit_report (verdict stop): the digest doc id and how many rollups it covered. Nothing else: don't read other docs, don't write pages.`;
+/** The daily run's instructions: the schedule's description, so each fired assignment carries them. */
+const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs/legible-delegation.md §6). You never fund, continue, cut, approve or decide anything yourself: the humans decide every ask; you put them in order and say why.
+1. Call \`rank\` with no arguments. It lists every open ask (id, type, building, how long it has waited, body, branches, recommendation, the records it came from) and the humans' recent money decisions with their notes. If it says there is nothing to rank, submit_report at once (verdict stop) and end.
+2. Order every open ask, most urgent first: what work is parked on, then money a building waits on, then a click that unblocks another ask, then the rest by age. The humans' past fund and reject decisions, with their notes, are how they weigh: follow them.
+3. Defer an ask that is moot until another ask or event resolves (e.g. the continue on a grant whose captain-accept click is still open waits behind that click): an entry of \`defer\` with the blocking ask's id. A deferred ask stays listed; it is not decided.
+4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list.
+5. Call \`rank\` once with \`order\` (every open ask id), \`slate\` and \`defer\`. It sets the ranks, files the slate as a notice beside the asks and parks the deferred asks. It funds nothing.
+6. submit_report (verdict stop): the slate notice id and how many asks you ranked. Nothing else: don't read other docs, don't write pages.`;
+
+/** The weekly run's instructions. */
+const PATTERN_RUN_PROMPT = `Write this week's pattern note for the humans (you are the Secretary; docs/legible-delegation.md §6, "Surface patterns"). You never fund, decide or approve anything.
+1. Call \`rank\` with \`week: true\`. It lists the last 7 days of asks (with how each ended), rollups and their Shipped items, and the town's events by kind with the notable ones. If it says the week was empty, submit_report at once (verdict stop) and end.
+2. Find the convergences and repeats a single building can't see: several buildings blocked on the same thing ("four buildings hit the test account's permissions"), a burst with one cause ("ten proposals landed in one day because the explore tick fired after a deploy"), the same ask raised again and again, a kind of ask the humans always answer the same way.
+3. Call \`rank\` with \`pattern\`: a title, a short body (one plain line per pattern, the ids it rests on cited), and, only when one pattern is a standing answer the humans keep giving, \`rule\`: one line the managers should follow. The rule is filed as a policy ask "Add this rule to the ledger?"; the humans decide it.
+4. submit_report (verdict stop): the notice id. Nothing else.`;
 
 /** The Secretary's 1:1 prompt (it answers 1:1s like the Planner; manage.ts appends it to the brief). */
-const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's Town Hall in-tray digestible. In this 1:1, answer from the in-tray as it is now (the \`digest\` tool with no arguments lists what needs a yes or no and what shipped since the last digest card). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the Town Hall in-tray does it. You never fund, stop or approve anything yourself.`;
+const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's Town Hall in-tray in order: you rank the open asks, write the money slate and propose rules for the policy ledger. In this 1:1, answer from the asks as they are now (the \`rank\` tool with no arguments lists them, ranked, with the humans' recent money decisions). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the Town Hall in-tray does it. You never fund, stop or approve anything yourself.`;
 
 export class Secretary {
   constructor(private world: World) {}
@@ -71,153 +92,248 @@ export class Secretary {
 
   /**
    * The Secretary, created on first call (server boot, after the seed): a Town Hall resident holding a mod-station desk slot, drawn beside the Town Hall in-tray (TOWN_HALL_RESTS) (else
-   * by the door). Not the manager (the Planner stays it) and no role: it acts on decisions only with the human as actor.
-   * A stopped Secretary stays stopped (a human stopped it on purpose).
+   * by the door), on SECRETARY_MODEL. Not the manager (the Planner stays it) and no role: it acts on decisions only with
+   * the human as actor. A stopped Secretary stays stopped (a human stopped it on purpose). An existing one moves to
+   * SECRETARY_MODEL (step 5).
    */
   ensure(): Agent | null {
     const have = this.agent();
-    if (have) return have;
+    if (have) return have.model === SECRETARY_MODEL ? have : this.world.agents.patch(have.id, { model: SECRETARY_MODEL });
     const th = this.world.buildings.get(TOWN_HALL_ID);
     if (!th) return null;
     return this.world.transaction(() => {
       const id = newId("ag");
       this.world.agents.upsert(Agent.parse({
         id, name: SECRETARY_TITLE, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-        title: SECRETARY_TITLE, sprite: 6, direction: DIRECTION, model: STARTER_MANAGER_MODEL, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
+        title: SECRETARY_TITLE, sprite: 6, direction: DIRECTION, model: SECRETARY_MODEL, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
       }), { silent: true });
       let agent = this.world.agents.require(id, "agent");
       try { agent = this.world.agents.patch(id, { pos: this.world.layout.claimDesk(th.id, id).pos }); }
       catch (e) { if (!(e instanceof AppError) || e.code !== "conflict") throw e; }
-      this.world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} joined the Town Hall (keeps the in-tray digestible)`, payload: { kind: "resident", secretary: true } });
+      this.world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} joined the Town Hall (keeps the in-tray in order)`, payload: { kind: "resident", secretary: true } });
       return agent;
     });
   }
 
   /**
-   * The daily digest schedule, made once: on the Town Hall, taken by the Secretary, on a retainer of
-   * DIGEST_TOKENS_PER_RUN per run (asked in the Town Hall in-tray: its runs start once a human approves), on the Town
-   * Hall's cheapModel. Never made again once any schedule of the Secretary's exists (ended or rejected included); its
-   * description (the run's instructions) is kept equal to DIGEST_RUN_PROMPT.
+   * The daily ranking schedule, made once: on the Town Hall, taken by the Secretary, on a retainer of RANK_TOKENS_PER_RUN
+   * per run (asked in the Town Hall in-tray: its runs start once a human approves), on SECRETARY_MODEL. It is the
+   * Secretary's first schedule: never made again once any exists (ended or rejected included). The live one (the old
+   * "Daily in-tray digest") is kept in step with the code at boot: its title, its description (RANK_RUN_PROMPT) and its
+   * model; its per-run amount is not raised here (raising it asks the retainer again: a human edits it).
    */
-  ensureDigestSchedule(at: Date = new Date()): Schedule | null {
+  ensureRankSchedule(at: Date = new Date()): Schedule | null {
     const sec = this.agent();
     const th = this.world.buildings.get(TOWN_HALL_ID);
     if (!sec || !th) return null;
-    const had = this.world.schedules.first("takerId = ?", [sec.id], "ORDER BY createdAt");
-    // the run's instructions live on the schedule: a boot after they changed rewrites them (the live schedule predates the themed form)
-    if (had) return had.description === DIGEST_RUN_PROMPT ? had : this.world.schedules.patch(had.id, { description: DIGEST_RUN_PROMPT });
-    return createSchedule(this.world, th.id, { kind: "agent", id: sec.id }, {
-      title: DIGEST_SCHEDULE_TITLE, description: DIGEST_RUN_PROMPT, repeat: { dailyAt: [DIGEST_AT] },
-      tokensPerRun: DIGEST_TOKENS_PER_RUN, takerId: sec.id, model: th.cheapModel,
-      gap: "Mitchell's in-tray needs a daily digest card (town hall mt_v09cn7a8yr decision 3, grant gr_kdlogzzo5s)",
+    const had = this.world.schedules.first("takerId = ? AND title != ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt");
+    if (had) {
+      if (had.description === RANK_RUN_PROMPT && had.model === SECRETARY_MODEL && had.title === RANK_SCHEDULE_TITLE) return had;
+      return this.world.schedules.patch(had.id, { title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, model: SECRETARY_MODEL });
+    }
+    const s = createSchedule(this.world, th.id, { kind: "agent", id: sec.id }, {
+      title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, repeat: { dailyAt: [RANK_AT] },
+      tokensPerRun: RANK_TOKENS_PER_RUN, takerId: sec.id,
+      gap: "The humans' open asks need a daily order and a money slate (docs/legible-delegation.md §6; grant gr_kdlogzzo5s)",
     }, null, at);
+    // the Town Hall's fork models don't name Fable: the Secretary's own runs are on it by design, so it is set here
+    return this.world.schedules.patch(s.id, { model: SECRETARY_MODEL });
+  }
+
+  /** The weekly pattern schedule, made once (never again once one exists), on SECRETARY_MODEL, its own retainer. */
+  ensurePatternSchedule(at: Date = new Date()): Schedule | null {
+    const sec = this.agent();
+    const th = this.world.buildings.get(TOWN_HALL_ID);
+    if (!sec || !th) return null;
+    const had = this.world.schedules.first("takerId = ? AND title = ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt");
+    if (had) return had.description === PATTERN_RUN_PROMPT ? had : this.world.schedules.patch(had.id, { description: PATTERN_RUN_PROMPT });
+    const s = createSchedule(this.world, th.id, { kind: "agent", id: sec.id }, {
+      title: PATTERN_SCHEDULE_TITLE, description: PATTERN_RUN_PROMPT, repeat: { everyHours: 24 * 7, until: new Date(at.getTime() + PATTERN_DAYS * 24 * 3_600_000).toISOString() },
+      tokensPerRun: PATTERN_TOKENS_PER_RUN, takerId: sec.id,
+      gap: "The \"step back\" work never comes from a leaf: a weekly note of convergences and repeats (docs/legible-delegation.md §6)",
+    }, null, at);
+    return this.world.schedules.patch(s.id, { model: SECRETARY_MODEL });
+  }
+
+  /** The policy ledger, created once (server boot): a Town Hall doc of type `policy`. Null before the Town Hall exists. */
+  ensurePolicyLedger(): Doc | null {
+    const have = policyLedger(this.world);
+    if (have) return have;
+    const th = this.world.buildings.get(TOWN_HALL_ID);
+    if (!th) return null;
+    const by = this.agent();
+    return createDoc(this.world, {
+      type: "policy", state: "building", buildingId: th.id, title: "Policy ledger", tags: ["policy-ledger"],
+      authorId: by?.id ?? th.createdBy ?? "system", authorKind: by ? "agent" : "user",
+      body: `${LEDGER_HEAD}\n`,
+    }, "The policy ledger opened in the Town Hall");
   }
 
   /** The Secretary's part of a 1:1 prompt (null when the 1:1 is with anyone else). */
   brief(m: Meeting): string | null {
     const s = this.agent();
     if (!s || m.facilitatorId !== s.id) return null;
-    const { decisions } = digestDecisions(this.world);
     // act_in_1on1 (step 1, PR #300) cites a human line by its exact ISO `at` and refuses lines older than 30 min
     const since = Date.now() - 30 * 60_000;
     const said = m.transcript.filter((u) => u.speakerId === m.withUserId && Date.parse(u.at) >= since)
       .map((u) => `- at ${u.at}: "${oneLine(u.text, 300)}"`).join("\n");
-    return `${ONE_ON_ONE}\n\nThe human's lines from the last 30 min (cite one by its exact \`at\` as utteranceAt; for anything newer read \`meeting\` status):\n${said || "(none)"}\n\nDecisions needed now:\n${groupsText(decisions, "(none)")}`;
+    const asks = rankedAsks(this.world);
+    const lines = asks.slice(0, 30).map((a) => `- ${a.id} (${a.type}${a.rank ? `, #${a.rank}` : ""}${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}): ${oneLine(a.title, 140)}`);
+    if (asks.length > 30) lines.push(`… and ${asks.length - 30} more (\`rank\` lists them all).`);
+    return `${ONE_ON_ONE}\n\nThe human's lines from the last 30 min (cite one by its exact \`at\` as utteranceAt; for anything newer read \`meeting\` status):\n${said || "(none)"}\n\nOpen asks now, in rank order:\n${lines.join("\n") || "(none)"}`;
   }
 }
 
-// ---- the digest ----
+// ---- the policy ledger ----
 
-/** The newest digest card, if any. */
-function lastDigest(world: World): Doc | undefined {
-  return world.docs.first("type = 'digest' AND buildingId = ?", [TOWN_HALL_ID], "ORDER BY createdAt DESC, rowid DESC");
+const LEDGER_HEAD = "# Policy ledger\n\nOne rule per line, with where it came from. The managers read it in every session, so they don't ask what a rule already answers. A line is added only when a human decides \"Add this rule to the ledger?\" (the Secretary proposes them); a human edits or deletes a line here to change the rule.";
+const LEDGER_ADD = "ledger-add";
+
+function policyLedger(world: World): Doc | undefined {
+  return world.docs.first("type = 'policy' AND buildingId = ?", [TOWN_HALL_ID], "ORDER BY createdAt, rowid");
 }
 
-/** One `## <title>` section of a digest card's body (without its heading), "" when absent. */
-function section(body: string, title: string): string {
-  const at = body.indexOf(`## ${title}\n`);
-  if (at < 0) return "";
-  const rest = body.slice(at + title.length + 4);
-  const end = rest.search(/^## /m);
-  return (end < 0 ? rest : rest.slice(0, end)).trim();
-}
-
-/**
- * The latest digest card as the in-tray and the deck show it (step 3): its "Decisions needed" read live (the card's
- * own copy goes stale as humans decide), its Shipped lines, and the rollups it covers. Null before the first card.
- */
-export function digestCard(world: World): DigestCard | null {
-  const doc = lastDigest(world);
-  if (!doc) return null;
-  const covered = doc.provenance.sourceIds.flatMap((id) => {
-    const d = world.docs.get(id);
-    return d ? [{ id, title: d.title, buildingId: d.buildingId, buildingName: world.buildings.get(d.buildingId ?? "")?.name ?? "Town", pending: d.decision === "pending" }] : [];
-  });
-  return { doc, decisions: digestDecisions(world).decisions, shipped: section(doc.body, "Shipped since last digest"), covered };
-}
-
-/** Rollups filed since `since` (every one when null), oldest first, decided or not. */
-function rollupsSince(world: World, since: string | null): Doc[] {
-  return world.docs.where(`type = 'report' AND tags LIKE '%"rollup"%'${since ? " AND createdAt > ?" : ""}`, since ? [since] : [], "ORDER BY createdAt, rowid")
-    .filter((d) => d.tags.includes("rollup"));
-}
-
-/** Why there is nothing to digest (null = there is): no rollup arrived since the last card. A pressed run is refused only for this. */
-function digestNothingNew(world: World): string | null {
-  return rollupsSince(world, lastDigest(world)?.createdAt ?? null).length ? null : "no new rollup since the last digest";
+/** The ledger's rules, one `- ` line each. */
+function ledgerRules(world: World): string[] {
+  return (policyLedger(world)?.body ?? "").split("\n").filter((l) => l.startsWith("- "));
 }
 
 /**
- * Why the schedule's due run has nothing to do (null = it has): a card was filed today (UTC), or nothing new. The
- * once-a-day rule is the schedule's only: a human's press ("Daily digest" button, `pressDigest`) files another card.
+ * The ledger as pinned in every manager's prompt (docs/legible-delegation.md §6): its rules, or "" when it has none. It
+ * changes only when a human adds or edits a rule, so it may sit in a cached prompt (docs/prompt-caching.md).
  */
-export function digestIdleReason(world: World, at: Date = new Date()): string | null {
-  const last = lastDigest(world);
-  if (last && utcDay(last.createdAt) === utcDay(at)) return "a digest was already filed today";
-  return digestNothingNew(world);
+export function policyLedgerBlock(world: World): string {
+  const rules = ledgerRules(world);
+  if (!rules.length) return "";
+  return `## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${rules.join("\n")}`;
 }
 
-/** The Secretary's digest schedule, if it is still active. */
-function digestSchedule(world: World): Schedule | undefined {
+/**
+ * File the policy ask "Add this rule to the ledger?" (the Secretary's; it never appends on its own): the proposed line
+ * `- <rule> (origin: <id>, <date>)` as its body, branches Add / Skip. One live ask per origin (a second folds in).
+ */
+export function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
+  const line = `- ${oneLine(p.rule, 300)} (origin: ${p.origin}, ${utcDate(nowIso())})`;
+  return createAsk(world, {
+    type: "policy", targetKind: "rule", targetId: `ledger:${p.origin}`, buildingId: p.buildingId ?? null, sourceDocId: p.sourceDocId ?? null,
+    by: world.secretary.agent()?.id ?? "system", title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, line: p.why,
+    body: line, branches: [{ label: "Add", action: LEDGER_ADD }, { label: "Skip", action: "ledger-skip" }],
+    recommendation: "",
+  }).ask;
+}
+
+const isLedgerAsk = (a: Ask) => a.branches.some((b) => b.action === LEDGER_ADD);
+
+/** Append a decided line to the ledger (`policy.added`). */
+function appendRule(world: World, line: string, askId: string): void {
+  const doc = world.secretary.ensurePolicyLedger();
+  if (!doc) throw new AppError("conflict", "There is no Town Hall to keep the policy ledger in.");
+  if (ledgerRules(world).includes(line)) return;
+  updateDoc(world, doc.id, { body: `${doc.body.trimEnd()}\n${line}\n` });
+  world.events.append({ type: "policy.added", buildingId: TOWN_HALL_ID, text: `Policy ledger: ${oneLine(line.slice(2), 200)}`, payload: { docId: doc.id, askId, line } });
+}
+
+/**
+ * After a human decides an ask (`decideAsk`): an "Add this rule?" ask decided "Add" appends its line (or "Add: <words>"
+ * appends their words with the same origin); any other policy ask decided proposes its rule as "Add this rule?".
+ */
+export function onAskDecided(world: World, a: Ask): void {
+  const said = (a.decision ?? "").trim();
+  if (isLedgerAsk(a)) {
+    const add = /^add\b(?:\s*:\s*(.+))?/is.exec(said);
+    if (!add) return;
+    const words = (add[1] ?? "").trim();
+    const line = words ? a.body.replace(/^- .*? \(origin: /, `- ${oneLine(words, 300)} (origin: `) : a.body;
+    appendRule(world, line.split("\n")[0]!, a.id);
+    return;
+  }
+  if (a.type !== "policy") return;
+  proposeRule(world, { rule: `${oneLine(a.title, 160)}: ${oneLine(said, 120)}`, origin: a.id, buildingId: a.buildingId, sourceDocId: a.sourceDocId, why: `A human decided the policy ask ${a.id}: "${oneLine(said, 120)}"` });
+}
+
+/** After `act_in_1on1` did a decision a human said in a 1:1: propose their words as a rule. */
+export function ruleFromOneOnOne(world: World, m: Meeting, human: string, quote: string, did: string): Ask {
+  return proposeRule(world, { rule: `${human} in a 1:1: "${oneLine(quote, 200)}" (${oneLine(did, 80)})`, origin: m.id, sourceDocId: m.notesDocId ?? null, why: `${human} decided in ${m.id}: "${oneLine(quote, 160)}"` });
+}
+
+// ---- settling a rollup on submit ----
+
+/**
+ * After a rollup is filed (`submit_report` with `rollup: true`, after its asks): a `shipped` notice per Shipped item,
+ * the closed loop of each grant it closes as done (its close report now linked), and archive it (system) when it asks
+ * nothing of its own (no live ask has it as its record: every ask folded into another, or none) and it is no grant's
+ * close or checkpoint report. A rollup that still asks something stays pending until its asks are decided. Returns
+ * whether it archived it.
+ */
+export function settleRollup(world: World, doc: Doc, closed: Grant[]): boolean {
+  shippedNotices(world, doc);
+  for (const g of closed) closedLoopNotice(world, world.grants.require(g.id, "grant"), world.grantDesk.spent(g.id));
+  const d = world.docs.require(doc.id, "doc");
+  if (d.decision !== "pending" || closed.length || world.grants.exists("checkpointDocId = ?", [d.id])) return false;
+  if (world.asks.exists("sourceDocId = ? AND status IN ('open', 'deferred')", [d.id])) return false;
+  // its asks folded into asks already open on their targets: acknowledged as folded (the targets' rows show its line)
+  const into = [...new Set(world.asks.where("status IN ('open', 'deferred') AND sources LIKE ?", [`%"${d.id}"%`]).map((a) => a.targetId ?? a.id))];
+  if (into.length) foldRollup(world, d, into);
+  else archiveReport(world, null, d.id);
+  return true;
+}
+
+// ---- the ranking run ----
+
+/** Why a ranking run has nothing to do (null = it has): no open asks, or no ask arrived since the last ranking. */
+export function rankNothingNew(world: World): string | null {
+  const asks = rankedAsks(world);
+  if (!asks.length) return "no open asks";
+  const last = world.events.latestWith("ask.ranked", "ranked");
+  if (last && !asks.some((a) => a.createdAt > last.ts || a.updatedAt > last.ts)) return "no ask arrived or changed since the last ranking";
+  return null;
+}
+
+/** Why the Secretary's due run has nothing to do (fireSchedules skips it before any session), or null. */
+export function secretaryIdleReason(world: World, s: Schedule, at: Date): string | null {
+  if (s.title === PATTERN_SCHEDULE_TITLE) return weekIsEmpty(world, at) ? "nothing happened this week" : null;
+  return rankNothingNew(world);
+}
+
+/** The Secretary's ranking schedule, if it is still active. */
+function rankSchedule(world: World): Schedule | undefined {
   const sec = world.secretary.agent();
-  return sec ? world.schedules.first("takerId = ? AND status = 'active'", [sec.id], "ORDER BY createdAt") : undefined;
+  return sec ? world.schedules.first("takerId = ? AND status = 'active' AND title != ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt") : undefined;
 }
 
-/** The digest run under way (queued, running or parked), if any: its schedule's or a pressed one. */
-function liveDigestRun(world: World, s: Pick<Schedule, "id">): Assignment | undefined {
+/** The ranking run under way (queued, running or parked), if any: its schedule's or a pressed one. */
+function liveRankRun(world: World, s: Pick<Schedule, "id">): Assignment | undefined {
   return world.assignments.first("lane = 'retainer' AND sourceId = ? AND status IN ('pending', 'active')", [s.id], "ORDER BY createdAt");
 }
 
-/** The "Daily digest" button for a viewer who may press it (null for anyone else, or with no active digest schedule). */
-export function digestRunView(world: World, viewer: Agent | undefined): DigestRunView | null {
-  const s = digestSchedule(world);
+/** The "Rank now" button for a viewer who may press it (null for anyone else, or with no active ranking schedule). */
+export function rankRunView(world: World, viewer: Agent | undefined): DigestRunView | null {
+  const s = rankSchedule(world);
   if (!s || !canDecideRetainer(world, viewer, s)) return null;
-  const live = liveDigestRun(world, s);
-  const refused = live ? "a digest run is under way: its card lands here when it finishes"
-    : s.retainer !== "funded" ? `the digest's retainer is ${s.retainer}, not approved`
-    : digestNothingNew(world);
+  const live = liveRankRun(world, s);
+  const refused = live ? "a ranking run is under way: the ranks and the slate land here when it finishes"
+    : s.retainer !== "funded" ? `the ranking's retainer is ${s.retainer}, not approved`
+    : rankNothingNew(world);
   return { scheduleId: s.id, runningId: live?.id ?? null, refused };
 }
 
 /**
- * The in-tray's "Daily digest" button (Mitchell, 1:1 mt_i50xwu4z2t: "let's make the 'daily digest' also a button on the
- * intray that just does the same"): one run of the Secretary's digest now, the schedule's own prompt and model, booked
- * as a run of its retainer (lane retainer, sourceId = the schedule: its approved total pays for it, as for a fired run;
- * the schedule's next run does not move). Only a human who can decide the retainer presses it; refused while a run is
- * under way, while the retainer isn't funded, or when no rollup arrived since the last card (its Decisions needed is
- * live already). The once-a-day rule doesn't apply: the run files a new card, which supersedes today's.
+ * The in-tray's "Rank now" button (it was "Daily digest", Mitchell 1:1 mt_i50xwu4z2t): one ranking run now, the
+ * schedule's own prompt and model, booked as a run of its retainer (lane retainer, sourceId = the schedule; the
+ * schedule's next run does not move). Only a human who can decide the retainer presses it; refused while a run is under
+ * way, while the retainer isn't funded, or when nothing changed since the last ranking.
  */
-export function pressDigest(world: World, actor: Agent, at: Date = new Date()): Assignment {
+export function pressRank(world: World, actor: Agent, at: Date = new Date()): Assignment {
   const sec = world.secretary.agent();
-  const s = digestSchedule(world);
-  if (!sec || !s) throw new AppError("conflict", "There is no active daily digest schedule to run.");
-  if (!canDecideRetainer(world, actor, s)) throw forbidden("building.fund", "Only a human who can decide the Town Hall's retainers runs the digest.");
-  if (sec.status === "stopped" || isGone(sec)) throw new AppError("conflict", `${sec.name} is stopped: nobody can run the digest.`);
-  if (s.retainer !== "funded") throw new AppError("conflict", `The digest's retainer is ${s.retainer}, not approved: approve it in the in-tray first.`);
-  const live = liveDigestRun(world, s);
-  if (live) throw new AppError("conflict", `A digest run is already under way (${live.id}): its card lands in the in-tray when it finishes.`);
-  const idle = digestNothingNew(world);
-  if (idle) throw new AppError("conflict", `Nothing to digest: ${idle}. The card's "Decisions needed" is already live.`);
+  const s = rankSchedule(world);
+  if (!sec || !s) throw new AppError("conflict", "There is no active ranking schedule to run.");
+  if (!canDecideRetainer(world, actor, s)) throw forbidden("building.fund", "Only a human who can decide the Town Hall's retainers runs the ranking.");
+  if (sec.status === "stopped" || isGone(sec)) throw new AppError("conflict", `${sec.name} is stopped: nobody can run the ranking.`);
+  if (s.retainer !== "funded") throw new AppError("conflict", `The ranking's retainer is ${s.retainer}, not approved: approve it in the in-tray first.`);
+  const live = liveRankRun(world, s);
+  if (live) throw new AppError("conflict", `A ranking run is already under way (${live.id}): its ranks and slate land in the in-tray when it finishes.`);
+  const idle = rankNothingNew(world);
+  if (idle) throw new AppError("conflict", `Nothing to rank: ${idle}.`);
   const by = holderOf(actor);
   return world.transaction(() => {
     const a = createAssignment(world, {
@@ -231,26 +347,152 @@ export function pressDigest(world: World, actor: Agent, at: Date = new Date()): 
   });
 }
 
-/** A checkpoint's or proposal's yes/no line. */
-function grantLine(world: World, g: GrantView): string {
-  const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
-  const what = `${b}: "${oneLine(g.objective, 90)}"`;
-  if (g.status === "checkpoint") {
-    const spent = `spent ${fmt(g.spentTokens)} of ${fmt(g.grantTokens ?? 0)}`;
-    const buys = g.whatTopUpBuys ? `; a top-up buys: ${oneLine(g.whatTopUpBuys, 120)}` : "";
-    return g.topUpTokens
-      ? `Continue ${g.id} (${what}) with a ${fmt(g.topUpTokens)} top-up (${spent}${buys})?`
-      : `Continue ${g.id} (${what}) (${spent}${buys})?`;
-  }
-  return `Fund ${g.id} (${what}) at its ${fmt(g.askTokens)} ask?`;
+const MONEY_ACTIONS: Record<string, string> = { fund: "funded", reject: "rejected", counter: "countered", continue: "continued", adjust: "adjusted", cut: "cut", stop: "stopped" };
+
+/** The `rank` tool's read: every live ask in rank order, then the humans' recent money decisions with their notes. */
+export function rankInputsText(world: World, now: Date = new Date()): string {
+  const asks = rankedAsks(world);
+  if (!asks.length) return "Nothing to rank: no open asks. submit_report (verdict stop) now.";
+  const name = (id: string | null) => (id ? world.buildings.get(id)?.name ?? id : "Town");
+  const list = asks.map((a, i) => [
+    `${i + 1}. ${a.id} · ${a.type} · ${name(a.buildingId)} · waiting since ${whenFor(a.createdAt, "agent", now)}${a.rank ? ` · now #${a.rank}` : ""}${a.status === "deferred" ? ` · deferred until ${a.deferredUntil}` : ""}${a.targetId ? ` · about ${a.targetId}` : ""}`,
+    `   ${oneLine(a.title, 200)}`,
+    a.body.trim() ? `   ${oneLine(a.body, 400)}` : "",
+    `   Branches: ${a.branches.map((b) => b.label).join(" / ") || "(none)"}${a.recommendation ? ` · Recommended: ${oneLine(a.recommendation, 200)}` : ""}`,
+    a.sources.length ? `   Raised in: ${a.sources.map((s) => `${s.docId} "${oneLine(s.line, 100)}"`).join("; ")}` : "",
+  ].filter(Boolean).join("\n"));
+  const decisions = world.grants.where("history LIKE '%\"byKind\":\"user\"%'", [], "ORDER BY updatedAt DESC LIMIT 60")
+    .flatMap((g) => g.history.filter((h) => h.byKind === "user" && MONEY_ACTIONS[h.action]).map((h) => ({ g, h })))
+    .sort((a, b) => b.h.at.localeCompare(a.h.at)).slice(0, 30)
+    .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${oneLine(g.objective, 80)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
+  const decided = world.asks.where("status = 'decided'", [], "ORDER BY decidedAt DESC LIMIT 15").map((a) => `- ${a.id} (${a.type}) "${oneLine(a.title, 100)}": ${oneLine(a.decision ?? "", 120)}`);
+  return [
+    `Open asks (${asks.length}), in their current order:\n\n${list.join("\n\n")}`,
+    `The humans' recent money decisions (newest first):\n${decisions.join("\n") || "(none yet)"}`,
+    `Asks the humans decided lately:\n${decided.join("\n") || "(none yet)"}`,
+  ].join("\n\n");
 }
 
+interface RankInput {
+  order?: string[];
+  slate?: { fund: { askId: string; why: string }[]; hold: { askId: string; until: string; why: string }[]; skip: { askId: string; why: string }[] };
+  defer?: { askId: string; until: string }[];
+}
+
+/**
+ * Apply a ranking run (the `rank` tool with order, slate or defer; only the Secretary), all or nothing: `order` sets each
+ * listed live ask's rank 1..n and clears the rank of every live ask left out; `defer` parks each ask behind the ask or
+ * item it is moot without (`deferAsk`); `slate` files the money slate as a `slate` notice citing the ask ids. Decides,
+ * funds and approves nothing. Logs one `ask.ranked`.
+ */
+export function applyRank(world: World, by: Agent, input: RankInput, at: Date = new Date()): { ranked: number; deferred: string[]; slateId: string | null; note: string } {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary ranks the asks.");
+  const live = new Map(rankedAsks(world).map((a) => [a.id, a]));
+  const order = input.order ?? [];
+  const seen = new Set<string>();
+  for (const id of order) {
+    if (!live.has(id)) throw badRequest(`order: ${id} is not an open ask (read \`rank\` again: it may have been decided or retired).`);
+    if (seen.has(id)) throw badRequest(`order: ${id} is listed twice.`);
+    seen.add(id);
+  }
+  for (const d of input.defer ?? []) {
+    const a = live.get(d.askId);
+    if (!a || a.status !== "open") throw badRequest(`defer: ${d.askId} is not an open ask.`);
+    if (d.until === d.askId) throw badRequest(`defer: ${d.askId} can't wait behind itself.`);
+    if (d.until.startsWith("ak_") && !live.has(d.until)) throw badRequest(`defer: ${d.until} is not a live ask to wait behind.`);
+  }
+  const s = input.slate;
+  const slated = s ? [...s.fund, ...s.hold, ...s.skip].map((x) => x.askId) : [];
+  const onSlate = new Set<string>();
+  for (const id of slated) {
+    const a = live.get(id);
+    if (!a) throw badRequest(`slate: ${id} is not an open ask.`);
+    if (a.type !== "money") throw badRequest(`slate: ${id} is a ${a.type} ask; the slate is for money asks only.`);
+    if (onSlate.has(id)) throw badRequest(`slate: ${id} is on the slate twice (fund, hold and skip are exclusive).`);
+    onSlate.add(id);
+  }
+  return world.transaction(() => {
+    if (input.order) {
+      order.forEach((id, i) => setRank(world, id, i + 1));
+      for (const id of live.keys()) if (!seen.has(id)) setRank(world, id, null);
+    }
+    const deferred = (input.defer ?? []).map((d) => deferAsk(world, by, d.askId, d.until).id);
+    let slate: Notice | null = null;
+    if (s && slated.length) {
+      const t = (id: string) => `${oneLine(live.get(id)!.title, 140)} (${id})`;
+      const unslated = [...live.values()].filter((a) => a.type === "money" && !onSlate.has(a.id));
+      const body = [
+        s.fund.length ? `**Fund now**\n${s.fund.map((x) => `- ${t(x.askId)}: ${oneLine(x.why, 300)}`).join("\n")}` : "",
+        s.hold.length ? `**Hold**\n${s.hold.map((x) => `- ${t(x.askId)} until ${oneLine(x.until, 200)}: ${oneLine(x.why, 300)}`).join("\n")}` : "",
+        s.skip.length ? `**Skip**\n${s.skip.map((x) => `- ${t(x.askId)}: ${oneLine(x.why, 300)}`).join("\n")}` : "",
+        unslated.length ? `_Not on the slate: ${unslated.map((a) => a.id).join(", ")}._` : "",
+        "_A recommendation only: nothing is funded until you decide each ask._",
+      ].filter(Boolean).join("\n\n");
+      slate = fileNotice(world, {
+        kind: "slate", buildingId: TOWN_HALL_ID, goalId: null, picture: null, refs: slated, body,
+        title: `Money slate ${utcDate(at)}: fund ${s.fund.length}, hold ${s.hold.length}, skip ${s.skip.length}`,
+      });
+    }
+    world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null } });
+    return { ranked: order.length, deferred, slateId: slate?.id ?? null, note: `Done${slate ? `: the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
+  });
+}
+
+/** Today's slate (UTC), the newest, if the Secretary filed one today: the review deck's first slide. */
+export function todaysSlate(world: World, now: Date = new Date()): Notice | undefined {
+  const n = world.notices.first("kind = 'slate'", [], "ORDER BY createdAt DESC, rowid DESC");
+  return n && utcDate(n.createdAt) === utcDate(now) ? n : undefined;
+}
+
+// ---- the weekly pattern run ----
+
+function weekIsEmpty(world: World, at: Date): boolean {
+  const from = new Date(at.getTime() - WEEK_MS).toISOString();
+  return !world.asks.exists("createdAt >= ?", [from]) && !world.docs.exists("type = 'report' AND tags LIKE '%\"rollup\"%' AND createdAt >= ?", [from]);
+}
+
+const NOTABLE = ["grant.proposed", "grant.checkpoint", "grant.closed", "ask.retired", "ask.folded", "ask.deferred", "schedule.skipped", "building.blocked", "kr.updated"] as const;
+
+/** The `rank` tool's weekly read: the last 7 days of asks (and how each ended), rollups with their Shipped items, and events. */
+export function weekInputsText(world: World, at: Date = new Date()): string {
+  if (weekIsEmpty(world, at)) return "Nothing happened this week (no asks, no rollups). submit_report (verdict stop) now.";
+  const from = new Date(at.getTime() - WEEK_MS).toISOString();
+  const name = (id: string | null) => (id ? world.buildings.get(id)?.name ?? id : "Town");
+  const asks = world.asks.where("createdAt >= ?", [from], "ORDER BY createdAt, rowid").map((a) =>
+    `- ${utcDate(a.createdAt)} ${a.id} ${a.type} · ${name(a.buildingId)} · ${a.status}${a.decision ? ` "${oneLine(a.decision, 80)}"` : a.retiredBy ? ` (${oneLine(a.retiredBy, 80)})` : ""}${a.sources.length > 1 ? ` · raised ${a.sources.length} times` : ""}: ${oneLine(a.title, 140)}`);
+  const rollups = world.docs.where("type = 'report' AND tags LIKE '%\"rollup\"%' AND createdAt >= ?", [from], "ORDER BY createdAt, rowid").map((d) => {
+    const items = parseRollup(d.body).items.map((it) => oneLine(it.title, 80));
+    return `- ${utcDate(d.createdAt)} ${d.id} ${name(d.buildingId)}: ${oneLine(d.title, 100)}${items.length ? ` · shipped: ${items.join("; ")}` : ""}`;
+  });
+  const events = world.events.list({ from, types: [...NOTABLE], limit: 400 });
+  const counts = new Map<string, number>();
+  for (const e of events) counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
+  const notable = events.filter((e) => e.type !== "kr.updated").slice(-60).map((e) => `- ${utcDate(e.ts)} ${e.type} · ${name(e.buildingId)}: ${oneLine(e.text, 160)}`);
+  return [
+    `The week since ${whenFor(from, "agent", at)}.`,
+    `Asks (${asks.length}):\n${asks.join("\n") || "(none)"}`,
+    `Rollups (${rollups.length}):\n${rollups.join("\n") || "(none)"}`,
+    `Events by kind: ${[...counts].map(([k, n]) => `${k} ${n}`).join(", ") || "(none)"}\n${notable.join("\n")}`,
+  ].join("\n\n");
+}
+
+const CITED = /\b(?:ak|gr|dc|sc|kr|mt|cr|ar|nt)_[a-z0-9]+\b/g;
+
+/** File the weekly pattern notice (the `rank` tool with `pattern`; only the Secretary); its rule, if any, as a policy ask. */
+export function filePattern(world: World, by: Agent, p: { title: string; body: string; rule?: string }): { noticeId: string; askId: string | null; note: string } {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary files the pattern note.");
+  return world.transaction(() => {
+    const n = fileNotice(world, { kind: "pattern", buildingId: TOWN_HALL_ID, goalId: null, picture: null, title: oneLine(p.title, 160), body: p.body.trim(), refs: [...new Set(p.body.match(CITED) ?? [])] });
+    const ask = p.rule ? proposeRule(world, { rule: p.rule, origin: n.id, sourceDocId: null, why: `The week's pattern note ${n.id}: ${oneLine(p.title, 120)}` }) : null;
+    return { noticeId: n.id, askId: ask?.id ?? null, note: `Filed ${n.id}${ask ? ` and the policy ask ${ask.id}` : ""}. Now submit_report (verdict stop).` };
+  });
+}
+
+// ---- reading a rollup's prose (the asks backfill and untyped rollups; kept from the digest) ----
+
 const idsIn = (text: string, prefix: string) => [...new Set([...text.matchAll(new RegExp(`\\b${prefix}_[a-z0-9]+\\b`, "g"))].map((m) => m[0]))];
-const GO_NO_GO = /\bgo\s*(\/|-|or)\s*no[- ]?go\b/i;
 const MARK_MET = /\bmark(ed|ing)?\b[^.]*\b(met|missed)\b/i;
 const FUND_ASK = /\b(fund|counter|reject|proposal|retainer|approve)\b/i;
-/** A call that asks the money question of a checkpoint or proposal (its row's Money line asks it already). */
-const MONEY_CALL = /\b(continue|adjust|cut|top[- ]?up|fund|counter|reject)\b/i;
 
 /**
  * Why a pending rollup's "Your call" is already overtaken (null = it still asks): its frozen text names a key result
@@ -306,189 +548,13 @@ function needsOvertaken(world: World, line: string, d: Doc): string | null {
 }
 
 /**
- * A pending rollup's asks as the review deck and in-tray read them (rollupAsks: each Shipped item's real "Your call",
- * then its Needs lines), each with why it is overtaken (null = it still asks). A Needs line has no title.
+ * A pending rollup's asks as read from its prose (rollupAsks: each Shipped item's real "Your call", then its Needs
+ * lines), each with why it is overtaken (null = it still asks). A Needs line has no title.
  */
 export function rollupCalls(world: World, d: Doc): { title: string; call: string; overtaken: string | null }[] {
   const p = parseRollup(d.body);
   return rollupAsks(p).map((a) => {
     const it = a.n ? p.items[a.n - 1] : undefined;
     return { title: a.title, call: a.call, overtaken: it ? overtakenReason(world, it, d) : needsOvertaken(world, a.call, d) };
-  });
-}
-
-/** Whether a pending rollup still asks the human anything live: a real call not overtaken. */
-export const stillAsks = (world: World, d: Doc) => rollupCalls(world, d).some((c) => !c.overtaken);
-
-/** The headings of "Decisions needed", in the card's order. */
-const DIGEST_GROUPS = { money: "Money", goNoGo: "Go / no-go", questions: "Questions in words", overtaken: "Already overtaken", errands: "Errands" } as const;
-
-/**
- * "Decisions needed" grouped by the kind of yes/no (Mitchell, 1:1 mt_i50xwu4z2t), from the data the review deck reads,
- * zero tokens and current at every read: Money (checkpoints with their top-up, proposals at their ask, retainer asks;
- * a rollup's call about one of them, or its checkpoint report's continue / cut, is not repeated but named on that line as
- * "Also asked in dc_…"); each other in-tray rollup gives at most one line (its first live call, "and N more"); Go / no-go (a rollup's call that says so); Questions in words (every other real
- * "Your call" or Needs line); Already overtaken (calls whose grant, key result or retainer has since been decided: one Approve-all,
- * `docIds`); Errands (open outbox requests). `count` is the yes/no lines (errands aside), for the card's title.
- */
-export function digestDecisions(world: World): { decisions: DigestGroup[]; count: number; overtakenIds: string[] } {
-  const intray = townHallIntray(world);
-  const grants = grantsAwaitingDecision(world).filter((g) => g.status !== "countered");
-  const rows = waitingRowIds(world);
-  // a rollup's live calls first, so a call that a grant or retainer row's own Money line already carries is left out
-  // (as_6gnydlwpf7): each in-tray row gives at most one line, and the row names the rollups that also asked it
-  const askedIn = new Map<string, string[]>();
-  const noteAsk = (id: string, docId: string) => { const l = askedIn.get(id) ?? []; if (!l.includes(docId)) askedIn.set(id, [...l, docId]); };
-  const goNoGo: string[] = [];
-  const questions: string[] = [];
-  const overtaken: string[] = [];
-  const overtakenIds: string[] = [];
-  for (const d of intray.reports.filter((r) => r.tags.includes("rollup"))) {
-    const b = world.buildings.get(d.buildingId ?? "")?.name ?? "A building";
-    const calls = rollupCalls(world, d);
-    if (!calls.length) continue;
-    if (calls.every((c) => c.overtaken)) {
-      overtakenIds.push(d.id);
-      overtaken.push(`${b} (${d.id}, "${oneLine(calls[0]!.title || calls[0]!.call, 50)}"${calls.length > 1 ? ` and ${calls.length - 1} more` : ""}): ${calls.map((c) => c.overtaken).filter((r, i, a) => a.indexOf(r) === i).join("; ")}.`);
-      continue;
-    }
-    // the rows this rollup is about: the grant it is the checkpoint report of, and the waiting rows its title names
-    const own = [...grants.filter((g) => g.checkpointDocId === d.id).map((g) => g.id), ...idsIn(d.title, "gr").concat(idsIn(d.title, "sc")).filter((id) => rows.has(id))];
-    const left = calls.filter((c) => {
-      if (c.overtaken) return false;
-      const named = idsIn(`${c.title} ${c.call}`, "gr").concat(idsIn(c.call, "sc")).filter((id) => rows.has(id));
-      if (named.length) { named.forEach((id) => noteAsk(id, d.id)); return false; }
-      if (own.length && MONEY_CALL.test(c.call)) { own.forEach((id) => noteAsk(id, d.id)); return false; }
-      return true;
-    });
-    if (!left.length) continue;
-    const c = left[0]!;
-    const more = left.length > 1 ? ` (and ${left.length - 1} more ask${left.length > 2 ? "s" : ""} in ${d.id})` : "";
-    const line = `${b} asks (${d.id}${c.title ? `, "${oneLine(c.title, 60)}"` : ""}): ${oneLine(c.call, 160)}${more}`;
-    if (left.some((x) => GO_NO_GO.test(`${x.title} ${x.call}`))) goNoGo.push(line);
-    else questions.push(line);
-  }
-  const asked = (id: string) => (askedIn.has(id) ? ` Also asked in ${askedIn.get(id)!.join(", ")}.` : "");
-  const money = [
-    ...grants.filter((g) => g.status === "checkpoint").map((g) => grantLine(world, g) + asked(g.id)),
-    ...grants.filter((g) => g.status === "proposed").map((g) => grantLine(world, g) + asked(g.id)),
-    ...intray.retainers.filter((v) => v.retainer === "asked").map((v) => `Approve ${v.buildingName ?? world.buildings.get(v.buildingId)?.name ?? v.buildingId}'s retainer "${oneLine(v.title, 60)}" (${v.id}): ${fmt(v.tokensPerRun)} per run, ${fmt(v.askTokens)} in all?${asked(v.id)}`),
-  ];
-  questions.unshift(
-    ...intray.goalProposals.map((p) => `Accept ${world.buildings.get(p.buildingId ?? "")?.name ?? p.proposedByName}'s goal proposal ${p.id} (${p.action}${p.fields.text ? `: "${oneLine(p.fields.text, 90)}"` : p.targetId ? ` ${p.targetId}` : ""})?`),
-    ...intray.captains.map((r) => `Make ${r.githubLogin ? `@${r.githubLogin}` : r.name} captain of "${oneLine(r.goalText, 80)}" (${r.goalId}; request ${r.id})?`),
-  );
-  const open = world.docs.where("type = 'request' AND requestStatus = 'open'", [], "ORDER BY createdAt");
-  const errands = open.slice(0, 6).map((r) => `"${oneLine(r.title, 80)}" (${r.id})`);
-  if (open.length > 6) errands.push(`… and ${open.length - 6} more in the outbox.`);
-  const group = (heading: string, lines: string[], note: string | null = null, docIds?: string[]): DigestGroup[] =>
-    lines.length ? [{ heading: `${heading} (${docIds ? docIds.length : lines.length})`, note, lines, ...(docIds ? { docIds } : {}) }] : [];
-  const decisions = [
-    ...group(DIGEST_GROUPS.money, money),
-    ...group(DIGEST_GROUPS.goNoGo, goNoGo),
-    ...group(DIGEST_GROUPS.questions, questions),
-    ...group(DIGEST_GROUPS.overtaken, overtaken, `Approve these ${overtaken.length} and they drop out; nothing to decide.`, overtakenIds),
-    ...group(DIGEST_GROUPS.errands, errands, `${open.length} open outbox request${open.length === 1 ? "" : "s"}: do or decline when you have time.`),
-  ];
-  return { decisions, count: money.length + goNoGo.length + questions.length + overtaken.length, overtakenIds };
-}
-
-/** The groups as markdown: a bold heading, its note, then one `- ` line each. */
-export function groupsText(groups: DigestGroup[], empty = "Nothing waits on a yes or no."): string {
-  if (!groups.length) return empty;
-  return groups.map((g) => `**${g.heading}**${g.note ? `\n${g.note}` : ""}\n\n${g.lines.map((l) => `- ${l}`).join("\n")}`).join("\n\n");
-}
-
-/** One Shipped item of a covered rollup, as the run reads it. */
-interface DigestItem { rollupId: string; building: string; title: string; whatItIs: string; whatYoudSee: string; picture: string | null }
-
-/** What a digest run reads: idle (why), else the decision lines and every Shipped item of the rollups since the last card. */
-export function digestInputs(world: World, at: Date = new Date()): { idle: string | null; since: string | null; rollupIds: string[]; items: DigestItem[]; decisions: DigestGroup[]; count: number } {
-  const last = lastDigest(world);
-  const rollups = rollupsSince(world, last?.createdAt ?? null);
-  const items = rollups.flatMap((d): DigestItem[] => {
-    const building = world.buildings.get(d.buildingId ?? "")?.name ?? "Town";
-    const parsed = parseRollup(d.body).items;
-    // a rollup without parsed items still counts: one line from its title
-    if (!parsed.length) return [{ rollupId: d.id, building, title: d.title, whatItIs: oneLine(d.body, 300), whatYoudSee: "", picture: null }];
-    return parsed.map((it) => ({ rollupId: d.id, building, title: it.title, whatItIs: oneLine(it.whatItIs, 300), whatYoudSee: oneLine(it.whatYoudSee, 300), picture: it.pictures[0]?.src ?? null }));
-  });
-  const { decisions, count } = digestDecisions(world);
-  return { idle: digestNothingNew(world), since: last?.createdAt ?? null, rollupIds: rollups.map((d) => d.id), items, decisions, count };
-}
-
-/** The `digest` tool's read: the inputs as text for the run. */
-export function digestInputsText(world: World, at: Date = new Date()): string {
-  const x = digestInputs(world, at);
-  if (x.idle) return `Nothing to digest: ${x.idle}. submit_report (verdict stop) now.`;
-  return [
-    `Decisions needed (built in code, grouped by kind; the card carries them as they are):\n${groupsText(x.decisions, "(none)")}`,
-    `Shipped items to write one line each for, under 3-6 plain theme headings of your own (${x.rollupIds.length} rollup${x.rollupIds.length === 1 ? "" : "s"} since ${x.since ?? "the start"}):`,
-    ...x.items.map((it, i) => `${i + 1}. rollupId ${it.rollupId} · ${it.building} · ${it.title}\n   What it is: ${it.whatItIs}${it.whatYoudSee ? `\n   What you'd see: ${it.whatYoudSee}` : ""}${it.picture ? `\n   picture: ${it.picture}` : ""}`),
-  ].join("\n\n");
-}
-
-interface ShippedLine { rollupId: string; line: string; picture?: string; theme?: string }
-
-/** Themes with no name given go last under this heading (a run that gave none leaves the list flat). */
-const OTHER_THEME = "Other";
-
-/**
- * The Shipped lines grouped under the run's theme headings in first-use order (Mitchell, 1:1 mt_i50xwu4z2t: "can you
- * cluster the shipped stuff?"), one `- ` line per item with its picture and rollup id; flat when no line has a theme.
- */
-function shippedText(shipped: ShippedLine[]): string {
-  if (!shipped.length) return "Nothing shipped.";
-  const line = (s: ShippedLine) => `- ${oneLine(s.line, 400)}${s.picture ? ` ![](${s.picture})` : ""} (${s.rollupId})`;
-  if (!shipped.some((s) => s.theme?.trim())) return shipped.map(line).join("\n");
-  const themes = new Map<string, ShippedLine[]>();
-  for (const s of shipped) {
-    const t = s.theme?.trim() || OTHER_THEME;
-    themes.set(t, [...(themes.get(t) ?? []), s]);
-  }
-  const other = themes.get(OTHER_THEME);
-  if (other) { themes.delete(OTHER_THEME); themes.set(OTHER_THEME, other); }
-  return [...themes].map(([t, lines]) => `**${t}**\n\n${lines.map(line).join("\n")}`).join("\n\n");
-}
-
-/** The card's body: the decision groups, then the Shipped lines under their themes, then the covered rollups. */
-function digestBody(decisions: DigestGroup[], shipped: ShippedLine[], rollups: Doc[], world: World): string {
-  const name = (d: Doc) => world.buildings.get(d.buildingId ?? "")?.name ?? "Town";
-  return [
-    `## Decisions needed\n\n${groupsText(decisions)}`,
-    `## Shipped since last digest\n\n${shippedText(shipped)}`,
-    `## Covered rollups\n\n${rollups.map((d) => `- ${name(d)}: ${d.title} (${d.id})`).join("\n")}`,
-  ].join("\n\n");
-}
-
-/**
- * File today's card (the `digest` tool with `shipped`; only the Secretary): a doc of type `digest` in the Town Hall,
- * state building, provenance = the covered rollups; then archive every covered rollup still pending that asks no real
- * call (system, so they leave the in-tray's main list and stay under the card). Refused when the run is idle or a line names a rollup it doesn't cover.
- */
-export function fileDigest(world: World, by: Agent, shipped: ShippedLine[], at: Date = new Date()): Doc {
-  if (!world.secretary.isSecretary(by)) throw new AppError("forbidden", "Only the Town Hall's Secretary files the digest card.");
-  const x = digestInputs(world, at);
-  if (x.idle) throw new AppError("conflict", `Nothing to digest: ${x.idle}.`);
-  const covered = new Set(x.rollupIds);
-  for (const s of shipped) {
-    if (!covered.has(s.rollupId)) throw badRequest(`${s.rollupId} isn't a rollup filed since the last digest (covered: ${[...covered].join(", ")}).`);
-    if (!s.line.trim()) throw badRequest(`The line for ${s.rollupId} is empty.`);
-    if (s.line.trim().split(/\s+/).length > MAX_LINE_WORDS) throw badRequest(`One line per item, at most 20 words: "${oneLine(s.line, 60)}" is longer.`);
-  }
-  const themes = new Set(shipped.map((s) => s.theme?.trim()).filter(Boolean));
-  if (themes.size > MAX_THEMES) throw badRequest(`At most ${MAX_THEMES} theme headings (3-6 is the aim): ${themes.size} given.`);
-  const rollups = x.rollupIds.map((id) => world.docs.require(id, "doc"));
-  return world.transaction(() => {
-    const doc = createDoc(world, {
-      type: "digest", state: "building", buildingId: TOWN_HALL_ID, authorId: by.forkOf ?? by.id, authorKind: "agent", tags: ["digest"],
-      title: `Digest ${utcDay(at)}: ${x.count} decision${x.count === 1 ? "" : "s"}, ${rollups.length} rollup${rollups.length === 1 ? "" : "s"}`,
-      body: digestBody(x.decisions, shipped, rollups, world),
-      provenance: { sourceIds: x.rollupIds, urls: [] }, createdAt: at.toISOString(),
-    }, `The Secretary filed the in-tray digest: ${rollups.length} rollup(s) covered`);
-    // a rollup that still asks a live "Your call" stays in the in-tray (its call is a "Decisions needed" line until decided);
-    // one whose every call is None or overtaken (its grant, key result or retainer since decided) is archived under the card
-    for (const d of rollups) if (d.decision === "pending" && !stillAsks(world, d)) archiveReport(world, null, d.id);
-    return doc;
   });
 }

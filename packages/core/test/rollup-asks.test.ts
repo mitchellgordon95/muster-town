@@ -36,13 +36,13 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     const r = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
     const prov = { sourceIds: [r.id], urls: [] };
     const roll = (title: string, body: string) => world.verbs.submit_report(mei, { title, body, verdict: "stop", rollup: true, provenance: prov });
-    // nothing waiting: a plain rollup stays a card and nothing is attached
+    // nothing waiting: a plain rollup that asks nothing is archived on submit (legible delegation step 5); nothing is attached
     const plain = await roll("Quiet", rollup("None.", "on track"));
-    expect(plain.decision).toBe("pending");
+    expect(plain.decision).toBe("approve");
     const g = (await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 })).grantId;
     // the generated waiting line names g, but a rollup that doesn't is no ask on it
     const other = await roll("Still quiet", rollup("None.", "on track"));
-    expect(other.decision).toBe("pending");
+    expect(other.decision).toBe("approve");
     const only = await roll(`Rollup: fund ${g}`, rollup("Nothing new live.", `- ${g} proposed: lets a stranger fund a goal.`));
     expect(only.decision).toBe("approve");
     expect(only.note).toMatch(new RegExp(`folded: its only ask is on ${g}`));
@@ -50,22 +50,22 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     expect(doc.tags).toContain("folded");
     expect(doc.decisionNote).toContain(`Folded into the in-tray row of ${g}`);
     const mixed = await roll("Rollup with a card", rollup(ITEM, `- ${g} waits on you.`));
-    expect(mixed.decision).toBe("pending");
+    // it asks nothing of its own (its Needs line only says what waits; no ask is filed): archived on submit, its Shipped item a notice (step 5)
+    expect(mixed.decision).toBe("approve");
 
     const intray = townHallIntray(world);
-    expect(intray.reports.map((d) => d.id)).toEqual(expect.arrayContaining([plain.id, other.id, mixed.id]));
+    expect(intray.reports.map((d) => d.id)).toEqual([]);
     expect(intray.reports.map((d) => d.id)).not.toContain(only.id);
     const row = intray.grants.find((x) => x.id === g)!;
     expect(row.asks).toEqual([
       expect.objectContaining({ reportId: only.id, line: `${g} proposed: lets a stranger fund a goal.`, folded: true, buildingName: world.buildings.require(LAB).name }),
-      expect.objectContaining({ reportId: mixed.id, line: `${g} waits on you.`, folded: false }),
     ]);
     const slide = reviewDeck(world).slides.find((s) => s.grantId === g)!;
     expect(slide.text).toContain(`asks you to fund this:** ${g} proposed: lets a stranger fund a goal. (rollup ${only.id})`);
     // a decided proposal leaves the in-tray with its asks; a later rollup naming it is not folded
     world.grants.upsert({ ...world.grants.require(g), status: "rejected" });
     const after = await roll(`About ${g}`, rollup("None.", `- ${g} was rejected.`));
-    expect(after.decision).toBe("pending");
+    expect(after.note).not.toMatch(/folded: its only ask/); // no in-tray row to fold into (step 5 may still archive it: it asks nothing live)
 
     // a checkpoint row doesn't list its own checkpoint report as an ask (it links it already)
     world.grants.upsert({ ...world.grants.require(g), status: "checkpoint", checkpointDocId: mixed.id, history: [] });

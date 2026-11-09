@@ -161,10 +161,10 @@ describe("report state machine", () => {
     await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: ["dc_nope"], urls: [] } })).rejects.toMatchObject({ code: "bad_request" });
     const sent: [string, number][] = [];
     world.changes.subscribe((m) => { if (m.type === "building" && m.building.intray !== undefined) sent.push([m.building.id, m.building.intray]); });
-    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\nNothing needed. @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
+    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\n- Should the banner show today's spend? @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
     expect(up).toMatchObject({ decision: "pending", intray: "town-hall", workedBy: "human" });
     const rollup = world.docs.require(up.id);
-    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup"], provenance: { sourceIds: [r.id] } });
+    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup", "untyped-asks"], provenance: { sourceIds: [r.id] } });
     expect(isTownHallItem(world, rollup)).toBe(true);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(up.id);
     expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).toEqual([up.id]);

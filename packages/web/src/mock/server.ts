@@ -1126,10 +1126,10 @@ export class MockApi implements Api {
     this.schedules.set(id, e);
     return clone(e);
   }
-  /** like core's pressDigest: the mock has no Secretary runs, so nothing to digest */
-  async runDigest(): Promise<{ id: string }> {
+  /** like core's pressRank: the mock has no Secretary runs, so nothing to rank */
+  async runRank(): Promise<{ id: string }> {
     await wait(40);
-    throw new ApiError("Nothing to digest: no new rollup since the last digest.", "conflict", 409);
+    throw new ApiError("Nothing to rank: no ask arrived or changed since the last ranking.", "conflict", 409);
   }
   /** like core's buildingStats (the side bar of town planning): its assignments and agents; blocked ones aren't told apart here */
   async buildingStats(buildingId: string) {

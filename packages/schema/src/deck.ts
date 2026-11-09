@@ -66,7 +66,7 @@ export function parseDeck(body: string): ParsedDeck {
  * plus what its decision buttons need. Slide 1 is the state of the town; then one slide per pending decision,
  * blocking-most first; rollups with no call collapse into one closing "For the record" slide.
  */
-export type ReviewSlideKind = "town" | "digest" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "captain" | "retainer" | "rollup" | "report" | "close" | "stopped" | "record" | "funder";
+export type ReviewSlideKind = "town" | "slate" | "ask" | "digest" | "checkpoint" | "blocked" | "proposal" | "goal-proposal" | "captain" | "retainer" | "rollup" | "report" | "close" | "stopped" | "record" | "funder";
 export interface ReviewSlide extends DeckSlide {
   /** stable across reloads: what the viewer moves to after a decision */
   key: string;
@@ -85,6 +85,8 @@ export interface ReviewSlide extends DeckSlide {
   grantId?: string;
   /** report slides: the report the buttons decide; "For the record": every report Approve all archives */
   docIds?: string[];
+  /** legible delegation step 5: the live ask the slide is for (ak_…), in the Secretary's rank order; an "ask" slide has no other buttons */
+  askId?: string;
   /** a presented deck only: the slide's item was decided during the presentation ("cut", "approved"…); it stays in place, buttons off */
   decided?: string;
 }

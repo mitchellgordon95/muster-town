@@ -651,7 +651,8 @@ export const DocType = z.enum([
   "deck",          // slides: markdown split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only (deck.ts)
   "bulletin",      // a human's note on the bulletin board in the town square (core bulletin.ts, flag dc_52njv3shp8): published in no building, newest first
   "page",          // a full HTML page (scripts allowed): the web shows it in a sandboxed iframe (sandbox="allow-scripts", no same origin) inside a centred sheet, never in the Markdown sanitizer (PageView.tsx, grant gr_4csjpgh346)
-  "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance
+  "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance. Nothing new writes one (legible delegation step 5); old cards stay readable
+  "policy",        // the policy ledger (core secretary.ts, legible delegation §6): one Town Hall doc, one rule per line with its origin, pinned in every manager's prompt; a line is added only when a human decides "Add this rule to the ledger?"
 ]);
 export type DocType = z.infer<typeof DocType>;
 
@@ -1898,6 +1899,8 @@ export const Ask = z.object({
   createdAt: Iso,
   updatedAt: Iso,
   history: z.array(AskHistoryEntry).default([]),
+  /** legible delegation step 5: the Secretary's order over the open asks (1 = first; null = unranked) */
+  rank: z.number().int().positive().nullable().default(null),
 });
 export type Ask = z.infer<typeof Ask>;
 /**
@@ -2037,6 +2040,7 @@ export const EventType = z.enum([
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred",
+  "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2237,13 +2241,21 @@ export const VerbInputs = {
     image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers"),
     restart: z.string().trim().min(1).max(500).optional().describe("a deliberate restart with nothing new on prod: say why; logged in the event (without it, or image, a redeploy with nothing new ends without restarting)"),
   }),
-  digest: z.object({
-    shipped: z.array(z.object({
-      rollupId: Id.describe("the rollup the item came from (as the read listed it)"),
-      line: z.string().trim().min(1).max(400).describe("one plain line, at most 20 words: what a human now sees or can do"),
-      picture: z.string().optional().describe("the item's picture src, as the read listed it"),
-      theme: z.string().trim().max(80).optional().describe("the plain theme heading this line goes under (3-6 themes across the card, e.g. \"Joining and letting people in\"); lines with the same theme are grouped"),
-    })).max(60).optional().describe("leave out to read the inputs; give one entry per Shipped item to file the card"),
+  // ---- legible delegation step 5: the Secretary's ranking and weekly pattern runs (core secretary.ts) ----
+  rank: z.object({
+    week: z.boolean().optional().describe("the weekly pattern run: read the last 7 days of asks, rollups and events instead of the open asks"),
+    order: z.array(Id).max(200).optional().describe("every open ask id, most urgent first: sets each one's rank (1 = first); an open ask you leave out loses its rank"),
+    slate: z.object({
+      fund: z.array(z.object({ askId: Id, why: z.string().trim().min(1).max(300) })).max(30).default([]).describe("money asks to fund now, and why"),
+      hold: z.array(z.object({ askId: Id, until: z.string().trim().min(1).max(200).describe("what it waits for"), why: z.string().trim().min(1).max(300) })).max(30).default([]).describe("money asks to hold until something ships or resolves"),
+      skip: z.array(z.object({ askId: Id, why: z.string().trim().min(1).max(300).describe("the overlap or reason") })).max(30).default([]).describe("money asks to skip, and why"),
+    }).optional().describe("the money slate: filed as one notice (kind slate) citing the ask ids; it funds nothing"),
+    defer: z.array(z.object({ askId: Id, until: Id.describe("the ask (ak_…) or item id it is moot without") })).max(30).optional().describe("park an open ask behind another ask or item it is moot without"),
+    pattern: z.object({
+      title: z.string().trim().min(1).max(160),
+      body: z.string().trim().min(1).max(3000).describe("the convergences and repeats of the week, plain lines, ids cited"),
+      rule: z.string().trim().min(1).max(300).optional().describe("one line of policy the pattern suggests: filed as a policy ask \"Add this rule to the ledger?\" for a human to decide"),
+    }).optional().describe("the weekly run: file the pattern notice"),
   }),
 } as const;
 export type VerbName = keyof typeof VerbInputs;
@@ -2283,7 +2295,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
-  digest: "(Secretary) The Town Hall's daily in-tray digest. With no arguments: the \"Decisions needed\" yes/no lines (built in code) and every Shipped item of the rollups filed since the last digest card, or why there is nothing to digest. With `shipped` (one line per item): files the card first in the Town Hall in-tray and archives the covered rollups that ask nothing under it.",
+  rank: "(Secretary) The Town Hall's ranking runs. With no arguments: every open ask with its type, age, building, body, branches, recommendation and sources, then the last 30 money decisions with their notes; with week: true, the last 7 days of asks, rollups and events (the weekly run). With order: rank the open asks; slate: file the money slate (fund now, hold until, skip) as a notice; defer: park an ask behind the one it is moot without; pattern: file the weekly pattern notice (and its rule as a policy ask). It never funds, decides or approves anything.",
   redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI already fast-forwards `prod` and redeploys muster.town after every green push to main, so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
@@ -3006,6 +3018,7 @@ export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
 export * from "./deck.ts";
+export * from "./notices.ts";
 export * from "./funders.ts";
 export * from "./desks.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";

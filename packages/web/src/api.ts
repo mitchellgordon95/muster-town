@@ -671,8 +671,8 @@ export interface Api {
   editSchedule(id: string, patch: { paused?: boolean }): Promise<ScheduleView>;
   /** a human decides a schedule's retainer ask (POST /api/schedules/:id/retainer; building.fund or the goal's captain) */
   decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
-  /** the in-tray's "Daily digest" button: one Secretary digest run now (POST /api/digest/run; who may decide the digest's retainer) */
-  runDigest(): Promise<{ id: string }>;
+  /** the in-tray's "Rank now" button: one Secretary ranking run now (POST /api/rank/run; who may decide its retainer) */
+  runRank(): Promise<{ id: string }>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
   health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
@@ -953,7 +953,7 @@ class HttpApi implements Api {
   async cancelSchedule(id: string) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
   async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
   async decideRetainer(id: string, input: Parameters<Api["decideRetainer"]>[1]) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/retainer`, input)).schedule; }
-  async runDigest() { return (await this.post<{ assignment: { id: string } }>("/api/digest/run")).assignment; }
+  async runRank() { return (await this.post<{ assignment: { id: string } }>("/api/rank/run")).assignment; }
   async buildingStats(id: string) { return unwrap<BuildingStats>(await this.get(`/api/buildings/${id}/stats`), "stats"); }
 
   connect(h: SocketHandlers): Socket {

@@ -15,7 +15,7 @@ import {
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
-import { rollupCalls } from "./secretary.ts";
+import { onAskDecided, rollupCalls } from "./secretary.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -99,6 +99,8 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   const at = nowIso();
   const next = world.asks.upsert({ ...a, status: "decided", decidedBy: by, decidedAt: at, decision: said.slice(0, 2000), updatedAt: at, history: [...a.history, { at, action: "decide", by, note: said.slice(0, 500) }] });
   world.events.append({ type: "ask.decided", agentId: actor?.id ?? null, buildingId: a.buildingId, text: `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`, payload: { askId: a.id, decision: said, by } });
+  // step 5: a decided policy ask proposes its rule for the ledger; a decided "Add this rule?" ask appends it (secretary.ts)
+  onAskDecided(world, next);
   return next;
 }
 
@@ -327,4 +329,19 @@ export function backfillAsks(world: World): number {
     for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND tags LIKE '%\"rollup\"%'", [], "ORDER BY createdAt, rowid")) asksFromRollupProse(world, d);
   });
   return world.asks.count() - before;
+}
+
+// ---- legible delegation step 5: the Secretary's rank ----
+
+/** Set a live ask's rank (1 = first; null clears it): the Secretary's ranking run (which logs one `ask.ranked` per run). */
+export function setRank(world: World, id: string, rank: number | null): Ask {
+  const a = world.asks.require(id, "ask");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Only a live ask is ranked; ${id} is ${a.status}.`);
+  if (rank !== null && (!Number.isInteger(rank) || rank < 1)) throw badRequest("A rank is a whole number from 1.");
+  return a.rank === rank ? a : world.asks.upsert({ ...a, rank, updatedAt: nowIso() });
+}
+
+/** The live asks in the Secretary's order: ranked ones by rank, then the unranked oldest first. */
+export function rankedAsks(world: World): Ask[] {
+  return world.asks.where(LIVE_ASK, [], "ORDER BY rank IS NULL, rank, createdAt, rowid");
 }

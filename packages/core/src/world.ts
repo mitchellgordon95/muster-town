@@ -189,6 +189,8 @@ export class World {
   readonly captainRequests: Repos["captainRequests"];
   /** asks (docs/legible-delegation.md §4; core asks.ts) */
   readonly asks: Repos["asks"];
+  /** notices (docs/legible-delegation.md §8; core notices.ts) */
+  readonly notices: Repos["notices"];
   readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
@@ -210,7 +212,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());

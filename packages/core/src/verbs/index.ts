@@ -8,7 +8,7 @@ import { meeting } from "./meeting.ts";
 import { forkStatus } from "../forkstatus.ts";
 import { actForHuman } from "../act-in-1on1.ts";
 import { adoptGoal } from "../entities.ts";
-import { digestInputsText, fileDigest } from "../secretary.ts";
+import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
@@ -16,11 +16,12 @@ export const verbImpls = {
   look, town, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human, withdraw_request,
   assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, close_grant, withdraw_grant, set_objective,
   act_in_1on1: async (world: World, me: Agent, input: VerbIn<"act_in_1on1">) => actForHuman(world, me, input), propose_goal, promote, ban, redeploy,
-  digest: async (world: World, me: Agent, input: VerbIn<"digest">) => {
-    if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary works the digest.");
-    if (!input.shipped) return { inputs: digestInputsText(world) };
-    const doc = fileDigest(world, me, input.shipped);
-    return { digestId: doc.id, covered: doc.provenance.sourceIds, note: `Filed ${doc.id} in the Town Hall. Now submit_report (verdict stop) naming it.` };
+  rank: async (world: World, me: Agent, input: VerbIn<"rank">) => {
+    if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary ranks the asks.");
+    if (input.pattern) return filePattern(world, me, input.pattern);
+    if (input.week) return { inputs: weekInputsText(world) };
+    if (!input.order && !input.slate && !input.defer) return { inputs: rankInputsText(world) };
+    return applyRank(world, me, input);
   },
   adopt: async (world: World, me: Agent, input: VerbIn<"adopt">) => {
     const { building, desk } = adoptGoal(world, me.id, input.goalId);

@@ -14,7 +14,7 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
-import { digestIdleReason } from "./secretary.ts";
+import { secretaryIdleReason } from "./secretary.ts";
 import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -252,7 +252,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
         continue;
       }
     }
-    // a run with nothing to do ends here, before any session (the Secretary's digest: no new rollup, or one filed today)
+    // a run with nothing to do ends here, before any session (the Secretary: nothing new since its last ranking, or an empty week)
     const idle = scheduleIdleReason(world, s, at);
     if (idle) {
       world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: ${idle}`, payload: { scheduleId: s.id, reason: idle } });
@@ -268,7 +268,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
           agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
-          // a named taker runs on the schedule's model too (the Secretary's digest: the Town Hall's cheapModel)
+          // a named taker runs on the schedule's model too (the Secretary: SECRETARY_MODEL)
           origin: s.origin, model: s.model,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;
@@ -295,9 +295,9 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
   return { fired, ended };
 }
 
-/** Why a due run has nothing to do (it is skipped, no session), or null: only the Secretary's digest knows one today. */
+/** Why a due run has nothing to do (it is skipped, no session), or null: only the Secretary's runs know one today. */
 function scheduleIdleReason(world: World, s: Schedule, at: Date): string | null {
-  return s.takerId && s.takerId === world.secretary.agent()?.id ? digestIdleReason(world, at) : null;
+  return s.takerId && s.takerId === world.secretary.agent()?.id ? secretaryIdleReason(world, s, at) : null;
 }
 
 /** A building's schedules, active first (soonest run first), then the 20 most recently ended. */

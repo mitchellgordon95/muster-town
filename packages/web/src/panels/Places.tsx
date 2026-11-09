@@ -131,19 +131,19 @@ export function TalkToSecretary() {
 }
 
 /**
- * "Daily digest" (Mitchell, 1:1 mt_i50xwu4z2t: "let's make the 'daily digest' also a button on the intray that just
- * does the same"): runs the Secretary's digest now (core pressDigest); only for a human who may decide its retainer.
- * Disabled, with why, while a run is under way or there is nothing new to digest.
+ * "Rank now" (it was "Daily digest", Mitchell 1:1 mt_i50xwu4z2t; legible delegation step 5): runs the Secretary's
+ * ranking now (core pressRank): it orders the open asks and files the money slate; only for a human who may decide its
+ * retainer. Disabled, with why, while a run is under way or nothing changed since the last ranking.
  */
 function DailyDigestButton({ run, onStarted }: { run: DigestRunView | null; onStarted?: () => void }) {
   if (!run) return null;
   const go = async () => {
-    await api().runDigest();
-    store.toast("The Secretary is writing the digest: its card lands at the top of this in-tray in a few minutes.", "ok");
+    await api().runRank();
+    store.toast("The Secretary is ranking the asks: the order and the money slate land here in a few minutes.", "ok");
     onStarted?.();
   };
-  const label = run.runningId ? "Digest running…" : "Daily digest";
-  return <Act small run={go} disabled={!!run.refused} title={run.refused ? `Not now: ${run.refused}` : "Run the Secretary's daily digest now: a new card of what needs your yes or no and what shipped since the last one"}>{label}</Act>;
+  const label = run.runningId ? "Ranking…" : "Rank now";
+  return <Act small run={go} disabled={!!run.refused} title={run.refused ? `Not now: ${run.refused}` : "Run the Secretary's ranking now: the open asks in order and a money slate (fund, hold, skip); it decides nothing"}>{label}</Act>;
 }
 
 /** The Town Hall in-tray header's "Review as deck": the in-tray as slides (design dc_y7a8g257of §2). */

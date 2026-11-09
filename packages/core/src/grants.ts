@@ -4,6 +4,7 @@ import {
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
 } from "@muster-town/schema";
 import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
+import { closedLoopNotice, verifiedNotice } from "./notices.ts";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
 import { checkForkModel, interruptFork } from "./forks.ts";
@@ -854,6 +855,8 @@ export class Grants {
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "met", note }, { closing: true });
       this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
+      // the closed loop (docs/legible-delegation.md §8): funded on, for, closed at, what it bought (rewritten once the close report lands)
+      closedLoopNotice(this.world, next, spentTokens);
       this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
       return this.view(next);
     });
@@ -991,6 +994,8 @@ export class Grants {
     });
     // asks on this key result retire when a human sets its status, or when it is met or missed by anyone (a close as done)
     if (inp.status && (by?.kind === "user" || next.status === "met" || next.status === "missed")) retireAsks(this.world, "keyResult", kr.id, patched.text);
+    // a human verified it met (not the close as done, which marks every open one): a `verified` notice (§8)
+    if (inp.status === "met" && kr.status !== "met" && by?.kind === "user" && !opts.closing) verifiedNotice(this.world, next, this.world.nameOf(by.id));
     return next;
   }
 

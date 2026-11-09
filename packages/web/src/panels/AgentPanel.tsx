@@ -351,7 +351,7 @@ function TalkTab({ agent }: { agent: Agent }) {
       {isSecretary ? (
         !me ? <SignInNote to={`talk to ${agent.name}`} /> : (
           <div className="callout via-manager">
-            <span>{agent.name} keeps your in-tray digestible: the daily digest card, and in a 1:1 can do a decision you say in your own words (fund, counter or reject; continue, adjust or cut; approve a retainer).</span>
+            <span>{agent.name} keeps your in-tray in order: it ranks the open asks daily with a money slate (fund, hold, skip), and in a 1:1 can do a decision you say in your own words (fund, counter or reject; continue, adjust or cut; approve a retainer).</span>
             {canTalk ? <Act small tone="primary" run={() => openOneOnOne(home!.id, { agentId: agent.id })}>Talk to {agent.name}</Act> : null}
             {working && canControl ? <Act small tone="bad" run={async () => { await api().stop(agent.id); store.toast(`${agent.name} stopped`, "ok"); }}>Stop</Act> : null}
           </div>
