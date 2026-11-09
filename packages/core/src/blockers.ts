@@ -24,7 +24,7 @@ export function waitsOnTime(a: Assignment, at: Date = new Date()): string | null
 export function blockedBy(world: World, a: Assignment, at: Date = new Date()): BlockedBy | null {
   if (a.status !== "pending" || a.offered || waitsOnTime(a, at)) return null;
   const th = world.buildings.first("kind = 'town-hall'");
-  const townHall = th ? { placeId: `intray:${th.id}` } : {};
+  const townHall = th ? { placeId: `hydrant:${th.id}` } : {};
   const w = a.waitFor;
   if (w && !waitMet(world, a, at)) {
     if ("deploy" in w) {

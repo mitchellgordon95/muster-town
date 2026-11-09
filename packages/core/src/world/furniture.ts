@@ -52,8 +52,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       // v1.4 visitor bench right of the door corridor; visitors wait on the row above it (stands = the two seats)
       { key: "bench", label: "Visitor bench", at: { x: 10, y: 9 }, cells: row(2, TILE.BENCH), stands: [{ x: 0, y: -1 }, { x: 1, y: -1 }] },
       { key: "planning", label: "Planning desk", at: { x: 12, y: 9 }, cells: row(2, TILE.DESK), stands: [{ x: 0, y: -1 }] },
-      { key: "intray", label: "Town Hall in-tray", at: { x: 14, y: 9 }, cells: one(TILE.MANAGER_DESK), stands: [{ x: 0, y: -1 }] },
-      // the hydrant right of the in-tray (docs/legible-delegation.md §3): the stream of asks and notices pours from it
+      // the hydrant (docs/legible-delegation.md §3): the stream of asks and notices pours from it; it opens the decision
+      // queue, one item at a time (the Town Hall in-tray is gone), and the Secretary rests beside it
       { key: "hydrant", label: "Hydrant", at: { x: 15, y: 9 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: -1 }] },
       { key: "schedule", label: "Schedule board", at: { x: 15, y: 6 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
       // the Town Hall board on the back wall: town-wide FYIs (Mitchell's flag dc_ym8fjxqjiv)

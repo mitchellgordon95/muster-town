@@ -91,7 +91,7 @@ export class Secretary {
   }
 
   /**
-   * The Secretary, created on first call (server boot, after the seed): a Town Hall resident holding a mod-station desk slot, drawn beside the Town Hall in-tray (TOWN_HALL_RESTS) (else
+   * The Secretary, created on first call (server boot, after the seed): a Town Hall resident holding a mod-station desk slot, drawn beside the hydrant (TOWN_HALL_RESTS) (else
    * by the door), on SECRETARY_MODEL. Not the manager (the Planner stays it) and no role: it acts on decisions only with
    * the human as actor. A stopped Secretary stays stopped (a human stopped it on purpose). An existing one moves to
    * SECRETARY_MODEL (step 5).

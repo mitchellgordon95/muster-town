@@ -16,10 +16,10 @@ describe("furniture", () => {
     const pieces = piecesFor("town-hall", 3, TOWN_HALL_SIZE), by = new Map(pieces.map((p) => [p.key, p]));
     expect(by.get("outbox")!.cells).toHaveLength(2);
     expect(by.get("stats")).toMatchObject({ at: { x: 5, y: 6 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: 0, y: 1 }] });
-    expect(by.get("intray")!.at).toEqual({ x: 14, y: 9 });
+    expect(by.has("intray")).toBe(false);
     const { world } = seededWorld();
     const door = world.layout.door("town-hall")!;
-    for (const id of ["stats", "outbox", "intray:town-hall", "mod-station", "planning-desk", "visitor-bench", "library", "meeting-room:town-hall"]) {
+    for (const id of ["stats", "outbox", "hydrant:town-hall", "mod-station", "planning-desk", "visitor-bench", "library", "meeting-room:town-hall"]) {
       const p = world.layout.requirePlace(id);
       expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), id).toBe(true);
       expect(findPath(world.layout.grid, door, p.pos), id).not.toBeNull();
@@ -29,14 +29,16 @@ describe("furniture", () => {
     expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
   });
 
-  it("the Town Hall's hydrant stands right of the in-tray, used from a reachable tile (docs/legible-delegation.md §3)", () => {
+  it("the Town Hall's hydrant stands right of the planning desk, used from a reachable tile; the Town Hall has no in-tray place (docs/legible-delegation.md §3)", () => {
     const { world } = seededWorld();
     const p = world.layout.requirePlace("hydrant:town-hall");
     expect(p).toMatchObject({ kind: "hydrant", buildingId: "town-hall" });
     expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
     expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
     expect(at(world, p.pos.x, p.pos.y + 1)).toBe(TILE.HYDRANT);
-    expect(at(world, p.pos.x - 1, p.pos.y + 1)).toBe(TILE.MANAGER_DESK);
+    expect(at(world, p.pos.x - 1, p.pos.y + 1)).toBe(TILE.FLOOR);
+    expect(world.layout.place("intray:town-hall")).toBeFalsy();
+    expect(world.layout.places.filter((x) => x.buildingId === "town-hall" && x.kind === "intray")).toEqual([]);
   });
 
   it("every building has a \"?\" help sign beside its door, read from a reachable tile (flag dc_8dwch9z5pi)", () => {
