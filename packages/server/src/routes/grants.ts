@@ -1,4 +1,4 @@
-import { AppError } from "@muster-town/core";
+import { AppError, markSeen } from "@muster-town/core";
 import { CloseGrantInput, StopGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -27,6 +27,8 @@ export async function grantRoutes(app: FastifyInstance) {
     if (grant.status === "draft" && !(req.auth && desk.canManage(actorOf(world, req), grant.buildingId))) {
       throw new AppError("not_found", "grant not found");
     }
+    // what this human has seen (legible delegation step 3): an ask on the grant is written as a diff against it
+    if (req.auth?.kind === "user") markSeen(world, req.auth.user.id, "grant", grant.id);
     // an open or live grant carries what it is likely to cost (core grant-estimate.ts), signed out too
     return { grant: desk.withEstimate(grant) };
   });

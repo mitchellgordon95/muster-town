@@ -2,11 +2,12 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
+import { ASK_CONTRACT_LINES, ASK_LINT_RULES, ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
+import { captainUserId, readerDelta } from "./seen.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -411,7 +412,48 @@ Rollups are how ${captain} hears from you: \`submit_report\` with \`rollup: true
 - \`## Decided\`: one line per covered report (id → decision); folded, so no prose here.
 - \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray"); folded.
 - \`## Needs from ${captain}\`: ${rollupNeedsRule(captain)} "Nothing needed" is valid. Each line stands alone in the top block and on the deck slide.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for ${captain}, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for ${captain}, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.
+
+${askCardRules(captain)}`;
+}
+
+/**
+ * Legible delegation step 3 (docs/legible-delegation.md §5): how a manager writes the ask cards it files with a rollup:
+ * the contract per type, the linter's rules, diff-first, and one worked example (examples steer better than rules).
+ * Fixed text, in the cached system prompt; the reader's delta it refers to is live (`captainDeltaBlock`).
+ */
+function askCardRules(captain: string): string {
+  const contract = (Object.keys(ASK_CONTRACT_LINES) as (keyof typeof ASK_CONTRACT_LINES)[]).map((t) => `${t}: ${ASK_CONTRACT_LINES[t]}`).join(". ");
+  return `Asks. With every rollup file \`asks\`: one typed card per thing only a human can do; the prose stays the record. The server refuses a card that misses its type's contract or fails the linter, and names the rules; your third failing try is filed flagged lint-failed. Contract: ${contract}. Linter: ${ASK_LINT_RULES.map((r) => r.says).join(", ")}. Write each card diff-first from "## What ${captain} has seen" in your first message: start from ${captain}'s own last decision and words, never a briefing from scratch. Example. As first written: "Continue gr_q1jrelx2ty at its checkpoint (about 150,000 more is enough: one session merges PR #392 and closes it) or cut it, in which case the docs PR merges under exploration and its second key result stays unclaimed." As a card, body:
+Prod asks for 150k more tokens to finish the self-host grant.
+You funded this at 600k on Oct 31. It has spent 474k. Three of four steps shipped. A stranger can now run a town from a published image, and CI restores a backup from it on every green main.
+One step is left. A docs PR points self-host path B at the image. One session does it.
+If you continue: 150k, then the grant closes.
+If you cut: the PR merges under exploration. One key result stays unclaimed.
+with targetId gr_q1jrelx2ty, branches Continue and Cut, recommendation "Continue: one session finishes it", claims [{text: "PR #392 is green and mergeable", check: {kind: "pr", ref: "392"}}].`;
+}
+
+/**
+ * "## What <captain> has seen": for each open grant of the building (proposed, countered, funded, held), the captain's
+ * reader's delta (core seen.ts): when they last opened it, their last decision, what they said about it, the reports
+ * they have not read. Live, so it goes in the first message (`managerStateBlock`), never the cached system prompt.
+ */
+function captainDeltaBlock(world: World, building: Building, now: number): string {
+  const userId = captainUserId(world);
+  const grants = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered', 'funded', 'checkpoint')", [building.id], "ORDER BY createdAt, rowid");
+  if (!userId || !grants.length) return "";
+  const who = world.captainName();
+  const rows = grants.map((g) => {
+    const d = readerDelta(world, userId, { kind: "grant", id: g.id });
+    const parts = [
+      d.lastSeen ? `last opened it ${whenFor(d.lastSeen, "agent", now)}` : "has never opened it",
+      d.lastDecided ? `last decided "${d.lastDecided.action}" ${whenFor(d.lastDecided.at, "agent", now)}${d.lastDecided.note ? `, noting "${oneLine(d.lastDecided.note, 120)}"` : ""}` : "has not decided on it",
+      ...d.lastSaid.map((s) => `said "${oneLine(s.line, 160)}" in ${s.meetingId} ${whenFor(s.at, "agent", now)}`),
+      d.unreadReports.length ? `has not read ${d.unreadReports.length} of its reports: ${d.unreadReports.slice(-5).join(", ")}` : "",
+    ].filter(Boolean);
+    return `- ${g.id} "${oneLine(g.objective, 100)}" (${g.status}): ${who} ${parts.join("; ")}.`;
+  });
+  return `## What ${who} has seen (write each ask on these grants as a diff against it)\n${rows.join("\n")}`;
 }
 
 /**
@@ -456,6 +498,7 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
     managerIntrayRows(world, building, agent.id, now),
     teamBlock(world, building, agent.id),
     grants,
+    captainDeltaBlock(world, building, now),
     board,
     memoryIndexBlock(world, agent.id, { now }),
   ].filter(Boolean).join("\n\n");

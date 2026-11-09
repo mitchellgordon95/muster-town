@@ -50,7 +50,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const g = propose(250_000);
     const [ask] = asksFor(world, { kind: "grant", id: g.id });
     expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
-    expect(ask).toMatchObject({ type: "money", status: "open", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, recommendation: "" });
+    expect(ask).toMatchObject({ type: "money", status: "open", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, recommendation: expect.stringContaining("Fund it"), tags: [] });
     expect(ask!.id).toMatch(/^ak_/);
     expect(ask!.branches.map((b) => b.label)).toEqual(["Fund", "Counter", "Reject"]);
     // the same target again folds in: one ask, two sources; the same source line again changes nothing
@@ -122,7 +122,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(decideAsk(world, admin, ask.id, "Done")).toMatchObject({ status: "decided", decision: "Done", decidedBy: admin.ownerUserId });
     expect(openAsks(world).map((a) => a.id)).not.toContain(ask.id);
     expect(() => decideAsk(world, admin, ask.id, "Done")).toThrow(/already decided/);
-    expect(world.asks.require(ask.id).history.map((h) => h.action)).toEqual(["create", "defer", "decide"]);
+    expect(world.asks.require(ask.id).history.map((h) => h.action)).toEqual(["create", "lint", "defer", "decide"]); // the town wrote this card from the request: vetted and flagged
   }, 30_000);
 
   it("backfill files the asks of everything already open, a pending rollup's calls included, and a second run creates nothing", async () => {
@@ -154,8 +154,8 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const { world, propose, roll } = await setup();
     const g = propose();
     const body = rollup(item(1, "Deck", `Fund ${g.id}.`), "- Decide whether forks may redeploy.");
-    const fundIt = { type: "money" as const, targetId: g.id, title: "Fund the deck grant", body: "It ships the deck.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" };
-    const redeploy = { type: "policy" as const, title: "May forks redeploy?", body: "", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "" };
+    const fundIt = { type: "money" as const, targetId: g.id, title: "Fund the deck grant", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships.", claims: [{ text: "The deck builds", check: { kind: "manual" as const } }], branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" };
+    const redeploy = { type: "policy" as const, title: "May forks redeploy?", body: "Rule: forks may redeploy on green CI.\nI applied it twice this week.\nReversing it means a human redeploys each change.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" };
     await expect(roll("R1", body, { asks: [redeploy] })).rejects.toThrow(new RegExp(`asks about ${g.id}.*no entry of \`asks\` has it`));
     await expect(roll("R1", body, { asks: [] })).rejects.toThrow(/asks about/);
     await expect(roll("R1", body, { asks: [{ ...fundIt, targetId: undefined }, redeploy] })).rejects.toThrow(/money ask: name the grant or retainer/);

@@ -101,6 +101,8 @@ export interface HostHooks {
    * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
    */
   prChecks?(pr: number): PrChecks | undefined;
+  /** GET one of the town's own API paths in-process, as a signed-out reader (set by the server): an ask's `api` claim check (ask-checks.ts). */
+  apiGet?(path: string): Promise<{ status: number; body: unknown }>;
   /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
   mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */

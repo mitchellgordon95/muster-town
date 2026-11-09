@@ -1,4 +1,5 @@
-import type { Agent, Grant } from "@muster-town/schema";
+import { vetAsk, type Agent, type Grant } from "@muster-town/schema";
+import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
 import { homeOf } from "../domain.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
@@ -11,25 +12,33 @@ import type { VerbIn } from "./types.ts";
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
  * (docs/how-work-gets-done.md §4).
  */
+/** A proposal's money ask's buttons (the same as `askForProposal` files). */
+const PROPOSAL_BRANCHES = [{ label: "Fund" }, { label: "Counter" }, { label: "Reject" }];
+
 export async function propose_grant(world: World, caller: Agent, input: VerbIn<"propose_grant">) {
   // a fork of the manager (an explorer, docs/how-work-gets-done.md §3) proposes for its building as its manager
   const me = world.permissions.managerOfFork(caller) ?? caller;
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
-  const { note, grantId, ...fields } = input;
+  const { note, grantId, ask, ...fields } = input;
   let open: Grant | undefined;
   if (grantId) {
     open = world.grants.get(grantId);
     if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
     if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
   }
+  // legible delegation step 3: the money ask's card (the explorer's, else the town's from the plan) passes the money
+  // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
+  const card = ask
+    ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
+    : proposalCard({ objective: fields.objective, askTokens: fields.askTokens, steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+  refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant" }));
   const g = world.transaction(() => {
-    if (open) {
-      world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" });
-      return world.grantDesk.propose(me, open.id, note);
-    }
-    const draft = world.grantDesk.create(me, bid, fields);
-    return world.grantDesk.propose(me, draft.id, note);
+    const proposed = open
+      ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
+      : world.grantDesk.propose(me, world.grantDesk.create(me, bid, fields).id, note);
+    if (ask) setAskCard(world, "grant", proposed.id, card, caller.id);
+    return proposed;
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;
   if (asg?.reservationId) {

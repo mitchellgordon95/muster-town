@@ -1,4 +1,4 @@
-import { AppError, bulletinNotesFor, markBulletinRead, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { AppError, bulletinNotesFor, markBulletinRead, markSeen, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -44,6 +44,8 @@ export async function docRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/docs/:id", async (req) => {
     const doc = world.docs.get(req.params.id);
     if (!doc || !canSeeDoc({ kind: "user", id: viewerId(req) }, doc)) throw new AppError("not_found", `doc not found: ${req.params.id}`);
+    // what this human has seen (legible delegation step 3): the reader's delta on an ask lists the reports they never opened
+    if (req.auth?.kind === "user") markSeen(world, req.auth.user.id, "report", doc.id);
     // topic pages: the bodies their rewrites replaced, oldest first (anyone who can read the page)
     return { doc, author: world.nameOf(doc.authorId), ...(doc.topicOf ? { revisions: revisionsOf(world, doc.id) } : {}) };
   });

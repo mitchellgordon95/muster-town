@@ -1862,7 +1862,7 @@ export type AskClaim = z.infer<typeof AskClaim>;
 export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
 export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* step 3: the card failed its contract or lint */ "lint"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**
@@ -1898,6 +1898,8 @@ export const Ask = z.object({
   createdAt: Iso,
   updatedAt: Iso,
   history: z.array(AskHistoryEntry).default([]),
+  /** legible delegation step 3: "lint-failed" when the card was filed failing its contract or the linter (the messages are in history) */
+  tags: z.array(z.string()).default([]),
 });
 export type Ask = z.infer<typeof Ask>;
 /**
@@ -2036,7 +2038,7 @@ export const EventType = z.enum([
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
-  "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred",
+  "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.refused", "ask.checked",
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2190,6 +2192,12 @@ export const VerbInputs = {
   propose_grant: CreateGrantInput.extend({
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
     grantId: Id.optional().describe("answer a counter: the countered proposal to rewrite with this plan and re-propose under its own id (leave it out for a new proposal)"),
+    // legible delegation step 3: the money ask's card, linted like a rollup's asks (docs/legible-delegation.md §5)
+    ask: z.object({
+      body: z.string().trim().min(1).max(4000).describe("the card a human decides from: plain sentences of at most 20 words, no ids, no semicolons or parentheses; say this is a new proposal, that nothing is spent, how many steps, what each branch means (\"If you fund: …\", \"If you reject: …\")"),
+      recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
+      claims: z.array(AskClaim.omit({ result: true })).min(1).max(2).describe("the 1-2 claims that would change the decision if wrong, each with its check (pr, url, api, kr or manual)"),
+    }).optional().describe("the money ask's card (docs/legible-delegation.md §5). Left out, the town writes one from your objective, steps and ask, and lints that: a proposal whose card fails is refused with the failing rules"),
   }),
   close_grant: z.object({
     grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
@@ -3005,6 +3013,7 @@ export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
+export * from "./ask.ts";
 export * from "./deck.ts";
 export * from "./funders.ts";
 export * from "./desks.ts";

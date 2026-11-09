@@ -9,13 +9,15 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  parseRollup, rollupAsks, rollupNeedsIdsAll, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind, type AskType,
+  parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind, type AskType,
   type CaptainRequest, type Doc, type Event, type Grant, type Schedule,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
+import { queueClaimChecks } from "./ask-checks.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
 import { rollupCalls } from "./secretary.ts";
+import { stamp } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -59,17 +61,57 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
   const have = kind && n.targetId ? liveAskOn(world, kind, n.targetId) : undefined;
   if (have) {
     if (!source.length || have.sources.some((s) => s.docId === n.sourceDocId && s.line === line)) return { ask: have, folded: true };
-    const next = world.asks.upsert({ ...have, sources: [...have.sources, ...source], updatedAt: at, history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId}: ${line}` }] });
+    // step 3: a manager's card (one with a recommendation) replaces the town's own wording on an ask that has none yet
+    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED)) && !!n.recommendation?.trim();
+    const card = adopt ? vetted(have.type, { body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
+    const next = world.asks.upsert({
+      ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
+      history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId}: ${line}` }, ...(card?.lint ?? [])],
+    });
     world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `Folded into "${oneLine(have.title, 80)}": ${oneLine(line, 120)}`, payload: { askId: have.id, sourceDocId: n.sourceDocId, targetKind: kind, targetId: n.targetId } });
+    if (card) queueClaimChecks(world, next.id);
     return { ask: next, folded: true };
   }
+  const card = vetted(n.type, { body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
   const ask = world.asks.upsert(Ask.parse({
     id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
     title: oneLine(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
-    status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }],
+    status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags,
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
+  queueClaimChecks(world, ask.id);
   return { ask, folded: false };
+}
+
+/**
+ * Step 3: every card is vetted against its type's contract and the linter as it is stored. One that fails carries the
+ * tag "lint-failed" and a "lint" history entry with the failing rules: an author's third failing attempt
+ * (`refuseOrFlag`), or a card the town wrote from a source's own words. No card reaches the in-tray unvetted.
+ */
+function vetted(type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
+  const problems = vetAsk(type, card);
+  return problems.length ? { tags: [LINT_FAILED], lint: [{ at, action: "lint", by, note: problems.join("\n").slice(0, 4000) }] } : { tags: [], lint: [] };
+}
+
+const LINT_FAILED = "lint-failed";
+/** How many failing attempts an author gets before the card is filed flagged instead of refused (§12 question 4). */
+const ASK_STRIKES = 3;
+
+/**
+ * Step 3's bounce: an author's card (a rollup's typed asks, a proposal's money ask) that fails its contract or the
+ * linter is refused with the failing rules, the way a malformed rollup is. The same session's third failing attempt
+ * goes through and is filed tagged "lint-failed" (`createAsk`), so a report is never blocked for ever. Each refusal is
+ * an `ask.refused` event keyed by the session (else the assignment, else the agent) and `what` ("rollup", "proposal").
+ */
+export function refuseOrFlag(world: World, me: Agent, what: string, problems: string[]): void {
+  if (!problems.length) return;
+  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
+  const key = `${session?.id ?? me.currentAssignmentId ?? me.id}:${what}`;
+  const before = (world.db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'ask.refused' AND json_extract(payload, '$.strikeKey') = ?").get(key) as { n: number }).n;
+  if (before + 1 >= ASK_STRIKES) return;
+  world.events.append({ type: "ask.refused", agentId: me.id, buildingId: me.homeBuildingId ?? null, text: `${me.name}'s ${what} ask card was refused: ${oneLine(problems[0]!, 160)}`, payload: { strikeKey: key, what, problems } });
+  const last = before + 2 >= ASK_STRIKES;
+  throw badRequest(`Your ${what}'s ask card fails ${problems.length} rule${problems.length === 1 ? "" : "s"} (docs/legible-delegation.md §5). Rewrite it and resubmit${last ? ". Your next attempt is filed even if it still fails, flagged lint-failed for the humans" : ""}:\n- ${problems.join("\n- ")}`);
 }
 
 /** Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired. */
@@ -138,14 +180,57 @@ export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "te
   else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text);
 }
 
-/** A grant proposal's money ask: fund / counter / reject. */
+/** A grant proposal's money ask: fund / counter / reject, its card written by the town from the plan (`proposalCard`). */
 function askForProposal(world: World, g: Grant, line: string): void {
+  const kr = world.grantDesk.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text }));
   createAsk(world, {
     type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: g.id, by: g.proposedBy,
     title: `Fund "${oneLine(g.objective, 120)}" at ${fmt(g.askTokens)} tokens`, line,
-    body: [g.objective, g.approach && `Approach: ${g.approach}`, g.stopCondition && `Stops when: ${g.stopCondition}`].filter(Boolean).join("\n\n"),
+    ...proposalCard({ objective: g.objective, askTokens: g.askTokens, steps: g.steps.length, keyResults: kr, counteredAt: lastCounterAt(g) }),
     branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }],
   });
+}
+
+/** When a human last countered this grant (it is being re-proposed), or null. */
+export const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g.history].reverse().find((h) => h.action === "counter")?.at ?? null;
+
+/** The card fields a proposal's money ask carries. */
+type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
+
+/**
+ * The card the town writes for a proposal whose explorer gave none (`propose_grant` without `ask`, or a proposal made
+ * over REST): the prior decision, the objective as written, the ask, what is spent, the steps, both branches, and the
+ * first two key results as its claims (checked by their howToCheck when it is a curl or a URL). The objective is the
+ * explorer's own words, so the linter judges it: an objective with ids, parentheses or long sentences fails.
+ */
+export function proposalCard(p: { objective: string; askTokens: number; steps: number; keyResults: { id?: string; text: string }[]; counteredAt?: string | null }): Card {
+  const objective = p.objective.trim().replace(/([^.!?])$/, "$1.");
+  const prior = p.counteredAt ? `You countered it at ${stamp(p.counteredAt)}. This is the revised plan.` : "This is a new proposal. You have not decided on it before.";
+  return {
+    body: [
+      prior, objective,
+      `It asks for ${fmt(p.askTokens)} tokens. Nothing is spent yet.`,
+      `It has ${p.steps} step${p.steps === 1 ? "" : "s"}, and none is done yet.`,
+      "If you fund: step 1 starts on the building queue.",
+      "If you reject: nothing runs, and the tokens stay free.",
+    ].join("\n"),
+    recommendation: "Fund it: the building proposed it as its next piece of work.",
+    claims: p.keyResults.slice(0, 2).map((k) => ({ text: `Key result: ${oneLine(k.text, 300)}`, check: k.id ? { kind: "kr" as const, ref: k.id } : { kind: "manual" as const } })),
+  };
+}
+
+/**
+ * Put an author's card on the live ask of a target (`propose_grant` with `ask`): body, recommendation and claims, vetted
+ * again (tagged lint-failed when it fails), and its checks queued. No live ask: nothing.
+ */
+export function setAskCard(world: World, kind: AskTargetKind, id: string, card: Card, by: string): Ask | null {
+  const have = liveAskOn(world, kind, id);
+  if (!have) return null;
+  const at = nowIso();
+  const v = vetted(have.type, { ...card, branches: have.branches, targetKind: have.targetKind }, at, by);
+  const next = world.asks.upsert({ ...have, ...card, tags: v.tags, updatedAt: at, history: [...have.history, ...v.lint] });
+  queueClaimChecks(world, next.id);
+  return next;
 }
 
 /** A funded grant held at its checkpoint (`Grants.checkpoints`): the money ask to continue, adjust or cut it. */

@@ -95,3 +95,8 @@ export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
 export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
 export { tickMemo, withTickMemo } from "./tick-memo.ts";
+// legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
+export { decideAsk, deferAsk, openAsks } from "./asks.ts";
+export { markSeen } from "./seen.ts";
+export { claimsStale, runClaimChecks } from "./ask-checks.ts";
+export { blockedAddress, safeGet, type Fetcher } from "./net-guard.ts";

@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, askLineFor, parseRollup, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, askLineFor, parseRollup, vetAsk, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
@@ -17,7 +17,7 @@ import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
-import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks } from "../asks.ts";
+import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseOrFlag } from "../asks.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -333,6 +333,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
+  // legible delegation step 3: each typed ask's card passes its type's contract and the linter, or is refused with the
+  // failing rules (the session's third failing attempt is filed, flagged lint-failed)
+  if (typedAsks?.length) refuseOrFlag(world, me, "rollup", typedAsks.flatMap((a, i) => vetAsk(a.type, { ...a, targetKind: a.targetKind ?? null }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
   const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
