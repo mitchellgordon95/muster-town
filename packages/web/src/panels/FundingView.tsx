@@ -31,7 +31,7 @@ export function FundingView({ asks, grants, notices, onDecided, onOpenRecord }: 
       <div className={line.after !== null && line.after < 0 ? "funding-line over" : "funding-line"} aria-live="polite">
         <span>Free {line.before === null ? "…" : fmtTokens(line.before)}</span>
         <span>− toggled {fmtTokens(line.toggled)} <span className="muted">({line.count} of {items.length})</span></span>
-        <span>= left <b>{line.after === null ? "…" : fmtTokens(line.after)}</b></span>
+        <span>= left <b>{line.after === null ? "…" : line.after < 0 ? `−${fmtTokens(-line.after)}` : fmtTokens(line.after)}</b></span>
         <span>expected spend <b>{fmtTokens(line.expected)}</b> {ADJ}</span>
       </div>
       <p className="muted funding-note">The toggle funds nothing. Decide each card with its own buttons. Expected spend is each step's size at what that size really costs.</p>
