@@ -359,7 +359,7 @@ export const stepCalibration: StepCalibration = {
   lines: ["S: too few steps (3), priced at 1.0", "M: 1.1× over 9 steps", "L: 1.6× over 12 steps"],
 };
 
-const askBase = { decidedBy: null, decidedAt: null, decision: null, retiredBy: null, foldedInto: null, deferredUntil: null as string | null, history: [] as Ask["history"], tags: [] as string[], rank: null as number | null, status: "open" as Ask["status"] };
+const askBase = { decidedBy: null, proposal: null, decidedAt: null, decision: null, retiredBy: null, foldedInto: null, deferredUntil: null as string | null, history: [] as Ask["history"], tags: [] as string[], rank: null as number | null, status: "open" as Ask["status"] };
 /**
  * The open asks (docs/legible-delegation.md §4): one per type, each on the item it decides (a proposal, a held grant,
  * a retainer, a captain and an access request, an outbox request) and two with no other channel (a policy, a meeting).
