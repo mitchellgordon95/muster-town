@@ -20,8 +20,8 @@ function setup() {
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   /** a grant of the lab with its own key results (default the first of KRS), proposed and funded */
   const fund = (tokens = 4_000_000, keyResults = [KRS[0]!]) => {
-    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults, objective: "Visitors can tell what the lab is for", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: tokens }).id);
-    return world.grantDesk.decide(admin, g.id, { action: "fund" });
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults, objective: "Visitors can tell what the lab is for", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: tokens }).id);
+    return world.grantDesk.decide(admin, g.id, { action: "fund", tokens });
   };
   /** a finished session that spent `tokens` in a lane (what a grant's spend is derived from) */
   const spend = (agentId: string, tokens: number, lane: "grant" | "exploration", grantId: string | null = null) => world.sessions.upsert({
@@ -46,7 +46,7 @@ describe("goal-directed budgets: lanes on assignments", () => {
   it("goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work", async () => {
     const { world, mei, noor, admin, fund } = setup();
     const g = fund();
-    const other = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "other", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
+    const other = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "other", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     const base = { agentId: mei.id, title: "t", description: "d" };
     await expect(world.verbs.assign(mei, base)).rejects.toThrow(/goal-directed.*agents can't create directed work/);
     await expect(world.verbs.assign(mei, { ...base, lane: "directed" })).rejects.toThrow(/goal-directed/);
@@ -71,7 +71,7 @@ describe("goal-directed budgets: lanes on assignments", () => {
   it("a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)", async () => {
     const { world, mei, noor, admin, fund } = setup();
     const base = { agentId: mei.id, title: "t", description: "d", lane: "grant" as const };
-    const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
+    const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     await expect(world.verbs.assign(mei, { ...base, grantId: draft.id })).rejects.toThrow(/is draft: work can't be charged/);
     world.grantDesk.propose(mei, draft.id);
     const proposed = await world.verbs.assign(mei, { ...base, grantId: draft.id });
@@ -181,7 +181,7 @@ describe("goal-directed budgets: the canStart gate", () => {
   });
 });
 
-describe("goal-directed budgets: the hold point (grant − reserve, then 100%)", () => {
+describe("goal-directed budgets: the hold point (the ceiling; docs/legible-delegation.md §7.3)", () => {
   it("a grant at 60% spend creates no checkpoint assignment and is not held", () => {
     const { world, admin, mei, noor, fund, spend } = setup();
     creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
@@ -189,75 +189,82 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
     spend(noor.id, 2_400_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointsDone: [] });
-    expect(world.grantDesk.get(g.id).holdAtTokens).toBe(3_850_000);
+    expect(world.grantDesk.get(g.id).holdAtTokens).toBe(4_000_000);
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(0);
     expect(world.assignments.where("agentId = ? AND title LIKE 'Write the checkpoint%'", [mei.id])).toHaveLength(0);
     const step = world.ops.createWork(admin, noor.id, { title: "next step", lane: "grant", grantId: g.id });
     expect(world.budget.canStart(noor.id, step)).toBe(true);
   });
 
-  it("the hold fires at grant − min(150k, a third) and creates no assignment; running work is held, the funders are told (grant C gr_95svkzi4l6)", () => {
+  it("the hold fires only at the ceiling and creates no assignment; running work is held, the funders are told (grant C gr_95svkzi4l6)", () => {
     const { world, admin, mei, noor, fund, spend } = setup();
     creditBank(world);
-    for (const [tokens, reserve] of [[100_000, 33_333], [450_000, 150_000], [1_000_000, 150_000]] as const) {
+    for (const tokens of [100_000, 450_000, 1_000_000]) {
       const g = fund(tokens);
-      expect(world.grantDesk.get(g.id).holdAtTokens).toBe(tokens - reserve);
-      spend(noor.id, tokens - reserve - 1, "grant", g.id);
+      expect(world.grantDesk.get(g.id).holdAtTokens).toBe(tokens);
+      spend(noor.id, tokens - 1, "grant", g.id);
       world.budget.charge(noor.id, 0, 0);
       expect(world.grants.require(g.id)).toMatchObject({ status: "funded", checkpointsDone: [] });
       spend(noor.id, 1, "grant", g.id);
       world.budget.charge(noor.id, 0, 0);
-      expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
-      expect(world.grantDesk.get(g.id).holdAtTokens).toBeNull(); // only a funded grant has a next hold point
+      expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
+      expect(world.grantDesk.get(g.id).holdAtTokens).toBeNull(); // only a funded grant has a hold point
       expect(world.budget.canStart(noor.id, world.ops.createWork(admin, noor.id, { title: "next step", lane: "grant", grantId: g.id }))).toBe(false);
     }
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(3);
     expect(world.assignments.where("title LIKE 'Write the checkpoint%'", [])).toHaveLength(0);
     expect(world.assignments.where("agentId = ? AND status = 'pending' AND grantStep IS NULL", [mei.id])).toHaveLength(0);
-    expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("reached its hold point"))).toBe(true);
+    expect(world.messages.where("toId = ? AND kind = 'system'", [admin.id]).some((m) => m.body.includes("reached its ceiling"))).toBe(true);
   });
 
-  it("continue holds again at 100%; adjust recomputes the hold point; a grant already held is untouched by checkpoints()", () => {
+  it("adjust holds at the new ceiling; continue is refused once fully spent; a grant already held is untouched by checkpoints()", () => {
     const { world, admin, noor, fund, spend } = setup();
     creditBank(world);
     const g = fund(1_000_000);
     spend(noor.id, 860_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id).status).toBe("checkpoint");
+    expect(world.grants.require(g.id).status).toBe("funded"); // no reserve hold any more
+    spend(noor.id, 140_000, "grant", g.id); // 1M
+    world.budget.charge(noor.id, 0, 0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
     // held: further charges change nothing (no second event, no sweep)
-    spend(noor.id, 50_000, "grant", g.id);
+    spend(noor.id, 50_000, "grant", g.id); // 1.05M: the session in flight finished and booked
     expect(world.grantDesk.checkpoints(LAB)).toEqual([]);
     expect(world.events.recent({ types: ["grant.checkpoint"] })).toHaveLength(1);
-    // continue: same tokens, the next hold is the full grant
-    world.grantDesk.decide(admin, g.id, { action: "continue" });
-    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [0], holdAtTokens: 1_000_000 });
-    spend(noor.id, 80_000, "grant", g.id); // 990k
+    expect(() => world.grantDesk.decide(admin, g.id, { action: "continue" })).toThrow(/fully spent/);
+    // adjust to 2M: it holds at 2M
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 2_000_000 });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [], holdAtTokens: 2_000_000 });
+    spend(noor.id, 900_000, "grant", g.id); // 1.95M
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id).status).toBe("funded");
-    spend(noor.id, 10_000, "grant", g.id); // 1M
+    spend(noor.id, 50_000, "grant", g.id); // 2M
+    world.budget.charge(noor.id, 0, 0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
+    expect(world.assignments.where("title LIKE 'Write the checkpoint%'", [])).toHaveLength(0);
+  });
+
+  it("a funded grant held at the retired reserve hold holds again only at its ceiling after a continue", () => {
+    const { world, admin, noor, fund, spend } = setup();
+    creditBank(world);
+    const g = fund(1_000_000);
+    spend(noor.id, 860_000, "grant", g.id);
+    world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0] }); // held before this landed
+    world.grantDesk.decide(admin, g.id, { action: "continue" });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", holdAtTokens: 1_000_000 });
+    spend(noor.id, 140_000, "grant", g.id);
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0, 1] });
-    expect(() => world.grantDesk.decide(admin, g.id, { action: "continue" })).toThrow(/fully spent/);
-    // adjust to 2M: hold at 2M − 150k again
-    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 2_000_000 });
-    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [], holdAtTokens: 1_850_000 });
-    spend(noor.id, 850_000, "grant", g.id); // 1.85M
-    world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
-    // adjust to a number whose hold point is already behind the spend: that hold counts as passed, the next is the full grant
-    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 1_900_000 });
-    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", checkpointsDone: [0], holdAtTokens: 1_900_000 });
-    expect(world.assignments.where("title LIKE 'Write the checkpoint%'", [])).toHaveLength(0);
   });
 
   it("a funded grant already past its hold point when this lands holds at its next charge; a cut closes it", () => {
     const { world, admin, noor, fund, spend } = setup();
     creditBank(world);
     const g = fund(4_000_000);
-    spend(noor.id, 3_900_000, "grant", g.id); // past 3.85M without a charge
+    spend(noor.id, 4_100_000, "grant", g.id); // past the ceiling without a charge
     expect(world.grants.require(g.id).status).toBe("funded");
     world.budget.charge(noor.id, 0, 0);
-    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [0] });
+    expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", checkpointsDone: [1] });
     world.grantDesk.decide(admin, g.id, { action: "cut" });
     expect(world.grants.require(g.id)).toMatchObject({ status: "closed", outcome: "cut" });
   });
@@ -292,7 +299,7 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
 
   it("withdraw_grant: the manager withdraws its own proposed grant with a note; out of the in-tray and deck, KRs archived, funded refused", async () => {
     const { world, seed, mei, noor, admin, fund } = setup();
-    const propose = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, KRS[1]!], objective: "A plan to rewrite", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 300_000 }).id);
+    const propose = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, KRS[1]!], objective: "A plan to rewrite", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 300_000 }).id);
     const g = propose();
     expect(townHallIntray(world).grants.map((x) => x.id)).toContain(g.id);
     expect(JSON.stringify(reviewDeck(world).slides)).toContain(g.id);
@@ -318,7 +325,7 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
     // a countered proposal can be withdrawn too, then a fresh one proposed
     const c = world.grantDesk.decide(admin, propose().id, { action: "counter", note: "smaller" });
     expect((await world.verbs.withdraw_grant(mei, { grantId: c.id, note: "rewriting from scratch" })).status).toBe("closed");
-    expect((await world.verbs.propose_grant(mei, { objective: "fresh", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
+    expect((await world.verbs.propose_grant(mei, { objective: "fresh", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
   });
 
   it("close_grant: the manager closes a funded grant early as done; all its open KRs met and archived, unspent returned, no Town Hall in-tray row; a human can flip one to missed", async () => {
@@ -327,7 +334,7 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
     const krs = g.keyResults;
     spend(noor.id, 1_000_000, "grant", g.id);
     await expect(world.verbs.close_grant(noor, { grantId: g.id, note: "done" })).rejects.toThrow(/building.manage/);
-    const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
+    const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
     world.ops.startSession(mei.id, { purpose: "work", model: "m" });
     const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
@@ -369,10 +376,10 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
 
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
     const { world, mei, admin } = setup();
-    const r = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     expect(r).toMatchObject({ status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(world.grantDesk.board(LAB).proposals.map((p) => p.id)).toEqual([r.grantId]);
-    const r2 = await world.verbs.propose_grant(mei, { keyResults: [KRS[0]!], objective: "o2", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r2 = await world.verbs.propose_grant(mei, { keyResults: [KRS[0]!], objective: "o2", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     expect(r2.grantId).not.toBe(r.grantId);
     expect(r2.note).toMatch(/1 other open proposal/);
     expect(world.grantDesk.board(LAB).proposals.map((p) => p.id).sort()).toEqual([r.grantId, r2.grantId].sort());
@@ -382,29 +389,29 @@ describe("goal-directed budgets: the hold point (grant − reserve, then 100%)",
     expect(world.grants.require(r.grantId).status).toBe("countered");
     expect(world.grants.require(r2.grantId).status).toBe("funded");
     // a fresh plan answering the countered one: grantId names which is answered
-    const r3 = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500, grantId: r.grantId });
+    const r3 = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500, grantId: r.grantId });
     expect(r3.grantId).toBe(r.grantId);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(2);
   });
 
   it("propose_grant on a countered proposal rewrites it in place and re-proposes it under the same id", async () => {
     const { world, mei, noor, admin } = setup();
-    const r = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const queued = world.ops.createWork(mei, noor.id, { title: "kr", lane: "grant", grantId: r.grantId });
     world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "track every token type" });
-    const again = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o, every token type", approach: "five counters", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s2", askTokens: 2000, note: "at your scope", grantId: r.grantId });
+    const again = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o, every token type", approach: "five counters", steps: [{ size: "M", title: "Step 1", description: "Do the work" }, { size: "S", title: "Step 2", description: "Check it" }], stopCondition: "s2", askTokens: 2000, note: "at your scope", grantId: r.grantId });
     expect(again).toMatchObject({ grantId: r.grantId, status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(again.note).toMatch(/Re-proposed/);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
     const g = world.grants.require(r.grantId);
-    expect(g).toMatchObject({ objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 2000 });
+    expect(g).toMatchObject({ objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 200_000 }); // the ask is the sizes' sum (M + S), never the caller's 2000
     expect(g.history.map((h) => h.action)).toEqual(["propose", "counter", "edit", "propose"]);
     expect(g.history.at(-1)?.note).toBe("at your scope");
     expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending", keyResultId: g.keyResultId });
     // a proposal still awaiting the human's decision is not overwritten: grantId must name a countered one
-    await expect(world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
+    await expect(world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
     // without grantId it is a new proposal next to it
-    const fresh = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
+    const fresh = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     expect(fresh.grantId).not.toBe(r.grantId);
   });
 });
@@ -414,12 +421,12 @@ describe("goal-directed budgets: the Key results block", () => {
     const { world, mei, noor, admin, fund, spend } = setup();
     const g = fund(4_000_000);
     const krs = g.keyResults;
-    const p = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "The board leads with the goal", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
+    const p = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "The board leads with the goal", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
     spend(noor.id, 1_000_000, "grant", g.id);
     const a = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB), a);
     expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [not-started] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
-    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 1,000 tokens). Its key results:\n      - ${p.keyResultId} [not-started] The board shows the lab's goal first (how to check: Open the lab board)`);
+    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResultId} [not-started] The board shows the lab's goal first (how to check: Open the lab board)`);
     expect(block).toContain(`This session: grant ${g.id} (first key result ${krs[0]!.id} "A visitor can see today's spend on the banner")`);
     expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
@@ -436,7 +443,7 @@ describe("goal-directed budgets: the Key results block", () => {
 
 describe("goal-directed budgets: a decision on a proposal reaches the manager (1:1 mt_f45m8hbmct; in-tray rows since mt_lsyqj98z0w)", () => {
   const propose = (world: ReturnType<typeof setup>["world"], mei: ReturnType<typeof setup>["mei"]) =>
-    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, { text: "Banner shows Usage", howToCheck: "Open the banner" }], objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 4_000_000, findingsDocIds: [] }).id);
+    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, { text: "Banner shows Usage", howToCheck: "Open the banner" }], objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 4_000_000, findingsDocIds: [] }).id);
 
   it("funded: no manager assignment; the plan's step 1 is on the building queue (grant B gr_b5fyqibfx2)", () => {
     const { world, admin, mei } = setup();
@@ -533,7 +540,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const a = world.assignments.require(r.assignmentId);
     expect(a).toMatchObject({ lane: "directed", gap: "the banner says nothing", keyResultId: null });
     expect(world.budget.canStart(mei.id, a)).toBe(true);
-    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 }).id);
+    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 }).id);
     expect(world.budget.canStart(mei.id, a)).toBe(true);
     expect(laneBlock(world, a)).toBeNull();
   });

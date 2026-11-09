@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { blockedBy, buildingRoleId, createAssignment, freeTokens } from "../src/index.ts";
 import { laneHold } from "../src/lanes.ts";
-import { seededWorld } from "./helpers.ts";
+import { askAt, seededWorld } from "./helpers.ts";
 
 // Promised and available, and the overdraft walk (docs/bank.md, Mitchell 2026-11-01).
 const LAB = "carbon-cycle";
@@ -16,7 +16,7 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const fund = (askTokens: number) => {
-    const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: `ask ${askTokens}`, steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens }).id);
+    const g = askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: `ask ${askTokens}`, steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens }).id), askTokens);
     const funded = world.grantDesk.decide(admin, g.id, { action: "fund" });
     const work = createAssignment(world, { agentId: manager.id, title: `work on ${funded.id}`, description: "d", createdBy: { kind: "system", id: "system" }, lane: { lane: "grant", grantId: funded.id } });
     return { grant: funded, work };
@@ -83,7 +83,7 @@ describe("the overdraft walk", () => {
 
   it("an open proposal's ask soaks up a shortfall first and is never listed as overdrafted", () => {
     const { world, k2, root, manager } = setup();
-    world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "a proposal", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 900 }).id);
+    askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "a proposal", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 900 }).id), 900);
     world.bank.availability.recordFailure({ inputId: k2.id, model: OPUS, text: "Your credit balance is too low" });
     expect(root().overdrafted?.map((o) => o.kind)).toEqual(["funded"]);
     expect(root().overdraftTokens).toBe(3_000);

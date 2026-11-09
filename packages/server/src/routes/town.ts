@@ -1,5 +1,5 @@
-import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView, stepCalibration } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -86,7 +86,8 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.get("/api/town", async () => {
     const { type: _type, ...snap } = world.snapshot();
-    return snap;
+    // beside the step-size table (snap.town.stepSizes): what steps really cost per size, last 30 days (grant-estimate.ts)
+    return { ...snap, stepCalibration: stepCalibration(world) };
   });
 
   app.get("/api/me", async (req): Promise<AuthMe> => {
@@ -364,7 +365,13 @@ export async function townRoutes(app: FastifyInstance) {
   app.put("/api/town/defaults", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
-    return world.setTownDefaults(parse(TownDefaultsPatch, req.body), world.ops.ensureAvatar(user.id).id);
+    const { stepSizes, oversell, ...rest } = parse(TownDefaultsPatch, req.body);
+    const by = world.ops.ensureAvatar(user.id).id;
+    // the step-size table and oversell (docs/legible-delegation.md §7.3) ride the same route; the rest are building defaults
+    const t = world.town.get();
+    const pricing = stepSizes || oversell !== undefined ? world.setGrantPricing({ stepSizes, oversell }, by) : grantPricingOf(t);
+    const saved = Object.values(rest).some((v) => v !== undefined) ? world.setTownDefaults(rest, by) : { defaults: world.town.defaults(), buildings: [] };
+    return { ...saved, ...pricing };
   });
 
   /**

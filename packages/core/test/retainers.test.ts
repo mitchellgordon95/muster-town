@@ -199,7 +199,7 @@ describe("retainers", () => {
 
   it("lanes: a repeating schedule is never lane grant; an agent's repeating job needs tokensPerRun; nobody assigns lane retainer by hand", async () => {
     const { world, me, b, admin } = lab();
-    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, b.id, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
     const repeat = { everyHours: 6 };
     await expect(world.verbs.schedule(me(), { title: "x", description: "d", lane: "grant", grantId: g.id, repeat })).rejects.toThrow(/can't draw on a grant/);
     // a one-shot may still run on a grant (grants are one-time work)

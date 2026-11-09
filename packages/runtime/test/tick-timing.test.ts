@@ -56,7 +56,7 @@ describe("tick timing (post-mortem 2026-10-31 item 7)", () => {
     // 50 funded grants (Bank.debited is summed per grant and lane on every tick)
     const grants: string[] = [];
     for (let i = 0; i < 50; i++) {
-      const g = world.grantDesk.create(admin, lab, { keyResults: [{ text: `k${i}`, howToCheck: "h" }], objective: `o${i}`, steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 100_000 });
+      const g = world.grantDesk.create(admin, lab, { keyResults: [{ text: `k${i}`, howToCheck: "h" }], objective: `o${i}`, steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 100_000 });
       world.grantDesk.propose(admin, g.id);
       grants.push(world.grantDesk.decide(admin, g.id, { action: "fund" }).id);
     }

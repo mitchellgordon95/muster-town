@@ -36,7 +36,7 @@ function explorerSdk(world: World): Sdk & { sessions: { agentId: string | null; 
       async function* explore() {
         yield* call(agentId!, "propose_grant", {
           objective: "Map the first ten community gardens", approach: "Walk the city's open data, one source card per garden",
-          steps: [{ title: "Map the gardens", description: "One source card per garden" }], stopCondition: "Ten gardens mapped or 150,000 tokens", askTokens: 150_000,
+          steps: [{ size: "M", title: "Map the gardens", description: "One source card per garden" }], stopCondition: "Ten gardens mapped or 150,000 tokens", askTokens: 150_000,
           keyResults: [{ text: "Ten gardens on the map", howToCheck: "The library lists ten garden source cards", due: "2026-11-20" }],
         });
         yield* call(agentId!, "submit_report", { title: "Explored: garden map", verdict: "stop", body: "## What I did\nLooked.\n\n## Findings\nA grant proposal.\n\n## What I need from you\nDecide the proposal." });

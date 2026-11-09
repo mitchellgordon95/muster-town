@@ -4,7 +4,7 @@
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
 import { isAbsolute, resolve as resolvePath } from "node:path";
-import { AppError, type SubTimer, withTickMemo, checkWaits, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, isForkingManager, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { AppError, type SubTimer, withTickMemo, checkWaits, circuitBreakerTick, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, isForkingManager, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -709,6 +709,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
       timed("waits", () => checkWaits(world, d));
       timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
+      // the session circuit breaker (docs/legible-delegation.md §7.3): asked to file at 90%, cut at 100% the way a drain cuts a session
+      timed("circuitBreaker", () => { for (const agentId of circuitBreakerTick(world)) abortWork(ctx, agentId, 0); }, "circuit breaker");
       // a stopped grant (Grants.stop) closes as stopped once no session runs on it
       timed("stoppingGrants", () => world.grantDesk.finishStopping(), "stopping grants");
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
