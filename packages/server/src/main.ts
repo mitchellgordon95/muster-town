@@ -60,11 +60,14 @@ async function main() {
     manualPath: join(REPO_ROOT, "docs", "manual.md"),
   });
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
-  // the Town Hall's Secretary and its daily digest schedule (gr_kdlogzzo5s): made once; the schedule asks for its retainer in the in-tray
+  // the Town Hall's Secretary, its daily ranking and weekly pattern schedules (docs/legible-delegation.md §6) and the policy
+  // ledger: made once; each schedule asks for its retainer in the in-tray
   try {
     const sec = world.secretary.ensure();
-    const sched = world.secretary.ensureDigestSchedule();
-    if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, digest schedule ${sched.id} (retainer ${sched.retainer})` : ""}`);
+    const sched = world.secretary.ensureRankSchedule();
+    const weekly = world.secretary.ensurePatternSchedule();
+    world.secretary.ensurePolicyLedger();
+    if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, ranking schedule ${sched.id} (retainer ${sched.retainer})` : ""}${weekly ? `, pattern schedule ${weekly.id} (retainer ${weekly.retainer})` : ""}`);
   } catch (e) { console.warn(`[server] Secretary not set up: ${(e as Error).message}`); }
   const desksOverride = desksFromEnv(townEnv("DESKS"));
   if (desksOverride) {

@@ -1,4 +1,4 @@
-import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, pressDigest, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
+import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, pressRank, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
 import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, RetainerDecisionInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -122,8 +122,10 @@ export async function agentRoutes(app: FastifyInstance) {
   });
   /** Edit, pause or resume a schedule (building.assign on its building; EditScheduleInput). → { schedule } */
   app.post<{ Params: Params }>("/api/schedules/:id", async (req) => ({ schedule: scheduleView(world, editSchedule(world, actorOf(world, req), req.params.id, req.body ?? {})) }));
-  // the Town Hall in-tray's "Daily digest" button: one Secretary digest run now, booked on the digest's retainer (core pressDigest)
-  app.post("/api/digest/run", async (req) => ({ assignment: pressDigest(world, actorOf(world, req)) }));
+  // the Town Hall in-tray's "Rank now" button: one Secretary ranking run now, booked on its retainer (core pressRank);
+  // /api/digest/run is the old name (the "Daily digest" button), kept one release for a web that still calls it
+  app.post("/api/rank/run", async (req) => ({ assignment: pressRank(world, actorOf(world, req)) }));
+  app.post("/api/digest/run", async (req) => ({ assignment: pressRank(world, actorOf(world, req)) }));
   /**
    * A human decides a schedule's retainer ask (1:1 mt_cyd2t5ioob decision 2): approve (409 when it would dip into the
    * operating reserve), counter (note, tokensPerRun and/or until) or reject. building.fund on its building or its goal's captain.

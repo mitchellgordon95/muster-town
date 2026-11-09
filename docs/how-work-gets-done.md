@@ -120,6 +120,8 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 
 ## 5. The review: fund, counter or reject
 
+Since legible delegation step 5 the deck reads the open asks in the Secretary's rank order and opens on its money slate (fund, hold, skip); the Secretary ranks and never funds: see [docs/legible-delegation.md](legible-delegation.md) §6.
+
 Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchanged, except that proposals now arrive from the tick's explorers and not only when a human asked.
 
 **Mitchell said** (mt_529jbnwvmi): "i actually really like reviewing the grants, i think that's one part i would keep: human review of grants." **No grant starts itself.**

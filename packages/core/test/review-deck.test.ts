@@ -75,7 +75,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(rest[0]!.text).toMatch(/^_Waiting \d/);
   });
 
-  it("held checkpoints come first, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
+  it("the asks come first in rank order (an unranked proposal oldest first); then held checkpoints, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
     const { world, admin, proposal, rollup, park, krs } = setup();
     const p1 = proposal();
     const r1 = rollup(["Merge it?"], ago(5));
@@ -86,15 +86,16 @@ describe("review deck (GET /api/review-deck)", () => {
     world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     park(r2.id); park(r2.id); park(p1.id);
     const rest = ours(reviewDeck(world)).slice(1);
-    expect(rest.map((s) => s.key)).toEqual([`checkpoint:${held.id}`, `rollup:${r2.id}:1`, `proposal:${p1.id}`, `rollup:${r1.id}:1`]);
-    expect(rest.map((s) => s.group)).toEqual([1, 3, 3, 5]);
-    expect(rest[1]).toMatchObject({ waiters: 2 });
-    expect(rest[1]!.text).toMatch(/2 assignments parked on this/);
-    expect(rest[2]!.text).toMatch(/1 assignment parked on this/);
+    expect(rest.map((s) => s.key)).toEqual([`proposal:${p1.id}`, `checkpoint:${held.id}`, `rollup:${r2.id}:1`, `rollup:${r1.id}:1`]);
+    expect(rest.map((s) => s.group)).toEqual([3, 1, 3, 5]);
+    expect(rest[0]!.askId).toMatch(/^ak_/);
+    expect(rest[2]).toMatchObject({ waiters: 2 });
+    expect(rest[2]!.text).toMatch(/2 assignments parked on this/);
+    expect(rest[0]!.text).toMatch(/1 assignment parked on this/);
     expect(rest[3]!.waiters).toBe(0);
     // the checkpoint's history line is its last human entry (the funding)
-    expect(rest[0]!.history).toMatch(/funded .* ago/);
-    expect(rest[0]!.text).toMatch(/_History: .*funded/);
+    expect(rest[1]!.history).toMatch(/funded .* ago/);
+    expect(rest[1]!.text).toMatch(/_History: .*funded/);
   });
 
   it("a checkpoint slide leads with what shipped per key result, spend and what a top-up buys; a proposal asking again for that work shows it (mt_7b4zc7yja3)", () => {
