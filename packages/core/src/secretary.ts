@@ -212,7 +212,7 @@ export function policyLedgerBlock(world: World): string {
  * File the policy ask "Add this rule to the ledger?" (the Secretary's; it never appends on its own): the proposed line
  * `- <rule> (origin: <id>, <date>)` as its body, branches Add / Skip. One live ask per origin (a second folds in).
  */
-export function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
+function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
   const line = `- ${oneLine(p.rule, 300)} (origin: ${p.origin}, ${utcDate(nowIso())})`;
   return createAsk(world, {
     type: "policy", targetKind: "rule", targetId: `ledger:${p.origin}`, buildingId: p.buildingId ?? null, sourceDocId: p.sourceDocId ?? null,

@@ -25,7 +25,7 @@ function setup() {
 }
 
 describe("the policy ledger", () => {
-  it("a policy decision files \"Add this rule to the ledger?\"; Add appends the line, Skip doesn't; the ledger block is in the pinned text", () => {
+  it("a policy decision files the ask to add its rule to the ledger; Add appends the line, Skip doesn't; the ledger block is in the pinned text", () => {
     const { world, admin, manager, ledger, ledgerAsks } = setup();
     expect(ledger).toMatchObject({ type: "policy", buildingId: "town-hall", title: "Policy ledger" });
     expect(world.secretary.ensurePolicyLedger()!.id).toBe(ledger.id);
