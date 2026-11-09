@@ -6,7 +6,7 @@ import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
-import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks } from "./asks.ts";
+import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
@@ -303,6 +303,8 @@ export class World {
     retitleGrantAsks(this);
     // asks read from rollup prose: their title is the line's whole first sentence, not a clause cut before a colon; idempotent
     retitleProseAsks(this);
+    // asks read from rollup prose as money asks only because the line named a grant: clicks; idempotent
+    retypeProseAsks(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */

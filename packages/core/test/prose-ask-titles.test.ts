@@ -6,7 +6,7 @@
 import { proseAskTitle } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId } from "../src/index.ts";
-import { backfillAsks, createAsk, retitleProseAsks, setRank } from "../src/asks.ts";
+import { asksFor, backfillAsks, createAsk, retitleProseAsks, retypeProseAsks, setRank } from "../src/asks.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -71,5 +71,60 @@ describe("asks read from rollup prose, and the boot repair", () => {
     expect(retitleProseAsks(world)).toBe(0);
     backfillAsks(world);
     expect(asks()).toHaveLength(4);
+  }, 30_000);
+});
+
+describe("a prose call that only mentions a grant is a click, not a money ask on it", () => {
+  async function rolled() {
+    const s = seededWorld();
+    const { world, by, admin } = s;
+    const mei = by("Mei"), noor = by("Noor");
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
+    const g = await world.verbs.propose_grant(mei, { title: "Publish docs to GitHub", objective: "Publish docs", stopCondition: "done", keyResults: [{ text: "pushes", howToCheck: "open the repo" }], steps: [{ title: "s", size: "S", description: "d" }] }) as { grantId: string };
+    const kr = world.grantDesk.keyResultsOf(g.grantId)[0]!;
+    const report = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
+    // the two live lines of 2026-11-09 (ak_964oxnm14w, ak_4nc6kwr1wt), with this town's ids
+    const repo = REPO.replace("so the hosted-collective publish check", `so the hosted-collective publish check (KR3 of ${g.grantId})`);
+    const krLine = `One key result (${kr.id}, the admin HUD notice) is met on code evidence only: you were the only admin online and no fork can see your HUD. Flip it to missed on the grant if you want a live sighting first; otherwise nothing.`;
+    const gate = `Continue ${g.grantId} at its gate or cut it.`;
+    const item = (n: number, title: string, call: string) => `**${n}. ${title}**\n**What it is:** a change.\n**What you'd see:** a page.\n**Your call:** ${call}\n`;
+    const body = `## Shipped\n${item(1, "Publish", repo)}\n${item(2, `Join path done: grant ${g.grantId} closed as done`, krLine)}\n${item(3, "Gate", gate)}\n## Decided\n- dc_a → approved\n\n## Key results\non track\n\n## Needs from Mitchell\nNothing needed.`;
+    const r = await world.verbs.submit_report(mei, { title: "Rollup 9", body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] } });
+    world.db.prepare("DELETE FROM asks").run();
+    return { ...s, r: world.docs.require(r.id), g: world.grants.require(g.grantId), kr, repo, krLine, gate };
+  }
+
+  /** The live ask carrying this line of the rollup as a source. */
+  const carrying = (world: ReturnType<typeof seededWorld>["world"], docId: string, line: string) => world.asks.where("1 = 1").find((a) => a.sources.some((s) => s.docId === docId && s.line === line));
+
+  it("files the repo line untargeted and the key result line on its key result as Done / Decline clicks; a gate call stays money on its grant", async () => {
+    const { world, r, g, kr, repo, krLine, gate } = await rolled();
+    backfillAsks(world);
+    const clicks = [{ label: "Done" }, { label: "Decline" }];
+    expect(carrying(world, r.id, repo)).toMatchObject({ type: "click", targetKind: null, targetId: null, branches: clicks });
+    expect(carrying(world, r.id, krLine)).toMatchObject({ type: "click", targetKind: "keyResult", targetId: kr.id, branches: clicks });
+    // the gate call folds into the proposal's own money ask on the grant
+    expect(carrying(world, r.id, gate)).toMatchObject({ type: "money", targetKind: "grant", targetId: g.id });
+  }, 30_000);
+
+  it("the repair retypes the live mis-typed ones, keeps title, body, sources and rank, leaves a call for tokens alone, and the backfill files no twin", async () => {
+    const { world, r, g, kr, repo, krLine, gate } = await rolled();
+    // as the rule before this one filed them: money on the grant the line names, Yes / No (one live ask per target, so set after)
+    const old = (line: string, targetId: string) => {
+      const a = createAsk(world, { type: "money", targetKind: null, targetId: null, buildingId: LAB, sourceDocId: r.id, by: "ag_x", title: proseAskTitle(line), line, body: `From the rollup "${r.title}".`, branches: [{ label: "Yes" }, { label: "No" }] }).ask;
+      return world.asks.upsert({ ...a, targetKind: "grant", targetId });
+    };
+    const a = old(repo, g.id), b = old(krLine, g.id), keep = old(gate, g.id);
+    setRank(world, b.id, 2);
+    expect(retypeProseAsks(world)).toBe(2);
+    const fa = world.asks.require(a.id), fb = world.asks.require(b.id);
+    expect(fa).toMatchObject({ type: "click", targetKind: null, targetId: null, title: a.title, body: a.body, sources: a.sources, status: "open", branches: [{ label: "Done" }, { label: "Decline" }] });
+    expect(fa.history.find((h) => h.action === "retyped")).toMatchObject({ by: "system", note: `was: money on grant ${g.id} (Yes / No)` });
+    expect(fb).toMatchObject({ type: "click", targetKind: "keyResult", targetId: kr.id, rank: 2, branches: [{ label: "Done" }, { label: "Decline" }] });
+    expect(world.asks.require(keep.id)).toMatchObject({ type: "money", targetKind: "grant", targetId: g.id, branches: [{ label: "Yes" }, { label: "No" }] });
+    expect(retypeProseAsks(world)).toBe(0);
+    backfillAsks(world);
+    expect(world.asks.where("sourceDocId = ?", [r.id])).toHaveLength(3);
   }, 30_000);
 });
