@@ -1,22 +1,19 @@
 /**
- * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): "Review as deck" in the Town Hall in-tray opens
- * GET /api/review-deck in the slide viewer. Slide 1 is the state of the town, then one slide per pending decision,
+ * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): GET /api/review-deck, presented in a meeting
+ * (MeetingSlide.tsx; the decision queue at the hydrant has no "Review as deck"). Slide 1 is the state of the town, then one slide per pending decision,
  * blocking-most first. The decision buttons under each slide are the in-tray's own (GrantRow; the report's Talk to
  * and Archive; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { REVIEW_DECK_ID, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
+import { type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
 import { api, type AskView, type FunderWeekView, type GoalProposalView } from "../api";
 import { AskButtons } from "./AskCard";
 import { fundedSlides, type IntrayView } from "./funderFilter";
 import { store } from "../state";
-import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
+import { clampSlide } from "./DeckView";
 import { ReportActions } from "./DocView";
 import { CaptainRow, GrantRow, RetainerRow } from "./Places";
 import { GoalProposalItem } from "./GoalTreePanel";
-import { PresentButtons } from "./MeetingSlide";
-import { isPanelFull, setPanelFull } from "./panelResize";
-import { Act, ErrorLine, Loading, useLoad } from "./ui";
+import { Act } from "./ui";
 
 /** After deciding on slide `n`: the key of the first later slide about another item (a rollup's other items go with it). */
 export function nextSlideKey(slides: ReviewSlide[], n: number): string | null {
@@ -87,47 +84,6 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   return (
     <div className="review-decide">
       <ReportActions doc={doc} onDone={onDecided} deckSlide={n} meetingId={meetingId}><button className="link" onClick={() => onOpenDoc(doc.id)}>Open the report</button></ReportActions>
-    </div>
-  );
-}
-
-export function ReviewDeckView({ grants, reports, goalProposals = [], captains = [], retainers = [], asks = [], view = "all", funder, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; asks?: AskView[]; view?: IntrayView; funder?: FunderWeekView | null; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
-  // reload when the in-tray list changes (the badge moved: a rollup arrived, a grant closed), so slide 1 and the slides match the list
-  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id), ...goalProposals.map((p) => p.id), ...captains.map((r) => r.id), ...retainers.map((x) => `${x.id}:${x.retainer}`), ...asks.map((a) => `${a.id}:${a.status}`), view].join(",");
-  const deck = useLoad(() => api().reviewDeck(), [listKey]);
-  const routes = deck.data?.routes ?? {};
-  const slides = mineSlides(deck.data?.slides ?? [], routes, view, funder);
-  const [n, setN] = useState(1);
-  const want = useRef<string | null>(null);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { box.current?.focus({ preventScroll: true }); return () => setPanelFull(false); }, []);
-  // the deck reloaded after a decision: land on the next item's slide
-  useEffect(() => { if (deck.data) { setN((cur) => landingSlide(mineSlides(deck.data!.slides, deck.data!.routes ?? {}, view, funder), want.current, cur)); want.current = null; } }, [deck.data]);
-  const go = (to: number) => setN(clampSlide(to, slides.length));
-  const decided = () => { want.current = nextSlideKey(slides, n); onDecided(); deck.reload(); };
-  // one key result marked: stay on this slide (its grant may have more to mark); if the grant left the deck, the same position is the next item
-  const marked = () => { want.current = slides[clampSlide(n, slides.length) - 1]?.key ?? null; onDecided(); deck.reload(); };
-  const key = (e: KeyboardEvent<HTMLDivElement>) => {
-    const el = e.target as HTMLElement;
-    if (el.closest("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
-    const to = slideForKey(e.key, e.shiftKey, n, slides.length);
-    if (to !== null) go(to);
-    else if (e.key === "f" || e.key === "F") setPanelFull(!isPanelFull());
-    else if (e.key === "Escape") { if (isPanelFull()) setPanelFull(false); else onClose(); }
-    else return;
-    e.preventDefault(); e.stopPropagation();
-  };
-  const slide = slides[clampSlide(n, slides.length) - 1];
-  return (
-    <div className="deck review-deck" ref={box} tabIndex={0} onKeyDown={key} aria-roledescription="slide deck" aria-label="Review deck">
-      <div className="review-deck-head"><button className="link back" onClick={onClose}>← In-tray list</button><span className="muted">assembled live from the in-tray · 0 tokens</span> <PresentButtons docId={REVIEW_DECK_ID} slide={clampSlide(n, slides.length)} /></div>
-      <ErrorLine error={deck.error} />
-      {deck.loading && !deck.data ? <Loading /> : (
-        <DeckSlides deck={{ title: deck.data?.title ?? "Review deck", slides }} n={clampSlide(n, slides.length)} go={go}>
-          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} asks={asks} routes={routes} onDecided={decided} onMarked={marked} onOpenDoc={onOpenDoc} /> : null}
-        </DeckSlides>
-      )}
-      <div className="deck-help muted">← → or space to move · Home/End · <button className="link" onClick={() => setPanelFull(!isPanelFull())}>f: fullscreen</button> · Esc: back to the list</div>
     </div>
   );
 }

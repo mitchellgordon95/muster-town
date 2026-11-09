@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CaptainRequestView, GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
-import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
+import { mineOnly } from "../src/panels/Places";
 import { SlideDecision, mineSlides } from "../src/panels/ReviewDeck";
 import { laneLine, seriesBars, visitorsLine } from "../src/panels/GoalSpend";
 
@@ -12,7 +12,7 @@ const ROUTES: Record<string, IntrayRoute> = { gr_a: route(true), gr_b: route(fal
 const s = (key: string, itemId: string | null, extra: Partial<ReviewSlide> = {}): ReviewSlide =>
   ({ key, itemId, kind: "rollup", group: 5, buildingId: null, since: null, waiters: 0, history: "", text: `## ${key}`, notes: "", title: key, pictures: [], ...extra });
 
-describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4)", () => {
+describe("the decision queue: Mine / All and goal proposals (docs/goals.md step 4)", () => {
   it("Mine keeps the items routed to me; All keeps everything", () => {
     const items = [{ id: "gr_a" }, { id: "gr_b" }, { id: "gp_c" }, { id: "gp_unknown" }];
     expect(mineOnly(items, ROUTES, "mine").map((x) => x.id)).toEqual(["gr_a", "gp_c"]);
@@ -23,13 +23,6 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
       s("goal-proposal:gp_c", "gp_c", { kind: "goal-proposal", group: 4 }), s("rollup:dc_r:1", "dc_r", { docIds: ["dc_r"] }), s("record", null, { kind: "record", docIds: ["dc_x"] })];
     expect(mineSlides(slides, ROUTES, "mine").map((x) => x.key)).toEqual(["town", "proposal:gr_a", "goal-proposal:gp_c", "record"]);
     expect(mineSlides(slides, ROUTES, "all")).toHaveLength(6);
-  });
-  it("the header shows Mine / All for a signed-in viewer and how many more wait under All", () => {
-    const html = renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} view={{ view: "mine", hidden: 3, set: () => undefined }} />);
-    expect(html).toContain("Mine");
-    expect(html).toContain("All");
-    expect(html).toContain("3 more under All");
-    expect(renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} />)).not.toContain("Mine");
   });
   it("a goal proposal slide whose proposal was decided says so", () => {
     const html = renderToStaticMarkup(<SlideDecision slide={s("goal-proposal:gp_z", "gp_z", { kind: "goal-proposal", group: 4 })} n={2} grants={[]} reports={[]} goalProposals={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />);

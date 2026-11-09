@@ -18,7 +18,7 @@ export const MOD_SEATS = 3;
  * dc_r7u6bkaei4): title -> the furniture piece they idle next to. They still hold a mod-station desk slot (the desk
  * bookkeeping is unchanged); only that desk place's tile moves beside the piece's stand.
  */
-export const TOWN_HALL_RESTS: Readonly<Record<string, string>> = { Planner: "goal-tree", Secretary: "intray" };
+export const TOWN_HALL_RESTS: Readonly<Record<string, string>> = { Planner: "goal-tree", Secretary: "hydrant" };
 
 /** Town Hall fixtures, relative to its lot (17x11). Exported so tests and the web can reason about them. */
 export const TOWN_HALL_FIXTURES = {
@@ -28,9 +28,7 @@ export const TOWN_HALL_FIXTURES = {
   modStand: { x: 5, y: 8 },
   /** planning desk bottom-right */
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
-  /** the Town Hall in-tray (rollups, proposals, checkpoints) right of the planning desk */
-  intray: { x: 14, y: 9 }, intrayStand: { x: 14, y: 8 },
-  /** the hydrant right of the in-tray: the stream of asks and notices (docs/legible-delegation.md §3) */
+  /** the hydrant: the stream of asks and notices, opening the decision queue (docs/legible-delegation.md §3) */
   hydrant: { x: 15, y: 9 }, hydrantStand: { x: 15, y: 8 },
   /** schedule board next to the town meeting room table */
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
@@ -153,8 +151,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
       places.push(
         { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: stand("mod-station", MOD_SEATS) },
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: stand("planning") },
-        { id: `intray:${b.id}`, kind: "intray", name: "Town Hall in-tray (rollups, proposals, checkpoints)", buildingId: b.id, pos: stand("intray") },
-        { id: `hydrant:${b.id}`, kind: "hydrant", name: "Hydrant (the stream: asks settle in the in-tray, notices flow to the feed)", buildingId: b.id, pos: stand("hydrant") },
+        { id: `hydrant:${b.id}`, kind: "hydrant", name: "Hydrant (the decision queue: the humans' asks, one at a time; notices flow to the feed)", buildingId: b.id, pos: stand("hydrant") },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: stand("schedule") },
         { id: `board:${b.id}`, kind: "board", name: "Town Hall board (town-wide FYIs)", buildingId: b.id, pos: stand("board") },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },

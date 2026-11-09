@@ -62,7 +62,7 @@ Several pieces exist in a first form, and §11 builds on them rather than replac
 - `packages/core/src/circuit-breaker.ts`: the per-session circuit breaker.
 - `packages/core/src/free-tokens.ts` and `packages/core/src/grant-estimate.ts`: earmarks at expected spend under the oversell setting, and spent over size per size.
 - `packages/core/src/measures.ts`: the §9 counts (`legible` on `/api/health` and `/api/town`). `packages/core/src/planner.ts`: the Planner's weekly calibration run on Fable, the `calibrate` verb, the lines (`PLANNER_LINES`) and the Adopt hook that applies a table change a human approved. `packages/core/src/dictionary.ts`: the Town Hall dictionary doc, its pinned block and the linter's `dictionary` rule. Key-result `evidence` (verified / claimed / unknown) is set in `grants.ts` and by a passed `kr` check.
-- `packages/web/src/panels/AskCard.tsx`, `AsksIntray.tsx`, `FundingView.tsx`, `NoticesPanel.tsx`, `StepStrip.tsx`, `PricingTab.tsx`: the ask card and the Town Hall in-tray as asks with records one click down, the funding slate, the feed and closed loops, the step strip, the step-size table; `ReviewDeck.tsx` renders slate and ask slides.
+- `packages/web/src/panels/AskCard.tsx`, `DecisionQueue.tsx` (was `AsksIntray.tsx`), `FundingView.tsx`, `NoticesPanel.tsx`, `StepStrip.tsx`, `PricingTab.tsx`: the ask card and the Town Hall in-tray as asks with records one click down, the funding slate, the feed and closed loops, the step strip, the step-size table; `ReviewDeck.tsx` renders slate and ask slides.
 
 Why it isn't enough (before 2026-11-09): the ask was still **parsed out of prose** after the fact. The Secretary's digest "takes the questions my brain can barely parse and puts them in a bulleted list": its Money lines re-list the cards and its "Questions in words" truncate at 150 characters, which cuts off the actual question. There is no delta against what the reader last saw, no ranking, and the real decisions ("Your call: None, unless you'd rather …") are not asks at all today. And the checkpoint rule fires on spend, where nothing has been learned, rather than at a step boundary, where something has (§7).
 
@@ -82,7 +82,7 @@ A rollup emits zero or more asks plus notices and is itself a record. A grant pr
 
 The Secretary is a **stream processor** with a small, visible set of operators (§6): render, dedupe, retire, rank, defer. Every operator leaves a mark on the particle, so an ask that was folded or retired flows past stamped rather than vanishing. The human can always see what they did not have to see.
 
-The hydrant is literal: a Town Hall object the stream pours from, with the Secretary beside it, in the pixel town. The in-tray is where asks settle; the feed is where notices flow past.
+The hydrant is literal: a Town Hall object the stream pours from, with the Secretary beside it, in the pixel town. The in-tray is where asks settle; the feed is where notices flow past. **2026-11-09:** the Town Hall in-tray is gone; clicking the hydrant opens the **decision queue**, a centred sheet that pops one item at a time off the front (asks by rank, then anything waiting that no ask is about), with "Look at the queue" for the one-line list and the Secretary's 1:1 in the side panel beside it (`packages/web/src/panels/DecisionQueue.tsx`).
 
 ## 4. Asks: first-class, typed, contracted, never decided by silence
 

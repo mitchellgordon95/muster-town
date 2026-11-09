@@ -3,23 +3,23 @@ import { stayReason, walkHome } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 /**
- * Mitchell's flag dc_r7u6bkaei4: idle, the Planner stands by the goal tree and the Secretary by the Town Hall in-tray,
+ * Mitchell's flag dc_r7u6bkaei4: idle, the Planner stands by the goal tree and the Secretary by the hydrant (the decision queue; the Town Hall in-tray is gone),
  * not at the mod station. They still hold a mod-station desk slot; only where that desk is drawn moves.
  */
 describe("Town Hall rest spots (flag dc_r7u6bkaei4)", () => {
   const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
-  it("the Planner's desk is beside the goal tree's stand, the Secretary's beside the in-tray's; both keep a desk slot", () => {
+  it("the Planner's desk is beside the goal tree's stand, the Secretary's beside the hydrant's; both keep a desk slot", () => {
     const { world } = seededWorld();
     const planner = world.reorgs.ensurePlanner();
     const secretary = world.secretary.ensure()!;
     const L = world.layout;
-    const tree = L.requirePlace("goal-tree").pos, tray = L.requirePlace("intray:town-hall").pos;
+    const tree = L.requirePlace("goal-tree").pos, tray = L.requirePlace("hydrant:town-hall").pos;
     const pd = L.deskOf(planner.id)!, sd = L.deskOf(secretary.id)!;
     expect(near(pd.pos, tree)).toBe(1);
     expect(near(sd.pos, tray)).toBe(1);
     expect(pd.name).toBe("Planner's spot by the goal tree");
-    expect(sd.name).toBe("Secretary's spot by the town hall in-tray");
+    expect(sd.name).toBe("Secretary's spot by the hydrant");
     // walkable, inside the Town Hall, on no other place's tile
     for (const d of [pd, sd]) {
       expect(L.isWalkable(d.pos.x, d.pos.y)).toBe(true);

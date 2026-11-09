@@ -75,7 +75,7 @@ export class WorldMap {
     }
     const agents = this.repos.agents.all();
     const names = new Map(agents.map((a) => [a.id, a.name]));
-    // the Planner and the Secretary rest by the goal tree and the Town Hall in-tray (flag dc_r7u6bkaei4)
+    // the Planner and the Secretary rest by the goal tree and the hydrant (the decision queue) (flag dc_r7u6bkaei4)
     const rests = new Map(agents.filter((a) => a.homeBuildingId === TOWN_HALL_ID && a.kind === "resident" && !a.forkOf && a.title && TOWN_HALL_RESTS[a.title]).map((a) => [a.id, TOWN_HALL_RESTS[a.title!]]));
     return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests);
   }

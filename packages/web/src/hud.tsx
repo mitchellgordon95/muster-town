@@ -1,4 +1,5 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
+import { goToQueue } from "./panels/DecisionQueue";
 import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -44,7 +45,7 @@ let guestCardCounted = false;
  */
 type GuestView = "compact" | "strip" | "full";
 
-/** An admin's pending join requests, refetched when the Town Hall in-tray count moves (an ask or a decision). */
+/** An admin's pending join requests, refetched when the decision queue count moves (an ask or a decision). */
 function usePendingAccess(admin: boolean, townHallCount: number | undefined): { rows: AccessRequestView[]; reload: () => void } {
   const [rows, setRows] = useState<AccessRequestView[]>([]);
   const [n, setN] = useState(0);
@@ -125,7 +126,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       out.push({
         key: "founder-proposal", icon: "intray", tone: "warn", cta: "Fund or reject →",
         text: <><b>Your first proposal is waiting</b>{step.count > 1 ? ` (${step.count} open)` : ""}</>,
-        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
+        go: goToQueue,
       });
     }
     // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
@@ -182,7 +183,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       out.push({
         key: `access:${r.id}`, icon: "intray", tone: "warn", cta: "",
         text: <><b>{who}</b> asked to join ({timeAgo(r.createdAt)})</>, hint: r.message ? `"${r.message}"` : undefined,
-        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
+        go: goToQueue,
         actions: [
           { label: "Let in", primary: true, run: decide(true) },
           ...(goal ? [{ label: `Let in + direct work under ${goal.short}`, run: decide(true, goal) }] : []),
@@ -190,7 +191,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         ],
       });
     }
-    // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).
+    // in-trays I work: buildings without a manager agent, and the Town Hall's decision queue (at the hydrant).
     // A building whose manager agent works its in-tray doesn't notify humans (town hall 2026-10-24, decision 1d).
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
@@ -200,9 +201,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"
-          ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the Town Hall in-tray (rollups, proposals, checkpoints)</>
+          ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the decision queue</>
           : <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the {b.name} in-tray (reports, flags)</>,
-        go: () => walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
+        go: () => b.kind === "town-hall" ? goToQueue() : walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
       });
     }
     // meetings happening now
@@ -337,7 +338,7 @@ const ASK_AGAIN_MS = 24 * 3600_000;
 
 /**
  * Signed in but not let in yet (dc_f0cumcfubk): the guest card's one next step is Ask to join, with an optional line
- * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here as soon as it lands (the
+ * on what they'd like to do. An admin decides in the decision queue; the answer shows here as soon as it lands (the
  * decision event refetches `me`, app.tsx onAccessDecided).
  */
 function AskToJoin({ me }: { me: AuthMe }) {

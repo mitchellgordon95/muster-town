@@ -32,7 +32,7 @@ export function PricingTab() {
   };
   return (
     <>
-      <p className="direction">A grant's ask is the sum of its steps' sizes from this table. The Planner proposes changes to it as policy asks in the Town Hall in-tray. A human decides them.</p>
+      <p className="direction">A grant's ask is the sum of its steps' sizes from this table. The Planner proposes changes to it as policy asks in the decision queue. A human decides them.</p>
       <Section title="Step sizes">
         <form className="form" onSubmit={(e) => e.preventDefault()}>
           <div className="pricing-table">

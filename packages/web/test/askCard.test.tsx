@@ -15,8 +15,8 @@ import { asks, buildings, grants, notices, stepCalibration } from "../src/mock/f
 import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { AskCard } from "../src/panels/AskCard";
-import { AsksIntray, askedIds, mineAsks } from "../src/panels/AsksIntray";
-import { branchCall, claimMark, deltaOf, expectedSpend, intrayBadge, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
+import { askedIds, mineAsks } from "../src/panels/queueOrder";
+import { branchCall, claimMark, deltaOf, expectedSpend, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
 import { FundingView } from "../src/panels/FundingView";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { NoticesFeed, pictureSrc } from "../src/panels/NoticesPanel";
@@ -136,35 +136,15 @@ describe("the ask card", () => {
     expect(decide).toHaveBeenCalledWith("ak_policy", "Add");
   });
 
-  it("the in-tray order, badge, records and helpers", () => {
+  it("the ask order, records and helpers", () => {
     expect(sortAsks(asks).map((a) => a.id)).toEqual(["ak_hud", "ak_ocean", "ak_land", "ak_weekly", "ak_captain", "ak_req", "ak_policy", "ak_access", "ak_meet"]);
     expect(openAskCount(asks)).toBe(9); // a deferred ask still counts: it waits on a human
-    // the badge adds every waiting item no ask is about: a goal proposal, an unasked report (not a flag), an asked retainer
-    const none = { reports: [], grants: [], goalProposals: [], access: [], captains: [], retainers: [] };
-    expect(intrayBadge(asks, none)).toBe(9);
-    expect(intrayBadge(asks, { ...none, goalProposals: [{}], reports: [{ type: "report" }, { type: "flag" }], grants: [{}], retainers: [{ retainer: "asked" }, { retainer: "funded" }] })).toBe(13);
-    expect(intrayBadge([], { ...none, goalProposals: [{}, {}] })).toBe(2);
     const ids = askedIds(asks);
     expect(ids.has("gr_hud") && ids.has("dc_keel_cp") && ids.has("cr_octo")).toBe(true);
     expect(mineAsks(asks, { gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);
     expect(deltaOf("First line.\n\nThe rest.")).toEqual({ delta: "First line.", rest: "The rest." });
     expect(claimMark({ text: "x", check: { kind: "pr" } }).line).toBe("pending");
     expect(claimMark({ text: "x", check: { kind: "pr" }, result: { ok: true, at: new Date(Date.now() - 4 * 60_000).toISOString() } }).line).toBe("checked 4 min ago");
-  });
-});
-
-describe("the Town Hall in-tray as asks", () => {
-  it("asks first in rank order, closed loops beside them, the records under one disclosure", () => {
-    signIn();
-    const html = renderToStaticMarkup(<AsksIntray asks={asks} grants={grants} notices={notices} records={<div>the old rows</div>} recordCount={5} rest={<div>no ask yet</div>} onDecided={() => undefined} onOpenRecord={() => undefined} />);
-    expect(html.indexOf("190k more tokens")).toBeLessThan(html.indexOf("Southern Ocean"));
-    expect(html.indexOf("Southern Ocean")).toBeLessThan(html.indexOf("five minutes"));
-    expect(html).toContain("Your decisions paying off");
-    expect(html).toContain("The session-runner stress test closed");
-    expect(html).toMatch(/<details class="intray-records"><summary>Records/);
-    expect(html).toContain("the old rows");
-    expect(html).toContain("no ask yet");
-    expect(html).toContain("Funding");
   });
 });
 

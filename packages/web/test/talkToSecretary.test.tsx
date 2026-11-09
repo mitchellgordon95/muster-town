@@ -4,7 +4,7 @@ import type { Agent } from "@muster-town/schema";
 import { store } from "../src/state";
 import { secretaryOf } from "../src/panels/oneOnOne";
 import { TownHallStaff } from "../src/panels/BuildingPanel";
-import { DigestLine, ReviewAsDeckButton, TalkToSecretary } from "../src/panels/Places";
+import { DailyDigestButton } from "../src/panels/Places";
 
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
 vi.mock("../src/route", async (orig) => ({ ...(await orig<object>()), grantUrl: (id: string) => `/#/grant/${id}` }));
@@ -25,17 +25,6 @@ describe("Talk to Secretary (1:1 mt_1vs893enaw)", () => {
     expect(secretaryOf(AGENTS, null)).toBeNull();
   });
 
-  it("shows in the in-tray header, not on the digest line (one line like any other item); nothing without a Secretary or permission", () => {
-    signIn(AGENTS);
-    expect(renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} />)).toContain("Talk to Secretary");
-    const card = { doc: { id: "dc_d", title: "Digest", createdAt: "2026-11-04T07:00:00Z", authorId: "ag_sec" }, decisions: [], shipped: "", covered: [] } as never;
-    expect(renderToStaticMarkup(<DigestLine card={card} onOpen={() => undefined} />)).not.toContain("Talk to Secretary");
-    signIn({ ag_plan: AGENTS.ag_plan });
-    expect(renderToStaticMarkup(<TalkToSecretary />)).toBe("");
-    signIn(AGENTS, false);
-    expect(renderToStaticMarkup(<TalkToSecretary />)).toBe("");
-  });
-
   it("the Town Hall's Staff line: a Talk button per agent, no ★; names only without permission", () => {
     signIn(AGENTS);
     const html = renderToStaticMarkup(<TownHallStaff hallId="town-hall" planner={AGENTS.ag_plan} secretary={SEC} />);
@@ -50,9 +39,9 @@ describe("Talk to Secretary (1:1 mt_1vs893enaw)", () => {
 });
 
 describe("Rank now button (it was Daily digest, 1:1 mt_i50xwu4z2t)", () => {
-  it("sits in the in-tray header for a human who may press it; disabled with why while a run is live or nothing is new", () => {
+  it("sits in the decision queue's head for a human who may press it; disabled with why while a run is live or nothing is new", () => {
     signIn(AGENTS);
-    const html = (run: { scheduleId: string; runningId: string | null; refused: string | null } | null) => renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} digestRun={run} />);
+    const html = (run: { scheduleId: string; runningId: string | null; refused: string | null } | null) => renderToStaticMarkup(<DailyDigestButton run={run} />);
     expect(html(null)).not.toContain("Rank now");
     const ready = html({ scheduleId: "sc_d", runningId: null, refused: null });
     expect(ready).toMatch(/<button[^>]*title="Run the Secretary&#x27;s ranking now[^"]*"[^>]*>Rank now<\/button>/);

@@ -277,8 +277,9 @@ describe("say / tell / inbox / look", () => {
     const look = await world.verbs.look(noor, {});
     expect(look.nearby.map((n) => n.name).sort()).toEqual(["Mitchell", "Tomas"]);
     expect(look.nearby.find((n) => n.name === "Mitchell")!.kind).toBe("human");
-    // the Town Hall in-tray is a Town Hall station everyone can walk to (waterfall §3.5)
-    expect(look.places.some((p) => p.id === "intray:town-hall" && p.kind === "intray")).toBe(true);
+    // the hydrant (the decision queue) is a Town Hall station everyone can walk to; the Town Hall has no in-tray
+    expect(look.places.some((p) => p.id === "hydrant:town-hall" && p.kind === "hydrant")).toBe(true);
+    expect(look.places.some((p) => p.id === "intray:town-hall")).toBe(false);
     // the help sign of my home building is listed too
     expect(look.places.some((p) => p.id === `help:${noor.buildingId}` && p.kind === "help")).toBe(true);
   });

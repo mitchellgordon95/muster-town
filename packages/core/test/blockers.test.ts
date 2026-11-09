@@ -90,8 +90,8 @@ describe("blockedBy", () => {
       sdkSessionId: null, output: 9_387_488, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "exploration", grantId: null,
     });
     const th = world.buildings.first("kind = 'town-hall'")!;
-    expect(blockedBy(world, grantWork)).toEqual({ kind: "grant", targetId: g.id, placeId: `intray:${th.id}`, text: `grant ${g.id} at checkpoint` });
-    expect(blockedBy(world, ex)).toEqual({ kind: "exploration", targetId: LAB, placeId: `intray:${th.id}`, text: "exploration cap reached (9.4M of 6.4M today, resets at 00:00 UTC)" });
+    expect(blockedBy(world, grantWork)).toEqual({ kind: "grant", targetId: g.id, placeId: `hydrant:${th.id}`, text: `grant ${g.id} at checkpoint` });
+    expect(blockedBy(world, ex)).toEqual({ kind: "exploration", targetId: LAB, placeId: `hydrant:${th.id}`, text: "exploration cap reached (9.4M of 6.4M today, resets at 00:00 UTC)" });
     // read-only: the stored heldReason is the scheduler's, not touched here
     expect(world.assignments.require(ex.id).heldReason).toBeNull();
   });
