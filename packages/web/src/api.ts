@@ -9,7 +9,7 @@ import type {
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
-  Ask, StepCalibration, StepSizeTable,
+  Ask, Notice, NoticeKind, StepCalibration, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
@@ -366,14 +366,8 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
-/**
- * A notice (docs/legible-delegation.md §8): a state change with nothing to decide, for the feed; `closed-loop` ones sit
- * beside the asks. `picture` is an mf_ media id or a src. Older servers send none.
- */
-export type NoticeKind = "shipped" | "closed-loop" | "verified" | "slate" | "pattern" | "gate";
-export interface Notice { id: string; kind: NoticeKind; buildingId: string | null; goalId: string | null; title: string; body: string; picture: string | null; refs: string[]; createdAt: string }
-/** An ask as the in-tray reads it: `rank` (1 = first, null = unranked) comes from the Secretary's ranking run; older servers leave it out. */
-export type AskView = Ask & { rank?: number | null };
+/** An ask as the in-tray reads it (`rank`: the Secretary's order, 1 = first, null = unranked). */
+export type AskView = Ask;
 /** GET /api/town: the snapshot plus what steps really cost against the size table (older servers leave it out). */
 export type TownRead = Snapshot & { stepCalibration?: StepCalibration };
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
@@ -501,7 +495,7 @@ export interface Api {
   /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
   reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
   /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
-  ask(id: string): Promise<AskView>;
+  getAsk(id: string): Promise<AskView>;
   /** POST /api/asks/:id/decide: a human's decision on an ask with no other channel (policy, meeting, a question in words) */
   decideAsk(id: string, decision: string): Promise<AskView>;
   /** POST /api/asks/:id/defer: park an ask behind an event */
@@ -831,7 +825,7 @@ class HttpApi implements Api {
     return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
-  async ask(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
+  async getAsk(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
   async decideAsk(id: string, decision: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision })).ask; }
   async deferAsk(id: string, until: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/defer`, { until })).ask; }
   async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {

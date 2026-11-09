@@ -2,8 +2,8 @@
  * The ask card's pure parts (docs/legible-delegation.md §4-6, UI / UX B-C): the in-tray order, the card's delta line,
  * what each branch button does, a claim's check line, and the funding slate's arithmetic. Hook-free so tests call them.
  */
-import { grantPricingOf, type AskBranch, type AskClaim, type GrantView, type StepCalibration, type StepSize, type StepSizeTable } from "@muster-town/schema";
-import type { AskView, Notice } from "../api";
+import { grantPricingOf, type AskBranch, type AskClaim, type GrantView, type Notice, type StepCalibration, type StepSize, type StepSizeTable } from "@muster-town/schema";
+import type { AskView } from "../api";
 
 /** Open asks first, by rank (unranked after ranked), then oldest; deferred ones after every open one. */
 export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank">>(asks: T[]): T[] {

@@ -6,7 +6,8 @@
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { REVIEW_DECK_ID, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
-import { api, type FunderWeekView, type GoalProposalView } from "../api";
+import { api, type AskView, type FunderWeekView, type GoalProposalView } from "../api";
+import { AskButtons } from "./AskCard";
 import { fundedSlides, type IntrayView } from "./funderFilter";
 import { store } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
@@ -40,9 +41,16 @@ export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayR
 }
 
 /** The decision buttons for one slide: pure over its props, so tests render it. */
-export function SlideDecision({ slide, n, grants, reports, goalProposals = [], captains = [], retainers = [], routes = {}, onDecided, onMarked, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
+export function SlideDecision({ slide, n, grants, reports, goalProposals = [], captains = [], retainers = [], asks = [], routes = {}, onDecided, onMarked, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; /** the in-tray's asks: an "ask" slide's buttons (legible delegation step 5) */ asks?: AskView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
   // a presented deck keeps a decided item's slide in place (mt_xywhisvdcm): its decision, no buttons
   if (slide.decided) return <div className="review-decide muted">Decided: {slide.decided}. Move on with →.</div>;
+  // the money slate (slide 1 when the Secretary filed one): nothing to decide on it, each ask has its own slide
+  if (slide.kind === "slate") return <div className="review-decide muted">The slate funds nothing. Decide each money ask on its own slide.</div>;
+  // an ask with no item slide of its own (a policy, a meeting, a request, an access ask): its branches as the buttons
+  if (slide.kind === "ask") {
+    const a = asks.find((x) => x.id === (slide.askId ?? slide.itemId));
+    return a ? <div className="review-decide"><AskButtons ask={a} grant={grants.find((g) => g.id === a.targetId)} onDecided={onDecided} deckSlide={n} /></div> : <div className="review-decide muted">Already decided.</div>;
+  }
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
     return g ? <div className="review-decide"><GrantRow grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onMarked={onMarked} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
@@ -83,9 +91,9 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   );
 }
 
-export function ReviewDeckView({ grants, reports, goalProposals = [], captains = [], retainers = [], view = "all", funder, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; view?: IntrayView; funder?: FunderWeekView | null; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
+export function ReviewDeckView({ grants, reports, goalProposals = [], captains = [], retainers = [], asks = [], view = "all", funder, onClose, onDecided, onOpenDoc }: { grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; asks?: AskView[]; view?: IntrayView; funder?: FunderWeekView | null; onClose: () => void; onDecided: () => void; onOpenDoc: (id: string) => void }) {
   // reload when the in-tray list changes (the badge moved: a rollup arrived, a grant closed), so slide 1 and the slides match the list
-  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id), ...goalProposals.map((p) => p.id), ...captains.map((r) => r.id), ...retainers.map((x) => `${x.id}:${x.retainer}`), view].join(",");
+  const listKey = [...grants.map((g) => `${g.id}:${g.status}`), ...reports.map((d) => d.id), ...goalProposals.map((p) => p.id), ...captains.map((r) => r.id), ...retainers.map((x) => `${x.id}:${x.retainer}`), ...asks.map((a) => `${a.id}:${a.status}`), view].join(",");
   const deck = useLoad(() => api().reviewDeck(), [listKey]);
   const routes = deck.data?.routes ?? {};
   const slides = mineSlides(deck.data?.slides ?? [], routes, view, funder);
@@ -116,7 +124,7 @@ export function ReviewDeckView({ grants, reports, goalProposals = [], captains =
       <ErrorLine error={deck.error} />
       {deck.loading && !deck.data ? <Loading /> : (
         <DeckSlides deck={{ title: deck.data?.title ?? "Review deck", slides }} n={clampSlide(n, slides.length)} go={go}>
-          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} routes={routes} onDecided={decided} onMarked={marked} onOpenDoc={onOpenDoc} /> : null}
+          {slide ? <SlideDecision key={slide.key} slide={slide} n={clampSlide(n, slides.length)} grants={grants} reports={reports} goalProposals={goalProposals} captains={captains} retainers={retainers} asks={asks} routes={routes} onDecided={decided} onMarked={marked} onOpenDoc={onOpenDoc} /> : null}
         </DeckSlides>
       )}
       <div className="deck-help muted">← → or space to move · Home/End · <button className="link" onClick={() => setPanelFull(!isPanelFull())}>f: fullscreen</button> · Esc: back to the list</div>
