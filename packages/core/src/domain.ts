@@ -12,7 +12,7 @@ import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
 import { withAsks } from "./rollup-asks.ts";
-import { openAsks } from "./asks.ts";
+import { rankedAsks } from "./asks.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -449,7 +449,7 @@ export function townHallIntray(world: World): { reports: Doc[]; grants: GrantVie
   const th = world.buildings.first("kind = 'town-hall'");
   // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts);
   // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: openAsks(world) };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
