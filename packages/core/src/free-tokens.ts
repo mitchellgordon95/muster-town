@@ -1,6 +1,8 @@
-import { ROOT_GOAL_ID, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
+import { ROOT_GOAL_ID, grantPricingOf, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
 import type { Repos } from "./store.ts";
 import { reservationLeft } from "./explore.ts";
+import { stepCalibration } from "./grant-estimate.ts";
+import { expectedRemaining } from "./grant-forecast.ts";
 import { retainerClaims } from "./retainers.ts";
 import { tickMemo } from "./tick-memo.ts";
 import type { World } from "./world.ts";
@@ -10,7 +12,7 @@ type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
 /**
  * Free tokens and the exploration cap (docs/how-work-gets-done.md §7, §8; build step 1, as_1nuoiauxlw). There are no
  * Bank pools: one general balance, plus earmarks (a credit scoped to a goal's subtree). Four kinds of claim sit on them:
- * funded grants' remaining tokens (granted − spent), open proposals' asks, open exploration reservations, and funded
+ * funded grants' remaining tokens (granted − spent, moved toward their expected spend by the town's `oversell`), open proposals' asks, open exploration reservations, and funded
  * retainers (tokensPerRun × runs left of a schedule a human approved, retainers.ts). Each claim
  * is paid where its session would draw (the draw order): the nearest earmark walking up from its goal, then the general
  * balance. Free tokens under a goal = what the claims leave of the general balance less the operating reserve (town
@@ -100,9 +102,14 @@ export function grantGoalOf(world: World, g: { buildingId: string; id: string })
 function claims(world: World, except?: string, now = new Date()): Claim[] {
   const out: Claim[] = [];
   const nodeOf = (g: { buildingId: string; id: string }) => grantGoalOf(world, g);
+  // overbooking (docs/legible-delegation.md §7.3): a funded grant claims ceilingRemaining × (1 − oversell) +
+  // expectedRemaining × oversell; at oversell 0 (the default) that is its ceiling's remainder, untouched
+  const { oversell } = grantPricingOf(world.town.get());
+  const cal = oversell > 0 ? stepCalibration(world, now) : null;
   for (const g of world.grants.where("status IN ('funded', 'checkpoint')")) {
     if (g.id === except) continue;
-    const left = Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id));
+    const ceilingLeft = Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id));
+    const left = cal ? Math.round(ceilingLeft * (1 - oversell) + expectedRemaining(world, g, cal, ceilingLeft) * oversell) : ceilingLeft;
     if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded", id: g.id, title: g.objective, at: g.fundedAt ?? g.createdAt });
   }
   for (const g of world.grants.where("status IN ('proposed', 'countered')")) {
