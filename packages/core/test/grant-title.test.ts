@@ -91,7 +91,7 @@ describe("cards name a grant by its title", () => {
 });
 
 describe("the retitle repair (boot)", () => {
-  it("rewrites a live clipped town card once from its target, keeping its id, sources, rank and status; a manager's card is untouched", () => {
+  it("rewrites a live clipped town card once from its target, keeping its id, sources, rank and status; a card with no target card loses its ellipsis and keeps its words", () => {
     const { world, propose } = lab();
     const g = propose();
     const ask = asksFor(world, { kind: "grant", id: g.id })[0]!;
@@ -102,13 +102,18 @@ describe("the retitle repair (boot)", () => {
     // a manager's card (a rollup's typed ask) that carries an ellipsis
     const mgr = createAsk(world, { type: "policy", targetKind: "rule", targetId: "dc_rulebook", buildingId: g.buildingId, sourceDocId: "dc_rollup1", by: "ag_x", title: "Keep the rule on forks…", body: "Rule: forks may redeploy… I applied it twice. Reversing it costs a session.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" }).ask;
 
-    expect(retitleClippedAsks(world)).toBe(1);
+    expect(retitleClippedAsks(world)).toBe(2);
     const fixed = world.asks.require(ask.id);
     expect(fixed).toMatchObject({ id: ask.id, status: "open", rank: 2, sources: ask.sources, title: "Fund Lab board answers its purpose at 150k", tags: [] });
     expect(fixed.body).not.toContain("…");
     expect(fixed.body.split("\n")[1]).toBe("A guest sees the banner on the lab board.");
     expect(fixed.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
-    expect(world.asks.require(mgr.id)).toEqual(mgr);
+    // the manager's card has no target card to rewrite from: its words stay, the ellipsis goes, its first clause is the title
+    const kept = world.asks.require(mgr.id);
+    expect(kept.title).toBe("Keep the rule on forks");
+    expect(kept.title + kept.body + kept.recommendation).not.toContain("\u2026");
+    expect(kept).toMatchObject({ id: mgr.id, status: mgr.status, sources: mgr.sources.map((x) => ({ ...x, line: x.line.replace(/\s*\u2026\s*/g, " ").trim() })) });
+    expect(kept.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
     // idempotent: nothing left to rewrite
     expect(retitleClippedAsks(world)).toBe(0);
     expect(world.asks.require(ask.id).history.filter((h) => h.action === "retitled")).toHaveLength(1);

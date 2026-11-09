@@ -521,13 +521,22 @@ function townCardOf(world: World, a: Ask): TownCard | null {
  * and is vetted again. A card a manager wrote is untouched. Idempotent: a card already rewritten has nothing to change.
  * Returns how many asks it rewrote.
  */
+/**
+ * The card of an ask read from a rollup's prose before typed asks existed (no target to write a card from): its own
+ * words kept, the clipping dropped: the title is its first clause, the body and recommendation lose every ellipsis.
+ */
+function proseCardOf(a: Ask): { title: string; body: string; recommendation: string; claims: Ask["claims"] } | null {
+  if (!a.title.includes("\u2026") && !a.body.includes("\u2026") && !a.recommendation.includes("\u2026")) return null;
+  return { title: nameWithin(a.title, 120), body: withoutEllipsis(a.body), recommendation: withoutEllipsis(a.recommendation), claims: a.claims };
+}
+
 export function retitleClippedAsks(world: World): number {
   const done: string[] = [];
   world.transaction(() => {
     for (const a of world.asks.where(`${LIVE_ASK} AND (title LIKE '%…%' OR body LIKE '%…%')`, [], "ORDER BY createdAt, rowid")) {
-      const card = townCardOf(world, a);
+      const card = townCardOf(world, a) ?? proseCardOf(a);
       if (!card) continue;
-      const next = { ...a, ...card, title: clipWords(card.title, 200) };
+      const next = { ...a, ...card, title: clipWords(card.title, 200), sources: a.sources.map((s) => ({ ...s, line: withoutEllipsis(s.line) })) };
       if (next.title === a.title && next.body === a.body && next.recommendation === a.recommendation && JSON.stringify(next.claims) === JSON.stringify(a.claims)) continue;
       const at = nowIso();
       const v = vetted(world, a.type, { title: next.title, body: next.body, recommendation: next.recommendation, claims: next.claims, branches: a.branches, targetKind: a.targetKind }, at, "system");
