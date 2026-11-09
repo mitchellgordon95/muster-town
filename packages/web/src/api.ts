@@ -9,8 +9,10 @@ import type {
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  Ask, StepCalibration, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
+import { grantPricingOf } from "@muster-town/schema";
 import { visitorId } from "./visitor";
 import { knownNames } from "./names";
 
@@ -364,8 +366,21 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
-/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
+/**
+ * A notice (docs/legible-delegation.md §8): a state change with nothing to decide, for the feed; `closed-loop` ones sit
+ * beside the asks. `picture` is an mf_ media id or a src. Older servers send none.
+ */
+export type NoticeKind = "shipped" | "closed-loop" | "verified" | "slate" | "pattern" | "gate";
+export interface Notice { id: string; kind: NoticeKind; buildingId: string | null; goalId: string | null; title: string; body: string; picture: string | null; refs: string[]; createdAt: string }
+/** An ask as the in-tray reads it: `rank` (1 = first, null = unranked) comes from the Secretary's ranking run; older servers leave it out. */
+export type AskView = Ask & { rank?: number | null };
+/** GET /api/town: the snapshot plus what steps really cost against the size table (older servers leave it out). */
+export type TownRead = Snapshot & { stepCalibration?: StepCalibration };
+/** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
+export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
+
+/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall */
+export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -441,7 +456,7 @@ export interface Api {
   decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest>;
   /** pending requests, oldest first: admins only (the HUD notice) */
   accessRequests(): Promise<AccessRequestView[]>;
-  town(): Promise<Snapshot>;
+  town(): Promise<TownRead>;
   events(q: EventQuery): Promise<Event[]>;
   // buildings
   board(buildingId: string, limit?: number): Promise<Board>;
@@ -485,6 +500,16 @@ export interface Api {
   intray(buildingId: string): Promise<Intray>;
   /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
   reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
+  /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
+  ask(id: string): Promise<AskView>;
+  /** POST /api/asks/:id/decide: a human's decision on an ask with no other channel (policy, meeting, a question in words) */
+  decideAsk(id: string, decision: string): Promise<AskView>;
+  /** POST /api/asks/:id/defer: park an ask behind an event */
+  deferAsk(id: string, until: string): Promise<AskView>;
+  /** GET /api/notices: the feed, newest first; [] from a server without it */
+  notices(q?: { building?: string; goal?: string; kind?: NoticeKind; limit?: number }): Promise<Notice[]>;
+  /** PUT /api/town/defaults (admin): the step-size table and oversell */
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }): Promise<GrantPricing>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
@@ -769,7 +794,7 @@ class HttpApi implements Api {
   async requestAccess(message: string) { return unwrap<AccessRequest>(await this.post("/api/access-requests", { message }), "accessRequest"); }
   async decideAccess(id: string, grant: boolean, directGoalId?: string | null) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, directGoalId && grant ? { grant, directGoalId } : { grant }), "accessRequest"); }
   async accessRequests() { return unwrap<AccessRequestView[]>(await this.get("/api/access-requests"), "access"); }
-  async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
+  async town() { return { type: "snapshot", ...(await this.get<Omit<TownRead, "type">>("/api/town")) } as TownRead; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
@@ -806,6 +831,17 @@ class HttpApi implements Api {
     return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
+  async ask(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
+  async decideAsk(id: string, decision: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision })).ask; }
+  async deferAsk(id: string, until: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/defer`, { until })).ask; }
+  async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
+    try { return (await this.get<{ notices?: Notice[] }>(`/api/notices${qs({ building: q.building, goal: q.goal, kind: q.kind, limit: q.limit })}`)).notices ?? []; }
+    catch (e) { if (e instanceof ApiError && e.status === 404) return []; throw e; }
+  }
+  async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
+    const r = await this.call<Partial<GrantPricing>>("PUT", "/api/town/defaults", patch);
+    return { stepSizes: r.stepSizes ?? patch.stepSizes ?? grantPricingOf({}).stepSizes, oversell: r.oversell ?? patch.oversell ?? 0 };
+  }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
