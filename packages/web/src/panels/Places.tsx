@@ -26,7 +26,7 @@ import { fundedOnly, isFunder, type IntrayView } from "./funderFilter";
 import { GoalProposalItem } from "./GoalTreePanel";
 import { CompactLine, accessTitle, captainTitle, goalProposalTitle, grantPill, reportPill, retainerPill } from "./intrayList";
 import { AsksIntray, askedIds, mineAsks } from "./AsksIntray";
-import { openAskCount } from "./asks";
+import { intrayBadge } from "./asks";
 import { StepStrip } from "./StepStrip";
 import { NoticesFeed } from "./NoticesPanel";
 import { hydrantCounts, type HydrantCounts } from "../map/hydrant";
@@ -115,8 +115,8 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
     else if (id.startsWith("mt_")) store.open({ kind: "meeting", id });
     else openFromList(id);
   };
-  // the badge: the open asks once the server files asks; before that, every item waiting
-  const count = askList ? openAskCount(asks) : reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
+  // the badge: once the server files asks, the live asks plus every waiting item no ask is about; before that, every item waiting
+  const count = askList ? intrayBadge(asks, restItems) : reports.length + grants.length + goalProposals.length + access.length + captains.length + retainers.filter((x) => x.retainer === "asked").length - flags;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={<>In-tray {count ? <Pill tone="warn" title="Reports, rollups and proposals waiting">{count}</Pill> : null}{flags ? <> <Pill tone="warn" title="Flags humans planted here, waiting for the manager to delegate">⚑ {flags}</Pill></> : null}</>} subtitle={subtitle}>
       {sheet}

@@ -16,7 +16,7 @@ import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { AskCard } from "../src/panels/AskCard";
 import { AsksIntray, askedIds, mineAsks } from "../src/panels/AsksIntray";
-import { branchCall, claimMark, deltaOf, expectedSpend, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
+import { branchCall, claimMark, deltaOf, expectedSpend, intrayBadge, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
 import { FundingView } from "../src/panels/FundingView";
 import { NoticesFeed, pictureSrc } from "../src/panels/NoticesPanel";
 import { PricingTab } from "../src/panels/PricingTab";
@@ -137,6 +137,11 @@ describe("the ask card", () => {
   it("the in-tray order, badge, records and helpers", () => {
     expect(sortAsks(asks).map((a) => a.id)).toEqual(["ak_hud", "ak_ocean", "ak_land", "ak_weekly", "ak_captain", "ak_req", "ak_policy", "ak_access", "ak_meet"]);
     expect(openAskCount(asks)).toBe(9); // a deferred ask still counts: it waits on a human
+    // the badge adds every waiting item no ask is about: a goal proposal, an unasked report (not a flag), an asked retainer
+    const none = { reports: [], grants: [], goalProposals: [], access: [], captains: [], retainers: [] };
+    expect(intrayBadge(asks, none)).toBe(9);
+    expect(intrayBadge(asks, { ...none, goalProposals: [{}], reports: [{ type: "report" }, { type: "flag" }], grants: [{}], retainers: [{ retainer: "asked" }, { retainer: "funded" }] })).toBe(13);
+    expect(intrayBadge([], { ...none, goalProposals: [{}, {}] })).toBe(2);
     const ids = askedIds(asks);
     expect(ids.has("gr_hud") && ids.has("dc_keel_cp") && ids.has("cr_octo")).toBe(true);
     expect(mineAsks(asks, { gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);

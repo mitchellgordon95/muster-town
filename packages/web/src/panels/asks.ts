@@ -14,6 +14,22 @@ export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank"
 /** The in-tray badge: every live ask, open or deferred (a deferred one still waits on a human; it opens again when what it waits behind settles). */
 export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open" || a.status === "deferred").length;
 
+/** The in-tray's items that no ask is about (Places.tsx `split(false)`): goal proposals, and any row whose target has no ask. */
+export interface UnaskedItems {
+  reports: { type?: string }[]; grants: unknown[]; goalProposals: unknown[]; access: unknown[]; captains: unknown[]; retainers: { retainer?: string }[];
+}
+
+/**
+ * The Town Hall in-tray's badge once asks exist: the live asks (open and deferred), plus every waiting item that has no
+ * ask on it, so a goal proposal or a row the server filed no ask for still counts. Flags (reports of type flag) wait on
+ * the manager, not a human, and a retainer counts only while it is asked.
+ */
+export function intrayBadge(asks: Pick<AskView, "status">[], unasked: UnaskedItems): number {
+  const rest = unasked.reports.filter((d) => d.type !== "flag").length + unasked.grants.length + unasked.goalProposals.length
+    + unasked.access.length + unasked.captains.length + unasked.retainers.filter((r) => r.retainer === "asked").length;
+  return openAskCount(asks) + rest;
+}
+
 /** The card's delta line (the body's first paragraph) and the prose after it. */
 export function deltaOf(body: string): { delta: string; rest: string } {
   const parts = body.trim().split(/\n\s*\n/);
