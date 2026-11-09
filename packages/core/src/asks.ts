@@ -244,7 +244,7 @@ type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
  * A grant's name as an ask title or sentence quotes it: in double quotes, so it reads as a name and not as words of the
  * sentence around it ("Fund "Town health on the Town Hall" at 150k", never "Fund Town health on the Town Hall at 150k").
  */
-export const quotedGrantName = (g: Pick<Grant, "title" | "objective">) => `"${grantName(g)}"`;
+const quotedGrantName = (g: Pick<Grant, "title" | "objective">) => `"${grantName(g)}"`;
 
 /** A proposal's money ask's title: the grant by its title, never its objective (docs/legible-delegation.md §5), quoted. */
 const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens">) => `Fund ${quotedGrantName(g)} at ${kTokens(g.askTokens)}`;
