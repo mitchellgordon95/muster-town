@@ -46,7 +46,7 @@ const SIZES: readonly StepSize[] = ["S", "M", "L"];
 const round10k = (n: number) => Math.max(10_000, Math.round(n / 10_000) * 10_000);
 
 /** The lines crossed now, each in words; [] = none. */
-export function crossedLines(m: LegibleMeasures): string[] {
+function crossedLines(m: LegibleMeasures): string[] {
   const L = PLANNER_LINES;
   const out: string[] = [];
   for (const s of SIZES) {
@@ -131,7 +131,7 @@ export function calibrationRunText(world: World, s: Schedule, at: Date): string 
 }
 
 /** The run's instructions: the schedule's description; the live data is appended when it fires. */
-export const CALIBRATION_RUN_PROMPT = `Weekly calibration run (you are the Planner, docs/legible-delegation.md §7.4). You watch the town's budget signals. When one crosses its line you file one policy ask for a human, with the data and one concrete change to the step-size table. You never change the table yourself.
+const CALIBRATION_RUN_PROMPT = `Weekly calibration run (you are the Planner, docs/legible-delegation.md §7.4). You watch the town's budget signals. When one crosses its line you file one policy ask for a human, with the data and one concrete change to the step-size table. You never change the table yourself.
 1. Read "## Calibration data" below: the measures, the lines, which are crossed and the town's one proposed change (\`calibrate\` with no arguments reads them again now). If nothing is crossed, submit_report at once (verdict stop) and end.
 2. Otherwise call \`calibrate\` with title, body and recommendation. It files one policy ask with the branches Adopt and Keep as is and the town's proposed change. The body is the card a human reads: sentences of at most 20 words, no ids, no semicolons, no parentheses. Say "adjust asks", never "top-ups". Write it as:
 Rule: the change as one sentence, for example "Price an M step at 190,000 tokens."

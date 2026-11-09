@@ -9,7 +9,7 @@ import { stepCalibration } from "./grant-estimate.ts";
 import type { World } from "./world.ts";
 
 /** Time to decision, top-ups, hold share and sessions per step are read over this many days. */
-export const MEASURE_WINDOW_DAYS = 14;
+const MEASURE_WINDOW_DAYS = 14;
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 
 /** The §9 counts at one moment. A ratio is null when its denominator is 0. */
