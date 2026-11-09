@@ -204,7 +204,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const quiet = await roll("R4", rollup("None."));
     expect(world.docs.require(quiet.id).tags).not.toContain("untyped-asks");
     expect(quiet.note).not.toMatch(/as `asks`/);
-    expect(world.asks.where("sourceDocId = ?", [legacy.id])).toEqual([expect.objectContaining({ type: "click", targetId: null, title: "Decide whether the deck needs a dark theme." })]);
+    expect(world.asks.where("sourceDocId = ?", [legacy.id])).toEqual([expect.objectContaining({ type: "click", targetId: null, title: "Decide whether the deck needs a dark theme" })]);
   }, 30_000);
 
   it("every case overtakenReason detects is also retired by a hook", async () => {
