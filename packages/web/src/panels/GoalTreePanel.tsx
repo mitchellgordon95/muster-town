@@ -400,7 +400,7 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
 
 /**
  * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
- * The ask waits in the Town Hall in-tray for the goal's current captain or an admin; once asked, it says so instead.
+ * The ask waits in the decision queue for the goal's current captain or an admin; once asked, it says so instead.
  */
 function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
   const member = useTown((s) => !!s.me?.canInteract);
@@ -408,10 +408,10 @@ function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) 
   const [open, setOpen] = useState(false), [note, setNote] = useState("");
   const mine = asks.data?.find((r) => r.userId === userId);
   if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
-  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
+  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the decision queue for {mine.captainName} to accept or decline.</div>;
   const ask = async () => {
     await api().askToCaptain(node.id, note.trim() || undefined);
-    store.toast(`Asked to captain "${node.text}": ${node.owner.name} decides from the Town Hall in-tray.`, "ok");
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} decides from the decision queue.`, "ok");
     setOpen(false); setNote(""); asks.reload();
   };
   return (
@@ -576,7 +576,7 @@ export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: G
 }
 
 /**
- * One goal proposal with its Accept / Edit and accept / Cut, outside the editor (the Town Hall in-tray and the review
+ * One goal proposal with its Accept / Edit and accept / Cut, outside the editor (the decision queue and the review
  * deck, step 4): loads the tree it needs for the proposal's place and the viewer's `goals.edit` there.
  */
 export function GoalProposalItem({ p, onDone }: { p: GoalProposalView; onDone: () => void }) {

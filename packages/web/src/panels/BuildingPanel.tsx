@@ -87,8 +87,9 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
+  const hasHydrant = places.some((p) => p.id === `hydrant:${b.id}`);
   const purpose = purposeOf(b, places);
-  const goTo = [hasBoard && "board", hasCabinet && "filing cabinet", hasTray && "manager's desk", hasRoom && "meeting table", b.kind !== "town-hall" && "goal tree"].filter(Boolean);
+  const goTo = [hasBoard && "board", hasCabinet && "filing cabinet", hasTray && "manager's desk", hasHydrant && "decision queue", hasRoom && "meeting table", b.kind !== "town-hall" && "goal tree"].filter(Boolean);
   return (
     <>
       {purpose ? <div className="goal-card"><span>Goal</span>{purpose}</div> : null}
@@ -101,13 +102,18 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
       {/* the places here and the goal tree, folded to one line (gr_zak30564zh step 4: the first screen keeps the summary) */}
       {goTo.length ? <details className="walk-fold" open={walkOpen} onToggle={(e) => { walkOpen = (e.currentTarget as HTMLDetailsElement).open; }}>
-        <summary>Go to: {goTo.join(" · ")}{b.intray && hasTray ? <> <Pill tone="warn">{b.intray} waiting</Pill></> : null}</summary>
+        <summary>Go to: {goTo.join(" · ")}{b.intray && (hasTray || hasHydrant) ? <> <Pill tone="warn">{b.intray} waiting</Pill></> : null}</summary>
         <div className="walk-links">
           {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
           {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
           {hasTray ? (
             <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
               <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+            </button>
+          ) : null}
+          {hasHydrant ? (
+            <button className="walk-link" onClick={() => walk(`hydrant:${b.id}`, { kind: "queue" })}>
+              <Glyph kind="hydrant" /><span>Walk to the hydrant (the decision queue, one item at a time)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
@@ -138,7 +144,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Reports", b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "The manager agent"} reads and decides them` : "people with review rights read and decide them (no manager agent)"],
         ] : [
           // the Town Hall is the humans' (1:1 mt_1vs893enaw decision 2): its manager is the root goal's captain; its agents are staff
-          ["Manager", <>the root goal's captain{rootCaptain ? <>: <b>{rootCaptain}</b></> : null}. The in-tray is the humans'.</>],
+          ["Manager", <>the root goal's captain{rootCaptain ? <>: <b>{rootCaptain}</b></> : null}. The decision queue at the hydrant is the humans'.</>],
           ["Staff", <TownHallStaff hallId={b.id} planner={b.managerAgentId ? agents[b.managerAgentId] : undefined} secretary={secretary} />],
         ]) as [string, ReactNode][],
       ]} />
@@ -172,7 +178,7 @@ function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
   return <>{lane} · {b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}</>;
 }
 
-const RETAINER_WORDS: Record<ScheduleView["retainer"], string> = { none: "none", asked: "asked: waits on a human in the Town Hall in-tray", funded: "approved", countered: "countered: waits on the manager", rejected: "rejected", ended: "ended" };
+const RETAINER_WORDS: Record<ScheduleView["retainer"], string> = { none: "none", asked: "asked: waits on a human in the decision queue", funded: "approved", countered: "countered: waits on the manager", rejected: "rejected", ended: "ended" };
 
 /** A schedule's retainer on its card: per run, runs left, drawn (of the approved total) and its state. */
 function RetainerMeta({ x }: { x: ScheduleView }) {
@@ -257,7 +263,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
           : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
       </Field>
-      {b.kind !== "town-hall" ? <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
+      {b.kind !== "town-hall" ? <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups reach the decision queue at the Town Hall. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}

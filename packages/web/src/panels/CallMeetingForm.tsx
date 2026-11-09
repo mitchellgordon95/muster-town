@@ -63,7 +63,7 @@ export function CallMeetingForm({ building }: { building: SnapshotBuilding }) {
       <label>Mode
         <select value={deck === null ? "chat" : deckDoc ? "doc" : "review"} onChange={(e) => setDeck(e.target.value === "chat" ? null : e.target.value === "review" ? REVIEW_DECK_ID : "")}>
           <option value="chat">Chat</option>
-          <option value="review">Presentation with chat: the review deck (Town Hall in-tray)</option>
+          <option value="review">Presentation with chat: the review deck (the decision queue as slides)</option>
           <option value="doc">Presentation with chat: a deck doc…</option>
         </select>
       </label>

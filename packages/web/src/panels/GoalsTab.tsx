@@ -1,7 +1,7 @@
 /**
  * The building panel's goal tabs (Mitchell, 1:1 mt_auczm6f1j1): Goals (the goal's objectives and key results, each with
  * one word on its grant state; humans mark met / missed and delete in place, and "Edit" opens the editor that used to sit
- * in Settings) and Grants (every grant of the building, decided in the Town Hall in-tray). The board is notes only.
+ * in Settings) and Grants (every grant of the building, decided in the decision queue). The board is notes only.
  */
 import { clipText } from "./showMore";
 import { useEffect, useState, type ReactNode } from "react";
@@ -36,7 +36,7 @@ export function GoalTabsSummary({ b }: { b: SnapshotBuilding }) {
 }
 
 const WORD_TONE: Record<KrGrantWord, string> = { funded: "ok", proposed: "info", open: "" };
-const WORD_TITLE: Record<KrGrantWord, string> = { funded: "A funded grant works on it", proposed: "A proposal names it, waiting in the Town Hall in-tray", open: "No grant: open for exploration" };
+const WORD_TITLE: Record<KrGrantWord, string> = { funded: "A funded grant works on it", proposed: "A proposal names it, waiting in the decision queue", open: "No grant: open for exploration" };
 
 /** Goals tab: the objectives and their key results (read), or the editor (Edit, building.manage). */
 export function GoalsTab({ b }: { b: SnapshotBuilding }) {
@@ -134,20 +134,20 @@ function GoalRowMore({ n, kr, canFund, canDelete, onChanged }: { n: number; kr: 
   );
 }
 
-/** Grants tab: open proposals, then funded grants, then checkpoint / closed. Fund, counter and reject stay in the Town Hall in-tray. */
+/** Grants tab: open proposals, then funded grants, then checkpoint / closed. Fund, counter and reject stay in the decision queue. */
 export function GrantsTab({ b }: { b: SnapshotBuilding }) {
   const { grants } = useGoalData(b.id);
   const spend = useLoad(() => api().financeSpend(), [b.id]);
   const { proposals, funded, settled } = grantGroups(grants.data ?? []);
   const held = settled.filter((g) => g.status === "checkpoint"), closed = settled.filter((g) => g.status !== "checkpoint");
   const hall = useTown((s) => s.buildings.find((x) => x.kind === "town-hall"));
-  const decideLink = hall ? <button className="link" onClick={() => store.open({ kind: "intray", id: hall.id })}>Decide in the Town Hall in-tray →</button> : undefined;
+  const decideLink = hall ? <button className="link" onClick={() => store.open({ kind: "queue" })}>Decide in the Town Hall →</button> : undefined;
   const rows = (list: GrantView[]) => <div className="doc-list">{list.map((g) => <GrantTabRow key={g.id} g={g} steps={grantSteps(spend.data, b.id, g.id)} />)}</div>;
   return (
     <>
       {grants.loading && !grants.data ? <Loading /> : null}
       <ErrorLine error={grants.error} />
-      {grants.data && !grants.data.length ? <Empty>No grants or proposals yet. The manager proposes one per key result; humans fund it in the Town Hall in-tray.</Empty> : null}
+      {grants.data && !grants.data.length ? <Empty>No grants or proposals yet. The manager proposes one per key result; humans fund it in the decision queue at the Town Hall.</Empty> : null}
       {/* the grants waiting on a human link to the in-tray once per section, not once per row (gr_zak30564zh step 5) */}
       {proposals.length ? <Section title={<>Open proposals <Pill>{proposals.length}</Pill></>} right={decideLink}>{rows(proposals)}</Section> : null}
       {funded.length ? <Section title={<>Funded <Pill>{funded.length}</Pill></>}>{rows(funded)}</Section> : null}

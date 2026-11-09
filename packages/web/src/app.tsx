@@ -22,10 +22,11 @@ import { StatsPanel } from "./panels/StatsPanel";
 import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, BulletinPanel, CabinetPanel, HydrantPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { BoardPanel, BulletinPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { BankSheet } from "./panels/BankSheet";
+import { DecisionQueue } from "./panels/DecisionQueue";
 import { GrantPanel } from "./panels/GrantPanel";
 import { LinkSheet } from "./panels/LinkSheet";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
@@ -230,7 +231,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "session": return <SessionPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
-    case "hydrant": return <HydrantPanel />;
+    case "queue": return null; // the decision queue: a sheet over the map, the Secretary's 1:1 beside it (App)
     case "manual": return null; // a paper sheet over the town, not a side panel (App)
     case "help": return null; // a building's help sign: a paper card over the town (App)
   }
@@ -262,7 +263,16 @@ export function App() {
     prevBank.current = open;
   }, [open]);
   const closeBank = useCallback(() => { setBankSheet(null); if (store.state.panel?.kind === "bank") store.open(null); }, []);
-  const panel = manual || helpSign || open?.kind === "goals" || open?.kind === "bank" ? null : open;
+  // the decision queue at the hydrant is a sheet over the map too; the Secretary's 1:1 opens in the side panel beside it
+  const [queue, setQueue] = useState(false);
+  const prevQueue = useRef(open);
+  useEffect(() => {
+    if (open?.kind === "queue") setQueue(true);
+    else if (!open && prevQueue.current?.kind === "queue") setQueue(false);
+    prevQueue.current = open;
+  }, [open]);
+  const closeQueue = useCallback(() => { setQueue(false); if (store.state.panel?.kind === "queue") store.open(null); }, []);
+  const panel = manual || helpSign || open?.kind === "goals" || open?.kind === "bank" || open?.kind === "queue" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
   const plan = useTownPlan();
   const planSel = plan?.selected ?? null;
@@ -344,6 +354,7 @@ export function App() {
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
+      {queue && ready ? <PanelBoundary key="queue"><DecisionQueue onClose={closeQueue} /></PanelBoundary> : null}
       {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
       {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
       {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}

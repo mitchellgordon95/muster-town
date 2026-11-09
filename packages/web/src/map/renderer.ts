@@ -52,7 +52,10 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   schedule: (p) => p.id === "schedule-board" ? { kind: "schedule", verb: "Read the meeting schedule" }
     : { kind: "building", id: p.buildingId ?? undefined, tab: "Schedule", verb: `Read the ${bname(p)} schedule` },
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
-  hydrant: () => ({ kind: "hydrant", verb: "Look at the stream" }),
+  hydrant: (p) => {
+    const n = store.state.buildings.find((b) => b.id === p.buildingId)?.intray ?? 0;
+    return { kind: "queue", verb: `Open the decision queue${n ? ` (${n} waiting)` : ""}` };
+  },
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
@@ -557,8 +560,9 @@ export class MapRenderer {
   }
 
   /**
-   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as amber dots settling into the
-   * in-tray, today's notices as blue dots drifting to the Secretary (the feed). World px; nothing under reduced motion.
+   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as amber dots settling at the
+   * Secretary beside it (else pooling in front of it), today's notices as blue dots drifting to the Town Hall board (the
+   * feed). World px; nothing under reduced motion.
    */
   private drawStream(g: CanvasRenderingContext2D, now: number) {
     const s = store.state, w = this.world!;
@@ -573,11 +577,11 @@ export class MapRenderer {
     };
     const hydrant = place(`hydrant:${hall.id}`);
     if (!hydrant) return;
-    const tray = place(`intray:${hall.id}`);
     const secretary = secretaryOf(s.agents, hall.id);
-    const feed = (secretary && place(`desk:${secretary.id}`)) || place(`board:${hall.id}`);
+    const settle = (secretary && place(`desk:${secretary.id}`)) || hydrant;
+    const feed = place(`board:${hall.id}`);
     const dots = streamParticles(beside(hydrant, TILE.HYDRANT, -T / 2 + 1),
-      { ask: tray ? beside(tray, TILE.MANAGER_DESK, -3) : null, notice: feed ? { x: feed.pos.x * T + T / 2, y: feed.pos.y * T + 4 } : null },
+      { ask: { x: settle.pos.x * T + T / 2, y: settle.pos.y * T + T - 3 }, notice: feed ? { x: feed.pos.x * T + T / 2, y: feed.pos.y * T + 4 } : null },
       this.stream.counts, now, prefersReducedMotion());
     for (const d of dots) {
       g.fillStyle = d.kind === "ask" ? "#ffcf5e" : "#7cc4ff";

@@ -448,7 +448,7 @@ export interface Api {
   readonly mock: boolean;
   devAdminToken(): Promise<string | null>;
   me(): Promise<AuthMe>;
-  /** a signed-in visitor asks to join (dc_f0cumcfubk); an admin decides from the Town Hall in-tray */
+  /** a signed-in visitor asks to join (dc_f0cumcfubk); an admin decides from the decision queue */
   requestAccess(message: string): Promise<AccessRequest>;
   /** Let in (grant) or decline; `directGoalId` also lets them direct work under that goal (gr_cuobjlny6r) */
   decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest>;
@@ -496,7 +496,7 @@ export interface Api {
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
   intray(buildingId: string): Promise<Intray>;
-  /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
+  /** GET /api/review-deck: the Town Hall's waiting items as slides, computed by the server (design dc_y7a8g257of §2) */
   reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
   /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
   getAsk(id: string): Promise<AskView>;

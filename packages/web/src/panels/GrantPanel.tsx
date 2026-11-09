@@ -1,6 +1,6 @@
 /**
  * One grant or proposal (`gr_…`), reached from any link to its id (in-tray rows, reports, meeting notes, chat; the
- * shareable `/#/grant/<id>`). The same row as the Town Hall in-tray, with its decision controls when a human has to
+ * shareable `/#/grant/<id>`). The same row as the decision queue, with its decision controls when a human has to
  * decide, plus what the row leaves out: the approach, the findings it draws on and the negotiation history.
  * It opens on a summary (gr_zak30564zh, kr_obykl8yydh): the row's status, spent / granted and one line per key result;
  * the plan, the sessions and the history are each one folded line, one click away.
@@ -35,7 +35,7 @@ export function GrantPanel({ id }: { id: string }) {
             <History grant={g} />
             {/* the building is the header link; its board is one click inside it */}
             <div className="actions">
-              {hall ? <button className="btn" onClick={() => store.open({ kind: "intray", id: hall.id })}>Town Hall in-tray</button> : null}
+              {hall ? <button className="btn" onClick={() => store.open({ kind: "queue" })}>Decision queue</button> : null}
             </div>
           </>
         )}

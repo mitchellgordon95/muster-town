@@ -28,8 +28,7 @@ const LAB: Partial<Record<Place["kind"], [string, string]>> = {
 };
 const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   board: ["Board", "notices for the whole town."],
-  intray: ["In-tray", "proposals and summaries for humans to decide."],
-  hydrant: ["Hydrant", "the stream: asks settle in the in-tray, notices flow to the feed."],
+  hydrant: ["Hydrant", "the decision queue: what waits on a human, one item at a time, with the Secretary beside it."],
   "goal-tree": ["Goal tree", "the town's goals and the work funded under them."],
   library: ["Library", "the town's best documents, open to read."],
   outbox: ["Outbox", "things agents asked humans to do."],
@@ -40,7 +39,7 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   "town-map": ["Town map table", "where buildings go on the map."],
   "mod-station": ["Mod station", "where town moderators sit."],
 };
-const ORDER: Place["kind"][] = ["board", "goal-tree", "library", "cabinet", "intray", "hydrant", "outbox", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
+const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "cabinet", "intray", "outbox", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
 
 export function helpCard(
   b: { id: string; name: string; kind: "lab" | "town-hall"; goal: string; managerAgentId?: string | null },
@@ -68,6 +67,6 @@ export function helpCard(
     viewer === "guest" ? [`${read}: everything here is public.`, `${click} an agent to see what it's doing now.`, "To join in, sign in with GitHub, then Ask to join."]
     : viewer === "pending" ? [`${read}: everything here is public.`, "Ask to join on your card at the top left; an admin lets you in."]
     : viewer === "member" ? [...talk, `${read}: every report is filed there.`, ...flag]
-    : [hall ? "Decide proposals and grants in the in-tray." : "Review reports in the in-tray: approve, continue or redirect.", ...talk, ...flag];
+    : [hall ? "Decide what waits for you at the hydrant: the decision queue, one item at a time." : "Review reports in the in-tray: approve, continue or redirect.", ...talk, ...flag];
   return { title: b.name, goal: b.goal, manager, working, resting: people.length - working.length, things, todo };
 }

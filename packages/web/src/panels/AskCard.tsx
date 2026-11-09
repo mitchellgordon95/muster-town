@@ -1,5 +1,5 @@
 /**
- * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the Town Hall in-tray. Its
+ * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Its
  * title, the delta line (the body's first paragraph), the body, the branches as the buttons (each does the real action
  * by the ask's target, asks.ts `branchCall`; the server's hooks then retire the ask), the recommendation, the claims
  * with their check, the sources by name, a lint-failed badge, and the record one click down. A grant's card adds its

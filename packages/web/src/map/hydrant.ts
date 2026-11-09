@@ -1,14 +1,15 @@
 /**
  * The Town Hall's hydrant (docs/legible-delegation.md §3, UI / UX A): the stream the humans process, pouring from a
- * Town Hall object beside the in-tray. Asks settle into the in-tray; notices drift to the feed (the Secretary, who files
- * them). The counts come from the Town Hall in-tray, fetched once on load and again when its count changes (WS
- * `building`); no new polling, no new endpoint. Bodies are free: the particles are a few dots on the existing frame.
+ * Town Hall object; clicking it opens the decision queue (DecisionQueue.tsx). Asks settle at the Secretary beside it;
+ * notices drift to the feed (the Town Hall board). The counts come from the Town Hall's waiting items (GET
+ * /api/buildings/<hall>/intray), fetched once on load and again when their count changes (WS `building`); no new
+ * polling, no new endpoint. Bodies are free: the particles are a few dots on the existing frame.
  */
 import type { Notice } from "@muster-town/schema";
 import { api, type Intray } from "../api";
 import { openAskCount } from "../panels/asks";
 
-export interface HydrantCounts {
+interface HydrantCounts {
   /** asks waiting on a human (deferred ones wait on an event) */
   asks: number;
   /** notices filed since local midnight */
@@ -17,7 +18,7 @@ export interface HydrantCounts {
   rankedAt: string | null;
 }
 
-/** The hydrant's three numbers from a Town Hall in-tray read. */
+/** The hydrant's numbers from the Town Hall's waiting-items read. */
 export function hydrantCounts(t: Pick<Intray, "asks" | "notices"> | null | undefined, now = new Date()): HydrantCounts {
   const notices: Notice[] = t?.notices ?? [];
   const today = now.toDateString();
@@ -38,7 +39,7 @@ interface Pt { x: number; y: number }
 interface Particle extends Pt { kind: "ask" | "notice" }
 
 /**
- * The dots this frame, in world px: one per open ask flying to the in-tray (easing out, so they settle) and one per
+ * The dots this frame, in world px: one per open ask flying to the Secretary (easing out, so they settle) and one per
  * notice of today drifting to the feed (evenly), each on a low arc from the hydrant's spout, staggered so they don't
  * clump. Capped at MAX_PARTICLES; none under reduced motion, and none for a kind with no target.
  */
@@ -69,8 +70,8 @@ export function prefersReducedMotion(): boolean {
 }
 
 /**
- * The renderer's copy of the counts: `sync` fetches the Town Hall in-tray when the hall or its in-tray count changes
- * (once on load, then on the WS `building` bump the in-tray panel also refetches on).
+ * The renderer's copy of the counts: `sync` fetches the Town Hall's waiting items when the hall or their count changes
+ * (once on load, then on the WS `building` bump the decision queue also refetches on).
  */
 export class HydrantStream {
   counts: HydrantCounts = { asks: 0, noticesToday: 0, rankedAt: null };

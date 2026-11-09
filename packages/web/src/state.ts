@@ -17,9 +17,10 @@ import { knownNames } from "./names";
  * the old `#/finance` opens it too; its `tab` is the thing in its room you used, BANK_FIXTURES). `admin` is the old name for `planning`.
  * the old `#/finance` opens it too). `admin` is the old name for `planning`.
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
- * and a session (`se_…`), reached from any link to its id.
+ * and a session (`se_…`), reached from any link to its id. `queue` is the decision queue at the Town Hall hydrant (a sheet
+ * over the map, DecisionQueue.tsx); a link to the Town Hall's old in-tray opens it.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "hydrant";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "queue";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 /**
  * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant
@@ -294,7 +295,7 @@ class Store {
 
   /** Always a fresh ref, so re-opening a panel that's already open (e.g. E twice on one target) counts as a new open (app.tsx openSeq). */
   open(panel: PanelRef | null) {
-    const p = redirectPanel(panel);
+    const p = redirectPanel(panel, this.state.buildings.find((b) => b.kind === "town-hall")?.id);
     const sheet = sheetOf(p);
     if (sheet) return this.openSheet(sheet);
     // on a phone the sheet covers the panel: a side panel opened from it (a building, a 1:1) replaces it
