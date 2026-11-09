@@ -9,7 +9,7 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  ASK_LINT_RULES, askSentences, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
+  ASK_LINT_RULES, askSentences, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, proseAskTitle, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
   type AskType, type CalibrationProposal, type CaptainRequest, type Doc, type Event, type Grant, type Schedule, type StepSize,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -417,6 +417,8 @@ const ID = /\b(?:gr|sc|dc|cr|ar|kr)_[a-z0-9]+\b/g;
  * naming a grant (or retainer) is a money ask on it (folding into that item's own ask), a rule veto a policy ask, any
  * other a click (targeted at the request, captain, access request or key result it names, if any). Idempotent per rollup.
  */
+const PROSE_BRANCHES = { money: [{ label: "Yes" }, { label: "No" }], policy: [{ label: "Keep the rule" }, { label: "Change it" }], click: [{ label: "Done" }, { label: "Decline" }] } as const satisfies Record<string, AskBranch[]>;
+
 export function asksFromRollupProse(world: World, d: Doc): void {
   for (const c of rollupCalls(world, d)) {
     if (c.overtaken) continue;
@@ -425,16 +427,18 @@ export function asksFromRollupProse(world: World, d: Doc): void {
     const targetId = money ?? ids[0] ?? null;
     const targetKind = targetId ? kindOf(world, targetId) : null;
     const type: AskType = money ? "money" : POLICY.test(c.call) ? "policy" : "click";
-    const title = clipWords(c.call, 160);
-    // idempotent: this rollup already filed this line (on its target, or untargeted under the same title)
+    const title = proseAskTitle(c.call);
+    // idempotent: this rollup already filed this line (on its target, or untargeted with the same line or title: a title
+    // written by an older rule, since repaired by `retitleProseAsks`, still counts)
+    const line = oneLine(c.call, 400);
     const filed = targetId && targetKind
       ? asksFor(world, { kind: targetKind, id: targetId }).some((a) => a.sources.some((s) => s.docId === d.id))
-      : world.asks.exists("targetId IS NULL AND sourceDocId = ? AND title = ?", [d.id, title]);
+      : world.asks.exists("targetId IS NULL AND sourceDocId = ? AND (title = ? OR EXISTS (SELECT 1 FROM json_each(sources) WHERE json_extract(value, '$.line') IN (?, ?)))", [d.id, title, line, withoutEllipsis(line)]);
     if (filed) continue;
     createAsk(world, {
       type, targetKind, targetId, buildingId: d.buildingId, sourceDocId: d.id, by: d.authorId, title, line: c.call,
       body: withoutEllipsis(c.title ? `From "${c.title}" in the rollup "${d.title}".` : `From the rollup "${d.title}".`),
-      branches: type === "money" ? [{ label: "Yes" }, { label: "No" }] : type === "policy" ? [{ label: "Keep the rule" }, { label: "Change it" }] : [{ label: "Done" }, { label: "Decline" }],
+      branches: PROSE_BRANCHES[type === "money" ? "money" : type === "policy" ? "policy" : "click"],
     });
   }
 }
@@ -568,6 +572,43 @@ export function retitleGrantAsks(world: World): number {
       if (!card) continue;
       const title = clipWords(card.title, 200);
       if (title === a.title) continue;
+      const at = nowIso();
+      world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
+      n++;
+    }
+  });
+  return n;
+}
+
+/**
+ * Whether the town read this ask from a rollup's prose (`asksFromRollupProse`): its source is the rollup, its body the
+ * "From … the rollup" line, its branches the prose ones, no recommendation or claims. A manager's typed ask (its own
+ * title, body and recommendation) and a town card on a target are not.
+ */
+function isProseAsk(world: World, a: Ask): boolean {
+  if (!a.sourceDocId || a.recommendation.trim() || a.claims.length) return false;
+  const d = world.docs.get(a.sourceDocId);
+  if (!d || d.type !== "report" || !d.tags.includes("rollup")) return false;
+  if (!/^From (?:".*" in )?the rollup ".*"\.$/s.test(a.body)) return false;
+  const labels = a.branches.map((b) => b.label).join("|");
+  return Object.values(PROSE_BRANCHES).some((bs) => bs.map((b) => b.label).join("|") === labels);
+}
+
+/**
+ * Boot repair: every live ask read from a rollup's prose (`isProseAsk`) takes its title again from its own source line
+ * by `proseAskTitle` (the whole first sentence, never a fragment before a colon or a clause cut at 8 words, as "A 1",
+ * "Optional" or "Create one empty repo under dungeonrpg99-ops and give" were), keeping its id, body, sources, rank,
+ * status and history, with a "retitled" history entry. A manager's typed ask is untouched. Idempotent. Returns how many it retitled.
+ */
+export function retitleProseAsks(world: World): number {
+  let n = 0;
+  world.transaction(() => {
+    for (const a of world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid")) {
+      if (!isProseAsk(world, a)) continue;
+      const line = a.sources.find((s) => s.docId === a.sourceDocId)?.line;
+      if (!line) continue;
+      const title = clipWords(proseAskTitle(withoutEllipsis(line)), 200);
+      if (!title || title === a.title) continue;
       const at = nowIso();
       world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
       n++;
