@@ -13,8 +13,8 @@ import { api, getApi, type AskView, type Intray } from "../src/api";
 import { asks, buildings, grants, notices } from "../src/mock/fixture";
 import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
-import { DecisionQueueView, goToQueue, useSecretaryChat } from "../src/panels/DecisionQueue";
-import { askedIds, currentItem, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
+import { DecisionQueueView, FOCUS_DEBOUNCE_MS, goToQueue, useSecretaryChat } from "../src/panels/DecisionQueue";
+import { askedIds, currentItem, focusOf, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { redirectPanel } from "../src/panels/room";
 
@@ -183,6 +183,22 @@ describe("the Secretary's 1:1 beside the queue", () => {
     expect(store.state.panel).toEqual({ kind: "meeting", id: "mt_sec" });
   });
 
+  it("gives the queue the live 1:1's id to tell what is open; none for a guest, and none once the 1:1 ended", async () => {
+    let got: string | null | undefined;
+    function Id() { got = useSecretaryChat("bl_townhall"); return null; }
+    guest();
+    await mount(<Id />);
+    await flush();
+    expect(got).toBeNull();
+    signIn();
+    vi.spyOn(api(), "openOneOnOne").mockResolvedValue(meeting);
+    await mount(<Id />);
+    await flush();
+    expect(got).toBe("mt_sec");
+    await act(async () => store.putMeeting({ ...meeting, phase: "done" }));
+    expect(got).toBeNull();
+  });
+
   it("not for a guest, a human without the permission, or with no live Secretary", async () => {
     const open = vi.spyOn(api(), "openOneOnOne").mockResolvedValue(meeting);
     guest();
@@ -195,6 +211,56 @@ describe("the Secretary's 1:1 beside the queue", () => {
     await flush();
     expect(open).not.toHaveBeenCalled();
     expect(store.state.panel).toBeNull();
+  });
+});
+
+describe("the Secretary knows what is open (the 1:1's focus)", () => {
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, FOCUS_DEBOUNCE_MS + 60)); });
+  const key = (j: number) => act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: j > 0 ? "j" : "k" })); });
+
+  it("PUTs the item on screen on open, after J / K (debounced: one PUT for a quick J J) and for a picked line; clears it when the queue closes", async () => {
+    signIn();
+    const put = vi.spyOn(api(), "meetingFocus").mockResolvedValue({} as Meeting);
+    const root = await mount(<DecisionQueueView data={read({ asks, grants })} onReload={() => undefined} onClose={() => undefined} chatId="mt_sec" />);
+    expect(put).not.toHaveBeenCalled();
+    await settle();
+    expect(put.mock.calls).toEqual([["mt_sec", { kind: "ask", id: "ak_hud" }]]);
+    await key(1);
+    await key(1);
+    await settle();
+    expect(put.mock.calls.slice(1)).toEqual([["mt_sec", { kind: "ask", id: "ak_land" }]]);
+    await act(async () => button("Look at the queue (9)").click());
+    await act(async () => ([...document.body.querySelectorAll(".intray-line")][1] as HTMLButtonElement).click());
+    await settle();
+    expect(put.mock.calls.slice(2)).toEqual([["mt_sec", { kind: "ask", id: "ak_ocean" }]]);
+    // J then K back to the same item before the debounce: nothing new is sent
+    await key(1);
+    await key(-1);
+    await settle();
+    expect(put).toHaveBeenCalledTimes(3);
+    await act(async () => root.unmount());
+    roots = roots.filter((r) => r !== root);
+    expect(put.mock.calls.at(-1)).toEqual(["mt_sec", null]);
+    expect(put).toHaveBeenCalledTimes(4);
+  });
+
+  it("nothing is sent without a 1:1 (a guest, no permission, no Secretary)", async () => {
+    guest();
+    const put = vi.spyOn(api(), "meetingFocus").mockResolvedValue({} as Meeting);
+    await mount(<DecisionQueueView data={read({ asks, grants })} onReload={() => undefined} onClose={() => undefined} />);
+    await settle();
+    await key(1);
+    await settle();
+    for (const r of roots) await act(async () => r.unmount());
+    roots = [];
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("the queue's kinds in the town's words: a report is a doc, a goal proposal a goalProposal", () => {
+    expect(focusOf(null)).toBeNull();
+    expect(focusOf({ kind: "report", id: "dc_r", doc: {} as never })).toEqual({ kind: "doc", id: "dc_r" });
+    expect(focusOf({ kind: "goal", id: "gp_1", proposal: {} as never })).toEqual({ kind: "goalProposal", id: "gp_1" });
+    expect(focusOf({ kind: "blocked", id: "blocked:bl_x", blocked: {} as never })).toEqual({ kind: "blocked", id: "blocked:bl_x" });
   });
 });
 

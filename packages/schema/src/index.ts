@@ -1169,6 +1169,14 @@ export const REVIEW_DECK_ID = "review-deck";
  */
 export const PinnedSlide = z.object({ key: z.string(), kind: z.string(), title: z.string().default(""), text: z.string().default(""), itemId: z.string().nullable().default(null), grantId: z.string().optional(), docIds: z.array(z.string()).optional() });
 export type PinnedSlide = z.infer<typeof PinnedSlide>;
+/**
+ * What a 1:1's human has open in the Town Hall decision queue right now (the web PUTs it as the item on screen changes):
+ * the Secretary's turn input carries it, rebuilt from live data, so "this" and "fund it" have a referent.
+ */
+export const MeetingFocusKind = z.enum(["ask", "grant", "retainer", "captain", "access", "goalProposal", "doc", "blocked"]);
+export type MeetingFocusKind = z.infer<typeof MeetingFocusKind>;
+export const MeetingFocus = z.object({ kind: MeetingFocusKind, id: z.string().min(1).max(200), at: Iso });
+export type MeetingFocus = z.infer<typeof MeetingFocus>;
 export const MeetingDeck = z.object({ docId: z.string().min(1), slide: z.number().int().positive().default(1), presenterId: Id.nullable().default(null), pinned: z.array(PinnedSlide).optional() });
 export type MeetingDeck = z.infer<typeof MeetingDeck>;
 export const MeetingPhase = z.enum(["scheduled", "collecting", "discussing", "done", "cancelled"]);
@@ -1227,6 +1235,8 @@ export const Meeting = z.object({
   askHumans: z.boolean().default(false),
   /** Presentation with chat: the deck shown above the chat, kept in sync (null = a chat meeting) */
   deck: MeetingDeck.nullable().default(null),
+  /** one-on-one: the item open on the human's screen in the decision queue (null: none) */
+  focus: MeetingFocus.nullable().default(null),
   /** attendeeId -> short standup summary (did / next / need) submitted before discussion */
   summaries: z.record(z.string(), z.string()).default({}),
   transcript: z.array(MeetingUtterance).default([]),
@@ -2314,7 +2324,7 @@ export const VerbInputs = {
     meetingId: Id.describe("the 1:1 you are in (you its agent, the human the one who said it)"),
     utteranceAt: Iso.describe("the exact `at` of the human's own line that says the decision, as `meeting` status or listen shows it; from the last 30 min"),
     action: z.enum(["fund", "counter", "reject", "continue", "adjust", "cut", "approve", "decline", "stop"]).describe("grant (gr_…): fund / counter / reject a proposal, continue / adjust / cut a checkpoint; retainer (sc_…): approve / counter / reject; outbox request (dc_…): decline. stop is refused: it stays the human's button"),
-    targetId: Id.describe("the grant (gr_…), the schedule whose retainer is asked (sc_…), or the open outbox request to decline (dc_…)"),
+    targetId: Id.optional().describe("the grant (gr_…), the schedule whose retainer is asked (sc_…), or the open outbox request to decline (dc_…); left out, the item open on the human's screen (the ask's grant, retainer or request)"),
     tokens: z.number().int().positive().optional().describe("fund / adjust: the grant's tokens; counter: the tokens to ask instead (a retainer: per run)"),
     note: z.string().max(1500).default("").describe("optional: your own line added after the human's quoted words"),
   }),
@@ -2406,7 +2416,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
-  act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
+  act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
@@ -2818,6 +2828,8 @@ export const MEETING_PRESETS = [
 ] as const satisfies readonly { id: string; label: string; kind: Exclude<z.infer<typeof MeetingKind>, "one-on-one">; attendees: "default" | "none"; brings: MeetingBrings; agenda: readonly string[]; askHumans: boolean; deck: string | null }[];
 export type MeetingPreset = (typeof MEETING_PRESETS)[number];
 /** POST /api/meetings/:id/present: show `docId`'s slide `slide` above every attendee's chat; `docId` null stops presenting. */
+/** PUT /api/meetings/:id/focus: the item open in the human's decision queue, or null when the queue closes. */
+export const MeetingFocusInput = z.object({ kind: MeetingFocusKind, id: z.string().trim().min(1).max(200) }).nullable();
 export const MeetingPresentInput = z.object({ docId: z.string().trim().min(1).nullable(), slide: z.number().int().positive().default(1) });
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });

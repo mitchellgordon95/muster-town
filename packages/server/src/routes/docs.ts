@@ -1,5 +1,5 @@
 import { AppError, bulletinNotesFor, markBulletinRead, markSeen, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { CreateMeetingInput, DocState, DocType, MeetingFocusInput, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, requireAuth, requireUser, viewerId, type Params } from "../context.ts";
@@ -160,6 +160,15 @@ export async function docRoutes(app: FastifyInstance) {
     requireAuth(req);
     const { docId, slide } = parse(MeetingPresentInput, req.body);
     return { meeting: world.ops.meetingPresent(actorOf(world, req), req.params.id, docId, slide) };
+  });
+
+  /** The item open in the 1:1's human's decision queue ({kind, id}; null clears it): only that human, signed in; the same item again writes nothing. */
+  app.put<{ Params: Params }>("/api/meetings/:id/focus", async (req) => {
+    requireUser(req);
+    // JSON null, no body or {} clears it (the queue closed)
+    const raw = req.body;
+    const focus = raw == null || raw === "" || (typeof raw === "object" && !Object.keys(raw).length) ? null : parse(MeetingFocusInput, raw);
+    return { meeting: world.ops.meetingFocus(actorOf(world, req), req.params.id, focus) };
   });
 
   // agents writing a reply or decisions right now; the meeting panel polls this while the meeting is live

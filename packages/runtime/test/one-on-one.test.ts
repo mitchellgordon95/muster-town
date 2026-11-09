@@ -54,6 +54,35 @@ describe("the manager's 1:1", () => {
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
+  test("the human's line carries the item open on their screen, read live when the line arrives; none, no block", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      expect(s.received[0]).not.toContain("## Open on");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Hi." });
+      yield result(100, 0.01);
+      const said = await s.next();
+      expect(said).toMatch(/^## Open on .+'s screen\n/);
+      expect(said).toMatch(/Doc dc_\w+: \w+ ".+" by /);
+      expect(said).toContain("said in the 1:1");
+      expect(said).toContain("what's this about?");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "It's the report." });
+      yield result(200, 0.02);
+      expect(await s.next()).toContain("is over");
+      yield result(250, 0.03);
+    });
+    const { world, runtime, lab, admin } = env;
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    await until(() => world.meetings.require(m.id).transcript.length === 1);
+    const doc = world.docs.first("buildingId = ? AND state != 'draft'", [lab.id])!;
+    world.ops.meetingFocus(admin, m.id, { kind: "doc", id: doc.id });
+    world.ops.meetingSay(admin, m.id, "what's this about?");
+    await until(() => world.meetings.require(m.id).transcript.length === 3);
+    expect(world.meetings.require(m.id).transcript.at(-1)!.text).toBe("It's the report.");
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+  });
+
   test("Plan with an agent: the Planner answers its Town Hall 1:1 with the tree brief in its prompt and proposes for no building", async () => {
     const env = await managed(async function* (s) {
       yield init();

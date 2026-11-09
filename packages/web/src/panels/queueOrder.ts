@@ -7,7 +7,7 @@
  * a building blocked with no key results), oldest first, so nothing waiting is lost. The items an ask is about are
  * its record, one click down from its card, not queue items of their own.
  */
-import type { AccessRequestView, CaptainRequestView, Doc, GrantView, IntrayRoute, ScheduleView } from "@muster-town/schema";
+import type { AccessRequestView, CaptainRequestView, Doc, GrantView, IntrayRoute, MeetingFocusKind, ScheduleView } from "@muster-town/schema";
 import type { AskView, GoalProposalView, Intray } from "../api";
 import { sortAsks } from "./asks";
 
@@ -123,4 +123,11 @@ export function buildingOf(x: QueueItem): string | null {
     case "blocked": return x.blocked.buildingId;
     default: return null;
   }
+}
+
+/** The item on screen as the Secretary's 1:1 hears it (PUT /api/meetings/:id/focus): the queue's kinds in the town's words. */
+export function focusOf(x: QueueItem | null): { kind: MeetingFocusKind; id: string } | null {
+  if (!x) return null;
+  const kind: MeetingFocusKind = x.kind === "report" ? "doc" : x.kind === "goal" ? "goalProposal" : x.kind;
+  return { kind, id: x.id };
 }

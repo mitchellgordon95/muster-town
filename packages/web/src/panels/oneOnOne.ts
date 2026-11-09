@@ -1,6 +1,6 @@
 /** 1:1s (docs/waterfall.md §3.4): "Talk to ★ <manager>", a doc's "Talk to <author>" and a grant's "Talk to <manager>" open a meeting with that agent. */
 import { isGone } from "@muster-town/schema";
-import type { Agent } from "@muster-town/schema";
+import type { Agent, Meeting } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 
@@ -15,10 +15,11 @@ export const canTalkToManager = (buildingId: string | null | undefined) =>
   !!buildingId && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall" && (canOneOnOne(buildingId) || !!store.state.me?.directBuildingIds?.includes(buildingId));
 
 /** Open (or return to) my 1:1 with the building's manager agent, or with `opts.agentId` about `opts.docId` / `opts.grantId`, in the meeting panel. */
-export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<void> {
+export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<Meeting> {
   const m = await api().openOneOnOne(buildingId, opts);
   store.putMeeting(m);
   store.open({ kind: "meeting", id: m.id });
+  return m;
 }
 
 /** "Plan with an agent" (docs/goals.md "The planning agent"): open (or return to) my 1:1 with the Planner, the Town Hall's manager, about `goalId`. */

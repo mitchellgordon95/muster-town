@@ -241,7 +241,9 @@ export function writeExport(src: ExportSource, dirIn: string, publish: PublishTa
   for (const m of src.meetings()) {
     const name = (id: string) => src.nameOf(id);
     const body = [`# ${m.title}`, "", ...m.transcript.map((u) => `- **${name(u.speakerId)}** (${u.at}): ${u.text}`)].join("\n");
-    write(meetingExportPath(m), stringifyFrontmatter({ ...m }, body));
+    // focus is what the human's screen shows this minute, not a record: left out so the export doesn't churn on every J / K
+    const { focus: _onScreen, ...rest } = m;
+    write(meetingExportPath(m), stringifyFrontmatter(rest, body));
   }
   write("agents.json", JSON.stringify(src.agents(), null, 2) + "\n");
   const byDay = new Map<string, Event[]>();
