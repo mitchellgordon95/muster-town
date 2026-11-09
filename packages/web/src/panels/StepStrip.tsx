@@ -7,7 +7,7 @@ import type { GrantView } from "@muster-town/schema";
 import { fmtTokens } from "./ui";
 
 /** How many steps are done: the forecast's count, else the steps whose latest assignment is done. */
-export function stepsDone(g: Pick<GrantView, "steps" | "stepStates" | "forecast">): number {
+function stepsDone(g: Pick<GrantView, "steps" | "stepStates" | "forecast">): number {
   if (g.forecast) return Math.min(g.steps.length, g.forecast.stepsDone);
   return (g.stepStates ?? []).filter((s) => s?.status === "done").length;
 }

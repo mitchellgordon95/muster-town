@@ -89,7 +89,7 @@ export function slateAsks(asks: AskView[], grants: GrantView[]): { ask: AskView;
 }
 
 /** A size's calibrated ratio (spent ÷ size), 1.0 when the server has none or too few steps. */
-export function ratioOf(cal: StepCalibration | null | undefined, size: StepSize): number {
+function ratioOf(cal: StepCalibration | null | undefined, size: StepSize): number {
   const r = cal?.sizes?.[size];
   return r && typeof r.ratio === "number" && r.sample >= (cal?.minSample ?? 0) ? r.ratio : 1;
 }

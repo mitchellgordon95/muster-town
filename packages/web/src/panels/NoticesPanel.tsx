@@ -18,7 +18,7 @@ export function pictureSrc(p: string | null): string | null {
   return /^mf_[a-z0-9]{10}$/.test(p) ? `${API_BASE}/api/media/${p}` : p;
 }
 
-export function NoticeItem({ n }: { n: Notice }) {
+function NoticeItem({ n }: { n: Notice }) {
   const building = useTown((s) => s.buildings.find((b) => b.id === n.buildingId)?.name ?? null);
   const src = pictureSrc(n.picture);
   return (
