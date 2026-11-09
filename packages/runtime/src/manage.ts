@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -155,7 +155,9 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
       let said = false;
       for (const u of m.transcript.slice(f.idx)) {
         if (u.speakerId === agent.id || u.speakerKind === "system") continue;
-        const [line, images] = seeing(world, oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at), [u]);
+        // the human's line carries the item open on their screen (the decision queue), read live now: "this" means it
+        const onScreen = u.speakerKind === "user" ? focusBlock(world, m) : "";
+        const [line, images] = seeing(world, `${onScreen ? `${onScreen}\n\n` : ""}${oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at)}`, [u]);
         said = talker.input.push(line + (busy ? `\n\n${RESUME_IN_TRAY}` : ""), images) || said;
       }
       f.idx = m.transcript.length;
@@ -223,10 +225,10 @@ const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
 
 /**
  * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's (or the Secretary's) brief in its 1:1,
- * and, beside a live work session, what that session is doing and how to hand it the human's request.
+ * and, beside a live work session, what that session is doing and how to hand it the human's request; last, the item open on the human's screen.
  */
 const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
-  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), world.secretary.brief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
+  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), world.secretary.brief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : "", focusBlock(world, m)].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.

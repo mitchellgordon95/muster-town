@@ -14,6 +14,7 @@ import type { Agent } from "@muster-town/schema";
 import { grantName } from "@muster-town/schema";
 import { decideRetainer } from "./retainers.ts";
 import { badRequest, forbidden, notFound } from "./errors.ts";
+import { focusTarget } from "./meeting-focus.ts";
 import { meetingNotice } from "./meetings.ts";
 import { ruleFromOneOnOne } from "./secretary.ts";
 import { oneLine } from "./text.ts";
@@ -25,12 +26,16 @@ const ACT_WINDOW_MS = 30 * 60_000;
 const GRANT_ACTIONS = ["fund", "counter", "reject", "continue", "adjust", "cut"] as const;
 const RETAINER_ACTIONS = ["approve", "counter", "reject"] as const;
 
-export function actForHuman(world: World, agent: Agent, input: VerbIn<"act_in_1on1">, now = new Date()) {
-  if (input.action === "stop") throw forbidden("building.fund", "Stopping a grant stays the human's own button (Stop grant… on the grant): it cancels running work. Tell them where it is.");
-  if (input.targetId.startsWith("bi_")) throw forbidden("building.fund", "Bank inputs are out of reach of a 1:1: the human changes them at the Bank themselves.");
-  const m = world.meetings.get(input.meetingId);
-  if (!m) throw notFound("Meeting", input.meetingId);
+export function actForHuman(world: World, agent: Agent, given: VerbIn<"act_in_1on1">, now = new Date()) {
+  if (given.action === "stop") throw forbidden("building.fund", "Stopping a grant stays the human's own button (Stop grant… on the grant): it cancels running work. Tell them where it is.");
+  if (given.targetId?.startsWith("bi_")) throw forbidden("building.fund", "Bank inputs are out of reach of a 1:1: the human changes them at the Bank themselves.");
+  const m = world.meetings.get(given.meetingId);
+  if (!m) throw notFound("Meeting", given.meetingId);
   if (m.kind !== "one-on-one" || !m.withUserId) throw badRequest(`${m.id} is not a 1:1: act_in_1on1 only acts on what a human said to you in their 1:1.`);
+  // no target named: the item open on the human's screen ("fund it"), still only on their cited words and their own gates
+  const targetId = given.targetId ?? focusTarget(world, m);
+  if (!targetId) throw badRequest(m.focus ? `The item open on ${world.nameOf(m.withUserId)}'s screen (${m.focus.id}) is not a grant, retainer or outbox request act_in_1on1 can decide: name the targetId, or tell them which button does it.` : "Name the targetId: nothing is open on the human's screen.");
+  const input = { ...given, targetId };
   if (m.phase !== "discussing") throw badRequest(`The 1:1 ${m.id} is ${m.phase}, not discussing: act only while it is open.`);
   if (m.facilitatorId !== agent.id) throw forbidden("meeting.facilitate", `You are not the agent of the 1:1 ${m.id}: only the agent the human is talking to acts on their words.`);
   const said = m.transcript.filter((u) => u.at === input.utteranceAt);

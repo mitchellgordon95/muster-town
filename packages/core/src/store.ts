@@ -305,7 +305,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     docs: new Table<Doc>(db, "docs", Doc, { json: ["provenance", "tags", "flagPos"] }, (doc) => changes.emit({ type: "doc", doc })),
     assignments: new Table<Assignment>(db, "assignments", Assignment, { bool: ["offered"], json: ["waitFor", "origin", "pages"] }, (assignment) => changes.emit({ type: "assignment", assignment })),
     messages: new Table<Message>(db, "messages", Message, { json: ["origin"] }),
-    meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions", "brings", "deck"], bool: ["askHumans"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
+    meetings: new Table<Meeting>(db, "meetings", Meeting, { json: ["attendeeIds", "summaries", "transcript", "decisions", "brings", "deck", "focus"], bool: ["askHumans"] }, (meeting) => changes.emit({ type: "meeting", meeting })),
     sessions: new Table<Session, SessionWrite>(db, "sessions", Session, { json: ["byModel", "origin"] }),
     schedules: new Table<Schedule>(db, "schedules", Schedule, { json: ["dailyAt", "pages", "origin"], bool: ["paused"] }),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan", "estimate", "steps", "forecast"], bool: ["needsTopUp"] }),

@@ -1,9 +1,10 @@
-import { grantName, AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { grantName, AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type MeetingFocusKind, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
+import { setMeetingFocus } from "./meeting-focus.ts";
 import { agentsDrafting, clearAgentDrafting, createMeeting, createOneOnOne, endMeeting, meetingDecide, meetingSpeak, noteHumanTyping, presentSlide, recordSlideDecision, setMeetingPhase } from "./meetings.ts";
 import { archiveReport, type ArchiveResult } from "./archive.ts";
 import { retireAsks } from "./asks.ts";
@@ -588,6 +589,8 @@ export class Ops {
     const d = this.world.docs.get(docId);
     return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} archived ${docId}${d ? ` "${d.title}"` : ""}`);
   }
+  /** PUT /meetings/:id/focus: the item open in the 1:1's human's decision queue (null clears it); only that human sets it. */
+  meetingFocus(actor: Agent, meetingId: string, focus: { kind: MeetingFocusKind; id: string } | null): Meeting { return setMeetingFocus(this.world, actor, meetingId, focus); }
   /** POST /meetings/:id/typing: a human has an unsent message in the say box; agents may not end the meeting meanwhile. */
   meetingTyping(actor: Agent, meetingId: string): void {
     const m = this.world.meetings.require(meetingId, "meeting");

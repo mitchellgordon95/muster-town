@@ -2,6 +2,7 @@ import type { Agent, Meeting } from "@muster-town/schema";
 import { AppError, badRequest } from "../errors.ts";
 import { guessedTimesWarning } from "../time.ts";
 import { agentsDrafting, attachmentLine, clearAgentDrafting, currentSlide, decisionTarget, endMeeting, humanStillTalking, humanTyping, meetingDecide, meetingSpeak, noteAgentDrafting, setMeetingPhase } from "../meetings.ts";
+import { focusBlock } from "../meeting-focus.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
@@ -24,6 +25,12 @@ function slideOut(world: World, m: Meeting): { slide?: { deck: string; n: number
   return s ? { slide: { deck: s.deckTitle, n: s.n, of: s.count, title: s.title, text: s.text, ...(s.notes ? { notes: s.notes } : {}) } } : {};
 }
 
+/** A 1:1 whose human has an item open in the decision queue: that item, from live data ("this" in their lines means it). */
+function focusOut(world: World, m: Meeting): { openOnScreen?: string } {
+  const b = focusBlock(world, m);
+  return b ? { openOnScreen: b } : {};
+}
+
 export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">) {
   const m = world.meetings.get(input.meetingId);
   if (!m) throw new AppError("not_found", `No meeting ${input.meetingId}.`);
@@ -40,6 +47,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         humanTyping: humanTyping(world, m.id),
         drafting: agentsDrafting(world, m.id).map(name),
         ...slideOut(world, m),
+        ...focusOut(world, m),
       };
     case "summary": {
       if (!input.text?.trim()) throw badRequest("summary needs text (up to three short lines).");
@@ -79,6 +87,7 @@ export async function meeting(world: World, me: Agent, input: VerbIn<"meeting">)
         humanTyping: humanTyping(world, m.id),
         utterances: heard.map((u) => ({ speaker: name(u.speakerId), speakerKind: u.speakerKind, text: u.text, at: u.at, ...(u.attachment ? { presented: attachmentLine(u.attachment) } : {}) })),
         ...slideOut(world, now),
+        ...focusOut(world, now),
       };
     }
     case "decide":
