@@ -60,14 +60,22 @@ describe("key-result evidence class (docs/legible-delegation.md §5)", () => {
     expect(world.notices.count("kind = 'verified'")).toBe(1);
   });
 
-  it("migration 103 back-fills met as verified and claimed as claimed", () => {
-    const { world, k1, k2 } = lab();
-    world.keyResults.patch(k1.id, { status: "met" });
+  it("migration 103 back-fills met by a human as verified; met by an agent (a manager's close) or by no one, and claimed, as claimed", () => {
+    const { world, admin, pix, k1, k2, g } = lab();
+    const human = world.holderOf(admin).id;
+    expect(human).toMatch(/^us_/);
+    world.keyResults.patch(k1.id, { status: "met", statusBy: human });
     world.keyResults.patch(k2.id, { status: "claimed" });
+    const [k3, k4] = [
+      world.keyResults.upsert({ ...world.keyResults.require(k1.id), id: "kr_byagent", status: "met", statusBy: pix.id, grantId: g.id }),
+      world.keyResults.upsert({ ...world.keyResults.require(k1.id), id: "kr_bynoone", status: "met", statusBy: null, grantId: g.id }),
+    ];
     world.db.exec("ALTER TABLE key_results DROP COLUMN evidence");
     world.db.prepare("DELETE FROM schema_version WHERE version = 103").run();
     migrate(world.db);
     expect(world.keyResults.require(k1.id).evidence).toBe("verified");
     expect(world.keyResults.require(k2.id).evidence).toBe("claimed");
+    expect(world.keyResults.require(k3.id).evidence).toBe("claimed");
+    expect(world.keyResults.require(k4.id).evidence).toBe("claimed");
   });
 });
