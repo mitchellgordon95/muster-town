@@ -73,7 +73,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const g = fund(100_000);
     spend(g.id, 100_000);
     expect(world.grants.require(g.id).status).toBe("checkpoint");
-    expect(live("grant", g.id)).toEqual([expect.objectContaining({ type: "money", title: expect.stringContaining("at its checkpoint") })]);
+    expect(live("grant", g.id)).toEqual([expect.objectContaining({ type: "money", title: expect.stringContaining("is held at its ceiling") })]);
     expect(live("grant", g.id)[0]!.branches.map((b) => b.label)).toEqual(["Adjust", "Cut"]);
     world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 150_000 });
     expect(live("grant", g.id)).toEqual([]);

@@ -162,7 +162,8 @@ describe("grants service", () => {
     const LEGAL: Record<string, GrantStatus[]> = {
       propose: ["draft", "countered"],
       fund: ["proposed"], counter: ["proposed"], reject: ["proposed"],
-      continue: ["checkpoint"], adjust: ["checkpoint"], cut: ["checkpoint"],
+      // a running grant is adjusted, or cut (it stops), from its forecast's money ask (docs/legible-delegation.md §7.3)
+      continue: ["checkpoint"], adjust: ["checkpoint", "funded"], cut: ["checkpoint", "funded"],
     };
     const AFTER: Record<string, GrantStatus> = { propose: "proposed", fund: "funded", counter: "countered", reject: "rejected", continue: "funded", adjust: "funded", cut: "closed" };
     const { world, manager, admin, draft, charge } = setup();
