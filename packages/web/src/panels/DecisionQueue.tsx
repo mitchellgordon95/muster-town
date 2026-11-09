@@ -29,6 +29,12 @@ import { Glyph } from "./PanelShell";
 import { Sheet } from "./Sheet";
 import { Empty, ErrorLine, Loading, Pill, timeAgo, useLoad } from "./ui";
 
+/** Walk to the Town Hall hydrant and open the decision queue there (open it at once when there is no walking: a guest, no map). */
+export function goToQueue(): void {
+  const hall = store.state.buildings.find((b) => b.kind === "town-hall");
+  if (!hall || !store.walkTo(`hydrant:${hall.id}`, { kind: "queue" })) store.open({ kind: "queue" });
+}
+
 /** The queue sheet over the map: loads the Town Hall's waiting items and opens the Secretary's 1:1 beside it. */
 export function DecisionQueue({ onClose }: { onClose: () => void }) {
   const hall = useTown((s) => s.buildings.find((b) => b.kind === "town-hall"));

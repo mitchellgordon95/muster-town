@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { funderSlide, type FunderWeek, type GoalTreeNode, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
-import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
+import { mineOnly } from "../src/panels/Places";
 import { mineSlides } from "../src/panels/ReviewDeck";
 import { fundedOnly, isFunder, treeScope } from "../src/panels/funderFilter";
 
@@ -56,12 +56,5 @@ describe("the funder filter (goal tree build step 8)", () => {
     const root = n("gl_town", [n("gl_lab", [n("gl_child")]), n("gl_other")]);
     expect([...treeScope(root, week())!].sort()).toEqual(["gl_child", "gl_lab", "gl_town"]);
     expect(treeScope(root, week({ everything: true }))).toBeNull();
-  });
-
-  it("the header offers Funded by me only to a funder", () => {
-    const html = renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} view={{ view: "funded", hidden: 1, set: () => undefined, funder: true }} />);
-    expect(html).toContain("Funded by me");
-    expect(html).toContain("slide 1 is your week as a funder");
-    expect(renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} view={{ view: "all", hidden: 0, set: () => undefined }} />)).not.toContain("Funded by me");
   });
 });

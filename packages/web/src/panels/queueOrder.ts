@@ -62,7 +62,8 @@ export function waitingSince(x: QueueItem): string | null {
 
 /**
  * The queue, front first. `allAsks` is every ask the read carried (before the Mine filter), so an item whose ask is
- * only hidden by the view still counts as asked. Countered grants wait on the manager, and a retainer counts only
+ * only hidden by the view still counts as asked. Only a proposed or checkpoint grant waits on a human (a countered one
+ * waits on the manager), and a retainer counts only
  * while it is asked: neither is in the queue.
  */
 export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[] = t.asks): QueueItem[] {
@@ -71,7 +72,7 @@ export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "s
   const free = <T extends { id: string }>(xs: T[]) => xs.filter((x) => !asked.has(x.id));
   const rest: QueueItem[] = [
     ...free(t.reports).map((doc) => ({ kind: "report" as const, id: doc.id, doc })),
-    ...free(t.grants).filter((g) => g.status !== "countered").map((grant) => ({ kind: "grant" as const, id: grant.id, grant })),
+    ...free(t.grants).filter((g) => g.status === "proposed" || g.status === "checkpoint").map((grant) => ({ kind: "grant" as const, id: grant.id, grant })),
     ...free(t.retainers).filter((x) => x.retainer === "asked").map((retainer) => ({ kind: "retainer" as const, id: retainer.id, retainer })),
     ...free(t.captains).map((req) => ({ kind: "captain" as const, id: req.id, req })),
     ...free(t.access).map((req) => ({ kind: "access" as const, id: req.id, req })),

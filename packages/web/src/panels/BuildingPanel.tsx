@@ -1,4 +1,5 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+import { goToQueue } from "./DecisionQueue";
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
 import { type Agent, BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type TownPublish, type Workspace } from "@muster-town/schema";
@@ -112,7 +113,7 @@ function Overview({ b }: { b: SnapshotBuilding }) {
             </button>
           ) : null}
           {hasHydrant ? (
-            <button className="walk-link" onClick={() => walk(`hydrant:${b.id}`, { kind: "queue" })}>
+            <button className="walk-link" onClick={goToQueue}>
               <Glyph kind="hydrant" /><span>Walk to the hydrant (the decision queue, one item at a time)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
