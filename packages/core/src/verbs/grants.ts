@@ -1,5 +1,6 @@
 import { grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
 import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
@@ -32,7 +33,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   const card = ask
     ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
     : proposalCard({ objective: fields.objective, askTokens: fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
-  refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant" }));
+  refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) }));
   const g = world.transaction(() => {
     const proposed = open
       ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))

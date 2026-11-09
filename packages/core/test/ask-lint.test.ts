@@ -45,7 +45,7 @@ describe("the ask linter (docs/legible-delegation.md §5)", () => {
     expect(rules("One step is left.", { recommendation: "Continue", branches: [{ label: "Continue" }] })).toEqual(["branches"]);
     expect(rules("If you continue: it closes. If you cut: it stops.", { recommendation: "Continue" })).toEqual([]);
     // every rule is data with a name and the line a prompt quotes
-    expect(ASK_LINT_RULES.map((r) => r.name)).toEqual(["sentence-length", "no-ids", "no-semicolons", "no-parentheses", "one-instruction", "condition-first", "recommendation", "branches"]);
+    expect(ASK_LINT_RULES.map((r) => r.name)).toEqual(["sentence-length", "no-ids", "no-semicolons", "no-parentheses", "one-instruction", "condition-first", "recommendation", "branches", "dictionary"]);
   });
 
   it("the §5 Prod ask fails as first written and passes as a card", () => {

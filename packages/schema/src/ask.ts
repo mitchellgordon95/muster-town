@@ -16,6 +16,17 @@ export interface AskCard {
   claims?: readonly unknown[];
   /** what the ask is about: a money ask on a retainer carries no steps */
   targetKind?: string | null;
+  /** the town dictionary's "avoid → use" pairs (core dictionary.ts reads them from the Town Hall doc at vet time); none: the rule passes */
+  dictionary?: readonly DictionaryPair[];
+}
+
+/** One "avoid → use" line of the town dictionary (§5): a word or phrase the town does not use, and the one it uses instead. */
+export interface DictionaryPair { avoid: string; use: string }
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The first avoided word of the dictionary in a sentence (whole words, any case), or null. */
+function avoidedIn(sentence: string, pairs: readonly DictionaryPair[]): DictionaryPair | null {
+  return pairs.find((p) => p.avoid.trim() && new RegExp(`(?<![A-Za-z0-9-])${escapeRe(p.avoid.trim()).replace(/[ -]/g, "[\\s-]+")}s?(?![A-Za-z0-9-])`, "i").test(sentence)) ?? null;
 }
 
 // ---- sentences ----
@@ -95,6 +106,14 @@ export const ASK_LINT_RULES: readonly AskLintRule[] = [
   {
     name: "branches", scope: "card", says: "at least two branches (the buttons, or \"If you …\" sentences)",
     fails: (card, sentences) => (card.branches?.length ?? 0) >= 2 || ifBranches(sentences) >= 2 ? null : "fewer than two branches: name each choice and what follows from it",
+  },
+  {
+    // step 10: one meaning per word; the pairs are data the caller passes (the Town Hall's dictionary doc)
+    name: "dictionary", scope: "card", says: "the town dictionary's words (an avoided word is refused with its replacement)",
+    fails: (card, sentences) => {
+      const hits = sentences.flatMap((s) => { const p = avoidedIn(s, card.dictionary ?? []); return p ? [`"${p.avoid}" in "${s.length > 80 ? `${s.slice(0, 79)}…` : s}": use "${p.use}"`] : []; });
+      return hits.length ? `the dictionary avoids ${hits.join("; ")}` : null;
+    },
   },
 ];
 

@@ -8,6 +8,7 @@ import { meeting } from "./meeting.ts";
 import { forkStatus } from "../forkstatus.ts";
 import { actForHuman } from "../act-in-1on1.ts";
 import { adoptGoal } from "../entities.ts";
+import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
@@ -23,6 +24,7 @@ export const verbImpls = {
     if (!input.order && !input.slate && !input.defer) return { inputs: rankInputsText(world) };
     return applyRank(world, me, input);
   },
+  calibrate: async (world: World, me: Agent, input: VerbIn<"calibrate">) => calibrate(world, me, input),
   adopt: async (world: World, me: Agent, input: VerbIn<"adopt">) => {
     const { building, desk } = adoptGoal(world, me.id, input.goalId);
     return { buildingId: building.id, name: building.name, goalId: building.goalId, manager: me.id, desk, note: `You manage ${building.name} now: \`tell\` to ${building.id} reaches you, its in-tray is yours. The town never forks a visitor, so do its work yourself (assign with your own agentId).` };

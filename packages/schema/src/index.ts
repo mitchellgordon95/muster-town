@@ -678,6 +678,7 @@ export const DocType = z.enum([
   "bulletin",      // a human's note on the bulletin board in the town square (core bulletin.ts, flag dc_52njv3shp8): published in no building, newest first
   "page",          // a full HTML page (scripts allowed): the web shows it in a sandboxed iframe (sandbox="allow-scripts", no same origin) inside a centred sheet, never in the Markdown sanitizer (PageView.tsx, grant gr_4csjpgh346)
   "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance. Nothing new writes one (legible delegation step 5); old cards stay readable
+  "dictionary",    // legible delegation step 10: the town dictionary (core dictionary.ts): one Town Hall doc, one meaning per word and an "avoid → use" list the ask linter reads
   "policy",        // the policy ledger (core secretary.ts, legible delegation §6): one Town Hall doc, one rule per line with its origin, pinned in every manager's prompt; a line is added only when a human decides "Add this rule to the ledger?"
 ]);
 export type DocType = z.infer<typeof DocType>;
@@ -1439,6 +1440,30 @@ export const Grant = z.object({
   updatedAt: Iso,
 });
 export type Grant = z.infer<typeof Grant>;
+// ---------- legible delegation steps 9-10 (docs/legible-delegation.md §5, §7.4, §9) ----------
+/**
+ * How a key result's evidence is known (§5 "A town dictionary"): verified (a human marked it met, or a `kr` claim check
+ * the server ran passed), claimed (a fork's report or the manager says so), unknown. A column beside `status` (migration 103).
+ */
+export const KrEvidence = z.enum(["verified", "claimed", "unknown"]);
+export type KrEvidence = z.infer<typeof KrEvidence>;
+/**
+ * The Planner's calibration proposal on a policy ask (targetKind "rule", migration 104): one concrete change to the
+ * step-size table. raise / lower set `size` to `to` tokens; split asks that steps of `size` be split (no table change).
+ * Deciding the ask "Adopt" applies it (core planner.ts `onRuleAskDecided`).
+ */
+export const CalibrationProposal = z.object({
+  kind: z.literal("step-size"),
+  change: z.enum(["raise", "lower", "split"]),
+  size: StepSize,
+  from: z.number().int().positive(),
+  to: z.number().int().positive().nullable(),
+  /** the line that was crossed, in words */
+  line: z.string(),
+});
+export type CalibrationProposal = z.infer<typeof CalibrationProposal>;
+// ---------- end legible delegation steps 9-10 ----------
+
 export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "missed"]);
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
 /**
@@ -1474,6 +1499,8 @@ export const KeyResult = z.object({
   /** a reorg ("Change this goal", build step 5) put it under review */
   underReviewSince: Iso.nullable().default(null),
   postmortemDocId: Id.nullable().default(null),
+  /** legible delegation step 10: how its evidence is known (KrEvidence; the column defaults to "unknown", absent reads as unknown); `status` is unchanged by it */
+  evidence: KrEvidence.optional(),
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
@@ -1854,7 +1881,7 @@ export const CheckpointEvidence = z.object({
   grantId: Id,
   objective: z.string(),
   /** per key result: its status, the latest note and who set it (`by`: a name; null while nobody did) */
-  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string(), by: z.string().nullable().default(null) })),
+  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string(), by: z.string().nullable().default(null), /* step 10 */ evidence: KrEvidence.optional() })),
   spentTokens: z.number().int().nonnegative(),
   grantTokens: z.number().int().nonnegative(),
   topUpTokens: z.number().int().positive().nullable(),
@@ -1966,6 +1993,8 @@ export const Ask = z.object({
   tags: z.array(z.string()).default([]),
   /** legible delegation step 5: the Secretary's order over the open asks (1 = first; null = unranked) */
   rank: z.number().int().positive().nullable().default(null),
+  /** legible delegation step 9: the Planner's machine-readable table change on a rule ask (deciding "Adopt" applies it); null on every other ask */
+  proposal: CalibrationProposal.nullable().default(null),
 });
 export type Ask = z.infer<typeof Ask>;
 /**
@@ -2106,6 +2135,7 @@ export const EventType = z.enum([
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.refused", "ask.checked",
   "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
+  "kr.verified", "calibration.adopted", // legible delegation steps 9-10 (core ask-checks.ts, planner.ts)
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.forecast", "grant.top-up-needed", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
@@ -2328,6 +2358,12 @@ export const VerbInputs = {
       rule: z.string().trim().min(1).max(300).optional().describe("one line of policy the pattern suggests: filed as a policy ask \"Add this rule to the ledger?\" for a human to decide"),
     }).optional().describe("the weekly run: file the pattern notice"),
   }),
+  // legible delegation step 9: the Planner's calibration run (core planner.ts)
+  calibrate: z.object({
+    title: z.string().trim().min(1).max(200).optional().describe("the ask's title: the change in plain words"),
+    body: z.string().trim().min(1).max(3000).optional().describe("the card: Rule, the data, what you did, what reversing costs, If you adopt / If you keep it"),
+    recommendation: z.string().trim().min(1).max(400).optional().describe("the branch you recommend and why, one sentence"),
+  }),
 } as const;
 export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
@@ -2366,6 +2402,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
+  calibrate: "(Planner) The weekly calibration run. With no arguments: the budget measures, the Planner's lines, which are crossed and the town's one proposed change to the step-size table. With title, body and recommendation: file that change as one policy ask (Adopt / Keep as is) for a human; refused when no line is crossed or one already waits. It never changes the table itself.",
   rank: "(Secretary) The Town Hall's ranking runs. With no arguments: every open ask with its type, age, building, body, branches, recommendation and sources, then the last 30 money decisions with their notes; with week: true, the last 7 days of asks, rollups and events (the weekly run). With order: rank the open asks; slate: file the money slate (fund now, hold until, skip) as a notice; defer: park an ask behind the one it is moot without; pattern: file the weekly pattern notice (and its rule as a policy ask). It never funds, decides or approves anything.",
   redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI already fast-forwards `prod` and redeploys muster.town after every green push to main, so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };

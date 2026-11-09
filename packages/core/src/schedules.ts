@@ -15,6 +15,7 @@ import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
 import { secretaryIdleReason } from "./secretary.ts";
+import { calibrationIdleReason, calibrationRunText } from "./planner.ts";
 import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -265,7 +266,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
     try {
       a = world.transaction(() => {
         const made = createAssignment(world, {
-          agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
+          agentId: taker.agentId, title: s.title, description: calibrationRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
           // a named taker runs on the schedule's model too (the Secretary: SECRETARY_MODEL)
@@ -295,9 +296,9 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
   return { fired, ended };
 }
 
-/** Why a due run has nothing to do (it is skipped, no session), or null: only the Secretary's runs know one today. */
+/** Why a due run has nothing to do (it is skipped, no session), or null: the Secretary's runs and the Planner's calibration know one. */
 function scheduleIdleReason(world: World, s: Schedule, at: Date): string | null {
-  return s.takerId && s.takerId === world.secretary.agent()?.id ? secretaryIdleReason(world, s, at) : null;
+  return s.takerId && s.takerId === world.secretary.agent()?.id ? secretaryIdleReason(world, s, at) : calibrationIdleReason(world, s, at);
 }
 
 /** A building's schedules, active first (soonest run first), then the 20 most recently ended. */
