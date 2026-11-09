@@ -6,7 +6,7 @@
 import type { Ask } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId } from "../src/index.ts";
-import { CLAIM_STALE_MS, claimsStale, runClaimChecks, urlOfHowToCheck } from "../src/ask-checks.ts";
+import { CLAIM_STALE_MS, claimsStale, readsAsks, runClaimChecks, urlOfHowToCheck } from "../src/ask-checks.ts";
 import { createAsk } from "../src/asks.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -85,6 +85,43 @@ describe("claim checks (docs/legible-delegation.md §5)", () => {
     expect(claimsStale(world, manual)).toBe(false);
     expect(await runClaimChecks(world, manual, { fetch: () => { throw new Error("no call"); } })).toBe(manual);
   }, 30_000);
+
+  it("refuses an api check on /api/asks (reading an ask re-runs its checks) and stores each result as its check finishes", async () => {
+    const { world, by } = seededWorld();
+    const mei = by("Mei");
+    world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
+    const called: string[] = [];
+    let release!: () => void;
+    const slow = new Promise<void>((r) => { release = r; });
+    world.host.apiGet = async (path) => {
+      called.push(path);
+      if (path === "/api/slow") await slow;
+      return { status: 200, body: { ok: true } };
+    };
+    for (const p of ["/api/asks/ak_x", "/api/asks", "/api//asks/ak_x", "/api/ASKS/ak_x", "/api/%61sks/ak_x"]) expect(readsAsks(p)).toBe(true);
+    expect(readsAsks("/api/askstats")).toBe(false);
+    expect(readsAsks("/api/buildings/x")).toBe(false);
+    const { ask } = createAsk(world, {
+      type: "money", buildingId: LAB, sourceDocId: null, by: mei.id, title: "Recursion", body: "b", recommendation: "r",
+      branches: [{ label: "Yes" }, { label: "No" }],
+      claims: [
+        { text: "Reads an ask", check: { kind: "api", ref: "GET /api/asks/ak_x /ask/status open" } },
+        { text: "Fast", check: { kind: "api", ref: "GET /api/fast /ok" } },
+        { text: "Slow", check: { kind: "api", ref: "GET /api/slow /ok" } },
+      ],
+    });
+    const run = runClaimChecks(world, ask);
+    await new Promise((r) => setTimeout(r, 10));
+    // the refused and the fast results are stored while the slow check still runs
+    const mid = world.asks.require(ask.id).claims;
+    expect(mid[0]!.result).toMatchObject({ ok: false, note: expect.stringMatching(/^refused: an api check never reads \/api\/asks/) });
+    expect(mid[1]!.result).toMatchObject({ ok: true });
+    expect(mid[2]!.result).toBeUndefined();
+    release();
+    const done = await run;
+    expect(done.claims[2]!.result).toMatchObject({ ok: true });
+    expect(called).toEqual(["/api/fast", "/api/slow"]);
+  });
 
   it("reads the URL a key result's howToCheck runs", () => {
     expect(urlOfHowToCheck("curl -s https://muster.town/api/health | jq .commit")).toBe("https://muster.town/api/health");

@@ -51,22 +51,31 @@ export function claimsStale(world: World, ask: Pick<Ask, "claims">, now = Date.n
 export async function runClaimChecks(world: World, ask: Ask, deps: CheckDeps = {}): Promise<Ask> {
   if (!ask.claims.some((c) => mechanical(world, c))) return ask;
   const now = deps.now ?? (() => new Date());
-  const results = await Promise.all(ask.claims.map((c) => checkClaim(world, c, deps).then((r) => r && { ...r, at: now().toISOString() })));
-  // the ask may have changed while the checks ran: write the results onto its claims as they stand now, matched by text
+  const keyOf = (c: AskClaim) => `${c.text}\n${c.check.kind}\n${c.check.ref ?? ""}`;
+  // each result is stored as its check finishes, so a slow check never holds back the others'. The ask may have changed
+  // while the checks ran: a result is written onto its claim as the ask stands now, matched by text and check
+  const store = (key: string, r: Result): void => {
+    const cur = world.asks.get(ask.id);
+    if (!cur || !cur.claims.some((c) => keyOf(c) === key)) return;
+    world.asks.upsert({ ...cur, claims: cur.claims.map((c) => (keyOf(c) === key ? { ...c, result: r } : c)) });
+  };
+  const results = await Promise.all(ask.claims.map((c) => checkClaim(world, c, deps).then((r) => {
+    if (!r) return null;
+    const done = { ...r, at: now().toISOString() };
+    store(keyOf(c), done);
+    return done;
+  })));
   const cur = world.asks.get(ask.id);
   if (!cur) return ask;
-  const byText = new Map(ask.claims.map((c, i) => [`${c.text}\n${c.check.kind}\n${c.check.ref ?? ""}`, results[i]]));
-  const claims = cur.claims.map((c) => { const r = byText.get(`${c.text}\n${c.check.kind}\n${c.check.ref ?? ""}`); return r ? { ...c, result: r } : c; });
-  const next = world.asks.upsert({ ...cur, claims });
   // step 10: a passed kr check verifies its key result (once: a verified one is left alone)
-  for (const c of claims) if (c.check.kind === "kr" && c.result?.ok) verifyKeyResult(world, c.check.ref?.trim() ?? "", c.result.note ?? "");
+  for (const c of cur.claims) if (c.check.kind === "kr" && c.result?.ok) verifyKeyResult(world, c.check.ref?.trim() ?? "", c.result.note ?? "");
   const ran = results.filter((r): r is Result & { at: string } => !!r);
   world.events.append({
     type: "ask.checked", buildingId: cur.buildingId,
     text: `Checked ${ran.length} claim${ran.length === 1 ? "" : "s"} of "${cur.title.slice(0, 80)}": ${ran.filter((r) => r.ok).length} passed`,
     payload: { askId: cur.id, results: ran.map((r) => ({ ok: r.ok, note: r.note ?? "" })) },
   });
-  return next;
+  return cur;
 }
 
 /** Run the ask's checks in the background after a create (never blocks it; a failure is only logged). Only where the server turned them on (`world.host.claimChecks`). */
@@ -176,11 +185,19 @@ function atPointer(doc: unknown, pointer: string): unknown {
     .reduce<unknown>((v, k) => (v !== null && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), doc);
 }
 
+/** Whether an api check's path reads the asks: GET /api/asks/:id re-runs stale checks, so a check reading it would recurse. */
+export function readsAsks(path: string): boolean {
+  let p: string;
+  try { p = decodeURIComponent(new URL(path, "http://town").pathname); } catch { return true; }
+  return /^\/api\/asks(?:\/|$)/i.test(p.replace(/\/{2,}/g, "/"));
+}
+
 async function checkApi(world: World, ref: string): Promise<Omit<Result, "at">> {
   const m = /^(?:GET\s+)?(\/\S*)\s+(\/\S*)(?:\s+(.+))?$/.exec(ref);
   if (!m) return { ok: false, note: "ref is not \"GET <path> <json-pointer> [expected]\"" };
   const [, path, pointer, expected] = m as unknown as [string, string, string, string | undefined];
   if (!path.startsWith("/api/")) return { ok: false, note: "an api check reads the town's own /api/ paths only" };
+  if (readsAsks(path)) return { ok: false, note: "refused: an api check never reads /api/asks (reading an ask runs its checks again)" };
   if (!world.host.apiGet) return { ok: false, note: "no in-process API in this town" };
   const r = await world.host.apiGet(path);
   if (r.status < 200 || r.status >= 300) return { ok: false, note: `GET ${path}: HTTP ${r.status}` };
