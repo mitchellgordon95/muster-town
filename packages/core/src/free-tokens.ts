@@ -1,4 +1,4 @@
-import { ROOT_GOAL_ID, grantPricingOf, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
+import { grantName, ROOT_GOAL_ID, grantPricingOf, type ExploreRule, type FreeTokens, type GoalFunding } from "@muster-town/schema";
 import type { Repos } from "./store.ts";
 import { reservationLeft } from "./explore.ts";
 import { stepCalibration } from "./grant-estimate.ts";
@@ -110,11 +110,11 @@ function claims(world: World, except?: string, now = new Date()): Claim[] {
     if (g.id === except) continue;
     const ceilingLeft = Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id));
     const left = cal ? Math.round(ceilingLeft * (1 - oversell) + expectedRemaining(world, g, cal, ceilingLeft) * oversell) : ceilingLeft;
-    if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded", id: g.id, title: g.objective, at: g.fundedAt ?? g.createdAt });
+    if (left > 0) out.push({ goalId: nodeOf(g), tokens: left, kind: "funded", id: g.id, title: grantName(g), at: g.fundedAt ?? g.createdAt });
   }
   for (const g of world.grants.where("status IN ('proposed', 'countered')")) {
     if (g.id === except) continue;
-    if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask", id: g.id, title: g.objective, at: g.createdAt });
+    if (g.askTokens > 0) out.push({ goalId: nodeOf(g), tokens: g.askTokens, kind: "ask", id: g.id, title: grantName(g), at: g.createdAt });
   }
   // an open reservation claims what its sessions haven't spent yet (they draw on it first; their spend is already off the balance)
   for (const r of world.bankReservations.where("closedAt IS NULL")) {

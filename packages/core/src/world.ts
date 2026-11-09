@@ -6,7 +6,7 @@ import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
-import { backfillAsks } from "./asks.ts";
+import { backfillAsks, retitleClippedAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
@@ -298,6 +298,8 @@ export class World {
     moveManagerRowsToBuildingQueue(this);
     // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
     backfillAsks(this);
+    // migration 105: live town-written cards that quoted a clipped objective are written again from their target; idempotent
+    retitleClippedAsks(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */

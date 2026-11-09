@@ -18,11 +18,13 @@ import { AskCard } from "../src/panels/AskCard";
 import { AsksIntray, askedIds, mineAsks } from "../src/panels/AsksIntray";
 import { branchCall, claimMark, deltaOf, expectedSpend, intrayBadge, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
 import { FundingView } from "../src/panels/FundingView";
+import { GrantPanel } from "../src/panels/GrantPanel";
 import { NoticesFeed, pictureSrc } from "../src/panels/NoticesPanel";
 import { PricingTab } from "../src/panels/PricingTab";
 import { SlideDecision } from "../src/panels/ReviewDeck";
 import { StepStrip } from "../src/panels/StepStrip";
 
+vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span>, openDocLink: () => undefined }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -281,5 +283,30 @@ describe("the review deck's ask slides", () => {
     expect(deck.slides[1]!.kind).toBe("town");
     expect(deck.slides[2]!.askId).toBe("ak_hud");
     expect(deck.slides.some((s) => s.kind === "ask" && s.askId === "ak_policy")).toBe(true);
+  });
+});
+
+describe("a grant is named by its title (migration 105)", () => {
+  it("the ask card's step strip and the funding toggle name the grant by its title, never its objective", () => {
+    signIn();
+    const g = grant("gr_ocean");
+    expect(g.title).toBe("Southern Ocean sink gap");
+    const card = renderToStaticMarkup(<AskCard ask={ask("ak_ocean")} grant={g} onDecided={() => undefined} />);
+    expect(card).toContain('aria-label="Steps of Southern Ocean sink gap"');
+    expect(card).not.toContain(g.objective);
+    const funding = renderToStaticMarkup(<FundingView asks={asks} grants={grants} onDecided={() => undefined} />);
+    expect(funding).toContain('aria-label="Fund Southern Ocean sink gap"');
+  });
+
+  it("the grant page's header is the title, with the objective beneath it", async () => {
+    signIn();
+    // every call the page makes goes to the mock server
+    const client = api() as unknown as Record<string, (...a: unknown[]) => unknown>, server = mock as unknown as Record<string, (...a: unknown[]) => unknown>;
+    for (const k of Object.getOwnPropertyNames(Object.getPrototypeOf(mock))) if (k !== "constructor" && typeof client[k] === "function") vi.spyOn(client, k).mockImplementation((...a: unknown[]) => server[k]!(...a));
+    const el = await mount(<GrantPanel id="gr_ocean" />);
+    await flush();
+    const g = grant("gr_ocean");
+    expect(el.textContent).toContain("Southern Ocean sink gap");
+    expect(el.querySelector(".grant-objective")?.textContent).toBe(g.objective);
   });
 });

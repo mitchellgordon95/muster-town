@@ -41,14 +41,14 @@ describe("the Secretary's ranking run", () => {
     const slate = world.notices.require(out.slateId, "notice");
     expect(slate).toMatchObject({ kind: "slate", buildingId: "town-hall", refs: [kc.id, ka.id, kb.id] });
     expect(slate.title).toMatch(/^Money slate \d{4}-\d\d-\d\d: fund 1, hold 1, skip 1$/);
-    expect(slate.body).toMatch(new RegExp(`\\*\\*Fund now\\*\\*\\n- Fund "A third banner" at 150,000 tokens \\(${kc.id}\\): it unblocks the lab`));
+    expect(slate.body).toMatch(new RegExp(`\\*\\*Fund now\\*\\*\\n- Fund A third banner at 150k \\(${kc.id}\\): it unblocks the lab`));
     expect(slate.body).toContain(`(${ka.id}) until the third banner ships: it builds on it`);
     expect(slate.body).toContain("nothing is funded until you decide each ask");
     expect(world.events.list({ types: ["ask.ranked"] }).at(-1)).toMatchObject({ payload: { ranked: 3, slateId: out.slateId } });
     // the deck opens on today's slate, then the town, then the asks in rank order (each on its grant's own slide)
     const deck = reviewDeck(world).slides;
     expect(deck.slice(0, 5).map((s) => [s.kind, s.askId ?? null])).toEqual([["slate", null], ["town", null], ["proposal", kc.id], ["proposal", ka.id], ["proposal", kb.id]]);
-    expect(deck[2]!.text).toMatch(/_Ask #1 \(money\): Fund "A third banner"/);
+    expect(deck[2]!.text).toMatch(/_Ask #1 \(money\): Fund A third banner at 150k/);
     // an ask left out of a new order loses its rank; a non-money ask or an unknown id is refused, nothing written
     await expect(world.verbs.rank(sec, { order: ["ak_nope"] })).rejects.toThrow(/not an open ask/);
     await expect(world.verbs.rank(sec, { order: [ka.id, ka.id] })).rejects.toThrow(/listed twice/);

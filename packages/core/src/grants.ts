@@ -1,7 +1,7 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
   StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
-  type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput,
+  type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
 import { closedLoopNotice, verifiedNotice } from "./notices.ts";
@@ -453,12 +453,12 @@ export class Grants {
     const steps = this.requireSteps(buildingId, inp.steps);
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
-      id: newId("gr"), buildingId, goalId, keyResultId: null, objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
+      id: newId("gr"), buildingId, goalId, keyResultId: null, title: inp.title ?? grantTitleOf(inp.objective), objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
       stopCondition: inp.stopCondition, askTokens: this.askOf(steps), continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, forecast: null, needsTopUp: false, createdAt: now, updatedAt: now,
     }), inp.keyResults));
-    this.event("grant.created", g, actor, `Draft proposal: ${g.objective}`);
+    this.event("grant.created", g, actor, `Draft proposal: ${grantName(g)}`);
     return this.view(g);
   }
 
@@ -480,7 +480,7 @@ export class Grants {
       if (goal !== g.goalId) for (const k of this.keyResultsOf(g.id)) this.world.keyResults.upsert({ ...k, goalId: goal, updatedAt: nowIso() });
       return saved;
     });
-    this.event("grant.updated", next, actor, `Proposal edited: ${next.objective}`);
+    this.event("grant.updated", next, actor, `Proposal edited: ${grantName(next)}`);
     return this.view(next);
   }
 
@@ -592,8 +592,8 @@ export class Grants {
     const priced = { ...g, askTokens: countered ?? sum };
     const pricedAt = countered !== null && countered !== sum ? `; priced at ${fmt(sum)}` : "";
     const next = this.save(priced, actor, { status: "proposed", estimate: this.estimateFor(priced) }, "propose", priced.askTokens, countered !== null ? `${note ? `${note} ` : ""}(the counter's ${fmt(countered)} tokens${pricedAt})`.trim() : note);
-    this.event("grant.proposed", next, actor, `Proposal: ${next.objective} (${fmt(next.askTokens)} tokens${countered !== null ? `, the counter's${pricedAt}` : ""})`);
-    this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${next.objective}" for ${fmt(next.askTokens)} tokens${countered !== null ? ` (your counter${pricedAt})` : ""}. Fund, counter or reject it on the board.`);
+    this.event("grant.proposed", next, actor, `Proposal: ${grantName(next)} (${fmt(next.askTokens)} tokens${countered !== null ? `, the counter's${pricedAt}` : ""})`);
+    this.notifyFunders(next, actor, `${this.world.nameOf(next.proposedBy)} proposed "${grantName(next)}" for ${fmt(next.askTokens)} tokens${countered !== null ? ` (your counter${pricedAt})` : ""}. Fund, counter or reject it on the board.`);
     return this.view(next);
   }
 
@@ -625,7 +625,7 @@ export class Grants {
         // balance can't cover today is overdrawn and the grant's work waits its turn in the overdraft walk (free-tokens.ts)
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone: passed(spent, tokens), fundedBy: actor ? holderOf(actor).id : "system", fundedWith, fundedAt: nowIso() }, "fund", tokens, inp.note, via);
         const from = fundedWith ? ` funded from ${this.world.bank.input(fundedWith)?.label ?? fundedWith}` : "";
-        this.event("grant.funded", next, actor, `Funded: ${next.objective} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
+        this.event("grant.funded", next, actor, `Funded: ${grantName(next)} (${fmt(tokens)} tokens${from})${this.overdraftNote(next)}`, deck);
         // grant B (gr_b5fyqibfx2): funding runs the plan, step 1 straight onto the building queue; no manager kickoff session
         this.queueStep(next, 0, actor, undefined, inp.note);
         break;
@@ -634,8 +634,8 @@ export class Grants {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note, via);
-        const countered = this.event("grant.countered", next, actor, `Countered: ${next.objective}`, deck);
-        this.notifyManager(next, actor, `A human countered your proposal "${next.objective}": ${inp.note}`);
+        const countered = this.event("grant.countered", next, actor, `Countered: ${grantName(next)}`, deck);
+        this.notifyManager(next, actor, `A human countered your proposal "${grantName(next)}": ${inp.note}`);
         this.decisionAssignment(next, actor, "countered", inp.note, countered);
         break;
       }
@@ -644,8 +644,8 @@ export class Grants {
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note, via);
         // a rejected proposal's key results archive with it (goals keep no open ones)
         for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} rejected`, updatedAt: nowIso() });
-        const rejected = this.event("grant.rejected", next, actor, `Rejected: ${next.objective}`, deck);
-        this.notifyManager(next, actor, `A human rejected your proposal "${next.objective}"${inp.note ? `: ${inp.note}` : "."}`);
+        const rejected = this.event("grant.rejected", next, actor, `Rejected: ${grantName(next)}`, deck);
+        this.notifyManager(next, actor, `A human rejected your proposal "${grantName(next)}"${inp.note ? `: ${inp.note}` : "."}`);
         this.decisionAssignment(next, actor, "rejected", inp.note, rejected);
         break;
       case "continue":
@@ -653,7 +653,7 @@ export class Grants {
         if (spent >= (g.grantTokens ?? 0)) throw new AppError("conflict", "The grant is fully spent: top it up (adjust with more tokens) or cut it.");
         // the top-up line was about the tokens just granted: the next hold asks the forks for a new one
         next = this.save(g, actor, { status: "funded", topUpTokens: null, whatTopUpBuys: "" }, "continue", null, inp.note, via);
-        this.event("grant.funded", next, actor, `Continued: ${next.objective}`, deck);
+        this.event("grant.funded", next, actor, `Continued: ${grantName(next)}`, deck);
         break;
       case "adjust": {
         // a running grant is adjusted too: its forecast's money ask arrives before the hold (docs/legible-delegation.md §7.3 point 4)
@@ -664,7 +664,7 @@ export class Grants {
         // the forecast stays, measured against the new ceiling
         const forecast = g.forecast ? { ...g.forecast, ceiling: tokens, overCeiling: g.forecast.projected > tokens, shortfall: Math.max(0, g.forecast.projected - tokens) } : g.forecast;
         next = this.save(g, actor, { ...edits, status: "funded", grantTokens: tokens, checkpointsDone, topUpTokens: null, whatTopUpBuys: "", forecast, needsTopUp: !!forecast?.overCeiling }, "adjust", tokens, inp.note, via);
-        this.event("grant.funded", next, actor, `Adjusted: ${next.objective} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
+        this.event("grant.funded", next, actor, `Adjusted: ${grantName(next)} (${fmt(tokens)} tokens)${this.overdraftNote(next)}`, deck);
         break;
       }
       case "cut":
@@ -672,8 +672,8 @@ export class Grants {
         if (g.status === "funded") return this.stop(actor, g.id, { reason: inp.note.trim() || "Cut at its forecast: projected past its ceiling." });
         this.requireStatus(g, ["checkpoint"], "cut");
         next = this.save(g, actor, { status: "closed", outcome: "cut", closedAt: nowIso() }, "cut", null, inp.note, via);
-        this.event("grant.closed", next, actor, `Cut: ${next.objective}`, { ...deck, ...this.estimateVsActual(next) });
-        this.notifyManager(next, actor, `A human cut the grant "${next.objective}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
+        this.event("grant.closed", next, actor, `Cut: ${grantName(next)}`, { ...deck, ...this.estimateVsActual(next) });
+        this.notifyManager(next, actor, `A human cut the grant "${grantName(next)}" at its checkpoint${inp.note ? `: ${inp.note}` : "."}`);
         break;
     }
     return this.view(next);
@@ -730,7 +730,7 @@ export class Grants {
       return this.stop(actor, id, { reason: inp.note.trim() || `Stopped by ${actor ? this.world.nameOf(actor.id) : "the town"}.` });
     }
     const next = this.save(g, actor, { status: "closed", outcome: inp.outcome, closedAt: nowIso() }, "close", null, inp.note);
-    this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${next.objective}`, this.estimateVsActual(next));
+    this.event("grant.closed", next, actor, `Closed (${inp.outcome}): ${grantName(next)}`, this.estimateVsActual(next));
     return this.view(next);
   }
 
@@ -751,8 +751,8 @@ export class Grants {
     return this.world.transaction(() => {
       const next = this.save(g, actor, { status: "closed", outcome: "stopped", closedAt: nowIso() }, "withdraw", null, why);
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} withdrawn: ${why}`.slice(0, 2000), updatedAt: nowIso() });
-      this.event("grant.closed", next, actor, `Withdrawn: ${next.objective}: ${why}`, { outcome: "stopped", withdrawn: true, note: why });
-      if (g.status !== "draft") this.notifyFunders(next, actor, `${actor ? this.world.nameOf(actor.id) : "The manager"} withdrew the proposal "${next.objective}" (${next.id}, ${fmt(next.askTokens)} tokens asked): ${why}`);
+      this.event("grant.closed", next, actor, `Withdrawn: ${grantName(next)}: ${why}`, { outcome: "stopped", withdrawn: true, note: why });
+      if (g.status !== "draft") this.notifyFunders(next, actor, `${actor ? this.world.nameOf(actor.id) : "The manager"} withdrew the proposal "${grantName(next)}" (${next.id}, ${fmt(next.askTokens)} tokens asked): ${why}`);
       return this.view(next);
     });
   }
@@ -788,8 +788,8 @@ export class Grants {
         const fork = this.world.agents.get(s.agentId);
         return fork?.forkOf ? [interruptFork(this.world, asker, fork, s, `${who} stopped grant ${g.id}: ${reason}`).forkId] : [];
       }) : [];
-      this.event("grant.updated", next, actor, `Stopping: ${next.objective}: ${reason}`, { stopping: true, reason, forks, cancelled });
-      this.notifyManager(next, actor, `${who} stopped your grant ${g.id} "${next.objective}": ${reason}\n\n${forks.length ? `${forks.length} fork${forks.length === 1 ? " was" : "s were"} asked to wrap up and file their reports; it` : "It"} closes as stopped once no session runs on it. ${cancelled.length ? `Its ${cancelled.length} queued assignment${cancelled.length === 1 ? " was" : "s were"} cancelled. ` : ""}Its open key results are archived as missed. Don't assign more work on it.`);
+      this.event("grant.updated", next, actor, `Stopping: ${grantName(next)}: ${reason}`, { stopping: true, reason, forks, cancelled });
+      this.notifyManager(next, actor, `${who} stopped your grant ${g.id} "${grantName(next)}": ${reason}\n\n${forks.length ? `${forks.length} fork${forks.length === 1 ? " was" : "s were"} asked to wrap up and file their reports; it` : "It"} closes as stopped once no session runs on it. ${cancelled.length ? `Its ${cancelled.length} queued assignment${cancelled.length === 1 ? " was" : "s were"} cancelled. ` : ""}Its open key results are archived as missed. Don't assign more work on it.`);
     });
     this.finishStopping(g.id);
     return this.get(g.id);
@@ -818,7 +818,7 @@ export class Grants {
       this.world.transaction(() => {
         this.cancelQueued(g.id, reason);
         const next = this.save(g, null, { status: "closed", outcome: "stopped", closedAt: nowIso() }, "close", unspentTokens, `Stopped: ${reason} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
-        this.event("grant.closed", next, by ?? null, `Stopped: ${next.objective}: ${reason}; ${returned}`, { outcome: "stopped", reason, spentTokens, grantTokens, unspentTokens, returnedTo, fundedWith: g.fundedWith, ...this.estimateVsActual(next) });
+        this.event("grant.closed", next, by ?? null, `Stopped: ${grantName(next)}: ${reason}; ${returned}`, { outcome: "stopped", reason, spentTokens, grantTokens, unspentTokens, returnedTo, fundedWith: g.fundedWith, ...this.estimateVsActual(next) });
         closed.push(next);
       });
     }
@@ -866,10 +866,10 @@ export class Grants {
       const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "met", note }, { closing: true });
-      this.event("grant.closed", next, actor, `Closed (done): ${next.objective}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
+      this.event("grant.closed", next, actor, `Closed (done): ${grantName(next)}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
       // the closed loop (docs/legible-delegation.md §8): funded on, for, closed at, what it bought (rewritten once the close report lands)
       closedLoopNotice(this.world, next, spentTokens);
-      this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${next.objective}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
+      this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${grantName(next)}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
       return this.view(next);
     });
   }
@@ -893,9 +893,9 @@ export class Grants {
       // the top-up line the forks filed since the last continue stays: it is what the card asks about (continue/adjust clear it)
       const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
         `Spend reached its ceiling: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
-      const hold = this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${g.objective} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: 1, spentTokens: spent, grantTokens: tokens } });
+      const hold = this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${grantName(g)} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: 1, spentTokens: spent, grantTokens: tokens } });
       askAtCheckpoint(this.world, next, spent, hold.text);
-      this.notifyFunders(next, null, `"${g.objective}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the Town Hall in-tray.`);
+      this.notifyFunders(next, null, `"${grantName(g)}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the Town Hall in-tray.`);
       held.push(next);
     }
     return held;
@@ -912,7 +912,7 @@ export class Grants {
       const tokens = g.grantTokens ?? 0;
       if (!g.checkpointsDone.includes(0.5) || g.checkpointsDone.includes(HOLD_FULL) || g.checkpointsDone.includes(HOLD_RESERVE) || !tokens || this.spent(g.id) >= tokens) continue;
       const next = this.save(g, null, { status: "funded" }, "continue", null, "The 50% checkpoint was removed: a grant runs to its full number and is held only at 100%.");
-      this.event("grant.funded", next, null, `Released from the 50% checkpoint: ${next.objective}`);
+      this.event("grant.funded", next, null, `Released from the 50% checkpoint: ${grantName(next)}`);
       released.push(next);
     }
     return released;
@@ -931,16 +931,16 @@ export class Grants {
     const said = note.trim() ? `The note: ${note.trim()}` : "No note was given.";
     if (decision === "countered") {
       intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-countered", title: `Answer the counter on ${g.objective}`.slice(0, 160),
+        rule: "grant-countered", title: `Answer the counter on ${grantName(g)}`.slice(0, 160),
         what: `${who} countered proposal ${g.id}`,
-        summary: `${who} countered your proposal ${g.id} "${g.objective}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
+        summary: `${who} countered your proposal ${g.id} "${grantName(g)}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
         footer: `To answer: read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask); revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, \`withdraw_grant\` it and say what you'd propose instead. Then acknowledge this row with \`review\` approve.`,
       });
     } else {
       intrayRow(this.world, g.buildingId, e, {
         rule: "grant-rejected", title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
         what: `${who} rejected proposal ${g.id}`,
-        summary: `${who} rejected your proposal ${g.id} "${g.objective}" (${fmt(g.askTokens)} tokens asked).\n\n${said}\n\nIts key results (they close with it):\n${krs}`,
+        summary: `${who} rejected your proposal ${g.id} "${grantName(g)}" (${fmt(g.askTokens)} tokens asked).\n\n${said}\n\nIts key results (they close with it):\n${krs}`,
         footer: "Read the note and the proposal, then decide what follows: a different plan (`propose_grant` with its own key results), exploration first (`assign` lane exploration with a gap), or nothing until your next 1:1 or rollup. Acknowledge this row with `review` approve.",
       });
     }

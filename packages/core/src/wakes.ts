@@ -13,6 +13,7 @@
  * decide (a relayed tell, an @mention, an outbox answer, a grant countered or rejected) is such a row too, never a job.
  */
 import type { Agent, Assignment, Doc, Event, Grant } from "@muster-town/schema";
+import { grantName } from "@muster-town/schema";
 import { createAssignment, createDoc, isForkingManager, managerAgentOf, moveToFront } from "./domain.ts";
 import { DIRECTED } from "./lanes.ts";
 import { nowIso } from "./util.ts";
@@ -78,7 +79,7 @@ function describe(world: World, e: Event): { title: string; what: string; summar
     return {
       title: `Grant ${g.id} ${verb}${tokens}`,
       what: `${human} ${verb} grant ${g.id}${heldBefore(g) ? " at its checkpoint" : ""}`,
-      summary: [`Grant ${g.id} "${g.objective}" ${verb} by ${human}${tokens}.`, grantLine(world, g), ...(note ? [`The note: ${note}`] : [])].join("\n\n"),
+      summary: [`Grant ${g.id} "${grantName(g)}" ${verb} by ${human}${tokens}.`, grantLine(world, g), ...(note ? [`The note: ${note}`] : [])].join("\n\n"),
     };
   }
   if (e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted") {

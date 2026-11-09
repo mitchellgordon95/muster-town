@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import { TOKEN_COUNTS_SHAPE, TokenCounts } from "./tokens.ts";
+import { GrantTitle, grantName } from "./grant-title.ts";
 
 // ---------- primitives ----------
 export const Id = z.string().min(1);
@@ -1385,6 +1386,8 @@ export const Grant = z.object({
   goalId: Id.nullable().default(null),
   /** its first key result (all of them: `GrantView.keyResults`); null only on grants from before migration 032 */
   keyResultId: Id.nullable().default(null),
+  /** its short name (migration 105, `GrantTitle`): what names it on asks, events, the slate, deck slides and rows; back-filled from the objective */
+  title: z.string().default(""),
   objective: z.string().min(1).max(300),
   /** how: the approach the plan takes */
   approach: z.string().max(2000).default(""),
@@ -1955,7 +1958,7 @@ export type AskClaim = z.infer<typeof AskClaim>;
 export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
 export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**
@@ -2170,6 +2173,7 @@ export const CreateGrantInput = z.object({
   goalId: Id.optional().describe("the goal it is filed against: your building's goal or one under it (default your building's goal)"),
   keyResults: z.array(GrantKeyResultInput).min(1).max(5).describe("its 1-5 key results: what a human checks in the live town to call the work done, each with how to check and a due date"),
   steps: z.array(GrantStepInput).min(1).max(5).describe("its 1-5 steps in order, each one session's worth with its size (S, M or L): funding queues step 1 on the building queue (a fork runs it), and each step's report queues the next (a pivot verdict stops the chain for your review)"),
+  title: GrantTitle.optional(),
   objective: z.string().trim().min(1).max(300),
   approach: z.string().trim().max(2000).default("").describe("how: the approach the plan takes"),
   stopCondition: z.string().trim().min(1).max(500),
@@ -2201,6 +2205,8 @@ export const UpdateObjectiveInput = z.object({
 });
 export type UpdateObjectiveInput = z.input<typeof UpdateObjectiveInput>;
 export type CreateGrantInput = z.input<typeof CreateGrantInput>;
+/** POST /api/buildings/:id/grants as a request: a title is required going forward (core's `create` derives one for older callers). */
+export const CreateGrantRequest = CreateGrantInput.extend({ title: GrantTitle });
 
 // ---------- verbs (MCP tools) ----------
 /** Inputs for every verb. The MCP server derives tool schemas from these. */
@@ -2289,6 +2295,7 @@ export const VerbInputs = {
     limit: z.number().int().positive().max(40).default(10).describe("how many of its last tool calls (default 10)"),
   }),
   propose_grant: CreateGrantInput.extend({
+    title: GrantTitle,
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
     grantId: Id.optional().describe("answer a counter: the countered proposal to rewrite with this plan and re-propose under its own id (leave it out for a new proposal)"),
     // legible delegation step 3: the money ask's card, linted like a rollup's asks (docs/legible-delegation.md §5)
@@ -2396,7 +2403,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
-  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
+  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
@@ -2508,11 +2515,11 @@ export type BuildingBudget = z.infer<typeof BuildingBudget>;
 export const Stoplight = z.object({ light: z.enum(["green", "yellow", "grey"]), reason: z.string() });
 export type Stoplight = z.infer<typeof Stoplight>;
 /** The stoplight rule, shared by core and the web mock: the building's live (funded or checkpoint) grants. */
-export function stoplightOf(live: { status: GrantStatus; objective: string }[]): Stoplight {
+export function stoplightOf(live: { status: GrantStatus; objective: string; title?: string }[]): Stoplight {
   const n = (k: number, word: string) => `${k} ${word}${k === 1 ? "" : "s"}`;
   if (!live.length) return { light: "grey", reason: "no funded grant: the building explores or idles" };
   const held = live.filter((g) => g.status === "checkpoint");
-  if (held.length) return { light: "yellow", reason: held.length === 1 ? `grant "${held[0]!.objective}" is held at its checkpoint` : `${held.length} grants are held at their checkpoints` };
+  if (held.length) return { light: "yellow", reason: held.length === 1 ? `grant "${grantName(held[0]!)}" is held at its checkpoint` : `${held.length} grants are held at their checkpoints` };
   return { light: "green", reason: `${n(live.length, "funded grant")} running` };
 }
 
@@ -3131,6 +3138,7 @@ export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./rollup.ts";
 export * from "./ask.ts";
+export * from "./grant-title.ts";
 export * from "./deck.ts";
 export * from "./notices.ts";
 export * from "./funders.ts";

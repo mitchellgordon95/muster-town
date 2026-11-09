@@ -25,7 +25,7 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
       recommendation: "Fund: one session does it.",
       claims: [{ text: "The lab has a name", check: { kind: "api" as const, ref: "GET /api/buildings/carbon-cycle /building/name" } }],
     };
-    const r = await world.verbs.propose_grant(mei, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ title: "Step 1", description: "Do the work", size: "M" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "", ask: card });
+    const r = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ title: "Step 1", description: "Do the work", size: "M" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "", ask: card });
     const list = await json(app, "GET", "/api/asks");
     expect(list.status).toBe(200);
     const ask = list.body.asks.find((a: { targetId: string }) => a.targetId === r.grantId);

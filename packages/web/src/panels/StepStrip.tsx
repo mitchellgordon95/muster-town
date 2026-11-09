@@ -3,7 +3,7 @@
  * its size (S, M, L), filled when done, and the money line from the latest forecast: spent of the ceiling and the
  * projected total, red when the forecast runs past the ceiling. Drawn from data, no model. Nothing for a grant without steps.
  */
-import type { GrantView } from "@muster-town/schema";
+import { grantName, type GrantView } from "@muster-town/schema";
 import { fmtTokens } from "./ui";
 
 /** How many steps are done: the forecast's count, else the steps whose latest assignment is done. */
@@ -12,7 +12,7 @@ function stepsDone(g: Pick<GrantView, "steps" | "stepStates" | "forecast">): num
   return (g.stepStates ?? []).filter((s) => s?.status === "done").length;
 }
 
-export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "stepStates" | "forecast" | "spentTokens" | "grantTokens" | "askTokens" | "status"> }) {
+export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "stepStates" | "forecast" | "spentTokens" | "grantTokens" | "askTokens" | "status"> & Partial<Pick<GrantView, "title" | "objective">> }) {
   if (!g.steps?.length) return null;
   const done = stepsDone(g);
   const f = g.forecast ?? null;
@@ -20,7 +20,7 @@ export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "step
   const spent = f?.spent ?? g.spentTokens;
   const over = !!f?.overCeiling;
   return (
-    <div className={over ? "step-strip over" : "step-strip"} aria-label="Steps">
+    <div className={over ? "step-strip over" : "step-strip"} aria-label={g.objective !== undefined ? `Steps of ${grantName({ title: g.title, objective: g.objective })}` : "Steps"}>
       <ol className="step-strip-boxes">
         {g.steps.map((st, i) => {
           const state = i < done ? "done" : g.stepStates?.[i]?.status === "active" ? "running" : "left";

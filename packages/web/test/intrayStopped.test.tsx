@@ -15,7 +15,7 @@ vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), port
 vi.mock("../src/route", async (orig) => ({ ...(await orig<object>()), grantUrl: (id: string) => `/#/grant/${id}` }));
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span>, openDocLink: () => undefined }));
 
-const stopped = { ...(grants[0] as GrantView), id: "gr_stop", objective: "Throwaway grant", status: "closed", outcome: "stopped", proposedBy: "us_m", fundedBy: "us_m", grantTokens: 5000, spentTokens: 144584,
+const stopped = { ...(grants[0] as GrantView), id: "gr_stop", title: "Throwaway grant", objective: "Throwaway grant: a test of the stop", status: "closed", outcome: "stopped", proposedBy: "us_m", fundedBy: "us_m", grantTokens: 5000, spentTokens: 144584,
   history: [{ at: new Date().toISOString(), byId: "us_m", byKind: "user", action: "stop", tokens: null, note: "test stop" }] } as GrantView;
 
 describe("the Town Hall in-tray's stopped grants and digest", () => {

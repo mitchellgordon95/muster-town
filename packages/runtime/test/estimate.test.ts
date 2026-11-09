@@ -8,7 +8,7 @@ const LAB = "carbon-cycle";
 async function propose(world: ReturnType<typeof setup>["world"], runtime: ReturnType<typeof setup>["runtime"]) {
   const manager = world.agents.require(world.buildings.require(LAB).managerAgentId!);
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "a check", howToCheck: "look" }], objective: "Estimate me", approach: "one PR", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
+  const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "a check", howToCheck: "look" }], objective: "Estimate me", approach: "one PR", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
   await runtime.whenIdle();
   return { manager, grant: world.grantDesk.get(r.grantId) };
 }
@@ -62,7 +62,7 @@ describe("open proposals at boot", () => {
     const { world } = first;
     const manager = world.agents.require(world.buildings.require(LAB).managerAgentId!);
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "a check", howToCheck: "look" }], objective: "Old proposal", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "a check", howToCheck: "look" }], objective: "Old proposal", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
     await first.runtime.whenIdle();
     // as proposed before migration 083: nothing recorded
     world.grants.upsert({ ...world.grants.require(r.grantId), estimate: null });

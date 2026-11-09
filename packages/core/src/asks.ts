@@ -9,7 +9,7 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  grantPricingOf, parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
+  ASK_LINT_RULES, askSentences, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
   type AskType, type CalibrationProposal, type CaptainRequest, type Doc, type Event, type Grant, type Schedule, type StepSize,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -68,7 +68,7 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
     if (!source.length || have.sources.some((s) => s.docId === n.sourceDocId && s.line === line)) return { ask: have, folded: true };
     // step 3: a manager's card (one with a recommendation) replaces the town's own wording on an ask that has none yet
     const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED)) && !!n.recommendation?.trim();
-    const card = adopt ? vetted(world, have.type, { body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
+    const card = adopt ? vetted(world, have.type, { title: have.title, body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
     const next = world.asks.upsert({
       ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
       history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId}: ${line}` }, ...(card?.lint ?? [])],
@@ -77,10 +77,10 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
     if (card) queueClaimChecks(world, next.id);
     return { ask: next, folded: true };
   }
-  const card = vetted(world, n.type, { body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
+  const card = vetted(world, n.type, { title: n.title, body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
   const ask = world.asks.upsert(Ask.parse({
     id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
-    title: oneLine(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
+    title: clipWords(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
     status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
@@ -228,8 +228,8 @@ function askForProposal(world: World, g: Grant, line: string): void {
   const kr = world.grantDesk.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text }));
   createAsk(world, {
     type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: g.id, by: g.proposedBy,
-    title: `Fund "${oneLine(g.objective, 120)}" at ${fmt(g.askTokens)} tokens`, line,
-    ...proposalCard({ objective: g.objective, askTokens: g.askTokens, steps: g.steps.length, keyResults: kr, counteredAt: lastCounterAt(g) }),
+    title: proposalTitle(g), line,
+    ...proposalCard({ askTokens: g.askTokens, steps: g.steps.length, keyResults: kr, counteredAt: lastCounterAt(g) }),
     branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }],
   });
 }
@@ -240,44 +240,40 @@ export const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g
 /** The card fields a proposal's money ask carries. */
 type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
 
-/** Most words the card keeps of the objective: STE's limit for a description. */
-const CARD_OBJECTIVE_WORDS = 25;
+/** A proposal's money ask's title: the grant by its title, never its objective (docs/legible-delegation.md §5). */
+const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens">) => `Fund ${grantName(g)} at ${kTokens(g.askTokens)}`;
 
-/**
- * The objective as a proposal card says it: its first sentence (a semicolon ends one too), parenthesised asides
- * dropped, clipped to CARD_OBJECTIVE_WORDS words (ending in an ellipsis when clipped, else a full stop).
- */
-export function cardObjective(objective: string): string {
-  const plain = objective.replace(/\s*\([^()]*\)/g, "").replace(/[()]/g, "").replace(/\s+/g, " ").trim();
-  const first = (plain.split(/(?<=[.!?])\s+|;\s*/)[0] ?? "").trim().replace(/[.!?]+$/, "");
-  const words = first.split(/\s+/).filter(Boolean);
-  if (!words.length) return "";
-  if (words.length > CARD_OBJECTIVE_WORDS) return `${words.slice(0, CARD_OBJECTIVE_WORDS).join(" ").replace(/[,:]+$/, "")}…`;
-  return `${words.join(" ").replace(/[,:]+$/, "")}.`;
+/** A line a card may carry as it stands: every sentence passes the sentence rules of the linter and none has an ellipsis. */
+function lintsClean(line: string): boolean {
+  return !line.includes("…") && askSentences(line).every((s) => ASK_LINT_RULES.every((r) => r.scope !== "sentence" || !r.fails(s)));
 }
 
 /**
  * The card the town writes for a proposal whose explorer gave none (`propose_grant` without `ask`, or a proposal made
- * over REST): the prior decision, the objective, the ask, what is spent, the steps, both branches, and the first two
- * key results as its claims (checked by their howToCheck when it is a curl or a URL). The objective is the explorer's
- * own words: the card carries only its first sentence (`cardObjective`), and the linter judges that (an id there still
- * fails). The full objective stays on the grant.
+ * over REST): the prior decision, what the first key result lets a person see, the ask, what is spent, the steps, both
+ * branches, and the first two key results as its claims (checked by their howToCheck when it is a curl or a URL). The
+ * card is written for the reader and never quotes the objective (§5): the key result is already a short checkable
+ * sentence, and when it fails the linter the line is dropped, never clipped. The full objective stays on the grant.
  */
-export function proposalCard(p: { objective: string; askTokens: number; steps: number; keyResults: { id?: string; text: string }[]; counteredAt?: string | null }): Card {
-  const objective = cardObjective(p.objective);
+export function proposalCard(p: { askTokens: number; steps: number; keyResults: { id?: string; text: string }[]; counteredAt?: string | null }): Card {
   const prior = p.counteredAt ? `You countered it at ${stamp(p.counteredAt)}. This is the revised plan.` : "This is a new proposal. You have not decided on it before.";
+  const first = p.keyResults[0]?.text.replace(/\s+/g, " ").trim() ?? "";
+  const sees = first ? first.replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?])$/, "$1.") : "";
   return {
     body: [
-      prior, objective,
+      prior, lintsClean(sees) ? sees : "",
       `It asks for ${fmt(p.askTokens)} tokens. Nothing is spent yet.`,
       `It has ${p.steps} step${p.steps === 1 ? "" : "s"}, and none is done yet.`,
       "If you fund: step 1 starts on the building queue.",
       "If you reject: nothing runs, and the tokens stay free.",
-    ].join("\n"),
-    recommendation: "Fund it: the building proposed it as its next piece of work.",
-    claims: p.keyResults.slice(0, 2).map((k) => ({ text: `Key result: ${oneLine(k.text, 300)}`, check: k.id ? { kind: "kr" as const, ref: k.id } : { kind: "manual" as const } })),
+    ].filter(Boolean).join("\n"),
+    recommendation: PROPOSAL_RECOMMENDATION,
+    claims: p.keyResults.slice(0, 2).map((k) => ({ text: `Key result: ${clipWords(k.text, 300)}`, check: k.id ? { kind: "kr" as const, ref: k.id } : { kind: "manual" as const } })),
   };
 }
+
+/** The recommendation of the town's own proposal card: how the retitle repair tells the town's card from an explorer's. */
+const PROPOSAL_RECOMMENDATION = "Fund it: the building proposed it as its next piece of work.";
 
 /**
  * Put an author's card on the live ask of a target (`propose_grant` with `ask`): body, recommendation and claims, vetted
@@ -287,7 +283,7 @@ export function setAskCard(world: World, kind: AskTargetKind, id: string, card: 
   const have = liveAskOn(world, kind, id);
   if (!have) return null;
   const at = nowIso();
-  const v = vetted(world, have.type, { ...card, branches: have.branches, targetKind: have.targetKind }, at, by);
+  const v = vetted(world, have.type, { ...card, title: have.title, branches: have.branches, targetKind: have.targetKind }, at, by);
   const next = world.asks.upsert({ ...have, ...card, tags: v.tags, updatedAt: at, history: [...have.history, ...v.lint] });
   queueClaimChecks(world, next.id);
   return next;
@@ -298,11 +294,13 @@ export function askForRetainer(world: World, s: Schedule, why: string): void {
   const v = scheduleView(world, s);
   createAsk(world, {
     type: "money", targetKind: "retainer", targetId: s.id, buildingId: s.buildingId, sourceDocId: s.id,
-    title: `Approve the retainer for "${oneLine(s.title, 100)}" (${fmt(v.askTokens)} tokens)`, line: `${retainerLine(world, v)} (${why})`,
-    body: retainerLine(world, v),
+    title: retainerTitle(s.title, v.askTokens), line: `${retainerLine(world, v)} (${why})`,
+    body: withoutEllipsis(retainerLine(world, v)),
     branches: [{ label: "Approve", action: "approve" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }],
   });
 }
+
+const retainerTitle = (title: string, tokens: number) => `Approve the retainer for "${nameWithin(title)}" at ${kTokens(tokens)}`;
 
 /** A request for a token, key or credential (the click it asks for is issuing one). */
 const CREDENTIAL = /\b(token|tokens|credential|credentials|api[- ]?key|keys?|PAT|password|secret|ssh|oauth|scope)\b/i;
@@ -311,7 +309,7 @@ const CREDENTIAL = /\b(token|tokens|credential|credentials|api[- ]?key|keys?|PAT
 export function askForRequest(world: World, d: Doc): void {
   createAsk(world, {
     type: CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "click", targetKind: "request", targetId: d.id, buildingId: d.buildingId, sourceDocId: d.id,
-    by: d.authorId, title: d.title, body: d.body, line: d.title,
+    by: d.authorId, title: withoutEllipsis(d.title), body: withoutEllipsis(d.body), line: d.title,
     branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }],
   });
 }
@@ -323,7 +321,7 @@ export function askForCaptain(world: World, r: CaptainRequest): void {
   const goal = world.goalTree.get(r.goalId)?.text ?? r.goalId;
   createAsk(world, {
     type: "click", targetKind: "captain", targetId: r.id, buildingId: null, sourceDocId: r.id, by: r.userId,
-    title: `Make ${name} captain of "${oneLine(goal, 100)}"`, body: r.note, line: `${name} asks to captain "${oneLine(goal, 100)}"${r.note ? `: ${r.note}` : ""}`,
+    title: `Make ${name} captain of "${nameWithin(goal)}"`, body: withoutEllipsis(r.note), line: `${name} asks to captain "${oneLine(goal, 100)}"${r.note ? `: ${r.note}` : ""}`,
     branches: [{ label: "Accept", action: "accept" }, { label: "Decline", action: "decline" }],
   });
 }
@@ -334,7 +332,7 @@ export function askForAccess(world: World, r: AccessRequest): void {
   const name = who?.githubLogin ? `@${who.githubLogin}` : who?.name ?? r.userId;
   createAsk(world, {
     type: "click", targetKind: "access", targetId: r.id, buildingId: null, sourceDocId: r.id, by: r.userId,
-    title: `Let ${name} in`, body: r.message, line: `${name} asked to join${r.message ? `: ${r.message}` : ""}`,
+    title: `Let ${name} in`, body: withoutEllipsis(r.message), line: `${name} asked to join${r.message ? `: ${r.message}` : ""}`,
     branches: [{ label: "Let in", action: "grant" }, { label: "Decline", action: "decline" }],
   });
 }
@@ -421,7 +419,7 @@ export function asksFromRollupProse(world: World, d: Doc): void {
     const targetId = money ?? ids[0] ?? null;
     const targetKind = targetId ? kindOf(world, targetId) : null;
     const type: AskType = money ? "money" : POLICY.test(c.call) ? "policy" : "click";
-    const title = oneLine(c.call, 160);
+    const title = clipWords(c.call, 160);
     // idempotent: this rollup already filed this line (on its target, or untargeted under the same title)
     const filed = targetId && targetKind
       ? asksFor(world, { kind: targetKind, id: targetId }).some((a) => a.sources.some((s) => s.docId === d.id))
@@ -429,7 +427,7 @@ export function asksFromRollupProse(world: World, d: Doc): void {
     if (filed) continue;
     createAsk(world, {
       type, targetKind, targetId, buildingId: d.buildingId, sourceDocId: d.id, by: d.authorId, title, line: c.call,
-      body: c.title ? `From "${c.title}" in the rollup "${d.title}".` : `From the rollup "${d.title}".`,
+      body: withoutEllipsis(c.title ? `From "${c.title}" in the rollup "${d.title}".` : `From the rollup "${d.title}".`),
       branches: type === "money" ? [{ label: "Yes" }, { label: "No" }] : type === "policy" ? [{ label: "Keep the rule" }, { label: "Change it" }] : [{ label: "Done" }, { label: "Decline" }],
     });
   }
@@ -460,6 +458,85 @@ export function backfillAsks(world: World): number {
     for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND tags LIKE '%\"rollup\"%'", [], "ORDER BY createdAt, rowid")) asksFromRollupProse(world, d);
   });
   return world.asks.count() - before;
+}
+
+// ---- the retitle repair (migration 105: the town's cards stop quoting the objective) ----
+
+/** The fields of a town-written card, regenerated from its target. */
+type TownCard = Pick<Ask, "title" | "body"> & Partial<Pick<Ask, "recommendation" | "claims">>;
+
+/**
+ * The card the town wrote for this ask, written again from its target: the proposal card, the gate card, a retainer's,
+ * a captain, access or outbox request's. The town filed it when the ask's first source is the target itself (a gate
+ * ask: its Adjust / Cut branches). Null for a card a manager wrote (a rollup's typed ask, an ask read from rollup prose),
+ * and for a target gone. A manager's words merged into a gate ask, or an explorer's proposal card, keep their body.
+ */
+function townCardOf(world: World, a: Ask): TownCard | null {
+  const id = a.targetId;
+  if (!id) return null;
+  switch (a.targetKind) {
+    case "grant": {
+      const g = world.grants.get(id);
+      if (!g) return null;
+      if (isGateAsk(a)) {
+        const card = gateCard(world, g, { held: g.status === "checkpoint", spent: world.grantDesk.spent(g.id) });
+        // a manager's ask that became the gate keeps its own words ahead of the gate card (fileGateAsk)
+        const from = a.body.indexOf("You funded this at");
+        if (from > 0) return { title: card.title, body: `${a.body.slice(0, from).trimEnd()}\n\n${card.body}`, recommendation: card.recommendation };
+        return card;
+      }
+      if (a.sourceDocId !== g.id || g.status !== "proposed") return null;
+      const town = a.recommendation === PROPOSAL_RECOMMENDATION;
+      if (!town) return { title: proposalTitle(g), body: a.body };
+      const kr = world.grantDesk.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text }));
+      return { title: proposalTitle(g), ...proposalCard({ askTokens: g.askTokens, steps: g.steps.length, keyResults: kr, counteredAt: lastCounterAt(g) }) };
+    }
+    case "retainer": {
+      const s = world.schedules.get(id);
+      if (!s || a.sourceDocId !== s.id) return null;
+      const v = scheduleView(world, s);
+      return { title: retainerTitle(s.title, v.askTokens), body: withoutEllipsis(retainerLine(world, v)) };
+    }
+    case "captain": {
+      const r = world.captainRequests.get(id);
+      if (!r || a.sourceDocId !== r.id) return null;
+      const goal = world.goalTree.get(r.goalId)?.text ?? r.goalId;
+      return { title: a.title.replace(/captain of ".*"$/s, `captain of "${nameWithin(goal)}"`), body: withoutEllipsis(r.note) };
+    }
+    case "access": {
+      const r = world.accessRequests.get(id);
+      return r && a.sourceDocId === r.id ? { title: a.title, body: withoutEllipsis(r.message) } : null;
+    }
+    case "request": {
+      const d = world.docs.get(id);
+      return d && a.sourceDocId === d.id ? { title: withoutEllipsis(d.title), body: withoutEllipsis(d.body) } : null;
+    }
+    default: return null;
+  }
+}
+
+/**
+ * Boot repair (migration 105): every live ask whose title or body carries "…" gets its town-written card written again
+ * from its target (`townCardOf`), keeping its id, sources, rank, status and history, with a "retitled" history entry,
+ * and is vetted again. A card a manager wrote is untouched. Idempotent: a card already rewritten has nothing to change.
+ * Returns how many asks it rewrote.
+ */
+export function retitleClippedAsks(world: World): number {
+  const done: string[] = [];
+  world.transaction(() => {
+    for (const a of world.asks.where(`${LIVE_ASK} AND (title LIKE '%…%' OR body LIKE '%…%')`, [], "ORDER BY createdAt, rowid")) {
+      const card = townCardOf(world, a);
+      if (!card) continue;
+      const next = { ...a, ...card, title: clipWords(card.title, 200) };
+      if (next.title === a.title && next.body === a.body && next.recommendation === a.recommendation && JSON.stringify(next.claims) === JSON.stringify(a.claims)) continue;
+      const at = nowIso();
+      const v = vetted(world, a.type, { title: next.title, body: next.body, recommendation: next.recommendation, claims: next.claims, branches: a.branches, targetKind: a.targetKind }, at, "system");
+      world.asks.upsert({ ...next, tags: [...a.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
+      done.push(a.id);
+    }
+  });
+  for (const id of done) queueClaimChecks(world, id);
+  return done.length;
 }
 
 // ---- legible delegation step 7: the gate card (an over-ceiling forecast, a hold at the ceiling) ----
@@ -533,21 +610,22 @@ function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; rep
     : raise ? `${who} recommends adjust by ${fmt(raise)} tokens.`
     : f && !leftSizes.length ? `${who} recommends cut: every step is done.`
     : "";
-  const buys = g.topUpTokens && g.whatTopUpBuys.trim() ? `The forks say ${fmt(g.topUpTokens)} more tokens buy this: ${oneLine(g.whatTopUpBuys, 300).replace(/([^.!?])$/, "$1.")}` : "";
   const body = [
     ...prior,
     `It has spent ${fmt(o.spent)} of its ${fmt(ceiling)}-token ceiling.${o.held ? " New sessions on it wait for you." : ""}`,
-    ...steps, ...projection, buys,
+    ...steps, ...projection,
     raise ? `If you adjust by ${fmt(raise)}: the ceiling becomes ${fmt(ceiling + raise)} tokens, and the work runs on.` : "If you adjust: the ceiling rises by what you give, and the work runs on.",
     o.held ? "If you cut: the grant closes at what it spent, and nothing more runs on it." : "If you cut: the running step wraps up, and the grant closes at what it spent.",
   ].filter(Boolean).join("\n");
   const kr = report ? world.grantDesk.keyResultsOf(g.id).find((k) => urlOfHowToCheck(k.howToCheck)) : undefined;
-  const claims: AskClaim[] = report ? [{
-    text: oneLine(`The latest step report, "${report.title}", says ${verdict ?? "continue"}.`, 400),
-    check: kr ? { kind: "kr", ref: kr.id } : { kind: "manual", ref: report.id },
-  }] : [];
-  const title = o.held ? `"${oneLine(g.objective, 120)}" is held at its ceiling: adjust or cut it`
-    : `Adjust or cut "${oneLine(g.objective, 120)}": projected ${fmt(need)} tokens past its ceiling`;
+  // the forks' top-up line is a claim with its report to check, not a quote in the body (§5: the body holds no quoted prose)
+  const topUpReport = g.checkpointDocId ?? report?.id ?? null;
+  const claims: AskClaim[] = [
+    ...(report ? [{ text: clipWords(`The latest step report, "${withoutEllipsis(report.title)}", says ${verdict ?? "continue"}.`, 400), check: kr ? { kind: "kr" as const, ref: kr.id } : { kind: "manual" as const, ref: report.id } }] : []),
+    ...(g.topUpTokens && g.whatTopUpBuys.trim() ? [{ text: `The forks say ${fmt(g.topUpTokens)} more tokens finish it`, check: topUpReport ? { kind: "manual" as const, ref: topUpReport } : { kind: "manual" as const } }] : []),
+  ];
+  const name = grantName(g);
+  const title = o.held ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}: projected ${kTokens(need)} past its ceiling`;
   return { title, body, recommendation, claims };
 }
 
@@ -570,7 +648,7 @@ function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sou
     claims: [...card.claims, ...prior.claims].slice(0, 2), // the money contract takes 1-2: the gate's claim first
   };
   const v = vetted(world, "money", { ...merged, branches: GATE_BRANCHES, targetKind: "grant" }, at, "system");
-  const next = world.asks.upsert({ ...ask, ...merged, branches: GATE_BRANCHES, title: oneLine(merged.title, 200), tags: [...ask.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...ask.history, ...v.lint] });
+  const next = world.asks.upsert({ ...ask, ...merged, branches: GATE_BRANCHES, title: clipWords(merged.title, 200), tags: [...ask.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...ask.history, ...v.lint] });
   queueClaimChecks(world, next.id);
   return next;
 }

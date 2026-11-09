@@ -7,7 +7,7 @@
  * `gate` is a grant's step gate: a step report whose forecast is within the ceiling (`fileForecast`, grant-forecast.ts;
  * past it the gate is a money ask instead). Nothing here asks or decides anything.
  */
-import { NoticeKind, Notice, parseRollup, type Doc, type Grant, type KeyResult } from "@muster-town/schema";
+import { grantName, NoticeKind, Notice, parseRollup, type Doc, type Grant, type KeyResult } from "@muster-town/schema";
 import { badRequest } from "./errors.ts";
 import { utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
@@ -67,7 +67,7 @@ export function closedLoopNotice(world: World, g: Grant, spentTokens: number): N
   const items = report ? parseRollup(report.body).items : [];
   const bought = items.length ? items.map((it) => `- ${oneLine(it.title, 160)}: ${oneLine(it.whatYoudSee || it.whatItIs, 300)}`).join("\n") : "Its close report isn't filed yet.";
   const body = `You funded this on ${utcDate(g.fundedAt)} for ${fmt(g.grantTokens ?? 0)} tokens. It closed ${utcDate(g.closedAt ?? nowIso())} at ${fmt(spentTokens)}. Here is what it bought:\n\n${bought}`;
-  const fields = { kind: "closed-loop" as const, buildingId: g.buildingId, goalId: g.goalId ?? goalOfBuilding(world, g.buildingId), title: oneLine(g.objective, 200), body, picture: pictureOf(items.find((it) => it.pictures.length)?.pictures[0]?.src), refs: [g.id, ...(report ? [report.id] : [])] };
+  const fields = { kind: "closed-loop" as const, buildingId: g.buildingId, goalId: g.goalId ?? goalOfBuilding(world, g.buildingId), title: grantName(g), body, picture: pictureOf(items.find((it) => it.pictures.length)?.pictures[0]?.src), refs: [g.id, ...(report ? [report.id] : [])] };
   const had = noticesOn(world, "closed-loop", g.id)[0];
   if (had) return world.notices.upsert({ ...had, ...fields });
   return fileNotice(world, fields);

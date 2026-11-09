@@ -5,7 +5,7 @@
  */
 import { clipText } from "./showMore";
 import { useEffect, useState, type ReactNode } from "react";
-import { MAX_OBJECTIVES, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
+import { MAX_OBJECTIVES, grantName, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type ObjectiveView, type SpendNode } from "../api";
 import { store, useTown } from "../state";
 import { Act, ADJ, Empty, ErrorLine, Field, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
@@ -178,7 +178,7 @@ function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
   return (
     <div className="doc-row grant-tab-row">
       <div className="kr-grant-head">
-        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(g.objective, GRANT_ROW).head}</button>
+        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(grantName(g), GRANT_ROW).head}</button>
         <Pill tone={g.status === "checkpoint" || g.status === "proposed" ? "warn" : g.status === "funded" ? "ok" : g.status === "rejected" ? "bad" : ""}>{g.status}</Pill>
       </div>
       {live ? (

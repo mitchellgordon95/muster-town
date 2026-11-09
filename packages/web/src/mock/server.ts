@@ -1,6 +1,6 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
-import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
+import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
@@ -320,7 +320,7 @@ export class MockApi implements Api {
     const slides: ReviewSlide[] = [slide({ key: "town", kind: "town", itemId: null, group: 0, title: "State of the town", text: `# Review deck: the state of the town\n\n**${t.grants.length + t.reports.length} decisions below.**` })];
     for (const g of t.grants.filter((x) => x.status !== "countered")) {
       const kind = g.status === "checkpoint" ? "checkpoint" : "proposal";
-      slides.push(slide({ key: `${kind}:${g.id}`, kind, itemId: g.id, grantId: g.id, group: kind === "checkpoint" ? 1 : 4, title: g.objective, text: `## ${g.objective}\n\n**What it is:** ${g.objective}\n\n**Your call:** fund, counter or reject` }, g.updatedAt));
+      slides.push(slide({ key: `${kind}:${g.id}`, kind, itemId: g.id, grantId: g.id, group: kind === "checkpoint" ? 1 : 4, title: grantName(g), text: `## ${grantName(g)}\n\n**What it is:** ${g.objective}\n\n**Your call:** fund, counter or reject` }, g.updatedAt));
     }
     for (const d of t.reports) slides.push(slide({ key: `report:${d.id}`, kind: "report", itemId: d.id, docIds: [d.id], group: 5, title: d.title, text: `## ${d.title}\n\n${d.body}` }, d.createdAt));
     slides.sort((a, b) => a.group - b.group);

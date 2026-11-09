@@ -153,6 +153,7 @@ const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, 
 export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_ocean", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 4_000_000, grantTokens: null,
+    title: "Southern Ocean sink gap",
     objective: "Settle the ocean-sink data/model gap in the Southern Ocean", steps: [{ title: "Compare the products", size: "L", description: "Do the work" }, { title: "Compare the models", size: "L", description: "Do the work" }, { title: "Write it up", size: "M", description: "The article" }], stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
     findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
@@ -171,6 +172,7 @@ export const grants: GrantView[] = [
   // a second open proposal from the same lab, for another key result: the in-tray lists both side by side
   {
     ...grantBase, id: "gr_land", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 1_500_000, grantTokens: null,
+    title: "Land sink 2025 drop",
     objective: "Put a number on the land sink's 2025 drop", steps: [{ title: "Attribute the drop", size: "M", description: "Do the work" }, { title: "Check it", size: "S", description: "A re-check" }], stopCondition: "Stop when the drop is attributed to within 0.3 GtC/yr, or after 3 sessions.",
     ...plan(kr("bl_carbon", 2, "A note on the 2025 land-sink anomaly with its drivers", "Read it in the Carbon Cycle Lab cabinet")),
     history: [{ at: ago(30), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 1_500_000, note: "Separate from the ocean work; one session per driver." }],
@@ -179,6 +181,7 @@ export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_hud", buildingId: "bl_workshop", status: "checkpoint", proposedBy: "ag_keel", askTokens: 2_000_000, grantTokens: 2_000_000, spentTokens: 2_010_000,
     checkpointsDone: [1], checkpointDocId: "dc_keel_cp", fundedBy: "us_mitchell", fundedAt: ago(600),
+    title: "HUD on narrow screens",
     objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
     // sized steps and the forecast filed at the last step report: projected past the ceiling (§7.3 gates at step reports)
     steps: [{ title: "Fold the HUD below 700px", size: "L", description: "The PR" }, { title: "Dock the meeting panel", size: "M", description: "The PR" }, { title: "Check it live", size: "S", description: "At 650px" }],
@@ -209,6 +212,7 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
     // member-funded (fundWith): paid from Mitchell's own Bank input, so the row reads "… by Mitchell from Mitchell's API key"
     fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: "bi_mitchell_key", fundedWithLabel: "Mitchell's API key", fundedAt: ago(300),
+    title: "Landing page links the tour",
     objective: "A stranger can find the How it works tour from the landing page",
     // grant B (gr_b5fyqibfx2): its plan's steps and where each stands
     steps: [{ title: "Link the tour from the landing page", description: "The PR" }, { title: "Check it live as a guest", description: "Open muster.town logged out" }, { title: "Close the grant", description: "Evidence and rollup" }],
@@ -221,6 +225,7 @@ export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
+    title: "Session runner at ten desks",
     objective: "Stress-test the lab's session runner at 10 parallel desks", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
     ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "met"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "met")),
     history: [
@@ -231,6 +236,7 @@ export const grants: GrantView[] = [
   },
   {
     ...grantBase, id: "gr_cli", buildingId: "bl_workshop", status: "countered", proposedBy: "ag_keel", askTokens: 1_500_000, grantTokens: null,
+    title: "Digest command prints the in-tray",
     objective: "muster-town digest prints the in-tray", stopCondition: "Stop when the command ships.",
     ...plan(kr("bl_workshop", 2, "`muster-town digest` lists pending reports", "Run it against the live town")),
     history: [{ at: ago(90), byId: "ag_keel", byKind: "agent", action: "propose", tokens: 1_500_000, note: "" }, { at: ago(20), byId: "us_mitchell", byKind: "user", action: "counter", tokens: 800_000, note: "Smaller: 800k." }],

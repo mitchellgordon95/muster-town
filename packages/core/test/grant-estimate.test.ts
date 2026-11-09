@@ -73,7 +73,7 @@ describe("grant cost estimate (Mitchell, 1:1 mt_c9u1kr15jp)", () => {
     closed(1, 100_000, 80_000);
     closed(1, 100_000, 90_000);
     closed(1, 200_000, 300_000);
-    const r = await world.verbs.propose_grant(manager, { keyResults: [kr(0)], objective: "next", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [kr(0)], objective: "next", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
     expect(r.estimate).toBe("ask 150,000 · 3 similar grants spent 80,000–300,000 (median spent/funded 0.90 across 3 closed grants; this building 0.90 across 3)");
     const g = world.grantDesk.get(r.grantId);
     expect(g.estimate).toMatchObject({ askTokens: 150_000, low: 80_000, high: 300_000, sample: 3 });
@@ -118,7 +118,7 @@ describe("grant cost estimate (Mitchell, 1:1 mt_c9u1kr15jp)", () => {
   it("step 2: the model's range is saved beside the history range, held to at close, and counted on the Spending tab", async () => {
     const { world, admin, manager, closed, charge } = setup();
     closed(1, 100_000, 80_000);
-    const r = await world.verbs.propose_grant(manager, { keyResults: [kr(0)], objective: "next", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [kr(0)], objective: "next", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 150_000 });
     const g = world.grantDesk.get(r.grantId);
     const model = { low: 100_000, high: 200_000, note: "n", modelId: "claude-haiku-5-5", sessionId: null, at: nowIso() };
     // a stale call (the grant was re-proposed since) saves nothing

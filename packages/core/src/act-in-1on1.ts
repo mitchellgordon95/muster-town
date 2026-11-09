@@ -11,6 +11,7 @@
  * move, and Bank inputs are out of reach: all refused.
  */
 import type { Agent } from "@muster-town/schema";
+import { grantName } from "@muster-town/schema";
 import { decideRetainer } from "./retainers.ts";
 import { badRequest, forbidden, notFound } from "./errors.ts";
 import { meetingNotice } from "./meetings.ts";
@@ -53,7 +54,7 @@ export function actForHuman(world: World, agent: Agent, input: VerbIn<"act_in_1o
     const g = world.grantDesk.decide(human, input.targetId, { action, note, ...(input.tokens && { tokens: input.tokens }) }, { agentId: agent.id, meetingId: m.id });
     world.events.append({ type: "grant.decided-via", agentId: agent.id, buildingId: g.buildingId, text: `${agent.name} did "${action}" on ${g.id} for ${human.name} in ${m.id}: "${quote}"`, payload: { ...base, grantId: g.id, status: g.status } });
     result = { targetId: g.id, status: g.status };
-    did = `${action} ${g.id} ("${oneLine(g.objective, 80)}"), now ${g.status}`;
+    did = `${action} ${g.id} ("${grantName(g)}"), now ${g.status}`;
   } else if (input.targetId.startsWith("sc_")) {
     const action = RETAINER_ACTIONS.find((a) => a === input.action);
     if (!action) throw badRequest(`"${input.action}" is not a retainer decision: approve, counter or reject.`);

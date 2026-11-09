@@ -40,7 +40,7 @@ describe("the Secretary", () => {
     const m = createOneOnOne(world, admin, th.id, { agentId: sec.id });
     expect(m).toMatchObject({ kind: "one-on-one", facilitatorId: sec.id });
     expect(world.secretary.brief(m)).toMatch(/act_in_1on1` if available/);
-    expect(world.secretary.brief(m)).toMatch(new RegExp(`Open asks now, in rank order:\\n- ak_\\w+ \\(money\\): Fund "Banner shows Usage"`));
+    expect(world.secretary.brief(m)).toMatch(new RegExp(`Open asks now, in rank order:\\n- ak_\\w+ \\(money\\): Fund Banner shows Usage at `));
     // the human's recent lines carry their exact ISO `at` (act_in_1on1 cites one by it)
     const said = world.meetings.patch(m.id, { transcript: [...m.transcript, { speakerId: world.holderOf(admin).id, speakerKind: "user", text: "fund gr_x at 600k", at: new Date().toISOString() } as never] });
     expect(world.secretary.brief(said)).toMatch(new RegExp(`at ${said.transcript.at(-1)!.at.replace(/[.]/g, "\\.")}: "fund gr_x at 600k"`));

@@ -325,7 +325,7 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     // a countered proposal can be withdrawn too, then a fresh one proposed
     const c = world.grantDesk.decide(admin, propose().id, { action: "counter", note: "smaller" });
     expect((await world.verbs.withdraw_grant(mei, { grantId: c.id, note: "rewriting from scratch" })).status).toBe("closed");
-    expect((await world.verbs.propose_grant(mei, { objective: "fresh", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
+    expect((await world.verbs.propose_grant(mei, { title: "A test grant proposal", objective: "fresh", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, keyResults: [KRS[0]!] })).status).toBe("proposed");
   });
 
   it("close_grant: the manager closes a funded grant early as done; all its open KRs met and archived, unspent returned, no Town Hall in-tray row; a human can flip one to missed", async () => {
@@ -376,10 +376,10 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
 
   it("propose_grant creates and proposes in one call; several proposals can be open per building", async () => {
     const { world, mei, admin } = setup();
-    const r = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: KRS, objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     expect(r).toMatchObject({ status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(world.grantDesk.board(LAB).proposals.map((p) => p.id)).toEqual([r.grantId]);
-    const r2 = await world.verbs.propose_grant(mei, { keyResults: [KRS[0]!], objective: "o2", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r2 = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[0]!], objective: "o2", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     expect(r2.grantId).not.toBe(r.grantId);
     expect(r2.note).toMatch(/1 other open proposal/);
     expect(world.grantDesk.board(LAB).proposals.map((p) => p.id).sort()).toEqual([r.grantId, r2.grantId].sort());
@@ -389,17 +389,17 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     expect(world.grants.require(r.grantId).status).toBe("countered");
     expect(world.grants.require(r2.grantId).status).toBe("funded");
     // a fresh plan answering the countered one: grantId names which is answered
-    const r3 = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500, grantId: r.grantId });
+    const r3 = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500, grantId: r.grantId });
     expect(r3.grantId).toBe(r.grantId);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(2);
   });
 
   it("propose_grant on a countered proposal rewrites it in place and re-proposes it under the same id", async () => {
     const { world, mei, noor, admin } = setup();
-    const r = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
+    const r = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const queued = world.ops.createWork(mei, noor.id, { title: "kr", lane: "grant", grantId: r.grantId });
     world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "track every token type" });
-    const again = await world.verbs.propose_grant(mei, { keyResults: KRS, objective: "o, every token type", approach: "five counters", steps: [{ size: "M", title: "Step 1", description: "Do the work" }, { size: "S", title: "Step 2", description: "Check it" }], stopCondition: "s2", askTokens: 2000, note: "at your scope", grantId: r.grantId });
+    const again = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: KRS, objective: "o, every token type", approach: "five counters", steps: [{ size: "M", title: "Step 1", description: "Do the work" }, { size: "S", title: "Step 2", description: "Check it" }], stopCondition: "s2", askTokens: 2000, note: "at your scope", grantId: r.grantId });
     expect(again).toMatchObject({ grantId: r.grantId, status: "proposed", keyResults: KRS.map((k) => ({ text: k.text })) });
     expect(again.note).toMatch(/Re-proposed/);
     expect(world.grants.count("buildingId = ?", [LAB])).toBe(1);
@@ -409,9 +409,9 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     expect(g.history.at(-1)?.note).toBe("at your scope");
     expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending", keyResultId: g.keyResultId });
     // a proposal still awaiting the human's decision is not overwritten: grantId must name a countered one
-    await expect(world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
+    await expect(world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
     // without grantId it is a new proposal next to it
-    const fresh = await world.verbs.propose_grant(mei, { keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
+    const fresh = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     expect(fresh.grantId).not.toBe(r.grantId);
   });
 });

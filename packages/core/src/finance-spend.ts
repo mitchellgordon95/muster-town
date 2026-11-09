@@ -1,4 +1,4 @@
-import { countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
+import { grantName, countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
 import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
@@ -309,7 +309,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
       const g = grantId
         ? child(b, `grant:${grantId}`, () => {
           const gr = grantsById.get(grantId);
-          return gr ? acc("grant", grantId, grantTitle(gr.objective), gr.objective, grantFields(gr)) : acc("grant", grantId, grantId);
+          return gr ? acc("grant", grantId, grantName(gr), gr.objective, grantFields(gr)) : acc("grant", grantId, grantId);
         })
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
       path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
