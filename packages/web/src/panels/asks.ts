@@ -15,7 +15,7 @@ export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank"
 export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open" || a.status === "deferred").length;
 
 /** The in-tray's items that no ask is about (Places.tsx `split(false)`): goal proposals, and any row whose target has no ask. */
-export interface UnaskedItems {
+interface UnaskedItems {
   reports: { type?: string }[]; grants: unknown[]; goalProposals: unknown[]; access: unknown[]; captains: unknown[]; retainers: { retainer?: string }[];
 }
 

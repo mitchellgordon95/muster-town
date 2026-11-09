@@ -138,7 +138,7 @@ const ID_CHARS = /[a-z0-9_]/;
  * decided or retired, so it is open again, stamped `reopen` with `reason`, and `ask.reopened` is appended. A deferral
  * in words that names no such id waits for a human or the Secretary. Returns the asks reopened.
  */
-export function reopenDeferred(world: World, ids: (string | null | undefined)[], reason: string): Ask[] {
+function reopenDeferred(world: World, ids: (string | null | undefined)[], reason: string): Ask[] {
   const want = [...new Set(ids.filter((x): x is string => !!x))];
   if (!want.length) return [];
   const at = nowIso();
