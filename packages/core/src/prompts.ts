@@ -14,6 +14,7 @@ import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
 import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
+import { policyLedgerBlock } from "./secretary.ts";
 
 export { docGist, sectionOf } from "./text.ts";
 
@@ -457,6 +458,8 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
     teamBlock(world, building, agent.id),
     grants,
     board,
+    // the policy ledger (docs/legible-delegation.md §6): rules the humans set, so the manager doesn't ask them again
+    policyLedgerBlock(world),
     memoryIndexBlock(world, agent.id, { now }),
   ].filter(Boolean).join("\n\n");
 }
