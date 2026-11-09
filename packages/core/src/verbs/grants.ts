@@ -1,5 +1,8 @@
-import type { Agent, Grant } from "@muster-town/schema";
+import { grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
+import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
+import { counteredTokens } from "../grants.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -11,36 +14,45 @@ import type { VerbIn } from "./types.ts";
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
  * (docs/how-work-gets-done.md §4).
  */
+/** A proposal's money ask's buttons (the same as `askForProposal` files). */
+const PROPOSAL_BRANCHES = [{ label: "Fund" }, { label: "Counter" }, { label: "Reject" }];
+
 export async function propose_grant(world: World, caller: Agent, input: VerbIn<"propose_grant">) {
   // a fork of the manager (an explorer, docs/how-work-gets-done.md §3) proposes for its building as its manager
   const me = world.permissions.managerOfFork(caller) ?? caller;
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
-  const { note, grantId, ...fields } = input;
+  const { note, grantId, ask, ...fields } = input;
   let open: Grant | undefined;
   if (grantId) {
     open = world.grants.get(grantId);
     if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
     if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
   }
+  // legible delegation step 3: the money ask's card (the explorer's, else the town's from the plan) passes the money
+  // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
+  const card = ask
+    ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
+    : proposalCard({ objective: fields.objective, askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+  refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) }));
   const g = world.transaction(() => {
-    if (open) {
-      world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" });
-      return world.grantDesk.propose(me, open.id, note);
-    }
-    const draft = world.grantDesk.create(me, bid, fields);
-    return world.grantDesk.propose(me, draft.id, note);
+    const proposed = open
+      ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
+      : world.grantDesk.propose(me, world.grantDesk.create(me, bid, fields).id, note);
+    if (ask) setAskCard(world, "grant", proposed.id, card, caller.id);
+    return proposed;
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;
   if (asg?.reservationId) {
     world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${g.objective.slice(0, 120)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
   }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
+  const flagged = world.asks.exists("targetKind = 'grant' AND targetId = ? AND status = 'open' AND tags LIKE '%\"lint-failed\"%'", [g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
-    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask stands as given
+    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask is the sum of the steps' sizes
     estimate: g.estimate?.sentence ?? null,
-    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${flagged ? " Its ask card still fails the linter after three tries: it is filed flagged lint-failed, so the humans see that it was not cleaned up." : ""}`,
   };
 }
 

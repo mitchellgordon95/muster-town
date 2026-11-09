@@ -1,4 +1,4 @@
-import { isGone, Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
+import { isGone, Doc, QUEUE_ORDER, type Agent, type Ask, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
@@ -12,6 +12,7 @@ import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
 import { withAsks } from "./rollup-asks.ts";
+import { rankedAsks } from "./asks.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -443,11 +444,12 @@ function stoppedGrants(world: World, now = Date.now()): GrantView[] {
     .map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[] } {
+/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts)
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world) };
+  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts);
+  // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */

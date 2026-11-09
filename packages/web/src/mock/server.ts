@@ -2,12 +2,14 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Snapshot, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
-import { explorationSpentToday, memoryDocs } from "./fixture";
+import { asks as fixtureAsks, explorationSpentToday, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
+import type { Ask, Notice, NoticeKind, StepSizeTable } from "@muster-town/schema";
+import { grantPricingOf } from "@muster-town/schema";
 import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -118,6 +120,7 @@ export class MockApi implements Api {
     const r = this.need(this.captains.find((x) => x.id === id), "captain request");
     if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
     Object.assign(r, { status: action === "accept" ? "accepted" : "declined", decidedBy: "us_mitchell", decisionNote: note, decidedAt: new Date().toISOString() });
+    this.retireAsks(id, `captain ${action}`);
     return clone(r);
   }
 
@@ -136,6 +139,7 @@ export class MockApi implements Api {
     if (r.status !== "pending") throw new ApiError(`This request was already ${r.status}.`, "conflict", 409);
     Object.assign(r, { status: grant ? "granted" : "declined", decidedBy: "us_mitchell", decidedAt: new Date().toISOString() });
     if (grant && directGoalId) await this.grantDirect(r.userId, directGoalId);
+    this.retireAsks(id, grant ? "access granted" : "access declined");
     return clone(r);
   }
   private direct: { userId: string; goalId: string; grantedBy: string; createdAt: string }[] = [];
@@ -174,7 +178,7 @@ export class MockApi implements Api {
     const roleIds = new Set(this.sim.memberships.filter((m) => m.holderKind === "user" && m.holderId === "us_mitchell").map((m) => m.roleId));
     return clone({ user: this.sim.users[0], roles: this.sim.roles.filter((r) => roleIds.has(r.id)), avatarAgentId: "ag_me", isAdmin: true, canInteract: true, accessRequest: null, direct: [], directDefaultGoalId: "gl_town", directBuildingIds: this.sim.buildings.filter((b) => b.kind !== "town-hall").map((b) => b.id) });
   }
-  async town(): Promise<Snapshot> { await wait(); return this.sim.snapshot(); }
+  async town() { await wait(); return this.sim.snapshot(); }
   async events(q: EventQuery): Promise<Event[]> {
     await wait(80);
     let ev = this.sim.events.filter((e) => (q.since === undefined || e.id > q.since) && (!q.agentId || e.agentId === q.agentId) && (!q.buildingId || e.buildingId === q.buildingId)
@@ -304,7 +308,8 @@ export class MockApi implements Api {
   async intray(buildingId: string) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
-    return clone({ ...this.sim.intray(buildingId), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [], captains: b.kind === "town-hall" ? this.captains.filter((r) => r.status === "pending") : [], retainers: b.kind === "town-hall" ? [...this.schedules.values()].filter((x) => x.status === "active" && (x.retainer === "asked" || x.retainer === "countered")) : [] });
+    const hall = b.kind === "town-hall";
+    return clone({ ...this.sim.intray(buildingId), ...(hall ? { asks: this.openAsks(), notices: this.noticeRows.slice(0, 20) } : {}), access: b.kind === "town-hall" ? this.access.filter((r) => r.status === "pending") : [], captains: b.kind === "town-hall" ? this.captains.filter((r) => r.status === "pending") : [], retainers: b.kind === "town-hall" ? [...this.schedules.values()].filter((x) => x.status === "active" && (x.retainer === "asked" || x.retainer === "countered")) : [] });
   }
   /** A small stand-in for the server's review deck (core/src/review-deck.ts): slide 1, one slide per grant or report. */
   async reviewDeck(): Promise<ReviewDeck> {
@@ -319,11 +324,73 @@ export class MockApi implements Api {
     }
     for (const d of t.reports) slides.push(slide({ key: `report:${d.id}`, kind: "report", itemId: d.id, docIds: [d.id], group: 5, title: d.title, text: `## ${d.title}\n\n${d.body}` }, d.createdAt));
     slides.sort((a, b) => a.group - b.group);
+    // like core review-deck.ts (legible delegation step 5): one slide per ask in rank order, an item slide under the ask's header when the item has one
+    const ranked = this.openAsks().sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || a.createdAt.localeCompare(b.createdAt));
+    const used = new Set<ReviewSlide>();
+    const asked = ranked.map((a) => {
+      const d = slides.find((x) => !used.has(x) && x.itemId && x.itemId === a.targetId);
+      const head = `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type}): ${a.title}_\n\n${a.recommendation ? `**Recommended:** ${a.recommendation}\n\n` : ""}`;
+      if (d) { used.add(d); return { ...d, text: head + d.text, askId: a.id }; }
+      return slide({ key: `ask:${a.id}`, kind: "ask", itemId: a.id, askId: a.id, group: a.type === "money" ? 4 : 5, title: a.title,
+        text: `## ${a.title}\n\n${head}${a.body}\n\n**Choices:** ${a.branches.map((b) => b.label).join(" · ")}` }, a.createdAt);
+    });
+    const town = slides.shift()!;
+    const rest = slides.filter((x) => !used.has(x));
+    const slate = this.noticeRows.find((x) => x.kind === "slate");
+    slides.length = 0;
+    if (slate) slides.push(slide({ key: `slate:${slate.id}`, kind: "slate", itemId: null, group: 0, title: slate.title, text: `## ${slate.title}\n\n${slate.body}` }, slate.createdAt));
+    slides.push(town, ...asked, ...rest);
     return clone({ title: "Review deck", generatedAt: new Date().toISOString(), slides });
   }
   async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
   async grants(buildingId: string) { await wait(60); return clone([...this.sim.grants.values()].filter((g) => g.buildingId === buildingId && g.status !== "draft")); }
-  async decideGrant(id: string, i: In<typeof DecideGrantInput>) { await wait(); return clone(this.sim.decideGrant(id, i)); }
+  async decideGrant(id: string, i: In<typeof DecideGrantInput>) {
+    await wait();
+    // like the server: continue is refused at the ceiling (a held grant is adjusted or cut)
+    if (i.action === "continue") throw new ApiError("A grant holds only at its ceiling: adjust it (a new ceiling) or cut it.", "conflict", 409);
+    const g = clone(this.sim.decideGrant(id, i));
+    this.retireAsks(id, `grant ${i.action}`);
+    return g;
+  }
+  // ---- asks and notices (docs/legible-delegation.md §4, §8), like core asks.ts and notices.ts ----
+  private askRows: Ask[] = clone(fixtureAsks);
+  private noticeRows: Notice[] = clone(fixtureNotices);
+  /** open and deferred asks, oldest first (core openAsks) */
+  private openAsks() { return this.askRows.filter((a) => a.status === "open" || a.status === "deferred").sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+  /** the target's deciding event fired: its live asks retire (core retireAsks) */
+  private retireAsks(targetId: string, reason: string) {
+    for (const a of this.askRows) if (a.targetId === targetId && (a.status === "open" || a.status === "deferred")) Object.assign(a, { status: "retired", retiredBy: reason, updatedAt: now(), history: [...a.history, { at: now(), action: "retire", by: "system", note: reason }] });
+  }
+  async getAsk(id: string) { await wait(40); return clone(this.need(this.askRows.find((a) => a.id === id), "ask")); }
+  async decideAsk(id: string, decision: string) {
+    await wait(60);
+    const a = this.need(this.askRows.find((x) => x.id === id), "ask");
+    if (a.status !== "open" && a.status !== "deferred") throw new ApiError(`This ask is ${a.status}.`, "conflict", 409);
+    Object.assign(a, { status: "decided", decision, decidedBy: "us_mitchell", decidedAt: now(), updatedAt: now(), history: [...a.history, { at: now(), action: "decide", by: "us_mitchell", note: decision }] });
+    return clone(a);
+  }
+  async deferAsk(id: string, until: string) {
+    await wait(60);
+    const a = this.need(this.askRows.find((x) => x.id === id), "ask");
+    Object.assign(a, { status: "deferred", deferredUntil: until, updatedAt: now(), history: [...a.history, { at: now(), action: "defer", by: "us_mitchell", note: until }] });
+    return clone(a);
+  }
+  /** GET /api/notices: newest first, filtered by building, goal and kind (default 50, at most 200) */
+  async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
+    await wait(60);
+    return clone(this.noticeRows.filter((n) => (!q.building || n.buildingId === q.building) && (!q.goal || n.goalId === q.goal) && (!q.kind || n.kind === q.kind))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, Math.min(200, q.limit ?? 50)));
+  }
+  /** GET /api/town/pricing (admin): the table, oversell and the calibration */
+  async pricing() { await wait(); return { ...clone(grantPricingOf(this.sim.town)), stepCalibration: clone(stepCalibration), figuresAt: now() }; }
+  /** PUT /api/town/defaults with the step-size table and oversell (admin) */
+  async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
+    await wait(60);
+    const cur = grantPricingOf(this.sim.town);
+    const next = { stepSizes: patch.stepSizes ?? cur.stepSizes, oversell: patch.oversell ?? cur.oversell };
+    Object.assign(this.sim.town, next);
+    return clone(next);
+  }
   async closeGrant(id: string, i: In<typeof CloseGrantInput>) { await wait(); return clone(this.sim.closeGrant(id, i)); }
   async stopGrant(id: string, i: In<typeof StopGrantInput>) { await wait(); return clone(this.sim.stopGrant(id, i.reason)); }
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
@@ -680,6 +747,7 @@ export class MockApi implements Api {
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
+    if (action === "claim" || action === "decline" || action === "delete") this.retireAsks(docId, `request ${action}`);
     if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
     if (action === "withdraw" || action === "decline") {
       d.requestStatus = action === "withdraw" ? "withdrawn" : "declined"; d.requestNote = body || "(no note)"; d.requestDecidedById = "us_mitchell";
@@ -1056,7 +1124,7 @@ export class MockApi implements Api {
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
-  async health() { return { ok: true, commit: "mock" }; }
+  async health() { return { ok: true, commit: "mock", stepCalibration: clone(stepCalibration) }; }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
   async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
   async collectives() { return []; }
@@ -1124,12 +1192,13 @@ export class MockApi implements Api {
     const approve = input.action === "approve";
     const e: ScheduleView = { ...x, retainer: approve ? "funded" : input.action === "counter" ? "countered" : "rejected", retainerTokens: approve ? x.askTokens : null, claimTokens: approve ? x.askTokens : 0, retainerNote: input.note || null, retainerDecidedBy: "us_mitchell", retainerDecidedAt: now(), updatedAt: now() };
     this.schedules.set(id, e);
+    this.retireAsks(id, `retainer ${input.action}`);
     return clone(e);
   }
-  /** like core's pressDigest: the mock has no Secretary runs, so nothing to digest */
-  async runDigest(): Promise<{ id: string }> {
+  /** like core's pressRank: the mock has no Secretary runs, so nothing to rank */
+  async runRank(): Promise<{ id: string }> {
     await wait(40);
-    throw new ApiError("Nothing to digest: no new rollup since the last digest.", "conflict", 409);
+    throw new ApiError("Nothing to rank: no ask arrived or changed since the last ranking.", "conflict", 409);
   }
   /** like core's buildingStats (the side bar of town planning): its assignments and agents; blocked ones aren't told apart here */
   async buildingStats(buildingId: string) {

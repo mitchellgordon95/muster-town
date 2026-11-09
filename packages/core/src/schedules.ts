@@ -14,7 +14,8 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
-import { digestIdleReason } from "./secretary.ts";
+import { secretaryIdleReason } from "./secretary.ts";
+import { calibrationIdleReason, calibrationRunText } from "./planner.ts";
 import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -193,6 +194,26 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
   return e;
 }
 
+/**
+ * Raise a retainer schedule's per-run amount from the code (no human actor: the town keeps a schedule it made in step
+ * with a constant, e.g. the Secretary's ranking run moving to Fable). The same path as an edit's: the retainer is asked
+ * again (`retainerAfterEdit`, `askRetainer`), so the new total runs only once a human approves it; `schedule.edited`
+ * says why. Never lowers it; a schedule that ended or isn't on a retainer is returned as it is.
+ */
+export function raiseRetainerPerRun(world: World, s: Schedule, tokensPerRun: number, why: string, at: Date = new Date()): Schedule {
+  if (s.status === "ended" || s.lane !== "retainer" || s.tokensPerRun >= tokensPerRun) return s;
+  const draft: Schedule = { ...s, tokensPerRun };
+  const ret = retainerAfterEdit(s, draft, at);
+  const e = world.schedules.upsert({ ...draft, retainer: ret.retainer, updatedAt: at.toISOString() });
+  world.events.append({
+    type: "schedule.edited", buildingId: s.buildingId,
+    text: `The town raised schedule "${truncate(e.title, 80)}" from ${s.tokensPerRun.toLocaleString("en-US")} to ${tokensPerRun.toLocaleString("en-US")} tokens per run (${why})${ret.reask ? "; its retainer is asked again" : ""}`,
+    payload: { scheduleId: s.id, changed: ["tokensPerRun"], from: s.tokensPerRun, tokensPerRun, retainer: e.retainer, why },
+  });
+  if (ret.reask) askRetainer(world, e, ret.reask, at);
+  return e;
+}
+
 /** `takerId` when it names a resident of `b` who can take work (not a fork, not stopped or gone), else undefined. */
 function residentTaker(world: World, b: Building, takerId: string): Agent | undefined {
   const a = world.agents.get(takerId);
@@ -252,7 +273,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
         continue;
       }
     }
-    // a run with nothing to do ends here, before any session (the Secretary's digest: no new rollup, or one filed today)
+    // a run with nothing to do ends here, before any session (the Secretary: nothing new since its last ranking, or an empty week)
     const idle = scheduleIdleReason(world, s, at);
     if (idle) {
       world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: ${idle}`, payload: { scheduleId: s.id, reason: idle } });
@@ -265,10 +286,10 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
     try {
       a = world.transaction(() => {
         const made = createAssignment(world, {
-          agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
+          agentId: taker.agentId, title: s.title, description: calibrationRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
-          // a named taker runs on the schedule's model too (the Secretary's digest: the Town Hall's cheapModel)
+          // a named taker runs on the schedule's model too (the Secretary: SECRETARY_MODEL)
           origin: s.origin, model: s.model,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;
@@ -295,9 +316,9 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
   return { fired, ended };
 }
 
-/** Why a due run has nothing to do (it is skipped, no session), or null: only the Secretary's digest knows one today. */
+/** Why a due run has nothing to do (it is skipped, no session), or null: the Secretary's runs and the Planner's calibration know one. */
 function scheduleIdleReason(world: World, s: Schedule, at: Date): string | null {
-  return s.takerId && s.takerId === world.secretary.agent()?.id ? digestIdleReason(world, at) : null;
+  return s.takerId && s.takerId === world.secretary.agent()?.id ? secretaryIdleReason(world, s, at) : calibrationIdleReason(world, s, at);
 }
 
 /** A building's schedules, active first (soonest run first), then the 20 most recently ended. */

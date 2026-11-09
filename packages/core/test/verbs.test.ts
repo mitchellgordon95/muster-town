@@ -161,10 +161,10 @@ describe("report state machine", () => {
     await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: ["dc_nope"], urls: [] } })).rejects.toMatchObject({ code: "bad_request" });
     const sent: [string, number][] = [];
     world.changes.subscribe((m) => { if (m.type === "building" && m.building.intray !== undefined) sent.push([m.building.id, m.building.intray]); });
-    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\nNothing needed. @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
+    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\n- Should the banner show today's spend? @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
     expect(up).toMatchObject({ decision: "pending", intray: "town-hall", workedBy: "human" });
     const rollup = world.docs.require(up.id);
-    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup"], provenance: { sourceIds: [r.id] } });
+    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup", "untyped-asks"], provenance: { sourceIds: [r.id] } });
     expect(isTownHallItem(world, rollup)).toBe(true);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(up.id);
     expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).toEqual([up.id]);
@@ -188,7 +188,7 @@ describe("report state machine", () => {
     const mei = by("Mei");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
-    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "when the number is in", askTokens: 1_000_000 });
+    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "when the number is in", askTokens: 1_000_000 });
     expect(world.ops.townHallIntray().grants).toEqual([]);
     world.grantDesk.propose(mei, g.id);
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).toEqual([g.id]);

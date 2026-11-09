@@ -70,7 +70,7 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
     const a = createAssignment(world, {
       agentId: manager.id, buildingId: b.id, createdBy: { kind: "system", id: r.id },
       title: `Explore under "${truncate(goal?.text ?? b.name, 70)}"`,
-      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, askTokens, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, funding queues step 1), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your ask to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
+      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, each sized S, M or L, funding queues step 1; the ask is the sum of the sizes), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your plan to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
       lane: { lane: "exploration", gap: `Explore under: ${goalText}`.slice(0, 300) }, reservationId: r.id,
     });
     world.bankReservations.upsert({ ...r, assignmentId: a.id });
@@ -116,11 +116,22 @@ function watchExplorers(world: World): void {
     if (a?.status !== "active") continue;
     markStarted(world, r, a);
     const spent = assignmentSpent(world, a.id);
-    if (spent >= EXPLORE_CEILING_SHARE * r.tokens && !world.db.prepare("SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.exploreCeiling') = ? LIMIT 1").get(r.id)) {
-      interruptNow(world, a.agentId, `You have used ${spent.toLocaleString("en-US")} of the ${r.tokens.toLocaleString("en-US")} tokens reserved for this exploration. Don't start anything new: file your grant proposal now (\`propose_grant\`), or if nothing is worth a grant say why, then \`submit_report\`.`, "The explore tick");
-      world.events.append({ type: "system", agentId: a.agentId, buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} reached ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of its exploration chunk and was asked to file`, payload: { exploreCeiling: r.id, assignmentId: a.id, spentTokens: spent, tokens: r.tokens } });
+    if (spent >= EXPLORE_CEILING_SHARE * r.tokens) {
+      askToFileOnce(world, "exploreCeiling", r.id, a.agentId, `You have used ${spent.toLocaleString("en-US")} of the ${r.tokens.toLocaleString("en-US")} tokens reserved for this exploration. Don't start anything new: file your grant proposal now (\`propose_grant\`), or if nothing is worth a grant say why, then \`submit_report\`.`, "The explore tick",
+        { buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} reached ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of its exploration chunk and was asked to file`, payload: { assignmentId: a.id, spentTokens: spent, tokens: r.tokens } });
     }
   }
+}
+
+/**
+ * Interrupt a running agent once with a wrap-up ask, keyed by a `system` event whose payload carries `key` = `id` (the
+ * explorer's 90%-of-chunk ask, the session circuit breaker's 90% one). False when that event already exists.
+ */
+export function askToFileOnce(world: World, key: string, id: string, agentId: string, ask: string, from: string, event: { buildingId: string | null; text: string; payload: Record<string, unknown> }): boolean {
+  if (world.db.prepare(`SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.${key}') = ? LIMIT 1`).get(id)) return false;
+  interruptNow(world, agentId, ask, from);
+  world.events.append({ type: "system", agentId, buildingId: event.buildingId, text: event.text, payload: { [key]: id, ...event.payload } });
+  return true;
 }
 
 /** Times one named step of a tick (ms, summed per name): the runtime passes one so health `load.tick` can split a phase. */

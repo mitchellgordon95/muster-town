@@ -2,11 +2,12 @@
  * Persona, world rules, and task prompts for every kind of session. Keep them tight.
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
-import { ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
+import { ASK_CONTRACT_LINES, ASK_LINT_RULES, ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, grantPricingOf, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
 import { intrayCounts, intrayOf } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
+import { captainUserId, readerDelta } from "./seen.ts";
 import { skillsBlock } from "./skills.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -14,6 +15,8 @@ import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
 import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
+import { policyLedgerBlock } from "./secretary.ts";
+import { dictionaryBlock } from "./dictionary.ts";
 
 export { docGist, sectionOf } from "./text.ts";
 
@@ -219,6 +222,8 @@ export function townBoardBlock(world: World, limit = 10): string {
 }
 
 const tok = (n: number) => n.toLocaleString("en-US");
+/** The step-size table as one line for a prompt: "S 50,000, M 150,000, L 400,000". */
+const sizesLine = (world: World) => { const t = grantPricingOf(world.town.get()).stepSizes; return `S ${tok(t.S)}, M ${tok(t.M)}, L ${tok(t.L)}`; };
 
 /** The ideas an explorer may turn into a grant: open key results dropped when key results merged into grants (migration 069). */
 const DROPPED_KR_NOTE = "dropped when key results merged into grants";
@@ -282,7 +287,7 @@ export function explorerBrief(world: World, building: Building, assignment: Assi
   const recent = world.events.list({ buildingId: building.id, from: day, types: ["doc.decision", "assignment.status", "exploration.proposed", "exploration.closed"], desc: true, limit: 12 });
   return [
     `This session: exploration. The town's explore tick reserved ${tok(r?.tokens ?? 0)} tokens (${assignment.reservationId}) under goal ${at} because a desk here was idle and tokens were free. Your sessions draw on that chunk; you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it, and what you don't spend returns.`,
-    `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), steps (1-5, each title and description: one session of work; funding queues step 1 and each step's report the next), objective, approach, stopCondition and askTokens; your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
+    `Pick ONE direction under the goal (the goal, its grants and their key results above, and the ideas left from the old goal key results; don't duplicate an open proposal), investigate it this session (the live town, the code, the web), and end with ONE grant proposal: \`propose_grant\` with goalId (this goal or one under it), keyResults (1-5, each text, howToCheck and a due date: what a human checks in the live town to call the work done), steps (1-5, each title, size S, M or L (${sizesLine(world)} adjusted tokens; no XL: split a bigger step) and description: one session of work; funding queues step 1 and each step's report the next), objective, approach and stopCondition (the ask is the sum of the sizes, computed by the town); your findings doc in findingsDocIds. It goes straight to the Town Hall in-tray and credits ${building.name}. If nothing is worth a grant, propose nothing and say why in a short report. Then \`submit_report\` (verdict stop).`,
     rollups.length ? `The building's last rollups: ${rollups.map((d) => `${d.id} "${oneLine(d.title, 100)}" (${d.createdAt.slice(0, 10)})`).join("; ")}. \`read\` them for what shipped and what ${world.captainName()} asked.` : "The building has no rollup yet.",
     open.length ? `Open proposals under this goal: ${open.map((g) => `${g.id} "${oneLine(g.objective, 100)}" (${g.status}, asks ${tok(g.askTokens)})`).join("; ")}.` : "No proposal is open under this goal.",
     recent.length ? `The building's last day: ${recent.map((e) => `${stamp(e.ts)} ${oneLine(e.text, 120)}`).join(" · ")}` : "",
@@ -294,10 +299,10 @@ export function managerGrantsBlock(world: World, building: Building): string {
   if (building.kind === "town-hall") return "";
   const open = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered')", [building.id], "ORDER BY createdAt, rowid");
   return `## Grants (this building is goal-directed)
-The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it. Admins and a goal's captain (the human who owns it) edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids (\`set_objective\`). Key results belong to grants (docs/how-work-gets-done.md §4): a grant is filed against a goal in your subtree and carries its own 1-5 key results, each something a human can check in the live town by a date. \`propose_grant\` with goalId (default your building's goal), keyResults (text, howToCheck, due), an objective, the approach, a stop condition and a token ask. Funding it runs the plan; closing it as done marks its key results met, and only a human marks one missed, on the grant.
+The town has one goal tree (docs/goals.md): your building is attached to one goal, and your subtree is that goal and every goal under it. Admins and a goal's captain (the human who owns it) edit the tree; you propose changes with \`propose_goal\` (add, edit, move or retire a goal), and a human accepts or cuts each. Your building's objectives are goals of the tree with the same ids (\`set_objective\`). Key results belong to grants (docs/how-work-gets-done.md §4): a grant is filed against a goal in your subtree and carries its own 1-5 key results, each something a human can check in the live town by a date. \`propose_grant\` with goalId (default your building's goal), keyResults (text, howToCheck, due), an objective, the approach, a stop condition and its sized steps. Funding it runs the plan; closing it as done marks its key results met, and only a human marks one missed, on the grant.
 Every \`assign\` names its lane: "grant" with the grantId of a funded grant (its key results are implied), or "exploration" with a gap (one sentence on what is missing between the goal and the live town). Work that traces to a human ask is "directed": give lane "directed" with sourceId = the human-authored source it comes from (a meeting with a human or its notes, a flag, a human-report, a human's tell); \`review\` continue/redirect and meeting decisions take the same lane fields. Directed work draws the free tokens under your goal like exploration (held while none are free; metered on its own: "Directed today"); a gap says what it is for. Without a human source you can't create directed work: unguided exploration runs on the free tokens under your goal (the Bank's balance and earmarks less funded grants' remaining, open proposals' asks and reservations), with no daily allowance; a human may set an exploration cap on a goal. Assignments whose grant is at checkpoint, or exploration with no free tokens or past its goal's cap, stay pending (held), never cancelled.
 ${open.length ? `Open proposals (several can be open at once, each decided on its own): ${open.map((g) => `${g.id} (${g.status})${g.status === "countered" ? `; it is your move: answer the counter with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites it under the same id)` : "; a human decides it in the Town Hall in-tray"}`).join("; ")}. Another plan can get its own proposal now.` : "No proposal is open. Explorers propose on their own: the runtime's explore tick reserves a chunk and queues an explorer on an idle desk while tokens are free under your goal, and its proposal goes straight to the Town Hall in-tray."}
-A proposal carries its plan as 1-5 steps (\`propose_grant\` steps: title, description, optional model and pages; one session each, each with a check a human can make in the live town). Funding queues step 1 on your building queue by itself (a fork runs it, charged to the grant); each step's report queues the next step by itself unless its verdict is pivot. Approve a step's report to let the plan go on; stop or redirect it to cancel the queued next step (a pivot queues nothing: you decide). A human's counter wakes you with "Answer the counter on …" (re-propose with \`propose_grant\`), a rejection with "Grant … rejected: read the note". A funded grant holds at its checkpoint when its spend reaches its tokens minus a reserve of min(150k, a third) (the reserve covers the sessions already running, which finish and book); after a human continues it, it holds again at 100%. At a hold new sessions on it wait for a human to continue, adjust or cut it in the Town Hall in-tray; the checkpoint card assembles itself from the grant's reports and the key-result evidence its forks file with \`submit_report\`: nothing for you to write. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and its key results are marked met (say what shipped in the rollup; a human can flip one to missed). To change a proposal that is still waiting (proposed or countered), \`withdraw_grant\` (grantId, why as note: it leaves the in-tray, its key results archive, the note stays on the grant), then \`propose_grant\` fresh.`;
+A proposal carries its plan as 1-5 steps (\`propose_grant\` steps: title, size, description, optional model and pages; one session each, each with a check a human can make in the live town). Each step is sized S, M or L (${sizesLine(world)} adjusted tokens); the ask is their sum, computed by the town (you never write a token number). No XL: split a step bigger than L into two. Funding queues step 1 on your building queue by itself (a fork runs it, charged to the grant); each step's report queues the next step by itself unless its verdict is pivot. Approve a step's report to let the plan go on; stop or redirect it to cancel the queued next step (a pivot queues nothing: you decide). A human's counter wakes you with "Answer the counter on …" (re-propose with \`propose_grant\`), a rejection with "Grant … rejected: read the note". A funded grant runs to its ceiling (its tokens) and holds only there (sessions already running finish and book). Every step's report files a forecast on the grant (steps done and left, spent, projected total); when it projects past the ceiling, say in your next rollup whether to raise the ceiling (by how much, to finish what) or cut. At a hold new sessions on it wait for a human to adjust or cut it in the Town Hall in-tray; the checkpoint card assembles itself from the grant's reports and the key-result evidence its forks file with \`submit_report\`: nothing for you to write. When a grant's work is done before its tokens are (its key results can be claimed with evidence a human can check), close it yourself with \`close_grant\` (grantId, the evidence as note), then \`submit_report\` with \`rollup: true\`: it closes as done, the unspent tokens return to the Bank, and its key results are marked met (say what shipped in the rollup; a human can flip one to missed). To change a proposal that is still waiting (proposed or countered), \`withdraw_grant\` (grantId, why as note: it leaves the in-tray, its key results archive, the note stays on the grant), then \`propose_grant\` fresh.`;
 }
 
 export function workPrompt(assignment: Assignment, lastReport: Doc | undefined, recentWork?: string, chain?: string, now = Date.now(), state?: string): string {
@@ -411,7 +416,48 @@ Rollups are how ${captain} hears from you: \`submit_report\` with \`rollup: true
 - \`## Decided\`: one line per covered report (id → decision); folded, so no prose here.
 - \`## Key results\`: a table, one row per key result of each funded grant (status, spent / granted), plus today's spend by lane (the figures are under "## Your in-tray"); folded.
 - \`## Needs from ${captain}\`: ${rollupNeedsRule(captain)} "Nothing needed" is valid. Each line stands alone in the top block and on the deck slide.
-A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for ${captain}, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.`;
+A rollup without the four headings, or whose Needs names a grant proposal, outbox request or rollup already waiting for ${captain}, is refused; a Shipped item without the three labels is filed with a warning. Roll up ${mode === "muster" ? `when something new is live (a commit went live since your last rollup; the "Live:" line under your in-tray says whether it is newer than your last rollup) and the reports that cover it are decided` : `when reports were decided since your last rollup (the line under your in-tray counts them)`}, or when a covered report hit an escalation criterion; keep at least ${ROLLUP_MIN_GAP_HOURS} h since your last rollup (escalations excepted) so a run of small PRs lands as one item; nothing happened → no rollup.
+
+${askCardRules(captain)}`;
+}
+
+/**
+ * Legible delegation step 3 (docs/legible-delegation.md §5): how a manager writes the ask cards it files with a rollup:
+ * the contract per type, the linter's rules, diff-first, and one worked example (examples steer better than rules).
+ * Fixed text, in the cached system prompt; the reader's delta it refers to is live (`captainDeltaBlock`).
+ */
+function askCardRules(captain: string): string {
+  const contract = (Object.keys(ASK_CONTRACT_LINES) as (keyof typeof ASK_CONTRACT_LINES)[]).map((t) => `${t}: ${ASK_CONTRACT_LINES[t]}`).join(". ");
+  return `Asks. With every rollup file \`asks\`: one typed card per thing only a human can do; the prose stays the record. The server refuses a card that misses its type's contract or fails the linter, and names the rules; your third failing try is filed flagged lint-failed. Contract: ${contract}. Linter: ${ASK_LINT_RULES.map((r) => r.says).join(", ")}. Write each card diff-first from "## What ${captain} has seen" in your first message: start from ${captain}'s own last decision and words, never a briefing from scratch. Example. As first written: "Continue gr_q1jrelx2ty at its checkpoint (about 150,000 more is enough: one session merges PR #392 and closes it) or cut it, in which case the docs PR merges under exploration and its second key result stays unclaimed." As a card, body:
+Prod asks for 150k more tokens to finish the self-host grant.
+You funded this at 600k on Oct 31. It has spent 474k. Three of four steps shipped. A stranger can now run a town from a published image, and CI restores a backup from it on every green main.
+One step is left. A docs PR points self-host path B at the image. One session does it.
+If you continue: 150k, then the grant closes.
+If you cut: the PR merges under exploration. One key result stays unclaimed.
+with targetId gr_q1jrelx2ty, branches Continue and Cut, recommendation "Continue: one session finishes it", claims [{text: "PR #392 is green and mergeable", check: {kind: "pr", ref: "392"}}].`;
+}
+
+/**
+ * "## What <captain> has seen": for each open grant of the building (proposed, countered, funded, held), the captain's
+ * reader's delta (core seen.ts): when they last opened it, their last decision, what they said about it, the reports
+ * they have not read. Live, so it goes in the first message (`managerStateBlock`), never the cached system prompt.
+ */
+function captainDeltaBlock(world: World, building: Building, now: number): string {
+  const userId = captainUserId(world);
+  const grants = world.grants.where("buildingId = ? AND status IN ('proposed', 'countered', 'funded', 'checkpoint')", [building.id], "ORDER BY createdAt, rowid");
+  if (!userId || !grants.length) return "";
+  const who = world.captainName();
+  const rows = grants.map((g) => {
+    const d = readerDelta(world, userId, { kind: "grant", id: g.id });
+    const parts = [
+      d.lastSeen ? `last opened it ${whenFor(d.lastSeen, "agent", now)}` : "has never opened it",
+      d.lastDecided ? `last decided "${d.lastDecided.action}" ${whenFor(d.lastDecided.at, "agent", now)}${d.lastDecided.note ? `, noting "${oneLine(d.lastDecided.note, 120)}"` : ""}` : "has not decided on it",
+      ...d.lastSaid.map((s) => `said "${oneLine(s.line, 160)}" in ${s.meetingId} ${whenFor(s.at, "agent", now)}`),
+      d.unreadReports.length ? `has not read ${d.unreadReports.length} of its reports: ${d.unreadReports.slice(-5).join(", ")}` : "",
+    ].filter(Boolean);
+    return `- ${g.id} "${oneLine(g.objective, 100)}" (${g.status}): ${who} ${parts.join("; ")}.`;
+  });
+  return `## What ${who} has seen (write each ask on these grants as a diff against it)\n${rows.join("\n")}`;
 }
 
 /**
@@ -456,7 +502,11 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
     managerIntrayRows(world, building, agent.id, now),
     teamBlock(world, building, agent.id),
     grants,
+    captainDeltaBlock(world, building, now),
     board,
+    // the policy ledger (docs/legible-delegation.md §6): rules the humans set, so the manager doesn't ask them again
+    policyLedgerBlock(world),
+    dictionaryBlock(world),
     memoryIndexBlock(world, agent.id, { now }),
   ].filter(Boolean).join("\n\n");
 }

@@ -204,6 +204,21 @@ export function interrupt(ctx: Ctx, agentId: string, text: string, from = "A hum
 }
 
 /**
+ * The circuit breaker's cuts (core `circuitBreakerTick`): end each flagged session the way a drain does (`graceMs`, the
+ * drain's kill grace), but only while it is still its agent's live session: a session that already ended and a newer
+ * one the same agent started since are left alone. Returns the agent ids whose session was ended.
+ */
+export function cutFlaggedSessions(ctx: Pick<Ctx, "live">, cuts: { agentId: string; sessionId: string }[], graceMs: number): string[] {
+  const done: string[] = [];
+  for (const c of cuts) {
+    if (ctx.live.get(c.agentId)?.sessionId !== c.sessionId) continue;
+    abortWork(ctx as Ctx, c.agentId, graceMs);
+    done.push(c.agentId);
+  }
+  return done;
+}
+
+/**
  * Stop a live work session (agent was stopped/banned, or the runtime is shutting down). Host: interrupt the
  * query. Desk: the control endpoint already says `stop: true`; kill the child after `graceMs` if it's still running.
  */

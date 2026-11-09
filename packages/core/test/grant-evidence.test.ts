@@ -17,8 +17,9 @@ function setup() {
   world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   creditBank(world);
+  world.setGrantPricing({ stepSizes: { S: 50_000, M: 1_000_000, L: 2_000_000 } }); // one M step asks 1M
   const fund = () => {
-    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000 }).id);
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000 }).id);
     return world.grantDesk.decide(admin, g.id, { action: "fund" });
   };
   /** start a session for Noor in a lane (grant on `grantId`, or exploration) */
@@ -117,15 +118,15 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     expect(slide.text).toContain(third.id);
   });
 
-  it("a hold keeps the top-up the forks filed; a continue clears it", async () => {
+  it("a hold keeps the top-up the forks filed; an adjust clears it", async () => {
     const { world, noor, admin, fund, start } = setup();
     const g = fund();
     start("grant", g.id);
     await world.verbs.submit_report(noor, { title: "s", body: REPORT, verdict: "continue", topUp: { tokens: 100_000, buys: "x" } });
-    world.sessions.upsert({ ...world.sessions.where("grantId = ?", [g.id])[0]!, output: 900_000 }); // past the hold at 850k
+    world.sessions.upsert({ ...world.sessions.where("grantId = ?", [g.id])[0]!, output: 1_000_000 }); // at the ceiling
     world.budget.charge(noor.id, 0, 0);
     expect(world.grants.require(g.id)).toMatchObject({ status: "checkpoint", topUpTokens: 100_000 });
-    world.grantDesk.decide(admin, g.id, { action: "continue" });
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 1_500_000 });
     expect(world.grants.require(g.id)).toMatchObject({ status: "funded", topUpTokens: null, whatTopUpBuys: "" });
   });
 

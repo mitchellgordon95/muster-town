@@ -1,11 +1,12 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, grantPricingOf, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type StepSizeTable, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
+import { backfillAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
@@ -100,6 +101,10 @@ export interface HostHooks {
    * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
    */
   prChecks?(pr: number): PrChecks | undefined;
+  /** GET one of the town's own API paths in-process, as a signed-out reader (set by the server): an ask's `api` claim check (ask-checks.ts). */
+  apiGet?(path: string): Promise<{ status: number; body: unknown }>;
+  /** Run an ask's claim checks in the background as it is filed (set by the server; unset in tests and scripts, which run no network). */
+  claimChecks?: boolean;
   /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
   mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
@@ -186,6 +191,10 @@ export class World {
   readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly captainRequests: Repos["captainRequests"];
+  /** asks (docs/legible-delegation.md §4; core asks.ts) */
+  readonly asks: Repos["asks"];
+  /** notices (docs/legible-delegation.md §8; core notices.ts) */
+  readonly notices: Repos["notices"];
   readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
@@ -207,7 +216,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
@@ -287,6 +296,8 @@ export class World {
     this.repairDesks();
     this.grantDesk.releaseHalfway();
     moveManagerRowsToBuildingQueue(this);
+    // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
+    backfillAsks(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
@@ -346,6 +357,19 @@ export class World {
     this.town.set({ operatingReserveTokens: tokens });
     this.events.append({ type: "system", agentId: by, text: `Operating reserve set to ${tokens.toLocaleString("en-US")} tokens (was ${was.toLocaleString("en-US")})`, payload: { operatingReserveTokens: tokens, from: was } });
     return tokens;
+  }
+
+  /**
+   * The step-size table and the oversell setting (`PUT /api/town/defaults`, an admin; docs/legible-delegation.md §7.3):
+   * a proposal's ask is the sum of its steps' sizes; oversell scales funded grants' earmarks toward their expected spend.
+   * The caller checks admin. Logs it.
+   */
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }, by: string | null = null): { stepSizes: StepSizeTable; oversell: number } {
+    const was = grantPricingOf(this.town.get());
+    const t = grantPricingOf(this.town.set({ ...(patch.stepSizes && { stepSizes: patch.stepSizes }), ...(patch.oversell !== undefined && { oversell: patch.oversell }) }));
+    const sizes = (x: StepSizeTable) => `S ${x.S.toLocaleString("en-US")}, M ${x.M.toLocaleString("en-US")}, L ${x.L.toLocaleString("en-US")}`;
+    this.events.append({ type: "system", agentId: by, text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%)`, payload: { stepSizes: t.stepSizes, oversell: t.oversell, from: { stepSizes: was.stepSizes, oversell: was.oversell } } });
+    return { stepSizes: t.stepSizes, oversell: t.oversell };
   }
 
   /** Set the retainer lookahead (`PUT /api/town/retainer-lookahead`, an admin): hours of due runs a retainer claims. Logs it. */
@@ -559,7 +583,8 @@ export class World {
 
   /** The town as GET /api/town and the snapshot show it: `publish.tokenSource` filled in live. */
   townView(): Town {
-    const t = this.town.get();
+    // the step-size table and oversell are always shown, the seeds when an admin never set them
+    const t = { ...this.town.get(), ...grantPricingOf(this.town.get()) };
     return t.publish ? { ...t, publish: { ...t.publish, tokenSource: this.publishTokenSource() } } : t;
   }
 

@@ -5,6 +5,7 @@
  * declines. A declined user may ask again after `ASK_AGAIN_MS`.
  */
 import type { AccessRequest, AccessRequestView } from "@muster-town/schema";
+import { askForAccess, retireAsks } from "./asks.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { townRoleId, type Holder } from "./permissions.ts";
 import type { Agent } from "@muster-town/schema";
@@ -54,6 +55,7 @@ export function requestAccess(world: World, userId: string, message = ""): Acces
   });
   const who = user.githubLogin ? `@${user.githubLogin}` : user.name;
   world.events.append({ type: "system", text: `${who} asked to join${req.message ? `: "${req.message}"` : ""}`, payload: { accessRequestId: req.id, userId } });
+  askForAccess(world, req);
   emitTownHall(world);
   return req;
 }
@@ -86,7 +88,8 @@ export function decideAccess(world: World, actor: Holder | Agent, id: string, gr
   });
   const user = world.users.get(req.userId);
   const who = user?.githubLogin ? `@${user.githubLogin}` : user?.name ?? req.userId;
-  world.events.append({ type: "system", text: grant ? `${who} was let in as a member` : `${who}'s request to join was declined`, payload: { accessRequestId: id, userId: req.userId, granted: grant } });
+  const decided = world.events.append({ type: "system", text: grant ? `${who} was let in as a member` : `${who}'s request to join was declined`, payload: { accessRequestId: id, userId: req.userId, granted: grant } });
+  retireAsks(world, "access", id, decided.text);
   if (grant && directGoalId) grantDirect(world, actor, req.userId, directGoalId);
   emitTownHall(world);
   return out;

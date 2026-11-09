@@ -77,7 +77,8 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
-    case "digest": return Array.isArray(i.shipped) ? "Filing the in-tray digest" : "Reading what the digest covers";
+    case "calibrate": return i.body ? "Filing the calibration ask" : "Reading the budget measures";
+    case "rank": return i.pattern ? "Filing the week's pattern note" : i.week ? "Reading the week" : i.order || i.slate || i.defer ? "Ranking the open asks" : "Reading the open asks";
     case "ban": return `Banning ${world.nameOf(String(i.agentId ?? ""))}`;
     default: return `Using ${verb}`;
   }

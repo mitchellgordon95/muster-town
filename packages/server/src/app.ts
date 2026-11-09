@@ -23,6 +23,7 @@ import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { goalRoutes } from "./routes/goals.ts";
+import { askRoutes } from "./routes/asks.ts";
 import { grantRoutes } from "./routes/grants.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { secretRoutes } from "./routes/secrets.ts";
@@ -177,6 +178,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     await c.register(agentRoutes);
     await c.register(docRoutes);
     await c.register(grantRoutes);
+    await c.register(askRoutes);
     await c.register(goalRoutes);
     await c.register(mediaRoutes);
     await c.register(skillRoutes);
@@ -205,6 +207,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   }
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
+  // an ask's `api` claim check reads the town's own API in-process, signed out (core ask-checks.ts), never over the network
+  opts.world.host.apiGet = async (path) => {
+    const r = await app.inject({ method: "GET", url: `${prefix}${path}` });
+    let body: unknown = r.body;
+    try { body = r.json(); } catch { /* not JSON: the raw text */ }
+    return { status: r.statusCode, body };
+  };
 
   // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load
   // (with the browser's random id: `guestVisitors` counts it once per UTC day; gr_zoo2cf2zpp); the homepage pings `home` the same way (the root only).

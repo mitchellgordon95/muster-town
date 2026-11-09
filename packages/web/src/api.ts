@@ -9,8 +9,10 @@ import type {
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  Ask, Notice, NoticeKind, StepCalibration, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
+import { grantPricingOf } from "@muster-town/schema";
 import { visitorId } from "./visitor";
 import { knownNames } from "./names";
 
@@ -364,8 +366,19 @@ export interface LayoutPreview { errors: { key: string | null; message: string }
 
 /** Town planning: the new building drawn on the map (name etc. as for createBuilding, plus its lot). */
 
-/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall */
-export interface Intray extends Partial<IntrayRoutes> { reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
+/** An ask as the in-tray reads it (`rank`: the Secretary's order, 1 = first, null = unranked). */
+export type AskView = Ask;
+/** GET /api/town: the snapshot (the step-size calibration is on GET /api/town/pricing and /api/health). */
+export type TownRead = Snapshot;
+/** GET /api/town/pricing (an admin): the step-size table, oversell, and the cached calibration beside them. */
+export interface PricingRead { stepSizes: StepSizeTable; oversell: number; stepCalibration: StepCalibration | null; figuresAt: string }
+/** GET /api/health as the web reads it: the town's funding, and the cached step-size calibration (the funding slate's expected spend). */
+export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null }
+/** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
+export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
+
+/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall */
+export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -441,7 +454,7 @@ export interface Api {
   decideAccess(id: string, grant: boolean, directGoalId?: string | null): Promise<AccessRequest>;
   /** pending requests, oldest first: admins only (the HUD notice) */
   accessRequests(): Promise<AccessRequestView[]>;
-  town(): Promise<Snapshot>;
+  town(): Promise<TownRead>;
   events(q: EventQuery): Promise<Event[]>;
   // buildings
   board(buildingId: string, limit?: number): Promise<Board>;
@@ -485,6 +498,18 @@ export interface Api {
   intray(buildingId: string): Promise<Intray>;
   /** GET /api/review-deck: the Town Hall in-tray as slides, computed by the server (design dc_y7a8g257of §2) */
   reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
+  /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
+  getAsk(id: string): Promise<AskView>;
+  /** POST /api/asks/:id/decide: a human's decision on an ask with no other channel (policy, meeting, a question in words) */
+  decideAsk(id: string, decision: string): Promise<AskView>;
+  /** POST /api/asks/:id/defer: park an ask behind an event */
+  deferAsk(id: string, until: string): Promise<AskView>;
+  /** GET /api/notices: the feed, newest first; [] from a server without it */
+  notices(q?: { building?: string; goal?: string; kind?: NoticeKind; limit?: number }): Promise<Notice[]>;
+  /** PUT /api/town/defaults (admin): the step-size table and oversell */
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }): Promise<GrantPricing>;
+  /** GET /api/town/pricing: the table, oversell and the cached calibration (admins: the planning desk's Step sizes tab) */
+  pricing(): Promise<PricingRead>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
@@ -671,11 +696,11 @@ export interface Api {
   editSchedule(id: string, patch: { paused?: boolean }): Promise<ScheduleView>;
   /** a human decides a schedule's retainer ask (POST /api/schedules/:id/retainer; building.fund or the goal's captain) */
   decideRetainer(id: string, input: { action: "approve" | "counter" | "reject"; note?: string; tokensPerRun?: number; until?: string; deckSlide?: number }): Promise<ScheduleView>;
-  /** the in-tray's "Daily digest" button: one Secretary digest run now (POST /api/digest/run; who may decide the digest's retainer) */
-  runDigest(): Promise<{ id: string }>;
+  /** the in-tray's "Rank now" button: one Secretary ranking run now (POST /api/rank/run; who may decide its retainer) */
+  runRank(): Promise<{ id: string }>;
   /** the building's work right now (GET /api/buildings/:id/stats): town planning's side bar */
   buildingStats(buildingId: string): Promise<BuildingStats>;
-  health(): Promise<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>;
+  health(): Promise<HealthRead>;
   /** a hosted collective's admin closes it for good (`POST /<slug>/api/collective/retire`) */
   retireCollective(): Promise<{ retired: boolean; url: string }>;
   /** a hosted collective's admin renames it, its address (slug) unchanged (`PATCH /<slug>/api/collective`) */
@@ -769,7 +794,7 @@ class HttpApi implements Api {
   async requestAccess(message: string) { return unwrap<AccessRequest>(await this.post("/api/access-requests", { message }), "accessRequest"); }
   async decideAccess(id: string, grant: boolean, directGoalId?: string | null) { return unwrap<AccessRequest>(await this.post(`/api/access-requests/${id}/decide`, directGoalId && grant ? { grant, directGoalId } : { grant }), "accessRequest"); }
   async accessRequests() { return unwrap<AccessRequestView[]>(await this.get("/api/access-requests"), "access"); }
-  async town() { return { type: "snapshot", ...(await this.get<Omit<Snapshot, "type">>("/api/town")) } as Snapshot; }
+  async town() { return { type: "snapshot", ...(await this.get<Omit<TownRead, "type">>("/api/town")) } as TownRead; }
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
@@ -806,6 +831,18 @@ class HttpApi implements Api {
     return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
+  async getAsk(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
+  async decideAsk(id: string, decision: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision })).ask; }
+  async deferAsk(id: string, until: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/defer`, { until })).ask; }
+  async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
+    try { return (await this.get<{ notices?: Notice[] }>(`/api/notices${qs({ building: q.building, goal: q.goal, kind: q.kind, limit: q.limit })}`)).notices ?? []; }
+    catch (e) { if (e instanceof ApiError && e.status === 404) return []; throw e; }
+  }
+  async pricing() { return this.get<PricingRead>("/api/town/pricing"); }
+  async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
+    const r = await this.call<Partial<GrantPricing>>("PUT", "/api/town/defaults", patch);
+    return { stepSizes: r.stepSizes ?? patch.stepSizes ?? grantPricingOf({}).stepSizes, oversell: r.oversell ?? patch.oversell ?? 0 };
+  }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
@@ -941,7 +978,7 @@ class HttpApi implements Api {
   async exportNow() { return (await this.post<{ commit?: string | null }>("/api/export")).commit ?? null; }
   async redeploy(image: boolean) { return this.post<{ started?: boolean; queued?: boolean; running?: boolean }>("/api/admin/redeploy", { image }); }
   async redeployLive() { return this.get<RedeployLive>("/api/admin/redeploy"); }
-  async health() { return this.get<{ ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"] }>("/api/health"); }
+  async health() { return this.get<HealthRead>("/api/health"); }
   async retireCollective() { return this.post<{ retired: boolean; url: string }>("/api/collective/retire"); }
   async renameCollective(name: string) { return this.call<{ collective: { name: string; slug: string; url: string } }>("PATCH", "/api/collective", { name }); }
   async collectives() { return (await this.get<{ collectives?: { slug: string; name: string; goal: string; url: string; started: boolean }[] }>("/api/collectives")).collectives ?? []; }
@@ -953,7 +990,7 @@ class HttpApi implements Api {
   async cancelSchedule(id: string) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/cancel`)).schedule; }
   async editSchedule(id: string, patch: { paused?: boolean }) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}`, patch)).schedule; }
   async decideRetainer(id: string, input: Parameters<Api["decideRetainer"]>[1]) { return (await this.post<{ schedule: ScheduleView }>(`/api/schedules/${encodeURIComponent(id)}/retainer`, input)).schedule; }
-  async runDigest() { return (await this.post<{ assignment: { id: string } }>("/api/digest/run")).assignment; }
+  async runRank() { return (await this.post<{ assignment: { id: string } }>("/api/rank/run")).assignment; }
   async buildingStats(id: string) { return unwrap<BuildingStats>(await this.get(`/api/buildings/${id}/stats`), "stats"); }
 
   connect(h: SocketHandlers): Socket {

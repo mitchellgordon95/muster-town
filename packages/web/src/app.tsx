@@ -22,7 +22,7 @@ import { StatsPanel } from "./panels/StatsPanel";
 import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, BulletinPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { BoardPanel, BulletinPanel, CabinetPanel, HydrantPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
 import { BankSheet } from "./panels/BankSheet";
@@ -230,6 +230,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "session": return <SessionPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
+    case "hydrant": return <HydrantPanel />;
     case "manual": return null; // a paper sheet over the town, not a side panel (App)
     case "help": return null; // a building's help sign: a paper card over the town (App)
   }

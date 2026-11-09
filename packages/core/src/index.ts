@@ -24,7 +24,7 @@ export { Reorgs, REORG_PREP_MS, PLANNER_TITLE, PLANNER_UNPAID } from "./goal-cha
 export { Grants, quarterOf, type ObjectiveView, type ObjectiveTree, CHECKPOINTS, type ExplorationBudget, type DirectedBudget, type GrantBoard, type GoalKeyResult, type BlockedBuilding } from "./grants.ts";
 export { Availability, classifyFailure, inForce, limitEnds, limitText, type CredentialFailure } from "./availability.ts";
 export { BANK_ACCOUNTING, Bank, HOSTED_KEY_ONLY_HOLD, NO_KEY_HOLD, NO_TOKEN_HOLD, NoCredential, TOKEN_PRICES, type Credential, BANK_MODEL, adjustedOfUsage, bankModelOf, booked, sessionTokens, sliceBooked, type Booked, adjustedOutputTokens, listCostUsd, sessionView, tokenPrices, tokenWeights, type BankContributor, type BankSummary } from "./bank.ts";
-export { MODEL_ESTIMATE_SYSTEM, modelEstimatePrompt, parseModelEstimate } from "./grant-estimate.ts";
+export { MODEL_ESTIMATE_SYSTEM, modelEstimatePrompt, parseModelEstimate, stepCalibration } from "./grant-estimate.ts";
 export { bankTokensUsd, cents, dailyInflowOf, financeSummary, sessionListUsd, townFinance, FINANCE_BURN_DAYS, FINANCE_PROJECTION_DAYS, type FinanceInputs, type FinanceSession, type FinanceSummary, type FinanceUsd, type OverdrawnBreakdown } from "./finance.ts";
 export { goalSpend, worldGoalSpend, type GoalSpendInputs } from "./goal-spend.ts";
 export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts";
@@ -40,6 +40,7 @@ export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
 export { EXPLORE_CEILING_SHARE, EXPLORE_MIN_GAP_MS, assignmentSpent, exploreBlock, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
+export { SESSION_CIRCUIT_BREAKER, circuitBreakerTick, type CircuitCut } from "./circuit-breaker.ts";
 export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
 export { RESIDENT_NAMES, suggestResidentName } from "./names.ts";
@@ -89,9 +90,19 @@ export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";
 export { Emitter, newId, newToken, nowIso, chebyshev, slugify, parseFrontmatter, stringifyFrontmatter, extractSection, firstLine } from "./util.ts";
 export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine, rollupHistoryLine } from "./review-deck.ts";
-export { digestCard, digestRunView, pressDigest } from "./secretary.ts";
+export { rankRunView, pressRank } from "./secretary.ts";
+export { listNotices } from "./notices.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
 export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
 export { tickMemo, withTickMemo } from "./tick-memo.ts";
+// legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
+export { decideAsk, deferAsk, openAsks } from "./asks.ts";
+export { markSeen } from "./seen.ts";
+// legible delegation steps 9-10: the measures, the Planner's calibration schedule, the town dictionary
+export { legibleMeasures } from "./measures.ts";
+export { ensureCalibrationSchedule } from "./planner.ts";
+export { ensureDictionary } from "./dictionary.ts";
+export { claimsStale, runClaimChecks } from "./ask-checks.ts";
+export { blockedAddress, safeGet, type Fetcher } from "./net-guard.ts";

@@ -63,7 +63,7 @@ describe("the scheduler and the gate (Budget.canStart)", () => {
     creditBank(world); // a funded grant runs only while the Bank's usable balance covers it (the overdraft walk)
     const admin = world.ops.ensureAvatar(seed.admin.id);
     const noor = by("Noor");
-    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000_000 }).id);
+    const g = world.grantDesk.propose(admin, world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000_000 }).id);
     const a = world.ops.createWork(admin, noor.id, { title: "grant work", lane: "grant", grantId: g.id });
     expect(world.budget.canStart(noor.id, world.assignments.require(a.id))).toBe(false);
     for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }

@@ -24,7 +24,7 @@ function setup() {
   const mara = createResident(world, { buildingId: code.id, name: "Mara", title: "t", direction: "d" });
   world.ops.updateBuilding(admin, code.id, { managerAgentId: mara.id });
   world.permissions.grant(mara, buildingRoleId(code.id, "manager"));
-  const g = world.grantDesk.decide(admin, world.grantDesk.propose(mara, world.grantDesk.create(mara, code.id, { keyResults: [{ text: "one fixer", howToCheck: "the queue" }], objective: "o", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500_000 }).id).id, { action: "fund" });
+  const g = world.grantDesk.decide(admin, world.grantDesk.propose(mara, world.grantDesk.create(mara, code.id, { keyResults: [{ text: "one fixer", howToCheck: "the queue" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 500_000 }).id).id, { action: "fund" });
   const opts = { fallbackBuildingId: code.id, grantId: g.id };
   return { ...s, mei, mara, code, grantId: g.id, opts };
 }

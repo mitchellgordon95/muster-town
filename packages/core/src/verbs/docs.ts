@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, askLineFor, parseRollup, rollupAsksOnly, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, askLineFor, parseRollup, vetAsk, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
@@ -15,15 +15,22 @@ import { actOrigin } from "../origin.ts";
 import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
+import { fileForecast } from "../grant-forecast.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
+import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseOrFlag } from "../asks.ts";
+import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
 import { guessedTimesWarning } from "../time.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 
-const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin"]);
+const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin", "policy", "dictionary"]);
+/** Docs only humans change (the policy ledger through its "Add this rule?" ask, the dictionary through the admin paths): no agent writes or updates them, even their author. */
+const HUMAN_ONLY_TYPES = new Set<Doc["type"]>(["policy", "dictionary"]);
+const HUMAN_ONLY_NOTE = "The policy ledger and the town dictionary are changed by humans only (a rule is added when a human decides \"Add this rule to the ledger?\"). File a policy ask instead.";
 
 export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
@@ -177,6 +184,7 @@ export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
+  if (HUMAN_ONLY_TYPES.has(input.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
   if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : input.type === "bulletin" ? "the bulletin board in the square (humans post there)" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   if (input.buildingId && input.type !== "fyi") throw badRequest("`buildingId` is only for FYIs (type \"fyi\"): it picks the board to post to, e.g. \"town-hall\" for a town-wide FYI.");
@@ -211,6 +219,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
+    if (HUMAN_ONLY_TYPES.has(cur.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
@@ -294,11 +303,18 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from ${captain}. Missing: ${format.missingSections.map((s) => `## ${s === "Needs from Mitchell" ? `Needs from ${captain}` : s}`).join(", ")}.`);
   }
   const formatWarnings = [...(format ? rollupWarnings(format) : []), ...(timeWarn(input.body).warnings ?? [])];
+  // asks as a table (docs/legible-delegation.md §4): a rollup's typed `asks` list is checked against its prose (every id
+  // its Needs and real "Your call" lines name is a target in the list); without the list the prose is read as before
+  if (input.asks && !input.rollup) throw badRequest("`asks` goes with a rollup (rollup: true) only.");
+  const typedAsks = format && input.asks ? checkRollupAsks(world, input.body, input.asks) : null;
+  // adoption: a rollup that asks something in prose only is tagged "untyped-asks" and told how to file the list next time
+  const untyped = !!format && !typedAsks && (rollupAsks(format).length > 0 || rollupNeedsIdsAll(input.body, format).length > 0);
+  const untypedNote = untyped ? " Next rollup, also file what you ask the humans as `asks` (type, targetId, title, body, branches, recommendation): this time the town read your Needs and \"Your call\" lines from the prose." : "";
   // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
   // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
   if (format) {
-    // a close rollup asks about its own grant: that is what the rollup is for
-    const own = new Set(closedGrants.map((g) => g.id));
+    // a close rollup asks about its own grant: that is what the rollup is for; a typed ask on an item folds into its own ask
+    const own = new Set([...closedGrants.map((g) => g.id), ...(typedAsks ?? []).flatMap((a) => a.targetId ? [a.targetId] : [])]);
     const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
     if (dup.length) {
       const captain = world.captainName();
@@ -325,6 +341,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
+  // legible delegation step 3: each typed ask's card passes its type's contract and the linter, or is refused with the
+  // failing rules (the session's third failing attempt is filed, flagged lint-failed)
+  if (typedAsks?.length) refuseOrFlag(world, me, "rollup", typedAsks.flatMap((a, i) => vetAsk(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
   const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
@@ -333,16 +352,24 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(untyped ? ["untyped-asks"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
     // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
     // its grant's report and stays.
-    const rowIds = format && !closedGrants.length ? waitingRowIds(world) : null;
-    const asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
-    const folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
+    // With a typed list, the same holds by target: every ask folded into an ask already open (and no Shipped items).
+    const rowIds = format && !closedGrants.length && !typedAsks ? waitingRowIds(world) : null;
+    let asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
+    let folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
+    const filedAsks = typedAsks ? fileRollupAsks(world, me, doc, typedAsks) : [];
+    if (format && typedAsks && !closedGrants.length && !format.items.length && filedAsks.length && filedAsks.every((f) => f.folded)) {
+      asked = [...new Set(filedAsks.map((f) => f.ask.targetId!))];
+      folded = foldRollup(world, doc, asked);
+    } else if (format && !typedAsks) asksFromRollupProse(world, folded ?? doc);
+    // legible delegation step 5: shipped notices, the closed loop of a grant it closes, archived when it asks nothing of its own
+    const archived = format ? settleRollup(world, folded ?? doc, closedGrants) : false;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -370,23 +397,27 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // when the step was cancelled under it); the manager's review stop / redirect of this report cancels it while it waits
     const nextStep = !resumeWhen && current && world.assignments.get(current.id)?.status === "done"
       ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
-    const stepNote = nextStep ? ` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
+    // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
+    const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
+    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
+    const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = folded ? "approve" : "pending";
+    const decision: Doc["decision"] = folded || archived ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
     const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
+      : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
       : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
-        note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
+      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
+        note: `Report submitted to ${where}.${formatNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
@@ -460,6 +491,7 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
     requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
     ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
+  askForRequest(world, doc);
   const withdrew: string[] = [];
   for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
     const old = world.docs.get(id);

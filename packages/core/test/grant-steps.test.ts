@@ -4,7 +4,7 @@
  * manager's review stop / redirect cancels a queued next step; migration 096 back-fills open proposals with one step.
  */
 import Database from "better-sqlite3";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,9 +16,9 @@ import { creditBank, seededWorld } from "./helpers.ts";
 const REPORT = "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.";
 const KR = { text: "A visitor sees the banner", howToCheck: "Open the lab" };
 const STEPS = [
-  { title: "Build the banner", description: "Ship the banner PR", model: "claude-haiku-5-5" },
-  { title: "Check it live", description: "Open the lab as a guest" },
-  { title: "Close it", description: "Measure and close" },
+  { size: "M" as const, title: "Build the banner", description: "Ship the banner PR", model: "claude-haiku-5-5" },
+  { size: "M" as const, title: "Check it live", description: "Open the lab as a guest" },
+  { size: "M" as const, title: "Close it", description: "Measure and close" },
 ];
 
 function lab() {
@@ -64,8 +64,8 @@ describe("grant B: funding queues step 1, no kickoff session", () => {
     const { world, b, propose } = lab();
     expect(() => world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "o", stopCondition: "s", askTokens: 1 } as never)).toThrow();
     expect(() => propose({ steps: [] })).toThrow();
-    expect(() => propose({ steps: [{ title: "t", description: "d", model: "claude-sonnet-5-5" }] })).toThrow(/Step 1: .*runs forks on/);
-    expect(() => propose({ steps: [{ title: "t", description: "d", pages: ["dc_nope"] }] })).toThrow(/Step 1: .*topic page/);
+    expect(() => propose({ steps: [{ size: "M", title: "t", description: "d", model: "claude-sonnet-5-5" }] })).toThrow(/Step 1: .*runs forks on/);
+    expect(() => propose({ steps: [{ size: "M", title: "t", description: "d", pages: ["dc_nope"] }] })).toThrow(/Step 1: .*topic page/);
     // a draft left with no steps (as before migration 096) can't be proposed
     const d = world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "o", steps: [STEPS[1]!], stopCondition: "s", askTokens: 1 });
     world.grants.upsert({ ...world.grants.require(d.id), steps: [] });
@@ -158,7 +158,8 @@ describe("migration 096: open proposals get one step, funded grants none", () =>
     const MIGRATIONS = join(fileURLToPath(import.meta.url), "..", "..", "migrations");
     const dir = mkdtempSync(join(tmpdir(), "mig-"));
     cpSync(MIGRATIONS, dir, { recursive: true });
-    rmSync(join(dir, "096_grant_steps.sql"));
+    // 096 and every later migration (098 reads the steps column 096 adds) are left out of the first run
+    for (const f of readdirSync(dir)) if (f >= "096") rmSync(join(dir, f));
     const db = new Database(":memory:");
     migrate(db, dir);
     const cols = (db.prepare("PRAGMA table_info(grants)").all() as { name: string }[]).map((c) => c.name);

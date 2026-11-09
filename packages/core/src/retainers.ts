@@ -11,6 +11,7 @@
  * for its model, or its claim fully overdrafted) is missed, not queued, and its manager hears once per streak.
  */
 import type { Agent, Assignment, RetainerDecisionInput, Schedule, ScheduleView } from "@muster-town/schema";
+import { askForRetainer, retireAsks } from "./asks.ts";
 import { sessionTokens } from "./bank.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -158,6 +159,7 @@ export function askRetainer(world: World, s: Schedule, why: string, now = new Da
     if (!canDecideRetainer(world, h, s)) continue;
     sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: h.id, body: `${retainerLine(world, v)}. Approve, counter or reject it in the Town Hall in-tray.` });
   }
+  askForRetainer(world, s, why);
   emitTownHall(world);
 }
 
@@ -166,7 +168,8 @@ export function releaseRetainer(world: World, s: Schedule, reason: string, at = 
   if (s.retainer === "none" || s.retainer === "ended") return s;
   const released = s.retainer === "funded" ? Math.max(0, (s.retainerTokens ?? 0) - retainerDrawn(world, s.id)) : 0;
   const e = world.schedules.upsert({ ...s, retainer: "ended", updatedAt: at.toISOString() });
-  world.events.append({ type: "retainer.released", buildingId: s.buildingId, text: `Retainer for "${truncate(s.title, 80)}" ended (${reason})${released ? `: ${fmt(released)} unspent tokens back to the Bank` : ""}`, payload: { scheduleId: s.id, reason, releasedTokens: released, was: s.retainer } });
+  const ended = world.events.append({ type: "retainer.released", buildingId: s.buildingId, text: `Retainer for "${truncate(s.title, 80)}" ended (${reason})${released ? `: ${fmt(released)} unspent tokens back to the Bank` : ""}`, payload: { scheduleId: s.id, reason, releasedTokens: released, was: s.retainer } });
+  retireAsks(world, "retainer", s.id, ended.text);
   if (s.retainer === "asked" || s.retainer === "countered") emitTownHall(world);
   return e;
 }
@@ -202,7 +205,8 @@ export function decideRetainer(world: World, actor: Agent, id: string, input: Re
     said = "Rejected";
   }
   const deck = input.deckSlide ? { deckSlide: input.deckSlide } : {};
-  world.events.append({ type: "retainer.decided", agentId: actor.id, buildingId: s.buildingId, text: `${said}: retainer for "${truncate(s.title, 80)}"${note ? `: ${truncate(note, 160)}` : ""}`, payload: { scheduleId: s.id, action: input.action, retainer: next.retainer, retainerTokens: next.retainerTokens, ...deck } });
+  const decided = world.events.append({ type: "retainer.decided", agentId: actor.id, buildingId: s.buildingId, text: `${said}: retainer for "${truncate(s.title, 80)}"${note ? `: ${truncate(note, 160)}` : ""}`, payload: { scheduleId: s.id, action: input.action, retainer: next.retainer, retainerTokens: next.retainerTokens, ...deck } });
+  retireAsks(world, "retainer", s.id, decided.text);
   const manager = world.buildings.get(s.buildingId) ? managerAgentOf(world, world.buildings.get(s.buildingId)!) : undefined;
   if (manager) {
     const what = input.action === "approve" ? `approved the retainer for your schedule "${s.title}" (${s.id}): ${fmt(next.retainerTokens! - drawn)} tokens, ${fmt(s.tokensPerRun)} per run; its runs start`

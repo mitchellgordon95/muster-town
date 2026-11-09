@@ -10,6 +10,7 @@
  * decisions (the root always has a captain, docs/goals.md). Self-service only: nobody resets someone else.
  */
 import { NOT_GONE } from "@muster-town/schema";
+import { retireAsks } from "./asks.ts";
 import { AppError } from "./errors.ts";
 import { townRoleId } from "./permissions.ts";
 import { nowIso } from "./util.ts";
@@ -47,6 +48,9 @@ export function resetOwnAccount(world: World, userId: string): ResetResult {
       world.goalTree.setOwner(world.ops.ensureAvatar(userId), g, null);
       goalsReleased.push(g.id);
     }
+    // their pending requests' asks retire with them (docs/legible-delegation.md §4)
+    for (const r of world.accessRequests.where("userId = ? AND status = 'pending'", [userId])) retireAsks(world, "access", r.id, "The asker reset their account.");
+    for (const r of world.captainRequests.where("userId = ? AND status = 'pending'", [userId])) retireAsks(world, "captain", r.id, "Withdrawn: the asker reset their account.");
     const accessRequestsDeleted = world.db.prepare("DELETE FROM access_requests WHERE userId = ?").run(userId).changes;
     const captainRequestsWithdrawn = world.db.prepare(
       "UPDATE goal_captain_requests SET status = 'declined', decidedBy = ?, decisionNote = ?, decidedAt = ? WHERE userId = ? AND status = 'pending'",

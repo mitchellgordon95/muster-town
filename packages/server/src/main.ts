@@ -4,7 +4,7 @@
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { markBoot } from "./capacity.ts";
-import { World } from "@muster-town/core";
+import { World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -60,11 +60,17 @@ async function main() {
     manualPath: join(REPO_ROOT, "docs", "manual.md"),
   });
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
-  // the Town Hall's Secretary and its daily digest schedule (gr_kdlogzzo5s): made once; the schedule asks for its retainer in the in-tray
+  // the Town Hall's Secretary, its daily ranking and weekly pattern schedules (docs/legible-delegation.md §6) and the policy
+  // ledger: made once; each schedule asks for its retainer in the in-tray
   try {
     const sec = world.secretary.ensure();
-    const sched = world.secretary.ensureDigestSchedule();
-    if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, digest schedule ${sched.id} (retainer ${sched.retainer})` : ""}`);
+    const sched = world.secretary.ensureRankSchedule();
+    const weekly = world.secretary.ensurePatternSchedule();
+    world.secretary.ensurePolicyLedger();
+    // legible delegation steps 9-10: the town dictionary and the Planner's weekly calibration run (asks its retainer once)
+    ensureDictionary(world);
+    ensureCalibrationSchedule(world);
+    if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, ranking schedule ${sched.id} (retainer ${sched.retainer})` : ""}${weekly ? `, pattern schedule ${weekly.id} (retainer ${weekly.retainer})` : ""}`);
   } catch (e) { console.warn(`[server] Secretary not set up: ${(e as Error).message}`); }
   const desksOverride = desksFromEnv(townEnv("DESKS"));
   if (desksOverride) {
@@ -120,12 +126,14 @@ async function main() {
     });
     // retire and shutdown close the app before its World: stop the runtime first
     app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    w.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
     await startHosted(app, w, row.slug, dir);
     return app;
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
   const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
+  world.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);

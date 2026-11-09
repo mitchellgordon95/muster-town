@@ -84,7 +84,7 @@ describe("manager team-lead session", () => {
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
+    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
     const kr = world.keyResults.require(draft.keyResultId!);
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();
@@ -92,7 +92,7 @@ describe("manager team-lead session", () => {
     expect(manages()).toHaveLength(1);
     expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
     // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund", tokens: 10_000_000 });
     await settle();
     expect(rows()).toHaveLength(1);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
@@ -127,7 +127,7 @@ describe("manager team-lead session", () => {
       yield init();
       const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: id, decision: "approve" });
-      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\nNothing needed.`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
+      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\n- Should the lab publish its growth rates weekly?`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
       yield result(200, 0.03);
     });
     const { world, runtime, sdk, by } = env;

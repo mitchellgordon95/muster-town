@@ -198,6 +198,17 @@ export function rollupNeedsIds(body: string): string[] {
   return [...new Set(rollupNeeds(body).match(NEEDS_ID) ?? [])];
 }
 
+const ASK_ID = /\b(?:gr|dc|sc|cr|ar|kr|mt)_[a-z0-9]+\b/g;
+
+/**
+ * Every id the rollup asks about, in order, once each: those its Needs section names (the generated waiting line aside)
+ * and those a real "Your call" names (not "None…"). A typed `asks` list must target each (docs/legible-delegation.md §4).
+ */
+export function rollupNeedsIdsAll(body: string, p: ParsedRollup = parseRollup(body)): string[] {
+  const calls = rollupAsks(p).filter((a) => a.n !== null).map((a) => a.call).join("\n");
+  return [...new Set([...(rollupNeeds(withoutWaitingLine(body)).match(ASK_ID) ?? []), ...(calls.match(ASK_ID) ?? [])])];
+}
+
 /** The Needs section's list items (lines starting "- ", "* " or "1. "); 0 for prose or "Nothing needed". */
 export function rollupNeedsCount(body: string): number {
   return rollupNeeds(body).split("\n").filter((l) => /^(?:[-*]|\d+[.)])\s+\S/.test(l)).length;

@@ -1,4 +1,4 @@
-import { estimateRangeOf, type Grant, type GrantEstimate, type SimilarGrant } from "@muster-town/schema";
+import { estimateRangeOf, grantPricingOf, type Assignment, type Grant, type GrantEstimate, type SimilarGrant, type StepCalibration, type StepSize } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -68,6 +68,71 @@ function medianRatio(rows: SimilarGrant[]): number | null {
 }
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
+
+/** Calibration reads the steps completed this far back. */
+const CALIBRATION_DAYS = 30;
+/** Fewer completed steps of a size than this and it stays with the table (ratio 1.0): small samples stay with the seed (§7.3). */
+const CALIBRATION_MIN_SAMPLE = 3;
+
+/**
+ * What steps really cost against the table (docs/legible-delegation.md §7.3, §7.4): for each size, over the plan steps
+ * completed in the last 30 days (a step = the assignments of a grant with that `grantStep`, its parked continuations
+ * included; done when its latest one is), the median of spent ÷ the size's table value, with the sample count,
+ * collective-wide and per building. `ratio` is null with no sample. Read-only; GET /api/town shows it beside the table.
+ */
+export function stepCalibration(world: World, now = new Date()): StepCalibration {
+  const table = grantPricingOf(world.town.get()).stepSizes;
+  const since = new Date(now.getTime() - CALIBRATION_DAYS * 86_400_000).toISOString();
+  // the latest assignment per (grant, step) decides whether the step is done, and when
+  const latest = new Map<string, Assignment>();
+  const ids = new Map<string, string[]>();
+  for (const a of world.assignments.where("grantStep IS NOT NULL AND grantId IN (SELECT grantId FROM assignments WHERE grantStep IS NOT NULL AND updatedAt >= ?)", [since], "ORDER BY createdAt, rowid")) {
+    const k = `${a.grantId}:${a.grantStep}`;
+    latest.set(k, a);
+    ids.set(k, [...(ids.get(k) ?? []), a.id]);
+  }
+  // the adjusted tokens of each step assignment's sessions, read in one pass
+  const spentBy = new Map<string, number>();
+  for (const s of world.sessions.where("assignmentId IN (SELECT id FROM assignments WHERE grantStep IS NOT NULL AND grantId IN (SELECT grantId FROM assignments WHERE grantStep IS NOT NULL AND updatedAt >= ?))", [since])) {
+    spentBy.set(s.assignmentId!, (spentBy.get(s.assignmentId!) ?? 0) + sessionTokens(s));
+  }
+  const all: Record<StepSize, number[]> = { S: [], M: [], L: [] };
+  const per = new Map<string, Record<StepSize, number[]>>();
+  const grants = new Map<string, Grant | undefined>();
+  for (const [k, a] of latest) {
+    if (a.status !== "done" || a.updatedAt < since) continue;
+    if (!grants.has(a.grantId!)) grants.set(a.grantId!, world.grants.get(a.grantId!));
+    const step = grants.get(a.grantId!)?.steps[a.grantStep!];
+    if (!step?.size) continue; // a step planned before sizes (a grant funded before migration 098) prices nothing
+    const size = step.size;
+    const spent = ids.get(k)!.reduce((s, id) => s + (spentBy.get(id) ?? 0), 0);
+    const r = spent / table[size];
+    all[size].push(r);
+    const b = per.get(a.buildingId) ?? { S: [], M: [], L: [] };
+    b[size].push(r);
+    per.set(a.buildingId, b);
+  }
+  const rows = (x: Record<StepSize, number[]>) => Object.fromEntries((["S", "M", "L"] as const).map((s) => [s, { ratio: median(x[s]), sample: x[s].length }])) as StepCalibration["sizes"];
+  const sizes = rows(all);
+  return {
+    since, days: CALIBRATION_DAYS, minSample: CALIBRATION_MIN_SAMPLE, sizes,
+    buildings: Object.fromEntries([...per].map(([id, x]) => [id, rows(x)])),
+    lines: (["S", "M", "L"] as const).map((s) => sizes[s].ratio === null ? `${s}: no step completed in ${CALIBRATION_DAYS} days` : `${s}: ${sizes[s].ratio!.toFixed(1)}× over ${sizes[s].sample} step${sizes[s].sample === 1 ? "" : "s"}`),
+  };
+}
+
+/** The ratio a forecast or an earmark prices a size at: the collective's calibrated median once its sample is big enough, else 1.0 (the table). */
+export function calibratedRatio(c: StepCalibration, size: StepSize): number {
+  const r = c.sizes[size];
+  return r.ratio !== null && r.sample >= c.minSample ? r.ratio : 1;
+}
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const r = [...xs].sort((a, b) => a - b);
+  const m = r.length % 2 ? r[(r.length - 1) / 2]! : (r[r.length / 2 - 1]! + r[r.length / 2]!) / 2;
+  return Math.round(m * 100) / 100;
+}
 
 /** How a closed grant did against its estimate (the grant.closed payload, the grant page): null when it had none. */
 export interface EstimateVsActual {

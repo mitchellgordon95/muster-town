@@ -1,5 +1,5 @@
-import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, digestCard, digestRunView } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -50,16 +50,23 @@ export async function townRoutes(app: FastifyInstance) {
    */
   // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
-  const figures = new HealthCache(() => ({
+  const figures = new HealthCache(() => {
+    // what steps really cost per size, last 30 days (grant-estimate.ts): computed here on the timer, never on a request
+    const cal = stepCalibration(world);
+    return {
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
     budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world), export: exportHealth(world),
+    // legible delegation step 9: the §9 counts (core measures.ts), the Planner's calibration reads them too
+    legible: legibleMeasures(world, new Date(), cal),
+    stepCalibration: cal,
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
     // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
     ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
     ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress(), started: world.hasRun() } : {}),
-  }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+    };
+  }, app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
   app.get("/api/health", async () => {
@@ -84,9 +91,19 @@ export async function townRoutes(app: FastifyInstance) {
     });
   }
 
+  // public and polled: the snapshot only. The calibration and the §9 measures are on /api/health (cached) and, for the
+  // planning desk's Step sizes tab, GET /api/town/pricing
   app.get("/api/town", async () => {
     const { type: _type, ...snap } = world.snapshot();
     return snap;
+  });
+
+  // the planning desk's Step sizes tab (an admin): the table, oversell, and the cached calibration beside them
+  app.get("/api/town/pricing", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin reads the step-size pricing here.");
+    const { figures: f, at } = figures.get();
+    return { ...grantPricingOf(world.town.get()), stepCalibration: f.stepCalibration, figuresAt: at };
   });
 
   app.get("/api/me", async (req): Promise<AuthMe> => {
@@ -364,7 +381,13 @@ export async function townRoutes(app: FastifyInstance) {
   app.put("/api/town/defaults", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
-    return world.setTownDefaults(parse(TownDefaultsPatch, req.body), world.ops.ensureAvatar(user.id).id);
+    const { stepSizes, oversell, ...rest } = parse(TownDefaultsPatch, req.body);
+    const by = world.ops.ensureAvatar(user.id).id;
+    // the step-size table and oversell (docs/legible-delegation.md §7.3) ride the same route; the rest are building defaults
+    const t = world.town.get();
+    const pricing = stepSizes || oversell !== undefined ? world.setGrantPricing({ stepSizes, oversell }, by) : grantPricingOf(t);
+    const saved = Object.values(rest).some((v) => v !== undefined) ? world.setTownDefaults(rest, by) : { defaults: world.town.defaults(), buildings: [] };
+    return { ...saved, ...pricing };
   });
 
   /**
@@ -377,14 +400,26 @@ export async function townRoutes(app: FastifyInstance) {
     if (b.kind === "town-hall") {
       // routes: each item's goal, owner, "Mine" and whether this viewer may decide it (docs/goals.md step 4)
       const intray = world.ops.townHallIntray();
-      // the Secretary's latest digest card goes first (gr_kdlogzzo5s step 3); the rollups it archived are no longer in `reports`
-      // digestRun: the "Daily digest" button, only for a human who may press it (Mitchell, 1:1 mt_i50xwu4z2t)
+      // rankRun: the "Rank now" button (the Secretary's ranking run), only for a human who may press it; `digestRun` is its
+      // old name, kept one release for the web. notices: the latest 20 (closed loops, shipped, the slate) beside the asks
+      // (docs/legible-delegation.md §8). The digest card is gone: nothing writes one since step 5.
       const viewer = viewerOf(world, req);
-      return { ...intray, digest: digestCard(world), digestRun: digestRunView(world, viewer), ...intrayRoutes(world, viewer, intray) };
+      const rankRun = rankRunView(world, viewer);
+      return { ...intray, rankRun, digestRun: rankRun, notices: listNotices(world, { limit: 20 }), ...intrayRoutes(world, viewer, intray) };
     }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);
     return { reports, chains: reportChains(world, reports) };
+  });
+
+  /**
+   * Notices (docs/legible-delegation.md §8): state changes with nothing to do (shipped items, closed loops, verified key
+   * results, the Secretary's slate and pattern notes), newest first. Readable by anyone, like the in-tray.
+   * `?building=&goal=&kind=&limit=` (limit default 50, at most 200). → { notices }
+   */
+  app.get<{ Querystring: { building?: string; goal?: string; kind?: string; limit?: string } }>("/api/notices", async (req) => {
+    const q = req.query;
+    return { notices: listNotices(world, { building: q.building || undefined, goal: q.goal || undefined, kind: q.kind || undefined, limit: q.limit ? Number(q.limit) || undefined : undefined }) };
   });
 
   /**

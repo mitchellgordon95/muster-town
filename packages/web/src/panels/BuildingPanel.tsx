@@ -154,7 +154,7 @@ export function TownHallStaff({ hallId, planner, secretary }: { hallId: string; 
   return (
     <span className="actions">
       {live ? (can ? <Act small run={() => openPlanner()} title="Plan the goal tree with it: goal changes and reorgs">Talk to {live.name}</Act> : <span>{live.name} (plans the goal tree)</span>) : null}
-      {secretary ? (can ? <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title="The daily digest; in a 1:1 it does a decision you say in your own words">Talk to {secretary.name}</Act> : <span>{secretary.name} (the daily digest)</span>) : null}
+      {secretary ? (can ? <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title="It ranks your asks and writes the money slate; in a 1:1 it does a decision you say in your own words">Talk to {secretary.name}</Act> : <span>{secretary.name} (ranks your asks)</span>) : null}
     </span>
   );
 }

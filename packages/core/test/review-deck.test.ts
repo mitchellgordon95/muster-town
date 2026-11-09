@@ -17,8 +17,9 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const krs = KRS;
+  world.setGrantPricing({ stepSizes: { S: 50_000, M: 1_000_000, L: 2_000_000 } }); // one M step asks 1M
   const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string; continues?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000,
+    keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000,
     ...extra,
   }).id);
   const rollup = (calls: string[], createdAt: string, decided?: { decision: "approve"; note: string }) => createDoc(world, {
@@ -74,7 +75,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(rest[0]!.text).toMatch(/^_Waiting \d/);
   });
 
-  it("held checkpoints come first, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
+  it("the asks come first in rank order (an unranked proposal oldest first); then held checkpoints, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
     const { world, admin, proposal, rollup, park, krs } = setup();
     const p1 = proposal();
     const r1 = rollup(["Merge it?"], ago(5));
@@ -85,15 +86,16 @@ describe("review deck (GET /api/review-deck)", () => {
     world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     park(r2.id); park(r2.id); park(p1.id);
     const rest = ours(reviewDeck(world)).slice(1);
-    expect(rest.map((s) => s.key)).toEqual([`checkpoint:${held.id}`, `rollup:${r2.id}:1`, `proposal:${p1.id}`, `rollup:${r1.id}:1`]);
-    expect(rest.map((s) => s.group)).toEqual([1, 3, 3, 5]);
-    expect(rest[1]).toMatchObject({ waiters: 2 });
-    expect(rest[1]!.text).toMatch(/2 assignments parked on this/);
-    expect(rest[2]!.text).toMatch(/1 assignment parked on this/);
+    expect(rest.map((s) => s.key)).toEqual([`proposal:${p1.id}`, `checkpoint:${held.id}`, `rollup:${r2.id}:1`, `rollup:${r1.id}:1`]);
+    expect(rest.map((s) => s.group)).toEqual([3, 1, 3, 5]);
+    expect(rest[0]!.askId).toMatch(/^ak_/);
+    expect(rest[2]).toMatchObject({ waiters: 2 });
+    expect(rest[2]!.text).toMatch(/2 assignments parked on this/);
+    expect(rest[0]!.text).toMatch(/1 assignment parked on this/);
     expect(rest[3]!.waiters).toBe(0);
     // the checkpoint's history line is its last human entry (the funding)
-    expect(rest[0]!.history).toMatch(/funded .* ago/);
-    expect(rest[0]!.text).toMatch(/_History: .*funded/);
+    expect(rest[1]!.history).toMatch(/funded .* ago/);
+    expect(rest[1]!.text).toMatch(/_History: .*funded/);
   });
 
   it("a checkpoint slide leads with what shipped per key result, spend and what a top-up buys; a proposal asking again for that work shows it (mt_7b4zc7yja3)", () => {
@@ -180,7 +182,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const { world, manager, krs } = setup();
     const approach = `${"Step one adds a Goals tab next to Tab. ".repeat(24)}The last words stay.`;
     expect(approach.length).toBeGreaterThan(900);
-    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "Long approach", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "Long approach", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.text).toContain(approach.trim());
     expect(s.text).not.toMatch(/…/);
@@ -189,7 +191,7 @@ describe("review deck (GET /api/review-deck)", () => {
   it("propose_grant stores picture and whatYoudSee; the proposal slide shows the picture when the media exists", async () => {
     const { world, manager, krs } = setup();
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
-    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "With a picture", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "With a picture", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
     expect(world.grants.require(r.grantId)).toMatchObject({ picture: media.id, whatYoudSee: "The in-tray shows it" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.pictures[0]!.src).toBe(media.url);
@@ -200,7 +202,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
     const design = createDoc(world, { type: "note", title: "design", body: "Paste gives `![alt](/api/media/mf_….png)`:\n![alt](/api/media/mf_….png)\n![gone](/api/media/mf_nope.png)", authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
     const shot = createDoc(world, { type: "note", title: "shot", body: `![the deck](${media.url})`, authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building" });
-    const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [krs[0]!], objective: `Plan ${findingsDocIds.length}`, approach: "", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 1000, findingsDocIds }).id);
+    const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [krs[0]!], objective: `Plan ${findingsDocIds.length}`, approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 1000, findingsDocIds }).id);
     const without = plan([design.id]);
     const withShot = plan([design.id, shot.id]);
     const slides = reviewDeck(world).slides;

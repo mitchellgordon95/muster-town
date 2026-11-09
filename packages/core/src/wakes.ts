@@ -71,11 +71,13 @@ function describe(world: World, e: Event): { title: string; what: string; summar
     const g = world.grants.get(String(p.grantId));
     if (!g) return null;
     const note = g.history.at(-1)?.note.trim();
+    // a running grant is adjusted or cut from its forecast's ask too (docs/legible-delegation.md §7.3): "at its checkpoint" only after a hold
+    const heldBefore = (x: typeof g) => [...x.history].slice(0, -1).reverse().find((h) => ["checkpoint", "fund", "adjust", "continue"].includes(h.action))?.action === "checkpoint";
     const verb = e.type === "grant.closed" ? (action === "cut" ? "cut" : `closed (${g.outcome ?? "closed"})`) : action === "adjust" ? "adjusted" : "continued";
     const tokens = e.type === "grant.funded" ? `: ${fmt(g.grantTokens ?? 0)} tokens` : "";
     return {
       title: `Grant ${g.id} ${verb}${tokens}`,
-      what: `${human} ${verb} grant ${g.id}${action === "cut" || e.type === "grant.funded" ? " at its checkpoint" : ""}`,
+      what: `${human} ${verb} grant ${g.id}${heldBefore(g) ? " at its checkpoint" : ""}`,
       summary: [`Grant ${g.id} "${g.objective}" ${verb} by ${human}${tokens}.`, grantLine(world, g), ...(note ? [`The note: ${note}`] : [])].join("\n\n"),
     };
   }
