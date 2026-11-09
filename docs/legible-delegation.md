@@ -1,6 +1,6 @@
 # Legible Delegation
 
-Status: **vision and build plan, 2026-11-08; steps 1-8 of §11 built on the legible-delegation branch on 2026-11-09, steps 9-10 and the UI items in progress.** §2 names what the town had before and, under "Built on 2026-11-09", where the new code is; §11 marks each built step with its commits. Written from Mitchell's session with Claude on 2026-11-08, which read the 24 items then waiting in the Town Hall in-tray, pulled every grant checkpoint and 663 grant-lane sessions from prod, read 13 session transcripts, and worked out why the in-tray felt like drudgery and why grants hold when they do. For the Town Workshop and UI / UX buildings first: §11 is their build order. It sits beside `docs/how-work-gets-done.md` (how work is steered) and `docs/design.md` (the public town); where it changes how a rollup, a checkpoint or the in-tray works, this doc wins and the older section gets a pointer.
+Status: **vision and build plan, 2026-11-08; §11 steps 1-10 and UI items B-E built on the legible-delegation branch on 2026-11-09 (PR #398); item A, the hydrant, in progress.** §2 names what the town had before and, under "Built on 2026-11-09", where the new code is; §11 marks each built step with its commits. Written from Mitchell's session with Claude on 2026-11-08, which read the 24 items then waiting in the Town Hall in-tray, pulled every grant checkpoint and 663 grant-lane sessions from prod, read 13 session transcripts, and worked out why the in-tray felt like drudgery and why grants hold when they do. For the Town Workshop and UI / UX buildings first: §11 is their build order. It sits beside `docs/how-work-gets-done.md` (how work is steered) and `docs/design.md` (the public town); where it changes how a rollup, a checkpoint or the in-tray works, this doc wins and the older section gets a pointer.
 
 Three voices, kept apart, as in the other vision docs:
 
@@ -51,7 +51,7 @@ Several pieces exist in a first form, and §11 builds on them rather than replac
 - **Escalation criteria** in the manager prompt (`ESCALATION_CRITERIA`), and a 4-hour minimum gap between rollups.
 - **Key-result statuses** (`KeyResultStatus`: not-started, on-track, at-risk, claimed, met, missed); agents may set the first four, only a human marks met or missed.
 
-**Built on 2026-11-09** (§11 steps 1-8, on the legible-delegation branch), so a reader knows where the code is:
+**Built on 2026-11-09** (§11 steps 1-10 and UI items B-E, on the legible-delegation branch), so a reader knows where the code is:
 
 - `packages/core/src/asks.ts`: the `asks` table's service. Asks created at their sources, folded by target, retired by event, decided by a human; the town-written money cards (`proposalCard`, `gateCard`); the Secretary's rank. Invariants in `docs/invariants/asks.md`.
 - `packages/schema/src/ask.ts`: the card contract per ask type and the countable STE linter (`vetAsk`).
@@ -61,7 +61,8 @@ Several pieces exist in a first form, and §11 builds on them rather than replac
 - `packages/core/src/grant-forecast.ts`: the forecast at every step report, and the gate it files: a money ask past the ceiling, a `gate` notice within it.
 - `packages/core/src/circuit-breaker.ts`: the per-session circuit breaker.
 - `packages/core/src/free-tokens.ts` and `packages/core/src/grant-estimate.ts`: earmarks at expected spend under the oversell setting, and spent over size per size.
-- Measures and the dictionary (step 10) land in `packages/core/src/measures.ts` when that step merges.
+- `packages/core/src/measures.ts`: the §9 counts (`legible` on `/api/health` and `/api/town`). `packages/core/src/planner.ts`: the Planner's weekly calibration run on Fable, the `calibrate` verb, the lines (`PLANNER_LINES`) and the Adopt hook that applies a table change a human approved. `packages/core/src/dictionary.ts`: the Town Hall dictionary doc, its pinned block and the linter's `dictionary` rule. Key-result `evidence` (verified / claimed / unknown) is set in `grants.ts` and by a passed `kr` check.
+- `packages/web/src/panels/AskCard.tsx`, `AsksIntray.tsx`, `FundingView.tsx`, `NoticesPanel.tsx`, `StepStrip.tsx`, `PricingTab.tsx`: the ask card and the Town Hall in-tray as asks with records one click down, the funding slate, the feed and closed loops, the step strip, the step-size table; `ReviewDeck.tsx` renders slate and ask slides.
 
 Why it isn't enough (before 2026-11-09): the ask was still **parsed out of prose** after the fact. The Secretary's digest "takes the questions my brain can barely parse and puts them in a bulleted list": its Money lines re-list the cards and its "Questions in words" truncate at 150 characters, which cuts off the actual question. There is no delta against what the reader last saw, no ranking, and the real decisions ("Your call: None, unless you'd rather …") are not asks at all today. And the checkpoint rule fires on spend, where nothing has been learned, rather than at a step boundary, where something has (§7).
 
@@ -245,16 +246,16 @@ Each step is grant-sized: one proposal, S/M/L steps, key results a human checks 
 6. **Step sizes and the table.** `steps[].size` (S/M/L) on `propose_grant`, required; `collective.stepSizes` with seeded defaults, editable by an admin; `askTokens` becomes computed and read-only; `grant-estimate.ts` reports spent over size per size and per building, recency-weighted. No XL: `propose_grant` refuses a step marked larger than L and says to split it. **Built** (40816fe7).
 7. **T&M, the ceiling and the gates.** `Grants.checkpoints` holds at 100% of the sum only; the reserve rule goes. Each step's `submit_report` computes the forecast (done and left by size, spent, spent over size, projected total) onto the grant and files a notice, or a money ask when projected past the ceiling. One circuit breaker per session (`SESSION_CIRCUIT_BREAKER`, ~500k adjusted) replaces nothing and catches runaways. `docs/invariants/grants.md` gains "a grant holds only at its ceiling; an ask precedes every hold". **Built** (40816fe7, 9d67da6f): `grant-forecast.ts`, `circuit-breaker.ts`. Past the ceiling the forecast is one Adjust / Cut money ask with a town-written card that passes the money contract, and the hold folds into it; within the ceiling it is a `gate` notice. A running grant can be adjusted, or cut, which stops it. `docs/invariants/grants.md` invariants 5 and 12.
 8. **Overbooking and the oversell setting.** `Bank.freeTokens` subtracts expected remaining (sizes at calibrated actuals) scaled by `collective.oversell` (0-100%, default to be set, §12); the hold when free tokens reach zero is unchanged. `docs/invariants/bank.md` gains the floor statement. **Built** (dbef6b78): `free-tokens.ts`.
-9. **The Planner's signals.** The §7.4 counts on `/api/health` and the Town health tab; the Planner's scheduled run reads them and files a policy ask with the data when a line is crossed, on Fable.
-10. **Dictionary and evidence class.** Key-result evidence as `verified | claimed | unknown` (a column beside `status`, set by the fork's report and by a human or a passed check); the dictionary doc; the linter reads it.
+9. **The Planner's signals.** **Built** (c3bd3377, 8ee8da6a). The §7.4 counts on `/api/health` and the Town health tab; the Planner's scheduled run reads them and files a policy ask with the data when a line is crossed, on Fable.
+10. **Dictionary and evidence class.** **Built** (c3bd3377; migration 103). Key-result evidence as `verified | claimed | unknown` (a column beside `status`, set by the fork's report and by a human or a passed check); the dictionary doc; the linter reads it.
 
 **UI / UX**
 
 - **A. The hydrant.** A Town Hall object the stream pours from, the Secretary at it; particles move; asks settle into the tray, notices flow to the feed, stamped ones carry their stamp. Visible from the map.
-- **B. The ask card.** One component replaces the in-tray rows and `RollupCards.tsx` for asks: the contract layout of §5 (delta line, body, branches as the buttons, recommendation, claims with check status, sources, the record one click down). Names, not ids (gr_irjtu6tknu). Works on a phone.
-- **C. The funding view.** The slate as a page: toggle fund or hold per proposal, Bank balance, expected spend and runway update live, then decide per card; nothing is funded by the toggle. Grant cards show the step strip (sizes, done, spent) drawn from data.
-- **D. The feed and closed loops.** The notices channel of §8, with pictures; closed loops beside the asks.
-- **E. The deck and the table.** The review deck reads the ranked asks; slides in rank order; the first slide is the slate. The step-size table and the oversell setting on the planning desk, with the Planner's calibration proposal shown as the ask it is.
+- **B. The ask card.** **Built** (c16cd68a, fa597ae1). One component replaces the in-tray rows and `RollupCards.tsx` for asks: the contract layout of §5 (delta line, body, branches as the buttons, recommendation, claims with check status, sources, the record one click down). Names, not ids (gr_irjtu6tknu). Works on a phone.
+- **C. The funding view.** **Built** (c16cd68a, fa597ae1). The slate as a page: toggle fund or hold per proposal, Bank balance, expected spend and runway update live, then decide per card; nothing is funded by the toggle. Grant cards show the step strip (sizes, done, spent) drawn from data.
+- **D. The feed and closed loops.** **Built** (c16cd68a, fa597ae1). The notices channel of §8, with pictures; closed loops beside the asks.
+- **E. The deck and the table.** **Built** (c16cd68a, fa597ae1). The review deck reads the ranked asks; slides in rank order; the first slide is the slate. The step-size table and the oversell setting on the planning desk, with the Planner's calibration proposal shown as the ask it is.
 
 ## 12. Open questions for Mitchell
 
