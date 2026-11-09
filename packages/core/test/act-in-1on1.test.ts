@@ -17,7 +17,7 @@ function setup() {
   const mei = by("Mei");
   world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
-  const proposal = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", approach: "a banner", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 500_000 }).id);
+  const proposal = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: KRS, objective: "Visitors can tell what the lab is for", approach: "a banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 500_000 }).id);
   /** a human says a line in the 1:1; returns its `at` */
   const say = (human: typeof admin, meetingId: string, text: string) => {
     world.ops.meetingSay(human, meetingId, text);

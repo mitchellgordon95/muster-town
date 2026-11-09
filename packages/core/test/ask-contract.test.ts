@@ -45,7 +45,7 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
-    const plan = (objective: string) => ({ keyResults: [{ text: "The lab board shows its goal first", howToCheck: "Open the lab board" }], objective, steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 200_000 });
+    const plan = (objective: string) => ({ keyResults: [{ text: "The lab board shows its goal first", howToCheck: "Open the lab board" }], objective, steps: [{ title: "Step 1", description: "Do the work", size: "M" as const }], stopCondition: "two tries", askTokens: 200_000 });
 
     // propose_grant: the town's card from the plan passes when the objective does
     const clean = await world.verbs.propose_grant(mei, plan("Show the lab's goal first on its board"));

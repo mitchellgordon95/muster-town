@@ -15,6 +15,7 @@ import { actOrigin } from "../origin.ts";
 import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
+import { fileForecast } from "../grant-forecast.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseOrFlag } from "../asks.ts";
@@ -387,7 +388,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // when the step was cancelled under it); the manager's review stop / redirect of this report cancels it while it waits
     const nextStep = !resumeWhen && current && world.assignments.get(current.id)?.status === "done"
       ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
-    const stepNote = nextStep ? ` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
+    // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
+    const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
+    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!);
+    const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
     const decision: Doc["decision"] = folded ? "approve" : "pending";

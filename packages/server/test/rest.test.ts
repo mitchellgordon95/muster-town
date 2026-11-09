@@ -200,7 +200,7 @@ describe("reports: Talk to the author and Archive", () => {
     world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
     const notes = world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_notes1", type: "meeting-notes", state: "building", buildingId: "carbon-cycle", title: "notes", body: "KR" });
-    const { grantId } = await world.verbs.propose_grant(mei, { keyResults: [{ text: "Sink banner", howToCheck: "Open it" }], objective: "Ship the sink banner", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
+    const { grantId } = await world.verbs.propose_grant(mei, { keyResults: [{ text: "Sink banner", howToCheck: "Open it" }], objective: "Ship the sink banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
     const kr = world.keyResults.require(world.grants.require(grantId).keyResultId!);
     const r = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { grantId } });
     expect(r.status).toBe(200);

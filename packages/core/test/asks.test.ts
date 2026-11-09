@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { buildingRoleId, decideAccess, decideCaptain, decideRetainer, newId, nowIso, requestAccess, requestCaptain, townHallIntray, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { asksFor, backfillAsks, createAsk, decideAsk, deferAsk, openAsks } from "../src/asks.ts";
 import { overtakenReason, rollupCalls } from "../src/secretary.ts";
-import { seededWorld } from "./helpers.ts";
+import { askAt, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
@@ -23,7 +23,7 @@ async function setup() {
   world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
   world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
   const propose = (tokens = 100_000, objective = "Visitors can tell what the lab is for") =>
-    world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: `k ${objective}`, howToCheck: "h" }], objective, steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: tokens }).id);
+    askAt(world, world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: `k ${objective}`, howToCheck: "h" }], objective, steps: [{ title: "Step 1", description: "Do the work", size: "M" }], stopCondition: "s", askTokens: tokens }).id), tokens);
   const fund = (tokens = 100_000, objective?: string) => world.grantDesk.decide(admin, propose(tokens, objective).id, { action: "fund" });
   /** a finished grant-lane session that spent `tokens` on the grant, then the charge that runs the checkpoint */
   const spend = (grantId: string, tokens: number) => {
@@ -69,15 +69,15 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
   it("a checkpoint, a retainer, an outbox request, a captain ask and an access request each file one ask, and the event that decides each retires it", async () => {
     const { world, admin, seed, mei, noor, fund, spend, member } = await setup();
     const live = (kind: Parameters<typeof asksFor>[1]["kind"], id: string) => asksFor(world, { kind, id }).filter((a) => a.status === "open");
-    // checkpoint: continue / adjust / cut, retired by the continue
+    // checkpoint (held only at its ceiling): adjust / cut, retired by the adjust
     const g = fund(100_000);
-    spend(g.id, 70_000);
+    spend(g.id, 100_000);
     expect(world.grants.require(g.id).status).toBe("checkpoint");
     expect(live("grant", g.id)).toEqual([expect.objectContaining({ type: "money", title: expect.stringContaining("at its checkpoint") })]);
-    expect(live("grant", g.id)[0]!.branches.map((b) => b.label)).toEqual(["Continue", "Adjust", "Cut"]);
-    world.grantDesk.decide(admin, g.id, { action: "continue" });
+    expect(live("grant", g.id)[0]!.branches.map((b) => b.label)).toEqual(["Adjust", "Cut"]);
+    world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 150_000 });
     expect(live("grant", g.id)).toEqual([]);
-    expect(asksFor(world, { kind: "grant", id: g.id }).at(-1)!.retiredBy).toMatch(/^Continued: /);
+    expect(asksFor(world, { kind: "grant", id: g.id }).at(-1)!.retiredBy).toMatch(/^Adjusted: /);
     // retainer: approve / counter / reject, retired by the decision
     const t0 = Date.now();
     const sc = (await world.verbs.schedule(mei, { title: "Sweep", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 3_000 })).scheduleId as string;
@@ -185,7 +185,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const { world, admin, mei, propose, fund, spend, roll } = await setup();
     const toFund = propose(100_000, "Fund case");
     const held = fund(100_000, "Checkpoint case");
-    spend(held.id, 70_000);
+    spend(held.id, 100_000);
     const toClose = fund(100_000, "Close case");
     const withKr = fund(100_000, "Key result case");
     const kr = world.grantDesk.keyResultsOf(withKr.id)[0]!;
@@ -194,7 +194,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const sc = (await world.verbs.schedule(mei, { title: "Sweep", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 3_000 })).scheduleId as string;
     const body = rollup([
       item(1, "Fund", `Fund ${toFund.id}.`),
-      item(2, "Checkpoint", `Continue ${held.id} at its checkpoint.`),
+      item(2, "Checkpoint", `Raise ${held.id} at its checkpoint.`),
       item(3, "Close", `${toClose.id} closed: mark its key results met.`),
       item(4, "Key result", `Mark ${kr.id} met if you agree.`),
       item(5, "Retainer", `Approve the retainer ${sc}.`),
@@ -206,7 +206,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(rollupCalls(world, doc).every((c) => !c.overtaken)).toBe(true);
     await later(); // the deciding events come after the rollup (overtakenReason compares times)
     world.grantDesk.decide(admin, toFund.id, { action: "fund" });
-    world.grantDesk.decide(admin, held.id, { action: "continue" });
+    world.grantDesk.decide(admin, held.id, { action: "adjust", tokens: 150_000 });
     world.grantDesk.closeDone(mei, toClose.id, { note: "shipped" });
     world.grantDesk.updateKeyResult(admin, kr.id, { status: "met", note: "seen live" });
     decideRetainer(world, admin, sc, { action: "approve", note: "" });

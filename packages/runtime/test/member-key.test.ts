@@ -11,8 +11,9 @@ function setup() {
   for (const a of world.allocations.where("buildingId = ?", [bid])) world.budget.retire(a.id);
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [bid])!;
   world.permissions.grant(manager, buildingRoleId(bid, "manager"));
+  world.setGrantPricing({ stepSizes: { S: 10_000, M: 20_000, L: 40_000 } }); // one M step asks 20k
   const mk = () => {
-    const g = world.grantDesk.create(manager, bid, { keyResults: [{ text: "A banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 20_000 });
+    const g = world.grantDesk.create(manager, bid, { keyResults: [{ text: "A banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 20_000 });
     world.grantDesk.propose(manager, g.id);
     return g;
   };

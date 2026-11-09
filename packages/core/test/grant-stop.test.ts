@@ -15,7 +15,8 @@ function setup() {
   const user = world.ops.createUser("Member").user;
   const member = world.ops.ensureAvatar(user.id);
   const input = world.bank.addInput(user.id, { label: "Member key", source: "api-key", model: "m", tokens: 500_000, apiKey: "sk-member" } as never);
-  const proposal = () => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: KRS, objective: "Banner", approach: "a line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 200_000 }).id);
+  world.setGrantPricing({ stepSizes: { S: 50_000, M: 200_000, L: 400_000 } }); // one M step asks 200k
+  const proposal = () => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: KRS, objective: "Banner", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 200_000 }).id);
   const session = (agentId: string, grantId: string, status: "running" | "done", output = 0) => world.sessions.upsert({
     id: newId("se"), agentId, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status, model: "m",
     sdkSessionId: null, output, costUsd: 0, startedAt: nowIso(), endedAt: status === "done" ? nowIso() : null, lane: "grant", grantId,

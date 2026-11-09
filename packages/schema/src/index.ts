@@ -62,8 +62,27 @@ export const BuildingDefaults = z.object({
   codeAccess: z.boolean().default(false),
 });
 export type BuildingDefaults = z.infer<typeof BuildingDefaults>;
+/**
+ * A step's size (docs/legible-delegation.md §7.3): S, M or L, priced by the collective's table (`Town.stepSizes`). No XL:
+ * a step that does not fit L is split into two steps.
+ */
+export const StepSize = z.enum(["S", "M", "L"], { error: () => "a step's size is S, M or L: a step larger than L must be split into two steps" });
+export type StepSize = z.infer<typeof StepSize>;
+export const StepSizeTable = z.object({ S: z.number().int().positive(), M: z.number().int().positive(), L: z.number().int().positive() });
+export type StepSizeTable = z.infer<typeof StepSizeTable>;
+/** The size table a collective starts with, in adjusted tokens (a roughly doubling scale). */
+const STEP_SIZES_SEED: StepSizeTable = { S: 50_000, M: 150_000, L: 400_000 };
+/** A town's grant pricing with the seeds filled in: the step-size table and oversell (0 = earmark at the ceiling). */
+export function grantPricingOf(t: { stepSizes?: StepSizeTable; oversell?: number }): { stepSizes: StepSizeTable; oversell: number } {
+  return { stepSizes: t.stepSizes ?? STEP_SIZES_SEED, oversell: t.oversell ?? 0 };
+}
 /** `PUT /api/town/defaults` (admin): the keys to change. */
-export const TownDefaultsPatch = patchOf(BuildingDefaults).refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
+export const TownDefaultsPatch = patchOf(BuildingDefaults).extend({
+  /** the step-size table (all three sizes) */
+  stepSizes: StepSizeTable.optional(),
+  /** 0-1: how far free tokens oversell funded grants */
+  oversell: z.number().min(0).max(1).optional(),
+}).refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
 /**
@@ -123,6 +142,13 @@ export const Town = z.object({
    * /api/town/retainer-lookahead (an admin) sets it.
    */
   retainerLookaheadHours: z.number().int().min(1).max(168).default(6),
+  /** the step-size table (docs/legible-delegation.md §7.3): a proposal's ask is the sum of its steps' sizes. Unset = the seed (`grantPricingOf`); PUT /api/town/defaults (an admin) sets it */
+  stepSizes: StepSizeTable.optional(),
+  /**
+   * How far free tokens oversell funded grants (§7.3 "earmarks at expected"): a funded grant's claim is ceilingRemaining ×
+   * (1 − oversell) + expectedRemaining × oversell. 0 = the ceiling (today's figure); 1 = the expected spend. PUT /api/town/defaults sets it.
+   */
+  oversell: z.number().min(0).max(1).optional(),
   /** Publish to GitHub (TownPublish): unset until an admin saves a repo */
   publish: TownPublish.optional(),
 });
@@ -1305,11 +1331,44 @@ export function estimateRangeOf(e: GrantEstimate | null | undefined): { low: num
  */
 export const GrantStep = z.object({
   title: z.string().trim().min(1).max(160).describe("the step's assignment title"),
+  /** S, M or L; a proposal gives one (`GrantStepInput`) and migration 098 back-filled older steps with "M", so a read falls back to "M" only for a row written by hand */
+  size: StepSize.optional(),
   description: z.string().trim().min(1).max(4000).describe("what the fork does in this step and the check a human can make in the live town"),
   model: z.string().trim().min(1).optional().describe("optional: the model its fork runs on (the building's model or cheapModel; default the building's model)"),
   pages: z.array(Id).max(3).optional().describe("optional: topic pages of this building loaded into its fork's memory, at most 3"),
 });
 export type GrantStep = z.infer<typeof GrantStep>;
+/** A step as `propose_grant` takes it: its size is required (S, M or L; the ask is their sum from the table). */
+export const GrantStepInput = GrantStep.extend({
+  size: StepSize.describe("S, M or L: the step's size, priced by the collective's table (the ask is the sum). No XL: split a step larger than L into two steps"),
+});
+/**
+ * The forecast filed at every step report (docs/legible-delegation.md §7.3 "gates at step reports"): steps done and left by
+ * size, spent so far against the ceiling, this grant's spent over size so far, and the projected total (spent + the sizes
+ * left × the table's calibrated ratio per size, 1.0 when too few steps were completed to calibrate). `overCeiling` sets the
+ * grant's `needsTopUp` and `shortfall` is projected − ceiling (0 when under).
+ */
+export const GrantForecast = z.object({
+  at: Iso,
+  stepsDone: z.number().int().nonnegative(),
+  stepsLeft: z.object({ S: z.number().int().nonnegative(), M: z.number().int().nonnegative(), L: z.number().int().nonnegative() }),
+  spent: z.number().int().nonnegative(),
+  ceiling: z.number().int().nonnegative(),
+  /** spent ÷ the sizes of the steps done (null before a step is done) */
+  spentOverSize: z.number().nullable(),
+  projected: z.number().int().nonnegative(),
+  overCeiling: z.boolean(),
+  shortfall: z.number().int().nonnegative(),
+});
+export type GrantForecast = z.infer<typeof GrantForecast>;
+/** Per size: the median of spent ÷ the size's table value over the steps completed (null: none), and how many. */
+type StepCalibrationRows = Record<StepSize, { ratio: number | null; sample: number }>;
+/**
+ * What steps really cost against the table (core grant-estimate.ts `stepCalibration`; GET /api/town `stepCalibration`):
+ * collective-wide and per building id, over the last `days`; a size with fewer than `minSample` steps prices at 1.0.
+ * `lines`: "L: 1.6× over 12 steps".
+ */
+export interface StepCalibration { since: string; days: number; minSample: number; sizes: StepCalibrationRows; buildings: Record<string, StepCalibrationRows>; lines: string[] }
 /**
  * A building's proposal and, once funded, its grant (docs/how-work-gets-done.md §4): filed against a goal, it carries
  * its own 1-5 key results (the checks of its work; `key_results.grantId`) and the plan (objective, approach, stop
@@ -1347,9 +1406,13 @@ export const Grant = z.object({
   continues: Id.nullable().default(null),
   /** the plan's steps, in order (1-5 on a proposal; [] on grants funded before migration 096): funding queues the first */
   steps: z.array(GrantStep).default([]),
+  /** the forecast filed at its latest step report (migration 099); null until a step reports */
+  forecast: GrantForecast.nullable().optional(),
+  /** the latest forecast projected past the ceiling (a later step wires it into a money ask); cleared by an adjust */
+  needsTopUp: z.boolean().optional(),
   /**
-   * holds already fired for the current grantTokens: 0 = the reserve hold (at grantTokens − reserveOf), 1 = the 100% hold
-   * (a legacy 0.5 may remain). Each fires once per grantTokens value; `holdAtTokens` reads the next one from it.
+   * holds already fired for the current grantTokens: 1 = the hold at the ceiling (legacy 0 = the retired reserve hold,
+   * 0.5 = the retired halfway one). It fires once per grantTokens value; `holdAtTokens` reads it.
    */
   checkpointsDone: z.array(z.number()).default([]),
   /** the grant's close report (close_grant's rollup; older grants: the manager's checkpoint report) */
@@ -1931,7 +1994,7 @@ export function grantStepLines(g: Pick<GrantView, "steps" | "stepStates">): stri
 export const GrantView = Grant.extend({
   keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
-  /** a funded grant's next hold point (spent ≥ it → checkpoint): grantTokens − min(150k, a third), or grantTokens after a continue; null otherwise */
+  /** a funded grant's hold point (spent ≥ it → checkpoint): its ceiling, grantTokens (docs/legible-delegation.md §7.3); null otherwise */
   holdAtTokens: z.number().int().nonnegative().nullable().optional(),
   /** a checkpoint grant's evidence, or a proposal's earlier stopped grant's (null: none) */
   evidence: CheckpointEvidence.nullable().optional(),
@@ -2039,7 +2102,7 @@ export const EventType = z.enum([
   "session.started", "session.ended",
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.refused", "ask.checked",
-  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
+  "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.forecast", "grant.top-up-needed", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
   "secret.set", "secret.deleted", "secret.granted",
@@ -2070,11 +2133,11 @@ export type GrantKeyResultInput = z.input<typeof GrantKeyResultInput>;
 export const CreateGrantInput = z.object({
   goalId: Id.optional().describe("the goal it is filed against: your building's goal or one under it (default your building's goal)"),
   keyResults: z.array(GrantKeyResultInput).min(1).max(5).describe("its 1-5 key results: what a human checks in the live town to call the work done, each with how to check and a due date"),
-  steps: z.array(GrantStep).min(1).max(5).describe("its 1-5 steps in order, each one session's worth: funding queues step 1 on the building queue (a fork runs it), and each step's report queues the next (a pivot verdict stops the chain for your review)"),
+  steps: z.array(GrantStepInput).min(1).max(5).describe("its 1-5 steps in order, each one session's worth with its size (S, M or L): funding queues step 1 on the building queue (a fork runs it), and each step's report queues the next (a pivot verdict stops the chain for your review)"),
   objective: z.string().trim().min(1).max(300),
   approach: z.string().trim().max(2000).default("").describe("how: the approach the plan takes"),
   stopCondition: z.string().trim().min(1).max(500),
-  askTokens: z.number().int().positive(),
+  askTokens: z.number().int().positive().optional().describe("ignored: the ask is computed, the sum of the steps' sizes from the collective's table"),
   findingsDocIds: z.array(Id).default([]),
   picture: z.string().trim().regex(/^mf_[a-z0-9]+$/, "an uploaded media id (mf_…)").optional().describe("optional: an uploaded picture (mf_…) of what the work would show; the review deck's proposal slide shows it"),
   whatYoudSee: z.string().trim().max(300).optional().describe("optional: one line on where a human would see the result in the live town and what they'd see; the review deck's proposal slide shows it"),
@@ -2283,7 +2346,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
-  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, description, optional model and pages: one session each), an objective, the approach, a stop condition and a token ask. Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory; your ask stands).",
+  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",

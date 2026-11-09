@@ -1,4 +1,4 @@
-import { vetAsk, type Agent, type Grant } from "@muster-town/schema";
+import { grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
 import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
 import { homeOf } from "../domain.ts";
 import { AppError, badRequest } from "../errors.ts";
@@ -31,7 +31,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
   const card = ask
     ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
-    : proposalCard({ objective: fields.objective, askTokens: fields.askTokens, steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+    : proposalCard({ objective: fields.objective, askTokens: fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
   refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant" }));
   const g = world.transaction(() => {
     const proposed = open
@@ -48,7 +48,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   const flagged = world.asks.exists("targetKind = 'grant' AND targetId = ? AND status = 'open' AND tags LIKE '%\"lint-failed\"%'", [g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
-    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask stands as given
+    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask is the sum of the steps' sizes
     estimate: g.estimate?.sentence ?? null,
     note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${flagged ? " Its ask card still fails the linter after three tries: it is filed flagged lint-failed, so the humans see that it was not cleaned up." : ""}`,
   };

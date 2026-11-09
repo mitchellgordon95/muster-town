@@ -35,7 +35,7 @@ describe("claim checks (docs/legible-delegation.md §5)", () => {
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
     world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/o/town.git" } });
-    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "Health answers", howToCheck: "curl -s https://muster.town/api/health | jq .commit" }, { text: "Looks right", howToCheck: "Open the lab board" }], objective: "o", steps: [{ title: "Step 1", description: "d" }], stopCondition: "s", askTokens: 1000 }).id);
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "Health answers", howToCheck: "curl -s https://muster.town/api/health | jq .commit" }, { text: "Looks right", howToCheck: "Open the lab board" }], objective: "o", steps: [{ title: "Step 1", description: "d", size: "M" }], stopCondition: "s", askTokens: 1000 }).id);
     const [krCurl, krManual] = world.grantDesk.keyResultsOf(g.id);
     world.host.apiGet = async (path) => path === "/api/buildings/carbon-cycle" ? { status: 200, body: { building: { name: "Carbon Lab", intray: 0 } } } : { status: 404, body: { error: "nope" } };
     const { ask } = createAsk(world, {

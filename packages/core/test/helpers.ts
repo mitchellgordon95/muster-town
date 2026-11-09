@@ -47,6 +47,15 @@ export function creditBank(world: World, tokens = 10_000_000): void {
     .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
 }
 
+/**
+ * A proposal pinned to ask exactly `askTokens`: the town prices an ask from its steps' sizes (docs/legible-delegation.md
+ * §7.3), so a fixture about free tokens, the overdraft walk or a card's numbers sets the stored ask by hand.
+ */
+export function askAt<G extends { id: string }>(world: World, g: G, askTokens: number): G {
+  world.grants.patch(g.id, { askTokens });
+  return { ...g, askTokens };
+}
+
 /** `shape`: draw the map in that shape instead of a new town's ("fountain"), for tests about one shape's geometry. */
 export function seededWorld(shape?: MapLayout) {
   const f = freshWorld();

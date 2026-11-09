@@ -239,9 +239,9 @@ export function askAtCheckpoint(world: World, g: Grant, spent: number, line: str
   const buys = g.topUpTokens && g.whatTopUpBuys.trim() ? `A top-up of ${fmt(g.topUpTokens)} tokens buys: ${g.whatTopUpBuys.trim()}` : "";
   createAsk(world, {
     type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: g.checkpointDocId ?? g.id,
-    title: `Continue "${oneLine(g.objective, 120)}" at its checkpoint`, line,
+    title: `Raise or cut "${oneLine(g.objective, 120)}" at its checkpoint`, line,
     body: [`It has spent ${fmt(spent)} of ${fmt(tokens)} tokens. New sessions on it wait for you.`, buys].filter(Boolean).join("\n\n"),
-    branches: [{ label: "Continue", action: "continue" }, { label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }],
+    branches: [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }],
   });
 }
 

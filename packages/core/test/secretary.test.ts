@@ -9,7 +9,7 @@ import { buildingRoleId, createDoc, createOneOnOne, createResident, createSchedu
 import { decideRetainer } from "../src/retainers.ts";
 import { laneBlock } from "../src/lanes.ts";
 import { DIGEST_TOKENS_PER_RUN, digestDecisions, digestIdleReason, digestInputs, digestRunView, fileDigest, pressDigest, groupsText, overtakenReason, stillAsks } from "../src/secretary.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { askAt, creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
@@ -27,9 +27,9 @@ function setup() {
     type: "report", title: `Rollup ${createdAt}`, body: rollupBody(calls, needs), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
     tags: ["rollup"], decision: "pending", createdAt,
   });
-  const proposal = (objective: string, askTokens: number) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
-  }).id);
+  const proposal = (objective: string, askTokens: number) => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
+  }).id), askTokens);
   return { ...s, world, admin, manager, sec, th, rollup, proposal };
 }
 

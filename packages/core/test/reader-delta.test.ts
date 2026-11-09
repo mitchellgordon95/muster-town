@@ -18,7 +18,7 @@ describe("the reader's delta (docs/legible-delegation.md §5)", () => {
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
-    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "Self-host from a published image", steps: [{ title: "Step 1", description: "d" }, { title: "Step 2", description: "d" }], stopCondition: "s", askTokens: 600_000 }).id);
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "Self-host from a published image", steps: [{ title: "Step 1", description: "d", size: "M" }, { title: "Step 2", description: "d", size: "M" }], stopCondition: "s", askTokens: 600_000 }).id);
 
     // nothing yet: never opened, never decided, nothing said, nothing to read
     expect(readerDelta(world, userId, { kind: "grant", id: g.id })).toEqual({ lastSeen: null, lastDecided: null, lastSaid: [], unreadReports: [] });
