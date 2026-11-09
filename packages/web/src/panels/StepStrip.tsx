@@ -24,7 +24,7 @@ export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "step
       <ol className="step-strip-boxes">
         {g.steps.map((st, i) => {
           const state = i < done ? "done" : g.stepStates?.[i]?.status === "active" ? "running" : "left";
-          return <li key={i} className={`step-box size-${st.size ?? "M"} ${state}`} title={`Step ${i + 1} · ${st.size ?? "M"} · ${state}: ${st.title}`}>{st.size ?? "M"}</li>;
+          return <li key={i} className={`step-box size-${st.size ?? "M"} ${state}`} title={`Step ${i + 1} · ${st.size ?? "planned before sizes"} · ${state}: ${st.title}`}>{st.size ?? "·"}</li>;
         })}
       </ol>
       <span className="step-strip-line">

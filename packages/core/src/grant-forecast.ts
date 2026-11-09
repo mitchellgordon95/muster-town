@@ -11,6 +11,11 @@ import type { World } from "./world.ts";
  * Read-only arithmetic except `fileForecast`, which stores the forecast on the grant and appends its events.
  */
 
+/** Every step carries a size. Steps of grants funded before sizes (migration 098 sizes only unfunded proposals) don't. */
+function allSized(g: Grant): boolean {
+  return g.steps.every((s) => !!s.size);
+}
+
 /** The sizes of a grant's steps not done yet (a step is done when its latest assignment is). */
 function stepsLeft(world: World, g: Grant): StepSize[] {
   const states = world.grantDesk.stepStates(g);
@@ -23,7 +28,7 @@ function stepsLeft(world: World, g: Grant): StepSize[] {
  * expected to spend its ceiling's remainder: there is nothing to price it by.
  */
 export function expectedRemaining(world: World, g: Grant, cal: StepCalibration, ceilingRemaining: number): number {
-  if (!g.steps.length) return ceilingRemaining;
+  if (!g.steps.length || !allSized(g)) return ceilingRemaining;
   const table = grantPricingOf(world.town.get()).stepSizes;
   return Math.max(0, Math.round(stepsLeft(world, g).reduce((s, size) => s + table[size] * calibratedRatio(cal, size), 0)));
 }
@@ -35,11 +40,23 @@ export function expectedRemaining(world: World, g: Grant, cal: StepCalibration, 
  * with the shortfall. Then the gate (§7.3 point 4): past the ceiling the forecast is a money ask on the grant (Adjust /
  * Cut, its card written by the town: `askAtForecast`, folding into the grant's live gate ask) and no notice; within it,
  * a `gate` notice "Step N of M landed: …" for the building and goal, with refs [grantId, reportId], and an open gate ask
- * of the running grant retires. `reportId`: the step report that filed it. Null when the grant has no steps or no ceiling.
+ * of the running grant retires. `reportId`: the step report that filed it. Null when the grant has no steps or no ceiling, isn't funded or at checkpoint, or has a step without a size (it
+ * appends a `grant.forecast` event with `skipped: "unsized"` saying so).
  */
 export function fileForecast(world: World, grantId: string, reportId: string | null = null): GrantForecast | null {
   const g = world.grants.get(grantId);
   if (!g || !g.steps.length || !g.grantTokens) return null;
+  // only a running grant forecasts: a stopping or closed one files no ask and no notice
+  if (g.status !== "funded" && g.status !== "checkpoint") return null;
+  if (!allSized(g)) {
+    // funded before step sizes (migration 098 leaves funded grants' steps unsized): no forecast, no ask, no notice, said once per report
+    world.events.append({
+      type: "grant.forecast", buildingId: g.buildingId,
+      text: `No forecast for "${g.objective}": its steps were planned before step sizes, so there is nothing to price what is left by`,
+      payload: { grantId: g.id, skipped: "unsized", reportId },
+    });
+    return null;
+  }
   const table = grantPricingOf(world.town.get()).stepSizes;
   const cal = stepCalibration(world);
   const states = world.grantDesk.stepStates(g);

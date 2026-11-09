@@ -6,6 +6,7 @@
 import { vetAsk } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, listNotices, newId, nowIso, openAsks, retireFork, updateBuilding } from "../src/index.ts";
+import { fileForecast } from "../src/grant-forecast.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
@@ -133,6 +134,34 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
     world.grantDesk.decide(admin, g.id, { action: "cut" });
     expect(["stopping", "closed"]).toContain(world.grants.require(g.id).status);
     expect(gateAsks(g.id)[0]).toMatchObject({ status: "retired" });
+  });
+
+  it("a funded grant whose steps were planned before sizes files no forecast, no ask and no notice; an event says why", async () => {
+    const { world, fund, runStep, gateAsks } = lab();
+    const g = fund();
+    // as migration 098 leaves a grant funded before sizes: its steps carry no size
+    world.grants.upsert({ ...world.grants.require(g.id), steps: STEPS.map(({ title, description }) => ({ title, description })) as never });
+    await runStep(500_000);
+    expect(fileForecast(world, g.id)).toBeNull();
+    expect(world.grants.require(g.id)).toMatchObject({ forecast: null, needsTopUp: false });
+    expect(gateAsks(g.id)).toHaveLength(0);
+    expect(listNotices(world, { kind: "gate" })).toHaveLength(0);
+    const ev = world.events.list({ types: ["grant.forecast"] });
+    expect(ev.length).toBeGreaterThan(0);
+    expect(ev.every((e) => (e.payload as { skipped?: string }).skipped === "unsized")).toBe(true);
+    expect(ev[0]!.text).toContain("planned before step sizes");
+  });
+
+  it("a grant that is stopping or closed files no forecast", async () => {
+    const { world, fund, runStep, gateAsks } = lab();
+    const g = fund();
+    await runStep(40_000);
+    for (const status of ["stopping", "closed"] as const) {
+      world.grants.upsert({ ...world.grants.require(g.id), status });
+      expect(fileForecast(world, g.id)).toBeNull();
+    }
+    expect(gateAsks(g.id)).toHaveLength(0);
+    expect(listNotices(world, { kind: "gate" })).toHaveLength(1); // step 1's, while it ran
   });
 });
 

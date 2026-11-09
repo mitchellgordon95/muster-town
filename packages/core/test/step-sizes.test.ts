@@ -81,8 +81,8 @@ describe("calibration: spent over size per size, collective-wide and per buildin
   });
 });
 
-describe("migration 098: every stored step gets a size", () => {
-  it("back-fills steps written before it with size M and leaves grants without steps alone", () => {
+describe("migration 098: the steps of unfunded proposals get a size", () => {
+  it("back-fills the steps of draft, proposed and countered grants with size M; funded, checkpoint and closed grants keep unsized steps", () => {
     const MIGRATIONS = join(fileURLToPath(import.meta.url), "..", "..", "migrations");
     const dir = mkdtempSync(join(tmpdir(), "mig-"));
     cpSync(MIGRATIONS, dir, { recursive: true });
@@ -90,13 +90,17 @@ describe("migration 098: every stored step gets a size", () => {
     const db = new Database(":memory:");
     migrate(db, dir);
     const ins = db.prepare(`INSERT INTO grants (id, buildingId, objective, approach, testingPlan, stopCondition, askTokens, status, findingsDocIds, checkpointsDone, history, proposedBy, createdAt, updatedAt, steps)
-      VALUES (?, 'b', 'o', '', '[]', 's', 1, 'funded', '[]', '[]', '[]', 'ag', '2026-11-05T00:00:00.000Z', '2026-11-05T00:00:00.000Z', ?)`);
-    ins.run("gr_two", JSON.stringify([{ title: "one", description: "d" }, { title: "two", description: "d", model: "claude-haiku-5-5" }]));
-    ins.run("gr_none", "[]");
+      VALUES (?, 'b', 'o', '', '[]', 's', 1, ?, '[]', '[]', '[]', 'ag', '2026-11-05T00:00:00.000Z', '2026-11-05T00:00:00.000Z', ?)`);
+    const two = [{ title: "one", description: "d" }, { title: "two", description: "d", model: "claude-haiku-5-5" }];
+    for (const status of ["draft", "proposed", "countered", "funded", "checkpoint", "closed"]) ins.run(`gr_${status}`, status, JSON.stringify(two));
+    ins.run("gr_none", "proposed", "[]");
     cpSync(join(MIGRATIONS, "098_step_sizes.sql"), join(dir, "098_step_sizes.sql"));
     migrate(db, dir);
     const steps = (id: string) => JSON.parse((db.prepare("SELECT steps FROM grants WHERE id = ?").get(id) as { steps: string }).steps);
-    expect(steps("gr_two")).toEqual([{ title: "one", description: "d", size: "M" }, { title: "two", description: "d", model: "claude-haiku-5-5", size: "M" }]);
+    for (const status of ["draft", "proposed", "countered"]) {
+      expect(steps(`gr_${status}`)).toEqual([{ title: "one", description: "d", size: "M" }, { title: "two", description: "d", model: "claude-haiku-5-5", size: "M" }]);
+    }
+    for (const status of ["funded", "checkpoint", "closed"]) expect(steps(`gr_${status}`)).toEqual(two);
     expect(steps("gr_none")).toEqual([]);
   });
 });

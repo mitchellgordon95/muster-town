@@ -97,7 +97,7 @@ function ratioOf(cal: StepCalibration | null | undefined, size: StepSize): numbe
 /** What a grant is expected to spend: its steps' sizes × the calibrated ratio; a grant without sized steps expects its ask. */
 export function expectedSpend(g: Pick<GrantView, "steps" | "askTokens">, sizes: StepSizeTable | undefined, cal?: StepCalibration | null): number {
   const table = sizes ?? grantPricingOf({}).stepSizes;
-  if (!g.steps?.length) return g.askTokens;
+  if (!g.steps?.length || g.steps.some((st) => !st.size)) return g.askTokens;
   return Math.round(g.steps.reduce((s, st) => { const z = st.size ?? "M"; return s + table[z] * ratioOf(cal, z); }, 0));
 }
 
