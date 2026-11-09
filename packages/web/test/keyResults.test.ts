@@ -83,14 +83,14 @@ describe("board key-results view", () => {
   it("stoplight: the mock board and snapshot carry it for every lab, never the Town Hall; the rule is the schema's", async () => {
     const api = new MockApi();
     const ws = await api.board("bl_workshop");
-    expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD works on narrow screens" is held at its checkpoint' });
+    expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD on narrow screens" is held at its checkpoint' });
     const snap = await api.town();
     expect(snap.buildings.find((b) => b.id === "bl_workshop")?.stoplight?.light).toBe("yellow");
     expect(snap.buildings.find((b) => b.id === "bl_carbon")?.stoplight?.light).toBe("grey");
     expect((await api.board("bl_carbon")).stoplight?.light).toBe("grey");
     expect(snap.buildings.find((b) => b.id === "bl_townhall")?.stoplight).toBeNull();
     expect(stoplightOf([{ status: "funded", objective: "x" }])).toEqual({ light: "green", reason: "1 funded grant running" });
-    expect(stoplightOf([{ status: "checkpoint", objective: "x" }])).toEqual({ light: "yellow", reason: 'grant "x" is held at its checkpoint' });
+    expect(stoplightOf([{ status: "checkpoint", objective: "x", title: "Lab banner" }])).toEqual({ light: "yellow", reason: 'grant "Lab banner" is held at its checkpoint' });
     expect(stoplightOf([])).toEqual({ light: "grey", reason: "no funded grant: the building explores or idles" });
     expect([stoplightLabel("green"), stoplightLabel("yellow"), stoplightLabel("grey")]).toEqual(["Running", "Held at a checkpoint", "No funded grant"]);
   });

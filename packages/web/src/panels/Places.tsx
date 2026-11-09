@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BOARD_TYPES, DocType, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, grantName, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestCard, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type GoalProposalView, type Intray } from "../api";
 import { UNBLOCK_LINE, unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -89,7 +89,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
   const focused = focus && !open ? focusRow(focus, { grants: [...grants, ...stopped], retainers, captains, access, goalProposals }, routes, { onDecided: () => { setFocus(null); list.reload(); }, onMarked: list.reload, onOpenDoc: openDoc }) : null;
   // a report, a grant (proposal, checkpoint, closed) or a retainer is content: it opens in a centred sheet and the list
   // stays here (grant gr_4csjpgh346); a join, captain or goal ask is a short detail and opens in place of the list
-  const sheetTitle = focus?.kind === "grant" ? [...grants, ...stopped].find((g) => g.id === focus.id)?.objective : focus?.kind === "retainer" ? retainers.find((x) => x.id === focus.id)?.title : undefined;
+  const sheetTitle = focus?.kind === "grant" ? ((g) => (g ? grantName(g) : undefined))([...grants, ...stopped].find((g) => g.id === focus.id)) : focus?.kind === "retainer" ? retainers.find((x) => x.id === focus.id)?.title : undefined;
   const sheet = open ? (
     <DocSheet doc={open} review onClose={() => setOpenId(null)} onDecided={() => { setOpenId(null); list.reload(); }}
       after={list.data?.digest && list.data.digest.doc.id === open.id ? <DigestOvertaken card={list.data.digest} onDecided={list.reload} /> : null} />
@@ -298,7 +298,7 @@ export function TownHallIntray({ digest, selected, onFocus, reports, grants, goa
   const digestCard = digest ? <DigestLine card={digest} onOpen={onOpen} selected={selected === digest.doc.id} /> : null;
   const proposals = grants.filter((g) => g.status === "proposed" || g.status === "countered");
   const checkpoints = grants.filter((g) => g.status === "checkpoint");
-  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} selected={selected === g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={g.objective} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
+  const grantLine = (g: GrantView, stoppedOne = false) => <CompactLine key={g.id} selected={selected === g.id} lead={<BuildingTag buildingId={g.buildingId} />} title={grantName(g)} at={g.updatedAt} pill={grantPill(g, stoppedOne)} onOpen={() => onFocus({ kind: "grant", id: g.id })} />;
   // grants a human stopped (gr_8i952perny): for the record, nothing to decide; they leave 3 days after closing
   const stoppedList = stopped.length ? (
     <Section title={<>Stopped: for the record <Pill>{stopped.length}</Pill></>}>
@@ -821,7 +821,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
         {/* on its own page the header already names this grant: no link to itself */}
         {onPage ? null : <GrantLink id={g.id} />}
       </div>
-      {onPage ? null : <div className="doc-row-title">{g.objective}</div>}
+      {onPage ? null : <div className="doc-row-title" title={g.objective}>{grantName(g)}</div>}
       <RoutedTo route={route} />
       {/* on a deck slide the slide text carries the ask */}
       {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}

@@ -5,7 +5,7 @@
  * grants) and stats (agents and forks, assignments running / queued / scheduled, the live build).
  */
 import type { ReactNode } from "react";
-import { ROOT_GOAL_ID, type SnapshotBuilding } from "@muster-town/schema";
+import { ROOT_GOAL_ID, grantName, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { townPlan } from "../map/townPlan";
 import { purposeOf } from "../purpose";
@@ -64,7 +64,7 @@ function PlanBudget({ b }: { b: SnapshotBuilding }) {
   const today = b.budget?.tokensToday ?? 0;
   const row = (g: (typeof funded)[number]) => (
     <div key={g.id} className="doc-row">
-      <b>{g.objective || g.id}</b>
+      <b>{grantName(g) || g.id}</b>
       <div className="doc-row-meta"><span>{g.status === "checkpoint" ? <Pill tone="warn">held</Pill> : <Pill tone="ok">funded</Pill>}</span><span>{grantSpendLine(g)}</span></div>
     </div>
   );

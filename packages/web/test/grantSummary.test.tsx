@@ -30,7 +30,7 @@ describe("a grant row opens on a summary", () => {
     expect(h).toContain("met: <span>Shipped in PR #1.</span>");
     expect(h.indexOf(">Mark missed</button>")).toBeGreaterThan(h.indexOf("</details>"));
     expect(h).toContain("Stop when");
-    expect(h).toContain(`<div class="doc-row-title">${closed.objective}`);
+    expect(h).toContain(`<div class="doc-row-title" title="${closed.objective}">${closed.title}`);
   });
 
   it("on the grant's own page the row leaves the objective (the header has it) and the stop condition (Plan has it) out", () => {

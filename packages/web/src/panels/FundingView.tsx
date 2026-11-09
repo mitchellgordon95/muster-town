@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import type { GrantView, Notice } from "@muster-town/schema";
-import { grantPricingOf } from "@muster-town/schema";
+import { grantName, grantPricingOf } from "@muster-town/schema";
 import { api, type AskView } from "../api";
 import { useTown } from "../state";
 import { AskCard } from "./AskCard";
@@ -38,7 +38,7 @@ export function FundingView({ asks, grants, notices, onDecided, onOpenRecord }: 
       <p className="muted funding-note">The toggle funds nothing. Decide each card with its own buttons. Expected spend is each step's size at what that size really costs.</p>
       {!items.length ? <Empty>No proposal waits for money.</Empty> : items.map(({ ask, grant }) => (
         <AskCard key={ask.id} ask={ask} grant={grant} onDecided={onDecided} onOpenRecord={onOpenRecord}
-          aside={<label className="funding-toggle"><input type="checkbox" checked={funded.has(grant.id)} onChange={() => toggle(grant.id)} /> {funded.has(grant.id) ? "fund" : "hold"}</label>} />
+          aside={<label className="funding-toggle"><input type="checkbox" aria-label={`Fund ${grantName(grant)}`} checked={funded.has(grant.id)} onChange={() => toggle(grant.id)} /> {funded.has(grant.id) ? "fund" : "hold"}</label>} />
       ))}
     </div>
   );

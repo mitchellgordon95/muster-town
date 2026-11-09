@@ -5,7 +5,7 @@
  * It opens on a summary (gr_zak30564zh, kr_obykl8yydh): the row's status, spent / granted and one line per key result;
  * the plan, the sessions and the history are each one folded line, one click away.
  */
-import { historyActor, historyNote, type GrantView } from "@muster-town/schema";
+import { grantName, historyActor, historyNote, type GrantView } from "@muster-town/schema";
 import { api, type GrantSessions } from "../api";
 import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
@@ -19,7 +19,8 @@ export function GrantPanel({ id }: { id: string }) {
   const g = r.data;
   const building = useTown((s) => s.buildings.find((b) => b.id === g?.buildingId));
   const hall = useTown((s) => s.buildings.find((b) => b.kind === "town-hall"));
-  const title = g ? g.objective : "Grant";
+  // the short name heads the page; the objective, the record's full sentence, sits beneath it
+  const title = g ? grantName(g) : "Grant";
   const subtitle = g ? <>{building ? <button className="link" onClick={() => store.open({ kind: "building", id: building.id })}>{building.name}</button> : g.buildingId} · {g.status === "proposed" || g.status === "countered" ? "proposal" : "grant"} · {id}</> : id;
   return (
     <PanelShell icon={<Glyph kind="intray" />} title={title} subtitle={subtitle}>
@@ -27,6 +28,7 @@ export function GrantPanel({ id }: { id: string }) {
         <ErrorLine error={r.error} />
         {r.loading && !g ? <Loading /> : !g ? (r.error ? null : <Empty>No grant with id {id}.</Empty>) : (
           <>
+            <p className="grant-objective">{g.objective}</p>
             <GrantRow grant={g} onPage onDecided={r.reload} onOpenDoc={(docId) => store.open({ kind: "library", docId })} />
             <Plan grant={g} />
             <Sessions grant={g} />
