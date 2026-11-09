@@ -69,10 +69,10 @@ The first code span is the test file. The second is the `it` text, copied exactl
    - Test: `packages/core/test/forecast-asks.test.ts` › `an on-budget forecast files a gate notice and no ask`
    - Test: `packages/core/test/forecast-asks.test.ts` › `the ask retires when the human adjusts the running grant, and the forecast is measured against the new ceiling`
    - Test: `packages/core/test/forecast-asks.test.ts` › `a grant held with no forecast and no report files its card tagged lint-failed, naming the fields it lacks`
-13. **A key result's evidence class says how it is known, and never moves its status** (`evidence`: verified, claimed or unknown; migration 103 back-filled met as verified and claimed as claimed). A fork's report or a manager that claims it makes unknown evidence claimed; a human marking it met, or a `kr` claim check the server ran that passes (`runClaimChecks`, once, with a `verified` notice), makes it verified; a human taking met back drops it to what the new status says.
+13. **A key result's evidence class says how it is known, and never moves its status** (`evidence`: verified, claimed or unknown; migration 103 back-filled met by a human as verified, and claimed or met by anyone else as claimed). A fork's report or a manager that claims it makes unknown evidence claimed; a human marking it met, or a `kr` claim check the server ran that passes (`runClaimChecks`, once, with a `verified` notice), makes it verified; a human taking met back drops it to what the new status says.
    - Test: `packages/core/test/kr-evidence.test.ts` › `unknown until claimed: a fork's report claiming it makes it claimed; a human marking it met makes it verified; status is unchanged by it`
    - Test: `packages/core/test/kr-evidence.test.ts` › `a kr claim check that passes verifies its key result once, with a verified notice; a failing one leaves it`
-   - Test: `packages/core/test/kr-evidence.test.ts` › `migration 103 back-fills met as verified and claimed as claimed`
+   - Test: `packages/core/test/kr-evidence.test.ts` › `migration 103 back-fills met by a human as verified; met by an agent (a manager's close) or by no one, and claimed, as claimed`
 
 ## How it connects
 
