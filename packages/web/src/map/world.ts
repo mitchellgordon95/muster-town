@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawHydrant, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -158,6 +158,7 @@ export class World {
           case TILE.GOAL_CHART: g.drawImage(tl.wallFace, px, py); drawGoalChart(g, px, py); break;
           case TILE.STATS: drawStats(g, px, py); break;
           case TILE.HELP: drawHelpSign(g, px, py); break;
+          case TILE.HYDRANT: drawHydrant(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.SIGNPOST: drawSignpost(g, px, py); break;
           case TILE.FOUNTAIN: {
