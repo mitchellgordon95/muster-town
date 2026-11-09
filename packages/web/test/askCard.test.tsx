@@ -98,6 +98,15 @@ describe("the ask card", () => {
     expect(branchCall({ targetKind: "request" }, { label: "Decline" })).toEqual({ kind: "request", action: "decline" });
     expect(branchCall({ targetKind: "rule" }, { label: "Add" })).toEqual({ kind: "ask", decision: "Add" });
     expect(branchCall({ targetKind: null }, { label: "Bar" })).toEqual({ kind: "ask", decision: "Bar" });
+    // a money ask on a grant never records a bare label: Yes / No act on the grant by its status, else nothing is drawn
+    const money = { targetKind: "grant" as const, type: "money" as const };
+    expect(branchCall(money, { label: "Yes" })).toEqual({ kind: "none" });
+    expect(branchCall(money, { label: "Yes" }, { status: "funded" })).toEqual({ kind: "grant", action: "adjust", form: "tokens" });
+    expect(branchCall(money, { label: "No" }, { status: "checkpoint" })).toEqual({ kind: "grant", action: "cut" });
+    expect(branchCall(money, { label: "Yes" }, { status: "proposed" })).toEqual({ kind: "grant", action: "fund" });
+    expect(branchCall(money, { label: "No" }, { status: "proposed" })).toEqual({ kind: "grant", action: "reject" });
+    expect(branchCall(money, { label: "Maybe" }, { status: "funded" })).toEqual({ kind: "none" });
+    expect(branchCall(money, { label: "Cut" })).toEqual({ kind: "grant", action: "cut" });
   });
 
   it("a held grant's Adjust asks for the new ceiling and sends it to decideGrant", async () => {

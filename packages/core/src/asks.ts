@@ -504,15 +504,24 @@ function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; rep
 
 /**
  * File the gate's money ask on the grant (Adjust / Cut), or fold into the live one: a gate ask already open (an earlier
- * forecast's, or the hold's) takes the new card and title, vetted again; a manager's own money ask on the grant keeps
- * its card and only gains the source line.
+ * forecast's, or the hold's) takes the new card and title, vetted again. Any other live money ask on the grant (a
+ * manager's, or one parsed from rollup prose with Yes / No) becomes the gate: its branches are replaced with Adjust /
+ * Cut (a bare Yes would decide the ask and leave the grant held), it keeps its sources and its words, and the gate card
+ * is appended to its body, its title, recommendation and claims taken from the card.
  */
 function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sourceDocId: string, line: string): Ask {
+  // the live ask as it stood: a fold may adopt the card's words in place of an ask's own (createAsk), and those are kept here
+  const prior = liveAskOn(world, "grant", g.id);
   const { ask, folded } = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId, line, ...card, branches: GATE_BRANCHES });
-  if (!folded || !isGateAsk(ask)) return ask;
+  if (!folded) return ask;
   const at = nowIso();
-  const v = vetted(world, "money", { ...card, branches: ask.branches, targetKind: "grant" }, at, "system");
-  const next = world.asks.upsert({ ...ask, ...card, title: oneLine(card.title, 200), tags: [...ask.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...ask.history, ...v.lint] });
+  const merged: Card & { title: string } = !prior || isGateAsk(prior) ? card : {
+    ...card,
+    body: prior.body.trim() ? `${prior.body.trimEnd()}\n\n${card.body}` : card.body,
+    claims: [...card.claims, ...prior.claims].slice(0, 2), // the money contract takes 1-2: the gate's claim first
+  };
+  const v = vetted(world, "money", { ...merged, branches: GATE_BRANCHES, targetKind: "grant" }, at, "system");
+  const next = world.asks.upsert({ ...ask, ...merged, branches: GATE_BRANCHES, title: oneLine(merged.title, 200), tags: [...ask.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at, history: [...ask.history, ...v.lint] });
   queueClaimChecks(world, next.id);
   return next;
 }

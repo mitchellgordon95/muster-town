@@ -7,6 +7,7 @@ import { vetAsk } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, listNotices, newId, nowIso, openAsks, retireFork, updateBuilding } from "../src/index.ts";
 import { fileForecast } from "../src/grant-forecast.ts";
+import { createAsk } from "../src/asks.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
@@ -94,6 +95,25 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
     expect(asks[0]!.history.some((h) => h.action === "fold")).toBe(true);
     expect(asks[0]!.tags).toEqual([]);
     expect(openAsks(world).filter((a) => a.targetId === g.id)).toHaveLength(1);
+  });
+
+  it("a live Yes / No money ask on the grant (from rollup prose) becomes the gate: Adjust / Cut, its sources kept, the gate card appended", async () => {
+    const { world, pix, fund, runStep, gateAsks } = lab();
+    const g = fund();
+    const rollup = await world.verbs.write(pix, { type: "fyi", title: "Rollup", body: "x", state: "draft" });
+    const { ask: yn } = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: rollup.id, by: pix.id, title: "Raise the banner grant?", line: "Raise the banner grant?", body: "From the rollup.", branches: [{ label: "Yes" }, { label: "No" }] });
+    await runStep(40_000);
+    await runStep(300_000); // over the ceiling: the gate folds into the Yes / No ask
+    const live = openAsks(world).filter((a) => a.targetId === g.id);
+    expect(live).toHaveLength(1);
+    expect(live[0]!.id).toBe(yn.id);
+    expect(live[0]!.branches).toEqual([{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }]);
+    expect(gateAsks(g.id).map((a) => a.id)).toEqual([yn.id]);
+    expect(live[0]!.body.startsWith("From the rollup.\n\n")).toBe(true);
+    expect(live[0]!.body).toContain("If you cut:");
+    expect(live[0]!.title).toBe('Adjust or cut "A banner": projected 140,000 tokens past its ceiling');
+    expect(live[0]!.sources.map((s) => s.docId)).toContain(rollup.id);
+    expect(live[0]!.sources.length).toBeGreaterThan(1);
   });
 
   it("an on-budget forecast files a gate notice and no ask", async () => {

@@ -38,7 +38,7 @@ export type BranchCall =
 
 const verbOf = (b: AskBranch) => (b.action ?? b.label).trim().toLowerCase().split(/\s+/)[0] ?? "";
 
-export function branchCall(ask: Pick<AskView, "targetKind">, b: AskBranch): BranchCall {
+export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["type"] }, b: AskBranch, grant?: Pick<GrantView, "status">): BranchCall {
   const v = verbOf(b);
   switch (ask.targetKind) {
     case "grant":
@@ -49,6 +49,14 @@ export function branchCall(ask: Pick<AskView, "targetKind">, b: AskBranch): Bran
       if (v === "adjust" || v === "raise" || v === "top") return { kind: "grant", action: "adjust", form: "tokens" };
       // continue is refused at the ceiling: a held grant is adjusted (a new ceiling) or cut
       if (v === "continue") return { kind: "none" };
+      // a money ask on a grant never records a bare label (a "Yes" would decide the ask and leave the grant as it was):
+      // Yes / No act on the grant by its status, and anything else isn't drawn
+      if (ask.type === "money") {
+        const yes = v === "yes" || v === "approve", no = v === "no";
+        if (grant?.status === "proposed" && (yes || no)) return yes ? { kind: "grant", action: "fund" } : { kind: "grant", action: "reject" };
+        if ((grant?.status === "funded" || grant?.status === "checkpoint") && (yes || no)) return yes ? { kind: "grant", action: "adjust", form: "tokens" } : { kind: "grant", action: "cut" };
+        return { kind: "none" };
+      }
       break;
     case "retainer":
       if (v === "approve" || v === "fund") return { kind: "retainer", action: "approve" };

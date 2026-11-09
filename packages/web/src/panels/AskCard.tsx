@@ -67,7 +67,7 @@ export function AskButtons({ ask, grant, onDecided, deckSlide }: { ask: AskView;
     setForm(null);
     onDecided();
   };
-  const branches = ask.branches.map((b) => ({ b, c: branchCall(ask, b) })).filter((x) => x.c.kind !== "none");
+  const branches = ask.branches.map((b) => ({ b, c: branchCall(ask, b, grant) })).filter((x) => x.c.kind !== "none");
   if (!branches.length) return null;
   const tone = (i: number, c: BranchCall) => (c.kind === "grant" && (c.action === "reject" || c.action === "cut")) || (c.kind === "retainer" && c.action === "reject") ? "bad" : i === 0 ? "primary" : undefined;
   const needsForm = (c: BranchCall) => "form" in c && !!c.form;
