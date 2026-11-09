@@ -22,7 +22,7 @@
  * readable for old cards; nothing writes one any more. `overtakenReason` and `rollupCalls` (the old digest's reading of a
  * rollup's prose) stay: the asks backfill reads untyped rollups through them, and the hooks are tested against them.
  */
-import { isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
+import { grantName, isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
 import { createAsk, deferAsk, rankedAsks, setRank } from "./asks.ts";
 import { createAssignment, createDoc, updateDoc } from "./domain.ts";
@@ -63,7 +63,7 @@ const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs
 1. Call \`rank\` with no arguments. It lists every open ask (id, type, building, how long it has waited, body, branches, recommendation, the records it came from) and the humans' recent money decisions with their notes. If it says there is nothing to rank, submit_report at once (verdict stop) and end.
 2. Order every open ask, most urgent first: what work is parked on, then money a building waits on, then a click that unblocks another ask, then the rest by age. The humans' past fund and reject decisions, with their notes, are how they weigh: follow them.
 3. Defer an ask that is moot until another ask or event resolves (e.g. the continue on a grant whose captain-accept click is still open waits behind that click): an entry of \`defer\` with the blocking ask's id. A deferred ask stays listed; it is not decided.
-4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list.
+4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list. In each why, name a grant by its title (the short name on its ask), never by its objective.
 5. Call \`rank\` once with \`order\` (every open ask id), \`slate\` and \`defer\`. It sets the ranks, files the slate as a notice beside the asks and parks the deferred asks. It funds nothing.
 6. submit_report (verdict stop): the slate notice id and how many asks you ranked. Nothing else: don't read other docs, don't write pages.`;
 
@@ -370,7 +370,7 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
   const decisions = world.grants.where("history LIKE '%\"byKind\":\"user\"%'", [], "ORDER BY updatedAt DESC LIMIT 60")
     .flatMap((g) => g.history.filter((h) => h.byKind === "user" && MONEY_ACTIONS[h.action]).map((h) => ({ g, h })))
     .sort((a, b) => b.h.at.localeCompare(a.h.at)).slice(0, 30)
-    .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${oneLine(g.objective, 80)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
+    .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${grantName(g)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
   const decided = world.asks.where("status = 'decided'", [], "ORDER BY decidedAt DESC LIMIT 15").map((a) => `- ${a.id} (${a.type}) "${oneLine(a.title, 100)}": ${oneLine(a.decision ?? "", 120)}`);
   return [
     `Open asks (${asks.length}), in their current order:\n\n${list.join("\n\n")}`,

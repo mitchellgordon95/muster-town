@@ -1,5 +1,5 @@
 import { AppError, markSeen } from "@muster-town/core";
-import { CloseGrantInput, StopGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
+import { CloseGrantInput, StopGrantInput, CreateGrantRequest, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -34,7 +34,7 @@ export async function grantRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/buildings/:id/grants", async (req, reply) => {
-    const grant = desk.create(actorOf(world, req), req.params.id, parse(CreateGrantInput, req.body));
+    const grant = desk.create(actorOf(world, req), req.params.id, parse(CreateGrantRequest, req.body));
     return reply.code(201).send({ grant });
   });
 

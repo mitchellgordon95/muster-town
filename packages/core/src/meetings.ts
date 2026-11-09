@@ -1,4 +1,4 @@
-import { isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { grantName, isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
 import { countMemberAct } from "./access.ts";
 import { canDirect } from "./direct.ts";
 import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
@@ -220,7 +220,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
       if (m.transcript.some((u) => u.attachment?.ref === `grant:${grant.id}`)) return m;
       const kr = grant.keyResultId ? world.keyResults.get(grant.keyResultId) : undefined;
       const what = grant.status === "proposed" || grant.status === "countered" || grant.status === "draft" ? "proposal" : "grant";
-      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${oneLine(grant.objective, 120)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
+      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${grantName(grant)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
     }
     if (!doc || m.transcript.some((u) => u.attachment?.kind === "doc" && u.attachment.ref === doc.id)) return m;
     const by = doc.authorId === target.id ? "your" : `${world.nameOf(doc.authorId)}'s`;
@@ -296,7 +296,7 @@ function resolveAttachment(world: World, attach: string): MeetingAttachment {
   if (/^gr_/.test(ref)) {
     const g = world.grants.get(ref);
     if (!g) throw notFound("Grant", ref);
-    return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${g.objective}` };
+    return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${grantName(g)}` };
   }
   if (/^gp_/.test(ref)) {
     const p = world.goalProposals.get(ref);

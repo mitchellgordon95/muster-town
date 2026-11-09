@@ -11,6 +11,8 @@ import type { AskType } from "./index.ts";
 /** What a contract or a lint rule reads: the card's body and its structured fields. */
 export interface AskCard {
   body: string;
+  /** the ask's one line (the linter reads it for an ellipsis only) */
+  title?: string;
   branches?: readonly { label: string }[];
   recommendation?: string;
   claims?: readonly unknown[];
@@ -100,6 +102,14 @@ export const ASK_LINT_RULES: readonly AskLintRule[] = [
     name: "condition-first", scope: "sentence", says: "conditions before the actions they affect (\"If you cut: …\")",
     fails: (s) => /,\s*in which case\b/i.test(s) || /,\s*or\s+[a-z]+\s+it\b/i.test(s) || (isInstruction(s) && !/^if\b/i.test(s) && /,\s*if\b/i.test(s))
       ? "the condition comes after the action: start the sentence with \"If …\"" : null,
+  },
+  {
+    // a clipped quote is no name: say it whole or leave it out (the record keeps the full words)
+    name: "no-ellipsis", scope: "card", says: "no ellipsis (…) anywhere: say it whole or leave it out",
+    fails: (card) => {
+      const where = (["title", "body", "recommendation"] as const).filter((k) => card[k]?.includes("…"));
+      return where.length ? `an ellipsis in the ${where.join(" and the ")}: say it whole or leave it out` : null;
+    },
   },
   {
     name: "recommendation", scope: "card", says: "a recommendation (the field, or a sentence \"<name> recommends …\")",

@@ -1,4 +1,4 @@
-import { grantPricingOf, type Grant, type GrantForecast, type StepCalibration, type StepSize } from "@muster-town/schema";
+import { grantName, grantPricingOf, type Grant, type GrantForecast, type StepCalibration, type StepSize } from "@muster-town/schema";
 import { askAtForecast, retireGateAsk } from "./asks.ts";
 import { calibratedRatio, stepCalibration } from "./grant-estimate.ts";
 import { fileNotice } from "./notices.ts";
@@ -52,7 +52,7 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
     // funded before step sizes (migration 098 leaves funded grants' steps unsized): no forecast, no ask, no notice, said once per report
     world.events.append({
       type: "grant.forecast", buildingId: g.buildingId,
-      text: `No forecast for "${g.objective}": its steps were planned before step sizes, so there is nothing to price what is left by`,
+      text: `No forecast for "${grantName(g)}": its steps were planned before step sizes, so there is nothing to price what is left by`,
       payload: { grantId: g.id, skipped: "unsized", reportId },
     });
     return null;
@@ -81,14 +81,14 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
   const where = `${stepsDone} of ${g.steps.length} steps done; spent ${fmt(spent)} of ${fmt(ceiling)}; projected ${fmt(projected)}`;
   world.events.append({
     type: "grant.forecast", buildingId: g.buildingId,
-    text: `Forecast for "${g.objective}": ${where} (${forecast.overCeiling ? `over the ceiling by ${fmt(forecast.shortfall)}` : "within the ceiling"})`,
+    text: `Forecast for "${grantName(g)}": ${where} (${forecast.overCeiling ? `over the ceiling by ${fmt(forecast.shortfall)}` : "within the ceiling"})`,
     payload: { grantId: g.id, ...forecast },
   });
   const report = reportId ? world.docs.get(reportId) ?? null : null;
   if (forecast.overCeiling) {
     const top = world.events.append({
       type: "grant.top-up-needed", buildingId: g.buildingId,
-      text: `"${g.objective}" is projected past its ceiling: ${where}; ${fmt(forecast.shortfall)} more tokens to finish, or cut it`,
+      text: `"${grantName(g)}" is projected past its ceiling: ${where}; ${fmt(forecast.shortfall)} more tokens to finish, or cut it`,
       payload: { grantId: g.id, shortfallTokens: forecast.shortfall, projected, ceiling, spent },
     });
     askAtForecast(world, next, report, top.text);
@@ -96,7 +96,7 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
     const title = `Step ${stepsDone} of ${g.steps.length} landed: ${fmt(spent)} of ${fmt(ceiling)} spent, projected ${fmt(projected)}`;
     fileNotice(world, {
       kind: "gate", buildingId: g.buildingId, goalId: g.goalId ?? world.buildings.get(g.buildingId)?.goalId ?? null, title,
-      body: `"${g.objective}"${report ? `: ${report.title}` : ""}`, picture: null, refs: [g.id, ...(report ? [report.id] : [])],
+      body: `"${grantName(g)}"${report ? `: ${report.title}` : ""}`, picture: null, refs: [g.id, ...(report ? [report.id] : [])],
     });
     retireGateAsk(world, next, `The forecast is back within the ceiling: ${title}`);
   }

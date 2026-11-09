@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -137,7 +137,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
     // evidence first (Mitchell 1:1 mt_7b4zc7yja3): what shipped per key result, spend, what a top-up buys; the plan below the fold
     const e = g.evidence;
-    if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + [
+    if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: asks + [
       `**What shipped** (${g.id}; its grant work is stopped until you decide):`,
       // grant C (gr_95svkzi4l6): the forks' key-result evidence, then the grant's own reports; the top-up only when filed
       ...(e.filed ? [] : [`_${NO_FORK_EVIDENCE}._`]),
@@ -149,7 +149,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
       `**Your call:** Continue, adjust (top up) or cut.`,
       `_The plan as funded (below the fold):_ ${kr}. Stops when: ${oneLine(g.stopCondition)}`,
     ].join("\n\n") };
-    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${g.objective}`, body: asks + card({
+    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: asks + card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
       whatYoudSee: testing,
       picture: proposalPicture(world, g),
@@ -159,7 +159,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
   // a proposal that names the earlier grant it continues (`continues`, 1:1 mt_z1b38bwg98): that grant's evidence first
   const earlier = g.evidence ? `**Continues the earlier grant ${g.evidence.grantId}** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
-  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${g.objective}`, body: asks + earlier + card({
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${grantName(g)}`, body: asks + earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     steps: grantStepLines(g),
     whatYoudSee: g.whatYoudSee || testing,
@@ -181,7 +181,7 @@ function stoppedSlide(world: World, g: GrantView): Draft | null {
   const money = s.closed
     ? `Spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} adjusted tokens granted; ${s.returnedTo === "pool" ? `${fmt(s.unspentTokens)} unspent returned to the Bank as free tokens` : `the unspent ${fmt(s.unspentTokens)} stay on ${g.fundedWithLabel ?? g.fundedWith ?? "the funder's input"}`}.`
     : `Stopping: its forks are wrapping up (spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} so far); it closes as stopped when no session runs on it.`;
-  return { kind: "stopped", group: 6, itemId: g.id, buildingId: g.buildingId, grantId: g.id, since: s.at, history: "", title: `${b}: stopped by ${who} — ${g.objective}`, body: [
+  return { kind: "stopped", group: 6, itemId: g.id, buildingId: g.buildingId, grantId: g.id, since: s.at, history: "", title: `${b}: stopped by ${who} — ${grantName(g)}`, body: [
     `**${who} stopped ${g.id}:** ${oneLine(s.reason)}`,
     `**Money:** ${money}`,
     `**Key results:** ${krs.length ? krs.map((k, i) => `${i + 1}) ${KR_LIGHT[k.status] ?? ""} ${k.text}`).join(" · ") : "none"}`,

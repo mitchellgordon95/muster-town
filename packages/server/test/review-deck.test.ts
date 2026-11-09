@@ -14,7 +14,7 @@ describe("GET /api/review-deck", () => {
     const { world, app, auth } = s;
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, whatYoudSee: "The banner says it", findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, whatYoudSee: "The banner says it", findingsDocIds: [], approach: "", note: "" });
     const deck = await json(app, "GET", "/api/review-deck");
     expect(deck.status).toBe(200);
     expect(deck.body.slides[0]).toMatchObject({ key: "town", kind: "town" });
@@ -34,7 +34,7 @@ describe("GET /api/review-deck", () => {
     const { world, app, auth } = s;
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-    const r = await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" });
     const called = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "in-tray-review", buildingId: null, startNow: true, brings: { mode: "nothing", text: "" }, askHumans: true, deck: { docId: "review-deck" } } });
     expect(called.status).toBe(201);
     const id = called.body.meeting.id;
@@ -50,7 +50,7 @@ describe("GET /api/review-deck", () => {
     expect(d.status).toBe(200);
     expect(world.events.list({ types: ["grant.rejected"] }).at(-1)!.payload).toMatchObject({ deckSlide: slide });
     const m = world.meetings.require(id);
-    expect(m.decisions.at(-1)!.text).toContain(`rejected ${r.grantId} "Banner" (on slide ${slide})`);
+    expect(m.decisions.at(-1)!.text).toContain(`rejected ${r.grantId} "A test grant proposal" (on slide ${slide})`);
   });
 });
 
@@ -64,7 +64,7 @@ describe("a rollup's ask on the grant's own row (1:1 mt_7b4zc7yja3)", () => {
     world.ops.updateBuilding(null, LAB, { managerAgentId: manager.id });
     const resident = world.agents.first("homeBuildingId = ? AND kind != 'human' AND id != ?", [LAB, manager.id])!;
     const src = await world.verbs.submit_report(resident, { title: "Done", body: "## What I did\nx", verdict: "stop" });
-    const g = (await world.verbs.propose_grant(manager, { keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" })).grantId;
+    const g = (await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" })).grantId;
     const r = await world.verbs.submit_report(manager, { title: `Fund ${g}`, body: `## Shipped\nNothing new.\n## Decided\n- x\n## Key results\n- ${g} would put the banner up.\n## Needs from Mitchell\nNothing needed.`, verdict: "continue", rollup: true, provenance: { sourceIds: [src.id], urls: [] } });
     expect(r.decision).toBe("approve");
     const intray = await json(app, "GET", "/api/buildings/town-hall/intray");

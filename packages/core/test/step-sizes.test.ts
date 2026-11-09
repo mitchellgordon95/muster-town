@@ -40,12 +40,12 @@ describe("step sizes: S, M or L, required, priced by the table", () => {
 
   it("the ask is the sum of the steps' sizes from the table at propose time; a caller's askTokens is ignored", async () => {
     const { world, pix, admin } = lab();
-    const r = await world.verbs.propose_grant(pix, { keyResults: [KR], objective: "o", stopCondition: "s", steps: [step("S"), step("M"), step("L")], askTokens: 7 } as never);
+    const r = await world.verbs.propose_grant(pix, { title: "A test grant proposal", keyResults: [KR], objective: "o", stopCondition: "s", steps: [step("S"), step("M"), step("L")], askTokens: 7 } as never);
     expect(world.grants.require(r.grantId)).toMatchObject({ askTokens: 600_000, steps: [{ size: "S" }, { size: "M" }, { size: "L" }] });
     // an admin edits the table; a re-proposal after a counter is priced at the new table
     world.setGrantPricing({ stepSizes: { S: 60_000, M: 200_000, L: 500_000 } }, admin.id);
     world.grantDesk.decide(admin, r.grantId, { action: "counter", note: "cut the L step" });
-    await world.verbs.propose_grant(pix, { keyResults: [KR], objective: "o", stopCondition: "s", steps: [step("S"), step("M")], askTokens: 9_000_000, grantId: r.grantId } as never);
+    await world.verbs.propose_grant(pix, { title: "A test grant proposal", keyResults: [KR], objective: "o", stopCondition: "s", steps: [step("S"), step("M")], askTokens: 9_000_000, grantId: r.grantId } as never);
     expect(world.grants.require(r.grantId)).toMatchObject({ status: "proposed", askTokens: 260_000 });
   });
 

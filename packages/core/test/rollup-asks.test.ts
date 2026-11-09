@@ -39,7 +39,7 @@ describe("a rollup's ask folds into the item's own in-tray row (1:1 mt_7b4zc7yja
     // nothing waiting: a plain rollup that asks nothing is archived on submit (legible delegation step 5); nothing is attached
     const plain = await roll("Quiet", rollup("None.", "on track"));
     expect(plain.decision).toBe("approve");
-    const g = (await world.verbs.propose_grant(mei, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 })).grantId;
+    const g = (await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 })).grantId;
     // the generated waiting line names g, but a rollup that doesn't is no ask on it
     const other = await roll("Still quiet", rollup("None.", "on track"));
     expect(other.decision).toBe("approve");

@@ -11,6 +11,35 @@ const KRS = [
   { text: "The board shows the lab's goal first", howToCheck: "Open the lab board" },
 ];
 
+describe("a grant's title (migration 105)", () => {
+  it("propose_grant and POST /api/buildings/:id/grants without a title are refused saying what a title is; GET /api/grants/:id carries it", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app } = s;
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
+    world.ops.updateBuilding(world.ops.ensureAvatar(s.seed.admin.id), LAB, { managerAgentId: manager.id });
+    world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
+    const plan = { objective: "Visitors can tell what the lab is for, from the banner, before they open anything else", steps: [{ size: "M", title: "Ship the banner", description: "One PR" }], stopCondition: "two failed tries", keyResults: KRS };
+
+    const verb = await json(app, "POST", "/api/verbs/propose_grant", { headers: mgr, body: plan });
+    expect(verb.status).toBe(400);
+    expect(verb.body.error).toContain('title: A grant needs a title: a short name for the grant: 3-8 words, at most 60 characters, no trailing period, no ids, no parentheses (e.g. "Self-host image restores from backup")');
+    const rest = await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: plan });
+    expect(rest.status).toBe(400);
+    expect(rest.body.error).toContain("A grant needs a title");
+    // a malformed one says what is wrong with it
+    const dotted = await json(app, "POST", "/api/verbs/propose_grant", { headers: mgr, body: { ...plan, title: "The lab banner (v2)." } });
+    expect(dotted.status).toBe(400);
+    expect(dotted.body.error).toContain('The title "The lab banner (v2)." has a trailing period');
+
+    const ok = await json(app, "POST", "/api/verbs/propose_grant", { headers: mgr, body: { ...plan, title: "Lab banner for visitors" } });
+    expect(ok.status).toBe(200);
+    const got = await json(app, "GET", `/api/grants/${ok.body.result.grantId}`, { headers: mgr });
+    expect(got.body.grant).toMatchObject({ title: "Lab banner for visitors", objective: plan.objective });
+  });
+});
+
 describe("grants routes", () => {
   it("manager drafts and proposes, a funder counters and funds, KRs and close; drafts stay private", async () => {
     const s = await seededApp();
@@ -26,7 +55,7 @@ describe("grants routes", () => {
 
     // create: needs auth and building.manage; bad input is a 400; it carries its own 1-5 key results
     const steps = [{ size: "M", title: "Ship the banner", description: "One PR" }, { size: "S", title: "Check it live", description: "Open the lab", model: "nope-model" }];
-    const body = { objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [steps[0]!, { size: "S", title: steps[1]!.title, description: steps[1]!.description }], stopCondition: "two failed tries", askTokens: 10_000_000, keyResults: KRS };
+    const body = { title: "Lab banner for visitors", objective: "Visitors can tell what the lab is for", approach: "a banner line", steps: [steps[0]!, { size: "S", title: steps[1]!.title, description: steps[1]!.description }], stopCondition: "two failed tries", askTokens: 10_000_000, keyResults: KRS };
     // grant B (gr_b5fyqibfx2): a proposal carries 1-5 steps, each on a model the building's forks run
     const { steps: _none, ...noSteps } = body;
     expect((await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: noSteps })).status).toBe(400);
@@ -176,7 +205,7 @@ describe("grants routes", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
-    const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
+    const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { title: "Lab banner for guests", objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
     await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
     await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
     expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "done", note: "live on the banner" } })).status).toBe(200);
@@ -201,7 +230,7 @@ describe("grants routes", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const mgr = { authorization: `Bearer ${world.tokens.getOrCreate("agent", manager.id)}` };
-    const body = { objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
+    const body = { title: "Lab banner for guests", objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS };
     const propose = async () => {
       const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body })).body.grant.id as string;
       await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });

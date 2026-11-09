@@ -182,7 +182,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const { world, manager, krs } = setup();
     const approach = `${"Step one adds a Goals tab next to Tab. ".repeat(24)}The last words stay.`;
     expect(approach.length).toBeGreaterThan(900);
-    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "Long approach", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [krs[0]!], objective: "Long approach", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.text).toContain(approach.trim());
     expect(s.text).not.toMatch(/…/);
@@ -191,7 +191,7 @@ describe("review deck (GET /api/review-deck)", () => {
   it("propose_grant stores picture and whatYoudSee; the proposal slide shows the picture when the media exists", async () => {
     const { world, manager, krs } = setup();
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
-    const r = await world.verbs.propose_grant(manager, { keyResults: [krs[0]!], objective: "With a picture", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
+    const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [krs[0]!], objective: "With a picture", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
     expect(world.grants.require(r.grantId)).toMatchObject({ picture: media.id, whatYoudSee: "The in-tray shows it" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.pictures[0]!.src).toBe(media.url);

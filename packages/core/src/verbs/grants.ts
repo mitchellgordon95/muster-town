@@ -1,4 +1,4 @@
-import { grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
+import { grantName, grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
 import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
@@ -33,7 +33,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
   const card = ask
     ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
-    : proposalCard({ objective: fields.objective, askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+    : proposalCard({ askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
   refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) }));
   const g = world.transaction(() => {
     const proposed = open
@@ -44,7 +44,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;
   if (asg?.reservationId) {
-    world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${g.objective.slice(0, 120)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
+    world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${grantName(g)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
   }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   const flagged = world.asks.exists("targetKind = 'grant' AND targetId = ? AND status = 'open' AND tags LIKE '%\"lint-failed\"%'", [g.id]);

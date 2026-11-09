@@ -160,10 +160,10 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(financeSpend(base, 1_500, T0)).toMatchObject({ notFundedSplit: [], notFundedLastAt: null, notFundedAllocationPaid: 0, notFundedSplitCheck: { sum: 0, notFunded: 0, ok: true } });
   });
 
-  it("names a grant row by its objective's first clause, at most 60 characters, and carries the full objective", () => {
+  it("names a grant row by its title (else its objective's first clause, no ellipsis) and carries the full objective", () => {
     const long = "A stranger can read the Bank page: every term defined on the page or in one linked glossary";
     const f = financeSpend({ ...base, grants: [{ id: "g1", objective: long }] }, 1_500, T0);
-    expect(f.rows[0].children![0]).toMatchObject({ kind: "grant", id: "g1", name: "A stranger can read the Bank page…", objective: long });
+    expect(f.rows[0].children![0]).toMatchObject({ kind: "grant", id: "g1", name: "A stranger can read the Bank page", objective: long });
     expect(f.rows[0].children![1]).not.toHaveProperty("objective");
     expect(grantTitle("Spend breakdown")).toBe("Spend breakdown");
     expect(grantTitle("Users can review, at a glance")).toBe("Users can review…");

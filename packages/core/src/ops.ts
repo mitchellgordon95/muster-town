@@ -1,4 +1,4 @@
-import { AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { grantName, AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
 import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
@@ -581,7 +581,7 @@ export class Ops {
   slideGrantDecision(actor: Actor, meetingId: string, grantId: string, action: string): Meeting | null {
     const g = this.world.grants.get(grantId);
     const past: Record<string, string> = { fund: "funded", counter: "countered", reject: "rejected", continue: "continued", adjust: "adjusted", cut: "cut" };
-    return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} ${past[action] ?? action} ${grantId}${g ? ` "${g.objective}"` : ""}`);
+    return recordSlideDecision(this.world, meetingId, `${actor?.name ?? "The town"} ${past[action] ?? action} ${grantId}${g ? ` "${grantName(g)}"` : ""}`);
   }
   /** A report archived on a slide presented in a live meeting: also one of the meeting's decisions. */
   slideArchiveDecision(actor: Actor, meetingId: string, docId: string): Meeting | null {
