@@ -55,7 +55,7 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     const long = "Make the lab board answer what the lab is for in one look (the goal, its grants and the open key results, read from db_path and gr_abc123) for every guest who opens it, before anything else; then measure it. A second sentence.";
     const passed = await world.verbs.propose_grant(mei, plan(long));
     const longAsk = asksFor(world, { kind: "grant", id: passed.grantId })[0]!;
-    expect(longAsk).toMatchObject({ tags: [], title: "Fund Lab board shows its goal at 150k" });
+    expect(longAsk).toMatchObject({ tags: [], title: 'Fund "Lab board shows its goal" at 150k' });
     expect(longAsk.body.split("\n")[1]).toBe("The lab board shows its goal first.");
     expect(`${longAsk.title}\n${longAsk.body}`).not.toMatch(/…|in one look|second sentence/);
     expect(world.grants.require(passed.grantId).objective).toBe(long);
