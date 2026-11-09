@@ -95,7 +95,7 @@ describe("the 1:1's open item (focus)", () => {
     expect(focusBlock(world, world.meetings.require(m.id))).toBe("");
   });
 
-  it("act_in_1on1 with \"fund it\" and no target decides the focused grant as the human", async () => {
+  it("act_in_1on1 with 'fund it' and no target decides the focused grant as the human", async () => {
     const { world, admin, sec, m, proposal, askOf } = setup();
     const g = proposal();
     setMeetingFocus(world, admin, m.id, { kind: "ask", id: askOf(g.id).id });

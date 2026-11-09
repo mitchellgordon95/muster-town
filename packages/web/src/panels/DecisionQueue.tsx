@@ -7,15 +7,17 @@
  * peek at the next or previous item without deciding anything.
  *
  * On open, a human allowed to talk at the Town Hall gets (or returns to) their 1:1 with the Secretary in the side panel,
- * so they can say a decision in their own words beside the item.
+ * so they can say a decision in their own words beside the item. The Secretary knows which item that is (Mitchell,
+ * 2026-11-09: "the secretary should know what's open"): the item on screen is PUT as the 1:1's focus whenever it
+ * changes (debounced), and cleared when the queue closes; its turn input shows it with each of the human's lines.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { grantName, type DigestRunView, type GrantView, type IntrayRoute } from "@muster-town/schema";
+import { grantName, type DigestRunView, type GrantView, type IntrayRoute, type MeetingFocusKind } from "@muster-town/schema";
 import { api, type Intray } from "../api";
 import { store, useTown } from "../state";
 import { AskCard } from "./AskCard";
 import { slateAsks } from "./asks";
-import { buildingOf, currentItem, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
+import { buildingOf, currentItem, focusOf, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
 import { DocView } from "./DocView";
 import { FundingView } from "./FundingView";
 import { isFunder, type IntrayView } from "./funderFilter";
@@ -42,37 +44,71 @@ export function DecisionQueue({ onClose }: { onClose: () => void }) {
   const signedIn = useTown((s) => !!s.me);
   const list = useLoad(() => hall ? api().intray(hall.id) : Promise.resolve(null), [hall?.id, hall?.intray, rev]);
   const funderLoad = useLoad(() => signedIn ? api().funderWeek().catch(() => null) : Promise.resolve(null), [signedIn, hall?.intray]);
-  useSecretaryChat(hall?.id ?? null);
+  const chat = useSecretaryChat(hall?.id ?? null);
   if (!hall) return <Sheet label="Decision queue" title="Decision queue" onClose={onClose}><Empty>No Town Hall on this map.</Empty></Sheet>;
   return (
     <DecisionQueueView data={list.data} error={list.error} loading={list.loading && !list.data} funder={isFunder(funderLoad.data) ? funderLoad.data : null}
-      onReload={list.reload} onClose={onClose} />
+      onReload={list.reload} onClose={onClose} chatId={chat} />
   );
 }
 
 /**
  * Open (or return to) the viewer's 1:1 with the Secretary in the side panel, once per opening of the queue, for a human
  * allowed to talk at the Town Hall while a live Secretary exists. The server reuses an open 1:1; a side panel already
- * showing it is left alone. A guest, or a human without the permission, gets the sheet alone.
+ * showing it is left alone. A guest, or a human without the permission, gets the sheet alone. Returns that 1:1's id
+ * while it is live (the queue tells it what is on screen), else null.
  */
-export function useSecretaryChat(hallId: string | null): void {
+export function useSecretaryChat(hallId: string | null): string | null {
   const secretary = useTown((s) => secretaryOf(s.agents, hallId));
   const me = useTown((s) => s.me);
   const done = useRef(false);
+  const [id, setId] = useState<string | null>(null);
+  const live = useTown((s) => { const m = id ? s.meetings[id] : undefined; return !!m && m.phase !== "done" && m.phase !== "cancelled"; });
   useEffect(() => {
     if (done.current || !hallId || !secretary || !me || !canTalkAtTownHall(hallId)) return;
     done.current = true;
     const open = store.state.panel?.kind === "meeting" ? store.state.meetings[store.state.panel.id ?? ""] : undefined;
-    if (open && open.kind === "one-on-one" && open.facilitatorId === secretary.id && open.phase !== "done" && open.phase !== "cancelled") return;
-    openOneOnOne(hallId, { agentId: secretary.id }).catch((e: Error) => store.toast(e.message, "bad"));
+    if (open && open.kind === "one-on-one" && open.facilitatorId === secretary.id && open.phase !== "done" && open.phase !== "cancelled") { setId(open.id); return; }
+    openOneOnOne(hallId, { agentId: secretary.id }).then((m) => setId(m.id), (e: Error) => store.toast(e.message, "bad"));
   }, [hallId, secretary, me]);
+  return live ? id : null;
+}
+
+/** How long the item must stay on screen before the Secretary's 1:1 is told (J J J sends one PUT, not three). */
+export const FOCUS_DEBOUNCE_MS = 300;
+
+/**
+ * Tell the human's Secretary 1:1 (`chatId`) which item is on screen: PUT its focus once it has held still for
+ * FOCUS_DEBOUNCE_MS, never the same item twice, and clear it (null) when the queue closes. No 1:1, nothing sent.
+ */
+function useQueueFocus(chatId: string | null, focus: { kind: MeetingFocusKind; id: string } | null): void {
+  const sent = useRef<string | null>(null);
+  const latest = useRef(focus);
+  latest.current = focus;
+  const key = focus ? `${focus.kind}:${focus.id}` : null;
+  useEffect(() => {
+    if (!chatId || key === sent.current) return;
+    const t = setTimeout(() => {
+      sent.current = key;
+      api().meetingFocus(chatId, latest.current).catch(() => undefined);
+    }, FOCUS_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [chatId, key]);
+  useEffect(() => () => {
+    if (!chatId || sent.current === null) return;
+    sent.current = null;
+    api().meetingFocus(chatId, null).catch(() => undefined);
+  }, [chatId]);
 }
 
 type Mode = "one" | "list";
 
-/** The queue itself, given the Town Hall's waiting-items read (what the tests render). */
-export function DecisionQueueView({ data, error = null, loading = false, funder = null, onReload, onClose }: {
-  data: Intray | null; error?: string | null; loading?: boolean; funder?: Parameters<typeof mineOnly>[3]; onReload: () => void; onClose: () => void;
+/**
+ * The queue itself, given the Town Hall's waiting-items read (what the tests render). `chatId`: the human's live 1:1
+ * with the Secretary, told which item is on screen (an ask's record keeps the focus on the ask).
+ */
+export function DecisionQueueView({ data, error = null, loading = false, funder = null, onReload, onClose, chatId = null }: {
+  data: Intray | null; error?: string | null; loading?: boolean; funder?: Parameters<typeof mineOnly>[3]; onReload: () => void; onClose: () => void; chatId?: string | null;
 }) {
   const signedIn = useTown((s) => !!s.me);
   useTown((s) => s.me);
@@ -101,6 +137,7 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
   const hidden = Math.max(0, all - items.length);
   const cur = currentItem(items, picked);
   const at = cur ? items.indexOf(cur) : -1;
+  useQueueFocus(chatId, loading ? null : focusOf(cur));
   useEffect(() => { if (data) store.putDocs(data.reports); }, [data]);
 
   const decided = (id: string) => {

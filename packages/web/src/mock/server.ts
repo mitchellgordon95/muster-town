@@ -1,5 +1,5 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
-import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
+import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
@@ -771,7 +771,7 @@ export class MockApi implements Api {
   async createMeeting(i: In<typeof CreateMeetingInput>) {
     await wait();
     const attendees = i.attendeeIds ?? [...this.sim.agents.values()].filter((a) => a.kind === "resident" && (i.buildingId ? a.homeBuildingId === i.buildingId : true)).map((a) => a.id);
-    const m: Meeting = { id: newId("mt"), kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: Array.isArray(i.agenda) ? i.agenda.filter((a) => a.trim()).map((a, n) => `${n + 1}. ${a.trim()}`).join("\n") : i.agenda ?? "",
+    const m: Meeting = { id: newId("mt"), focus: null, kind: i.kind, buildingId: i.buildingId, title: i.title || `${i.kind[0].toUpperCase()}${i.kind.slice(1)}`, scheduledAt: i.scheduledAt ?? now(), phase: i.startNow ? "collecting" : "scheduled", facilitatorId: "ag_moss", attendeeIds: attendees, agenda: Array.isArray(i.agenda) ? i.agenda.filter((a) => a.trim()).map((a, n) => `${n + 1}. ${a.trim()}`).join("\n") : i.agenda ?? "",
       brings: { mode: i.brings?.mode ?? "status", text: i.brings?.text ?? "" }, askHumans: i.askHumans ?? i.kind === "town-hall", deck: i.deck ? { docId: i.deck.docId, slide: 1, presenterId: "us_mitchell" } : null, summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: null, createdAt: now(), startedAt: null, endedAt: null };
     if (m.phase === "collecting" && m.brings.mode === "nothing") { m.phase = "discussing"; m.startedAt = now(); }
     this.sim.putMeeting(m);
@@ -786,7 +786,7 @@ export class MockApi implements Api {
     if (!mgr) throw new ApiError(`${b.name} has no manager agent; send a message instead.`, "conflict", 409);
     const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.facilitatorId === mgr.id && m.phase === "discussing");
     if (open) return clone(open);
-    const m: Meeting = { id: newId("mt"), kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", brings: { mode: "nothing", text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
+    const m: Meeting = { id: newId("mt"), focus: null, kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", brings: { mode: "nothing", text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", mgr.id, `Mitchell opened a 1:1 with ${mgr.name}`, { meetingId: m.id }, buildingId);
     this.utter(m.id, mgr.id, "Hi Mitchell. What's on your mind?", 1200);
@@ -846,6 +846,14 @@ export class MockApi implements Api {
     return clone(m);
   }
   async typingMeeting(_id: string) { await wait(20); }
+  async meetingFocus(id: string, focus: { kind: MeetingFocusKind; id: string } | null) {
+    await wait(20);
+    const m = this.need(this.sim.meetings.get(id), "meeting");
+    if ((m.focus?.kind ?? null) === (focus?.kind ?? null) && (m.focus?.id ?? null) === (focus?.id ?? null)) return clone(m);
+    m.focus = focus ? { ...focus, at: now() } : null;
+    this.sim.putMeeting(m);
+    return clone(m);
+  }
   async meetingDrafting(_id: string) { await wait(20); return []; }
   async endMeeting(id: string) {
     await wait();

@@ -6,7 +6,7 @@ import type { z } from "zod";
 import type {
   ReviewDeck, DigestCard, DigestRunView, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
-  AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, Place, Role, Membership, SessionSlots, Tile,
+  AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   Ask, Notice, NoticeKind, StepCalibration, StepSizeTable,
@@ -641,6 +641,8 @@ export interface Api {
   meeting(id: string): Promise<Meeting>;
   startMeeting(id: string): Promise<Meeting>;
   sayMeeting(id: string, text: string, attach?: string): Promise<Meeting>;
+  /** the item open in the human's decision queue, for their 1:1's agent (null: the queue closed); only that 1:1's human */
+  meetingFocus(id: string, focus: { kind: MeetingFocusKind; id: string } | null): Promise<Meeting>;
   /** show a deck's slide above every attendee's chat (docId null stops presenting) */
   presentMeeting(id: string, docId: string | null, slide?: number): Promise<Meeting>;
   endMeeting(id: string): Promise<Meeting>;
@@ -946,6 +948,7 @@ class HttpApi implements Api {
   async sayMeeting(id: string, text: string, attach?: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, attach ? { text, attach } : { text }), "meeting"); }
   async endMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/end`), "meeting"); }
   async typingMeeting(id: string) { await this.post(`/api/meetings/${id}/typing`); }
+  async meetingFocus(id: string, focus: { kind: MeetingFocusKind; id: string } | null) { return unwrap<Meeting>(await this.call("PUT", `/api/meetings/${id}/focus`, focus), "meeting"); }
   async meetingDrafting(id: string) { return unwrap<{ id: string; name: string }[]>(await this.get(`/api/meetings/${id}/drafting`), "drafting"); }
   async roles(buildingId?: string) {
     const r = await this.get<{ roles?: Role[]; memberships?: Membership[] } | Role[]>(`/api/roles${qs({ buildingId })}`);
