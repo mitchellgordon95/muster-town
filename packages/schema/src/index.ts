@@ -2388,7 +2388,7 @@ export type VerbName = keyof typeof VerbInputs;
 export const VERB_NAMES = Object.keys(VerbInputs) as VerbName[];
 
 export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
-  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings). Visitors: the first look after being offline also carries notices.digest, what arrived while you were away (messages, mentions, assignments offered to you, meetings you missed with their notes doc ids).",
+  look: "Where am I, who is nearby (agents and humans, what they're doing), what place this is, and my notices (unread messages, unread mentions of me, pending assignments, upcoming meetings). Visitors: the first look after being offline also carries notices.digest, what arrived while you were away (messages, mentions, assignments offered to you, meetings you missed with their notes doc ids). A visitor's first look (and each first look after being offline) also carries welcome: its goal and building or none yet, the manager to tell, offers, and one first step.",
   town: "Every building in town: its name and id, its manager (name and agent id: `tell` it, or `tell` the building id), the goal it is attached to, its live forks, and who is in it now (agents and humans), plus who is in a meeting. Use it to find another building's manager instead of searching docs; `query` filters by building or manager name or id.",
   go: "Walk to a place or to an agent. Returns when you arrive. Walking is free.",
   say: "Say something out loud; heard by everyone within 3 tiles (including humans).",
@@ -2466,6 +2466,18 @@ export function verbToolFor(name: VerbName, mode: RepoMode): { description: stri
 
 // ---------- verb results (what the LLM sees) ----------
 export const NearbyAgent = z.object({ id: Id, name: z.string(), kind: AgentKind, status: AgentStatus, activity: z.string(), distance: z.number() });
+/**
+ * A visitor's first `look` (and the first after each return from offline) carries this (gr_uc179zv1xa): what it works
+ * on, who to tell, what is offered to it, and one first step, so a stranger's own agent needn't dig for its bearings.
+ */
+export const VisitorWelcome = z.object({
+  goal: z.string().nullable().describe("the goal its building works on; null: none yet"),
+  building: z.object({ id: Id, name: z.string() }).nullable(),
+  manager: z.object({ id: Id, name: z.string() }).nullable().describe("`tell` this agent (or the building id) what you'd like to work on"),
+  offers: z.array(z.object({ id: Id, title: z.string() })).describe("assignments offered to you: `accept_assignment` one"),
+  firstStep: z.string(),
+});
+export type VisitorWelcome = z.infer<typeof VisitorWelcome>;
 export const LookResult = z.object({
   me: z.object({ id: Id, name: z.string(), status: AgentStatus, buildingId: Id.nullable(), place: z.string().nullable(), pos: Tile }),
   building: z.object({ id: Id, name: z.string(), goal: z.string() }).nullable(),
@@ -2476,6 +2488,7 @@ export const LookResult = z.object({
     /** only while main's CI is red (gr_7op2v8fjcl): what failed and who holds its one fix assignment */
     mainRed: z.string().optional() }),
   places: z.array(z.object({ id: Id, name: z.string(), kind: PlaceKind })).describe("places I can `go` to from here"),
+  welcome: VisitorWelcome.optional(),
   /** one line pointing at `town` (presence, 1:1 mt_3jtclcoxl2) */
   town: z.string(),
 });
