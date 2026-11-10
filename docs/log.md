@@ -1,4 +1,6 @@
-# Town log (append only)
+# Town log (frozen 2026-11-10)
+
+New entries go in `docs/log.d/`, one file per change (see `docs/log.d/README.md`); `npm run check:docs` refuses a line appended here. Read the whole log in order with `cat docs/log.md docs/log.d/*.md`.
 
 - 2026-10-19: v0 built: server (runners, reports, chat, ws), Phaser town, Carbon Cycle Lab building with 5 desks + librarian. First real run (Ravi, human emissions) and first librarian chat verified.
 - 2026-10-19 (evening): Design review 2 with Mitchell: shift from run-centric to agent-in-a-place (MUD-style world server, MCP verbs, library states, meetings, Discord-style roles). Captured in docs/design.md. Server stopped; Ravi run 1 still pending decision.

@@ -560,9 +560,8 @@ export class MapRenderer {
   }
 
   /**
-   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as amber dots settling at the
-   * Secretary beside it (else pooling in front of it), today's notices as blue dots drifting to the Town Hall board (the
-   * feed). World px; nothing under reduced motion.
+   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as water-blue dots settling at the
+   * Secretary beside it (else pooling in front of it). World px; nothing under reduced motion.
    */
   private drawStream(g: CanvasRenderingContext2D, now: number) {
     const s = store.state, w = this.world!;
@@ -579,12 +578,10 @@ export class MapRenderer {
     if (!hydrant) return;
     const secretary = secretaryOf(s.agents, hall.id);
     const settle = (secretary && place(`desk:${secretary.id}`)) || hydrant;
-    const feed = place(`board:${hall.id}`);
     const dots = streamParticles(beside(hydrant, TILE.HYDRANT, -T / 2 + 1),
-      { ask: { x: settle.pos.x * T + T / 2, y: settle.pos.y * T + T - 3 }, notice: feed ? { x: feed.pos.x * T + T / 2, y: feed.pos.y * T + 4 } : null },
-      this.stream.counts, now, prefersReducedMotion());
+      { x: settle.pos.x * T + T / 2, y: settle.pos.y * T + T - 3 }, this.stream.counts, now, prefersReducedMotion());
+    g.fillStyle = "#7cc4ff";
     for (const d of dots) {
-      g.fillStyle = d.kind === "ask" ? "#ffcf5e" : "#7cc4ff";
       g.fillRect(Math.round(d.x) - 1, Math.round(d.y) - 1, 2, 2);
     }
   }

@@ -14,7 +14,7 @@ git fetch -q origin main
 git rev-parse -q --verify "$base^{commit}" >/dev/null || { echo "unknown sha: $base" >&2; exit 1; }
 git merge-base --is-ancestor "$base" origin/main || { echo "$base is not on origin/main" >&2; exit 1; }
 PATHS=(README.md docs CLAUDE.md AGENTS.md skills/muster-town packages/web/src packages/server/src/routes packages/server/src/home.ts
-  ':(exclude)docs/log.md' ':(exclude)*.test.ts' ':(exclude)*.test.tsx')
+  ':(exclude)docs/log.md' ':(exclude)docs/log.d' ':(exclude)*.test.ts' ':(exclude)*.test.tsx')
 short=$(git rev-parse --short "$base")
 floor=$(git log -1 --format=%ct "$base")
 oldest=$(git log --no-merges --format='%h %ct' "$base"..origin/main -- "${PATHS[@]}" |

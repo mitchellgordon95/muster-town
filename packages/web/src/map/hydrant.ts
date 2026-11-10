@@ -1,7 +1,7 @@
 /**
  * The Town Hall's hydrant (docs/legible-delegation.md §3, UI / UX A): the stream the humans process, pouring from a
- * Town Hall object; clicking it opens the decision queue (DecisionQueue.tsx). Asks settle at the Secretary beside it;
- * notices drift to the feed (the Town Hall board). The counts come from the Town Hall's waiting items (GET
+ * Town Hall object; clicking it opens the decision queue (DecisionQueue.tsx). Asks pour as water-blue dots and settle at the
+ * Secretary beside it. The counts come from the Town Hall's waiting items (GET
  * /api/buildings/<hall>/intray), fetched once on load and again when their count changes (WS `building`); no new
  * polling, no new endpoint. Bodies are free: the particles are a few dots on the existing frame.
  */
@@ -36,27 +36,22 @@ export const MAX_PARTICLES = 12;
 const PERIOD = 2.6;
 
 interface Pt { x: number; y: number }
-interface Particle extends Pt { kind: "ask" | "notice" }
 
 /**
- * The dots this frame, in world px: one per open ask flying to the Secretary (easing out, so they settle) and one per
- * notice of today drifting to the feed (evenly), each on a low arc from the hydrant's spout, staggered so they don't
- * clump. Capped at MAX_PARTICLES; none under reduced motion, and none for a kind with no target.
+ * The water this frame, in world px: one dot per open ask flying from the hydrant's spout to the Secretary on a low arc,
+ * easing out so it settles, staggered so the dots don't clump. Capped at MAX_PARTICLES; none under reduced motion or
+ * without a target. (Notices used to drift to the feed as a second stream; it read as a straight jet beside the arc, so
+ * there is one stream now: Mitchell, 1:1 mt_db6itzy2br.)
  */
-export function streamParticles(from: Pt, to: { ask: Pt | null; notice: Pt | null }, counts: Pick<HydrantCounts, "asks" | "noticesToday">, nowMs: number, reducedMotion: boolean): Particle[] {
-  if (reducedMotion) return [];
-  const notices = to.notice ? Math.min(counts.noticesToday, counts.asks && to.ask ? MAX_PARTICLES / 2 : MAX_PARTICLES) : 0;
-  const asks = to.ask ? Math.min(counts.asks, MAX_PARTICLES - notices) : 0;
-  const out: Particle[] = [];
-  const fly = (kind: Particle["kind"], target: Pt, n: number, offset: number) => {
-    for (let i = 0; i < n; i++) {
-      const t = (nowMs / 1000 / PERIOD + i / n + offset) % 1;
-      const e = kind === "ask" ? 1 - (1 - t) * (1 - t) : t;
-      out.push({ kind, x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e - Math.sin(Math.PI * e) * 6 });
-    }
-  };
-  if (to.ask) fly("ask", to.ask, asks, 0);
-  if (to.notice) fly("notice", to.notice, notices, 0.5);
+export function streamParticles(from: Pt, to: Pt | null, counts: Pick<HydrantCounts, "asks">, nowMs: number, reducedMotion: boolean): Pt[] {
+  if (reducedMotion || !to) return [];
+  const n = Math.min(counts.asks, MAX_PARTICLES);
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = (nowMs / 1000 / PERIOD + i / n) % 1;
+    const e = 1 - (1 - t) * (1 - t);
+    out.push({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e - Math.sin(Math.PI * e) * 6 });
+  }
   return out;
 }
 

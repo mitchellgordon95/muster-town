@@ -28,14 +28,27 @@ function setup() {
 }
 
 describe("the Secretary", () => {
-  it("is a Town Hall resident beside the Planner (who stays manager), made once, on Fable; a human opens a 1:1 with it at the Town Hall", () => {
+  it("is the Town Hall's manager (1:1 mt_db6itzy2br): it may assign and schedule there, never fund; the Planner doesn't take the seat back", () => {
+    const { world, sec, th } = setup();
+    expect(world.buildings.require(th.id).managerAgentId).toBe(sec.id);
+    expect(world.permissions.can(sec, "building.assign", th.id)).toBe(true);
+    expect(world.permissions.can(sec, "building.fund", th.id)).toBe(false);
+    const planner = world.reorgs.ensurePlanner();
+    expect(planner.id).not.toBe(sec.id);
+    expect(world.buildings.require(th.id).managerAgentId).toBe(sec.id);
+    expect(world.permissions.can(planner, "building.assign", th.id)).toBe(false);
+    // a Town Hall schedule taken by the Secretary
+    expect(createSchedule(world, th.id, world.holderOf(sec), { title: "x", description: "d", runsAt: new Date(Date.now() + H).toISOString(), takerId: sec.id }).takerId).toBe(sec.id);
+  });
+
+  it("is a Town Hall resident beside the Planner, made once, on Fable; a human opens a 1:1 with it at the Town Hall", () => {
     const { world, sec, th, admin, proposal } = setup();
     expect(sec).toMatchObject({ kind: "resident", title: "Secretary", homeBuildingId: th.id, model: SECRETARY_MODEL });
     expect(SECRETARY_MODEL).toBe("claude-fable-5-1");
     // an existing Secretary on another model moves to Fable
     world.agents.patch(sec.id, { model: th.cheapModel });
     expect(world.secretary.ensure()!).toMatchObject({ id: sec.id, model: SECRETARY_MODEL });
-    expect(world.buildings.require(th.id).managerAgentId).not.toBe(sec.id);
+    expect(world.buildings.require(th.id).managerAgentId).toBe(sec.id);
     proposal("Banner shows Usage", 350_000);
     const m = createOneOnOne(world, admin, th.id, { agentId: sec.id });
     expect(m).toMatchObject({ kind: "one-on-one", facilitatorId: sec.id });
