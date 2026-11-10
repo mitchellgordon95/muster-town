@@ -2,7 +2,7 @@
  * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Its
  * title, the delta line (the body's first paragraph), the body, the branches as the buttons (each does the real action
  * by the ask's target, asks.ts `branchCall`; the server's hooks then retire the ask), the recommendation, the claims
- * with their check, the sources by name, a lint-failed badge, and the record one click down. A grant's card adds its
+ * with their check, the sources by name, and the record one click down. A grant's card adds its
  * step strip. Names, not ids: an id only sits in a tooltip.
  */
 import { useState, type ReactNode } from "react";
@@ -134,14 +134,12 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   const building = useBuildingName(ask.buildingId);
   const signedIn = useTown((s) => !!s.me);
   const { delta, rest } = deltaOf(ask.body);
-  const lint = ask.tags.includes("lint-failed");
   return (
     <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title}>
       <header className="ask-head">
         <span className="ask-building">{building}</span>
         <Pill tone={ask.type === "money" ? "warn" : ""}>{TYPE_WORD[ask.type]}</Pill>
         {typeof ask.rank === "number" ? <Pill title="The Secretary's rank">#{ask.rank}</Pill> : null}
-        {lint ? <Pill tone="bad" title="Filed without passing its contract or the linter: the failing rules are in its history">lint-failed</Pill> : null}
         <span className="muted">{timeAgo(ask.createdAt)}</span>
       </header>
       <h4 className="ask-title" title={ask.targetId ?? undefined}>{ask.title}</h4>

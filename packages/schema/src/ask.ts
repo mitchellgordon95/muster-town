@@ -1,8 +1,9 @@
 /**
  * The ask card's contract and linter (docs/legible-delegation.md §4-5, build step 3). An ask is procedural text, an
- * instruction to a human, so its body is written in 80% ASD-STE100 and the server counts the rules it can count. The
- * contract per type says what a card must carry before the server accepts it; the structure is light: a field on the
- * ask, or a sentence or labelled line in the body ("Spent: …"), never a templated sentence.
+ * instruction to a human, so its body is written in a subset of ASD-STE100. The rules are prompted, not enforced: since
+ * 1:1 mt_ewxnhs90cq decision 5 (2026-11-10) the server refuses only missing structure (`askStructure`: two branches, a
+ * recommendation, the type's hard contract fields) and files every style rule a card breaks as a warning in its history
+ * (`askWarnings`). The structure is light: a field on the ask, or a sentence or labelled line in the body ("Spent: …").
  *
  * Both are data (`ASK_CONTRACTS`, `ASK_LINT_RULES`), so the town dictionary step (§11 step 10) can extend them.
  */
@@ -121,7 +122,7 @@ export const ASK_LINT_RULES: readonly AskLintRule[] = [
   },
   {
     // step 10: one meaning per word; the pairs are data the caller passes (the Town Hall's dictionary doc)
-    name: "dictionary", scope: "card", says: "the town dictionary's words (an avoided word is refused with its replacement)",
+    name: "dictionary", scope: "card", says: "the town dictionary's words (use its word, not the avoided one)",
     fails: (card, sentences) => {
       const hits = sentences.flatMap((s) => { const p = avoidedIn(s, card.dictionary ?? []); return p ? [`"${p.avoid}" in "${s.length > 80 ? `${s.slice(0, 79)}…` : s}": use "${p.use}"`] : []; });
       return hits.length ? `the dictionary avoids ${hits.join("; ")}` : null;
@@ -150,7 +151,11 @@ export function lintAskBody(body: string, card: Omit<AskCard, "body"> = {}): str
 // ---- the contract per type ----
 
 /** One field a type's card must carry: present on the ask, or as a labelled line or a sentence in the body. */
-interface ContractField { name: string; needs: string; has: (card: AskCard, sentences: string[]) => boolean }
+interface ContractField {
+  name: string; needs: string; has: (card: AskCard, sentences: string[]) => boolean;
+  /** structure (1:1 mt_ewxnhs90cq decision 5): a card missing it is refused; the rest only warn */
+  hard?: true;
+}
 
 const label = (name: string) => new RegExp(`^\\s*(?:[-*]\\s*)?(?:\\*\\*)?${name}(?:\\*\\*)?\\s*:`, "im");
 const either = (lab: string, re: RegExp) => (c: AskCard, sentences: string[]) => label(lab).test(c.body) || sentences.some((s) => re.test(s));
@@ -160,35 +165,35 @@ const claimsCount = (c: AskCard) => c.claims?.length ?? 0;
 export const ASK_CONTRACTS: Record<AskType, readonly ContractField[]> = {
   money: [
     {
-      name: "prior-decision", needs: "the human's own prior decision on it and when (\"You funded this at 600k on Oct 31.\", or \"You have not decided on it before.\")",
+      name: "prior-decision", hard: true, needs: "the human's own prior decision on it and when (\"You funded this at 600k on Oct 31.\", or \"You have not decided on it before.\")",
       has: either("prior decision", /\byou (?:have |had )?(?:not |never )?(?:funded|countered|rejected|continued|adjusted|cut|approved|decided|declined|asked|seen)\b|\bnew proposal\b/i),
     },
-    { name: "spent", needs: "spent against funded (\"It has spent 474k of 600k.\", or \"Nothing is spent yet.\")", has: either("spent", /\bspent\b/i) },
+    { name: "spent", hard: true, needs: "spent against funded (\"It has spent 474k of 600k.\", or \"Nothing is spent yet.\")", has: either("spent", /\bspent\b/i) },
     {
-      name: "steps", needs: "steps done and left (\"Three of four steps shipped. One step is left.\")",
+      name: "steps", hard: true, needs: "steps done and left (\"Three of four steps shipped. One step is left.\")",
       has: (c, s) => c.targetKind === "retainer" || either("steps", /\bsteps?\b.*\b(?:done|left|shipped|remain\w*|finished|to go|none)\b|\b(?:done|left|shipped|none)\b.*\bsteps?\b/i)(c, s),
     },
-    { name: "branches", needs: "each branch as a button (at least two: Fund and Reject, Continue and Cut)", has: (c) => (c.branches?.length ?? 0) >= 2 },
-    { name: "recommendation", needs: "your recommendation (the recommendation field)", has: (c, s) => hasRecommendation(c, s) },
+    { name: "branches", hard: true, needs: "each branch as a button (at least two: Fund and Reject, Continue and Cut)", has: (c) => (c.branches?.length ?? 0) >= 2 },
+    { name: "recommendation", hard: true, needs: "your recommendation (the recommendation field)", has: (c) => !!c.recommendation?.trim() },
     { name: "claims", needs: "1-2 load-bearing claims, each with its check (claims: text and check kind pr, url, api, kr or manual)", has: (c) => claimsCount(c) >= 1 && claimsCount(c) <= 2 },
   ],
   click: [
-    { name: "parked", needs: "who is parked on it and since when (\"Pix has waited on this since Nov 6.\")", has: either("parked", /\b(?:parked|waits?|waited|waiting|blocked|stuck|held)\b/i) },
+    { name: "parked", hard: true, needs: "who is parked on it and since when (\"Pix has waited on this since Nov 6.\")", has: either("parked", /\b(?:parked|waits?|waited|waiting|blocked|stuck|held)\b/i) },
     {
       name: "permission", needs: "the one-time permission that would stop this ask recurring (\"If you give the test account admin once, this never comes back.\")",
       has: either("permission", /\bpermission\b|\bnever (?:comes? back|recurs?|again)\b|\bstops? (?:it|this) recurring\b|\bonce\b.*\b(?:always|again|for good)\b/i),
     },
   ],
   credential: [
-    { name: "scope", needs: "the exact scope of the token or key (\"Scope: repo and workflow on the test account.\")", has: either("scope", /\bscopes?\b/i) },
-    { name: "fallback", needs: "the fallback if you refuse (\"If you decline: the check stays manual.\")", has: either("fallback", /\bfallback\b|^if you (?:decline|refuse|say no)\b|\bwithout it\b/i) },
+    { name: "scope", hard: true, needs: "the exact scope of the token or key (\"Scope: repo and workflow on the test account.\")", has: either("scope", /\bscopes?\b/i) },
+    { name: "fallback", hard: true, needs: "the fallback if you refuse (\"If you decline: the check stays manual.\")", has: either("fallback", /\bfallback\b|^if you (?:decline|refuse|say no)\b|\bwithout it\b/i) },
   ],
   meeting: [
-    { name: "question", needs: "the one question to settle, as a question", has: (c, s) => label("question").test(c.body) || s.some((x) => x.endsWith("?")) },
-    { name: "recommended-answer", needs: "your recommended answer (the recommendation field), so the human can reply in a line", has: (c) => !!c.recommendation?.trim() },
+    { name: "question", hard: true, needs: "the one question to settle, as a question", has: (c, s) => label("question").test(c.body) || s.some((x) => x.endsWith("?")) },
+    { name: "recommended-answer", hard: true, needs: "your recommended answer (the recommendation field), so the human can reply in a line", has: (c) => !!c.recommendation?.trim() },
   ],
   policy: [
-    { name: "rule", needs: "the rule as a sentence (\"Rule: a plain member may not 1:1 a manager.\")", has: either("rule", /\brule\b/i) },
+    { name: "rule", hard: true, needs: "the rule as a sentence (\"Rule: a plain member may not 1:1 a manager.\")", has: either("rule", /\brule\b/i) },
     { name: "what-i-did", needs: "what the manager did under it", has: either("what I did", /\b(?:I|we)\s+(?:applied|did|decided|chose|kept|made|let|refused|treated|used)\b|\bapplied\b/i) },
     { name: "reversing-cost", needs: "what reversing it costs (\"Reversing it means …\")", has: either("reversing", /\brevers\w*|\bundo\w*|\bto change it\b/i) },
   ],
@@ -212,4 +217,32 @@ export const ASK_CONTRACT_LINES: Record<AskType, string> = {
 /** Everything wrong with a card: its type's contract, then the lint rules. [] = it passes. */
 export function vetAsk(type: AskType, card: AskCard): string[] {
   return [...checkAskContract(type, card), ...lintAskBody(card.body, card)];
+}
+
+/** Lint rules that are structure, not style: the card-level check is `askStructure`'s, so they never also warn. */
+const STRUCTURE_LINT = new Set(["recommendation", "branches"]);
+
+/**
+ * What a card must carry or be refused (1:1 mt_ewxnhs90cq decision 5, Mitchell 2026-11-10: "i don't think we need the
+ * linter for text"): at least two branches as buttons, a recommendation in its field, and its type's hard contract
+ * fields. A card with no buttons cannot be clicked, so these stay refusals. [] = it may be filed.
+ */
+export function askStructure(type: AskType, card: AskCard): string[] {
+  const sentences = askSentences(card.body);
+  const out: string[] = [];
+  if ((card.branches?.length ?? 0) < 2) out.push("structure branches: at least two branches as buttons (Fund and Reject, Continue and Cut)");
+  if (!card.recommendation?.trim()) out.push("structure recommendation: the recommendation field, naming the branch you recommend and why");
+  const seen = new Set(["branches", "recommendation", "recommended-answer"]);
+  for (const f of ASK_CONTRACTS[type]) if (f.hard && !seen.has(f.name) && !f.has(card, sentences)) out.push(`contract ${f.name}: a ${type} card needs ${f.needs}`);
+  return out;
+}
+
+/**
+ * The style rules a card breaks, filed as warnings in its history (never refused): the soft contract fields and every
+ * `ASK_LINT_RULES` rule except the structural ones. [] = it is clean.
+ */
+export function askWarnings(type: AskType, card: AskCard): string[] {
+  const sentences = askSentences(card.body);
+  const soft = ASK_CONTRACTS[type].filter((f) => !f.hard && !f.has(card, sentences)).map((f) => `contract ${f.name}: a ${type} card should carry ${f.needs}`);
+  return [...soft, ...lintAskBody(card.body, card).filter((p) => !STRUCTURE_LINT.has(p.split(":")[0]!))];
 }

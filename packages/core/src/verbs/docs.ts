@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, askLineFor, parseRollup, vetAsk, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, askLineFor, askStructure, askWarnings, parseRollup, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
@@ -18,7 +18,7 @@ import { nowIso } from "../util.ts";
 import { fileForecast } from "../grant-forecast.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
-import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseOrFlag } from "../asks.ts";
+import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
 import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -341,9 +341,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
-  // legible delegation step 3: each typed ask's card passes its type's contract and the linter, or is refused with the
-  // failing rules (the session's third failing attempt is filed, flagged lint-failed)
-  if (typedAsks?.length) refuseOrFlag(world, me, "rollup", typedAsks.flatMap((a, i) => vetAsk(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
+  // 1:1 mt_ewxnhs90cq decision 5: a typed ask missing structure (two branches, a recommendation, its type's hard
+  // contract fields) is refused; style rules are filed as warnings in the ask's history and named in the answer
+  if (typedAsks?.length) refuseMissingStructure("rollup", typedAsks.flatMap((a, i) => askStructure(a.type, { ...a, targetKind: a.targetKind ?? null }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
+  const styleWarnings = (typedAsks ?? []).flatMap((a, i) => askWarnings(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] ${p}`));
+  const styleNote = styleWarnings.length ? ` Your typed asks are filed with ${styleWarnings.length} style warning(s), kept in each ask's history; next time: ${styleWarnings.join("; ").slice(0, 1500)}.` : "";
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
   const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
@@ -415,9 +417,9 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const workedBy = manager ? "manager" : "human";
     if (parked) {
       return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
-        note: `Report submitted to ${where}.${formatNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
+        note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
