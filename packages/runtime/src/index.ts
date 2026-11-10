@@ -153,6 +153,18 @@ export interface Runtime {
 }
 
 const HOUR_MS = 3_600_000;
+/** a world that never exported runs its first export this long after boot (gr_30f8obzab8 KR3: deploys restarted /publish-check/ every <1 h) */
+export const FIRST_EXPORT_DELAY_MS = 10 * 60_000;
+
+/**
+ * The time the hourly export counts its hour from at boot: the last `export.done` (so a restart does not push the next
+ * export back an hour), or, when the world never exported, a time that makes the first one due FIRST_EXPORT_DELAY_MS after boot.
+ */
+export function exportBaseline(lastDoneTs: string | null, startedAt: number): number {
+  const last = lastDoneTs ? Date.parse(lastDoneTs) : NaN;
+  if (Number.isFinite(last)) return Math.min(last, startedAt);
+  return startedAt - HOUR_MS + FIRST_EXPORT_DELAY_MS;
+}
 
 /** A tick that blocks the event loop longer than this logs one line naming its slowest phase (post-mortem 2026-10-31 item 7). */
 export const SLOW_TICK_MS = 500;
@@ -226,7 +238,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const manage = newManageState();
   const startedAt = now().getTime();
   let lastDate = localDate(now());
-  let lastExport = startedAt;
+  // the hour counts from the last export.done, not from boot: a server restarted more often than hourly would otherwise never export
+  let lastExport = exportBaseline(world.events.list({ types: ["export.done"], limit: 1, desc: true })[0]?.ts ?? null, startedAt);
   let exporting = false;
   let lastPresence = 0;
   let stopped = false;
