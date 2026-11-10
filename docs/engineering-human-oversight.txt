@@ -1,0 +1,56 @@
+# Engineering human oversight in agent orchestration
+
+Muster Town projects are collectively funded, so we want to be responsible with how we spend tokens. This is easy in the beginning, when there are only a few agents running in parallel. However, as the number of agents scale up, humans become overloaded with the cognitive burden of switching between agents for increasingly small decisions.
+
+This post describes my approach to responsible oversight of token spend, which I'm tentatively calling "legible delegation." The goal of legible delegation is to increase the throughput of human decision making (which is the bottleneck of the system), without sacrificing responsibility. This is done by explicitly modeling the cost of context switching (via a decision queue) and then pragmatically engineering the queue to decrease cognitive burden on the human.
+
+## The decision queue
+
+In Muster Town, every autonomously running agent produces a stream of events. Each event is a request for human input that gets appended to a single channel called the "decision queue." Agents are blocked until their request is answered by the human.
+
+The decision queue abstraction is useful because it explicitly models context switching burden as a property of the queue. That means we can engineer how the queue works to lessen the burden on the user. A few affordances we now have:
+
+- When and how often agent streams emit events to the queue
+- The types of events allowed on the queue and the valid responses to them
+- How events are presented to the user
+- De-duping and re-ordering the events in the queue
+- Preemptively responding with known policy decisions
+- Monitoring the types of events on the queue as a health metric
+
+Managing these aspects of the queue becomes the job of a meta agent, which I've been calling the "secretary." The rest of this post will explain what some of these optimizations look like in Muster Town. But the list is non-exhaustive... the interesting thing about this abstraction is that it leaves open many angles of attack.
+
+## The grant lifecycle
+
+Agents in Muster Town run semi-autonomously. The "captain" of the project assigns agents to open-ended goals. Rather than ask the user for input on every agent turn, like Claude Code, Muster Town agents ask for steering at a few important points in their lifecycle. The lifecycle looks like this:
+
+1. Exploration - the agent spends a small token budget exploring the goal, what's been done, and what could be done
+
+2. Grant proposal - the agent writes a grant proposal, which contains a proposed token budget, an implementation plan, and verifiable key results. Then it emits the corresponding decision event to the queue (blocking on human approval)
+
+3. Grant rewriting or execution - if the human asks for changes, the grant is updated and the decision resubmitted to the queue. Otherwise it is approved and executed in steps.
+
+4. (Optional) Grant checkpoint - if the token spend goes over budget, the agent pauses and submits a decision event on whether to continue and what's left.
+
+5. Grant completion - if all goes well whatever was shipped goes into a side channel for notices (not asks)
+
+Grants are useful because they allow the human to steer right before risky actions, such as spending a bunch of tokens on an implementation plan. Interestingly, the  approved grant size is a measure of trust we have in the agent's proficiency. As agents get better, it will be safer to let them tackle larger chunks of work at a time. Or conversely, agents that fail to meet their key results should probably be tuned to scope smaller grants with more oversight.
+
+If we see too many grant checkpoints on the queue (because they went over budget), that becomes a health signal we can monitor and respond to by updating token budget estimation procedures.
+
+## Decoupling reporting from requesting
+
+In the previous section you might notice that we don't submit the grants to the decision queue. Instead, we submit the corresponding decision events. This is an important distinction, since each document serves a different purpose.
+
+- Grants are one type of report. The goal of a report is to be comprehensive. It documents what was done or planned to be done in detail, with links to other relevant documents. It's mainly intended to be archived and read by other agents who need to catch up on context.
+
+- Decision asks are meant to be targeted. The goal is to load the human with just enough context to make an informed decision, and then ask for the decision. In Muster Town we consider reports to be the source of truth, and decision asks to be rendered views on top of the reports.
+
+This is easy to get wrong. When creating Muster Town, we started with reports that had an ask buried inside. Later we had reports (of work partially done) asking for decisions on other linked reports (like grants). All of this was made much clearer with the decision queue abstraction.
+
+# Decision presentation
+
+If decision asks are rendered views, what makes them better than reports?
+
+
+
+CPU scheduling metaphor

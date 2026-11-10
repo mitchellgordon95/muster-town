@@ -15,6 +15,12 @@ describe("tick timing (post-mortem 2026-10-31 item 7)", () => {
     expect(t).toMatchObject({ ms: 746, phase: "bankCredit", phaseMs: 640, phases: { waits: 3.3, bankCredit: 640.4 } });
     expect(slowTickLine(t)).toBe("[runtime] slow tick: 746 ms, bankCredit 640 ms (then explore 90 ms, work 12 ms)");
     expect(tickTiming(new Date(), {})).toMatchObject({ ms: 0, phase: null });
+    expect(tickTiming(new Date(), {}).sub).toBeUndefined();
+  });
+
+  it("sub-step timings are rounded and kept apart from the phase total", () => {
+    const t = tickTiming(new Date(), { work: 50 }, { "work.forks": 40.04, "work.forks.queue": 31.26 });
+    expect(t).toMatchObject({ ms: 50, phase: "work", sub: { "work.forks": 40, "work.forks.queue": 31.3 } });
   });
 
   it("a tick records its phases in tickStats; only a tick over 500 ms logs, once, naming the phase", async () => {
@@ -25,6 +31,8 @@ describe("tick timing (post-mortem 2026-10-31 item 7)", () => {
       const fast = runtime.tickStats();
       expect(fast.last?.phases).toHaveProperty("waits");
       expect(fast.last?.phases).toHaveProperty("work");
+      expect(fast.last?.sub).toHaveProperty(["explore.freeTokensAll"]);
+      expect(fast.last?.sub).toHaveProperty(["work.forks"]);
       expect(fast.slow).toBeNull();
       expect(warn.mock.calls.filter((c) => String(c[0]).includes("slow tick"))).toHaveLength(0);
       // make one phase slow: the reorgs pass busy-waits past the budget
@@ -48,7 +56,7 @@ describe("tick timing (post-mortem 2026-10-31 item 7)", () => {
     // 50 funded grants (Bank.debited is summed per grant and lane on every tick)
     const grants: string[] = [];
     for (let i = 0; i < 50; i++) {
-      const g = world.grantDesk.create(admin, lab, { keyResults: [{ text: `k${i}`, howToCheck: "h" }], objective: `o${i}`, stopCondition: "s", askTokens: 100_000 });
+      const g = world.grantDesk.create(admin, lab, { keyResults: [{ text: `k${i}`, howToCheck: "h" }], objective: `o${i}`, steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 100_000 });
       world.grantDesk.propose(admin, g.id);
       grants.push(world.grantDesk.decide(admin, g.id, { action: "fund" }).id);
     }

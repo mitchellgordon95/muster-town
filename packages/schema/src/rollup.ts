@@ -12,6 +12,8 @@ export const ROLLUP_LABELS = ["What it is", "What you'd see", "Your call"] as co
 /** One screen: at most this many Shipped items and pictures. */
 export const ROLLUP_MAX_ITEMS = 3;
 export const ROLLUP_MAX_PICTURES = 2;
+/** "What it is" is read in a glance: over this many words the filing warns (the detail belongs in the covered reports). */
+export const ROLLUP_MAX_WHAT_WORDS = 80;
 
 export interface RollupPicture { alt: string; src: string }
 export interface RollupItem {
@@ -33,6 +35,8 @@ export interface ParsedRollup {
   items: RollupItem[];
   /** Markdown from the heading after Shipped to the end (Decided, Key results, Needs). */
   after: string;
+  /** The three sections after Shipped, each without its heading ("" when absent); `other` is any heading in between that isn't one of them. */
+  sections: { decided: string; keyResults: string; needs: string; other: string };
   /** Headings of ROLLUP_SECTIONS the body lacks. */
   missingSections: string[];
 }
@@ -93,7 +97,8 @@ export function parseRollup(body: string): ParsedRollup {
     else if (shippedAt >= 0 && i > shippedAt && shippedEnd === lines.length) shippedEnd = i;
   });
   const missingSections = ROLLUP_SECTIONS.filter((s) => !present.has(s)).map((s) => s === "Needs from" ? "Needs from Mitchell" : s);
-  if (shippedAt < 0) return { before: body.trim(), shippedIntro: "", items: [], after: "", missingSections };
+  const sections = splitSections(lines.slice(shippedAt < 0 ? 0 : shippedEnd));
+  if (shippedAt < 0) return { before: body.trim(), shippedIntro: "", items: [], after: "", sections, missingSections };
   const section = lines.slice(shippedAt + 1, shippedEnd);
   const starts = section.flatMap((l, i) => ITEM.test(l) && itemTitle(l) ? [i] : []);
   const items = starts.map((s, n) => parseItem(section.slice(s, starts[n + 1] ?? section.length)));
@@ -102,8 +107,40 @@ export function parseRollup(body: string): ParsedRollup {
     shippedIntro: section.slice(0, starts[0] ?? section.length).join("\n").trim(),
     items,
     after: lines.slice(shippedEnd).join("\n").trim(),
+    sections,
     missingSections,
   };
+}
+
+/** The Decided / Key results / Needs sections of the lines after Shipped, each without its heading; other "##" headings keep theirs under `other`. */
+function splitSections(lines: string[]): ParsedRollup["sections"] {
+  const out = { decided: [] as string[], keyResults: [] as string[], needs: [] as string[], other: [] as string[] };
+  let cur: keyof typeof out = "other", fence = false;
+  for (const l of lines) {
+    if (/^\s*```/.test(l)) fence = !fence;
+    const h = fence ? null : HEADING.exec(l);
+    const s = h ? sectionOf(h[1]!) : undefined;
+    if (s === "Decided" || s === "Key results" || s === "Needs from") { cur = s === "Decided" ? "decided" : s === "Key results" ? "keyResults" : "needs"; continue; }
+    if (h) cur = "other";
+    out[cur].push(l);
+  }
+  const join = (ls: string[]) => ls.join("\n").trim();
+  return { decided: join(out.decided), keyResults: join(out.keyResults), needs: join(out.needs), other: join(out.other) };
+}
+
+/** A "Your call" that asks nothing: empty or "None…" (markdown stripped). The deck's isNoCall says the same. */
+const noCall = (call: string) => !call.trim() || /^none\b/i.test(call.replace(/[*_`]/g, "").trim());
+
+/**
+ * What the rollup asks the human, in the order they read it (the report view and the deck put these first): each Shipped
+ * item whose "Your call" is not None (with its number and title), then the Needs section's own lines, the generated
+ * "Already waiting" line and "Nothing needed" left out. Empty = for the record.
+ */
+export function rollupAsks(p: ParsedRollup): { n: number | null; title: string; call: string }[] {
+  const items = p.items.flatMap((it, i) => noCall(it.yourCall) ? [] : [{ n: i + 1, title: it.title, call: it.yourCall.replace(/\s+/g, " ").trim() }]);
+  const needs = withoutWaitingLine(p.sections.needs).split("\n").map((l) => l.trim()).filter((l) => l && !NOTHING.test(plainLine(l)))
+    .map((l) => ({ n: null, title: "", call: l.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "") }));
+  return [...items, ...needs];
 }
 
 /** True when every Shipped item carries the three labels (the in-tray then shows cards). */
@@ -114,6 +151,10 @@ export function rollupHasCards(p: ParsedRollup): boolean {
 /** What `submit_report` tells a manager about a rollup's format: missing labels, too many items or pictures. Headings are checked separately (refused). */
 export function rollupWarnings(p: ParsedRollup): string[] {
   const out = p.items.flatMap((it, i) => it.missing.length ? [`Shipped item ${i + 1} ("${it.title.slice(0, 60)}") lacks ${it.missing.map((l) => `**${l}:**`).join(", ")}`] : []);
+  for (const [i, it] of p.items.entries()) {
+    const words = it.whatItIs.split(/\s+/).filter(Boolean).length;
+    if (words > ROLLUP_MAX_WHAT_WORDS) out.push(`Shipped item ${i + 1} ("${it.title.slice(0, 60)}"): "What it is" is ${words} words; keep it under ${ROLLUP_MAX_WHAT_WORDS} (two or three sentences; the detail is in the covered reports)`);
+  }
   if (p.items.length > ROLLUP_MAX_ITEMS) out.push(`${p.items.length} Shipped items; keep it to ${ROLLUP_MAX_ITEMS} (one screen)`);
   const pics = p.items.reduce((n, it) => n + it.pictures.length, 0);
   if (pics > ROLLUP_MAX_PICTURES) out.push(`${pics} pictures; keep it to ${ROLLUP_MAX_PICTURES}`);
@@ -125,7 +166,10 @@ export function rollupWarnings(p: ParsedRollup): string[] {
  * a Needs section that names an item already waiting for a human elsewhere, and appends the generated in-tray line.
  */
 export const ROLLUP_MAX_NEEDS = 2;
-export const ROLLUP_NEEDS_RULE = `"## Needs from Mitchell" carries at most ${ROLLUP_MAX_NEEDS} items, and only what has no other channel: a decision Mitchell reserved, a question needing an answer in words, a 1:1 invite, or a real-world action with no outbox request. Never an open grant proposal or checkpoint (gr_…), an open outbox request or a report already in the Town Hall in-tray (dc_…): Mitchell sees those there, and the town appends an "Already waiting in your in-tray" line listing them.`;
+export function rollupNeedsRule(captain: string): string {
+  return `"## Needs from ${captain}" carries at most ${ROLLUP_MAX_NEEDS} items, and only what has no other channel: a decision ${captain} reserved, a question needing an answer in words, a 1:1 invite, or a real-world action with no outbox request. Never an open grant proposal or checkpoint (gr_…), an open outbox request or a report already in the Town Hall in-tray (dc_…): ${captain} sees those there, and the town appends an "Already waiting in your in-tray" line listing them.`;
+}
+export const ROLLUP_NEEDS_RULE = rollupNeedsRule("Mitchell");
 
 const NEEDS_ID = /\b(?:gr|dc)_[a-z0-9]+\b/g;
 
@@ -154,6 +198,17 @@ export function rollupNeedsIds(body: string): string[] {
   return [...new Set(rollupNeeds(body).match(NEEDS_ID) ?? [])];
 }
 
+const ASK_ID = /\b(?:gr|dc|sc|cr|ar|kr|mt)_[a-z0-9]+\b/g;
+
+/**
+ * Every id the rollup asks about, in order, once each: those its Needs section names (the generated waiting line aside)
+ * and those a real "Your call" names (not "None…"). A typed `asks` list must target each (docs/legible-delegation.md §4).
+ */
+export function rollupNeedsIdsAll(body: string, p: ParsedRollup = parseRollup(body)): string[] {
+  const calls = rollupAsks(p).filter((a) => a.n !== null).map((a) => a.call).join("\n");
+  return [...new Set([...(rollupNeeds(withoutWaitingLine(body)).match(ASK_ID) ?? []), ...(calls.match(ASK_ID) ?? [])])];
+}
+
 /** The Needs section's list items (lines starting "- ", "* " or "1. "); 0 for prose or "Nothing needed". */
 export function rollupNeedsCount(body: string): number {
   return rollupNeeds(body).split("\n").filter((l) => /^(?:[-*]|\d+[.)])\s+\S/.test(l)).length;
@@ -167,4 +222,57 @@ export function withNeedsLine(body: string, line: string): string {
   let end = r[1];
   while (end > r[0] + 1 && !lines[end - 1]!.trim()) end--;
   return [...lines.slice(0, end), "", line, "", ...lines.slice(r[1])].join("\n");
+}
+
+/**
+ * Folding "go fund gr_xxx" rollups into the item's own row (1:1 mt_7b4zc7yja3): a rollup's ask about a decision that
+ * already has its own Town Hall in-tray row (a grant proposal, a checkpoint, a grant closed as done, a retainer ask) is
+ * shown on that row, and a rollup that asks nothing else is acknowledged on submit instead of becoming its own card.
+ */
+const WAITING_LINE = /^_(?:Already waiting in your in-tray|Nothing else waiting in your in-tray)[^\n]*_\s*$/gm;
+
+/** The body without the town's generated "Already waiting in your in-tray" line (it names every open proposal). */
+export function withoutWaitingLine(body: string): string {
+  return body.replace(/\r\n/g, "\n").replace(WAITING_LINE, "");
+}
+
+// a Key results table row ("| gr_x, 10 / 20 | kr_y | at-risk | note |") reads as "gr_x, 10 / 20 · kr_y · at-risk · note"
+const tableRow = (l: string) => /^\s*\|.*\|\s*$/.test(l) ? l.trim().replace(/^\|\s*|\s*\|$/g, "").split(/\s*\|\s*/).filter(Boolean).join(" · ") : l;
+const plainLine = (l: string) => tableRow(l).replace(/^\s*(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").trim();
+
+/** The rollup's own words about `id`: its Needs line naming it, else its first other line naming it outside "## Decided" (as plain text), else its title when that names it; null if neither does. */
+export function askLineFor(title: string, body: string, id: string): string | null {
+  const re = new RegExp(`\\b${id}\\b`);
+  // the Needs section's line first; a "## Decided" line ("dc_x → approve (checkpoint for gr_y)") reports a decision, it asks nothing
+  const lines: { text: string; section: string | undefined }[] = [];
+  let section: string | undefined;
+  for (const l of withoutWaitingLine(body).split("\n")) {
+    const h = HEADING.exec(l);
+    if (h) { section = sectionOf(h[1]!); continue; }
+    if (section !== "Decided" && re.test(l) && plainLine(l)) lines.push({ text: l, section });
+  }
+  const hit = lines.find((l) => l.section === "Needs from") ?? lines[0];
+  if (hit) return plainLine(hit.text);
+  return re.test(title) ? plainLine(title) : null;
+}
+
+/** "Nothing", "None", "Nothing needed." and the like: a Needs line that asks nothing. */
+const NOTHING = /^(?:_?\s*)?(?:nothing|none|no(?:thing)? (?:new|needed|asks?)|n\/a)\b/i;
+
+/**
+ * True when a rollup asks a human nothing beyond the items in `waitingIds` (which have their own in-tray rows): it has
+ * no Shipped items, and every line of its Needs section (the generated waiting line aside) says nothing or names one of
+ * those items. Such a rollup is folded into those rows.
+ */
+export function rollupAsksOnly(body: string, waitingIds: Iterable<string>): boolean {
+  const p = parseRollup(body);
+  if (p.items.length || p.missingSections.length) return false;
+  const ids = [...waitingIds];
+  const lines = rollupNeeds(withoutWaitingLine(body)).split("\n").map(plainLine).filter(Boolean);
+  return lines.every((l) => NOTHING.test(l) || ids.some((id) => new RegExp(`\\b${id}\\b`).test(l)));
+}
+
+/** The verb a rollup's ask reads with on its row, by the item's state: "<building> asks you to fund this". */
+export function askVerb(status: string): string {
+  return status === "checkpoint" ? "continue" : status === "closed" ? "mark" : status === "asked" ? "approve" : "fund";
 }

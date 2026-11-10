@@ -25,7 +25,7 @@ const WALK = [...HEAD, "..BBBBBBBB..", "..SBBBBBBS..", "..SBBBBBBS..", "...BBBBB
 
 const SKIN = ["#f1c9a5", "#c68642", "#f6d7bd", "#8d5524", "#e0ac69"];
 const PALETTES: Record<string, string>[] = [
-  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 librarian
+  { H: "#3b2a22", B: "#c94f4f", P: "#2d3550", S: SKIN[0] }, // 0 red
   { H: "#1c1c1c", B: "#4f8fc9", P: "#2f2f3a", S: SKIN[1] },
   { H: "#d9a441", B: "#5aa66b", P: "#3a3a4a", S: SKIN[0] },
   { H: "#2b2b2b", B: "#b26fd1", P: "#2d3550", S: SKIN[2] },
@@ -33,7 +33,7 @@ const PALETTES: Record<string, string>[] = [
   { H: "#c4553a", B: "#3fbfb0", P: "#2f2f3a", S: SKIN[0] },
   { H: "#6b4f3a", B: "#d85f8f", P: "#2d3550", S: SKIN[0] },
   { H: "#f0f0f0", B: "#ffffff", P: "#5b7aa6", S: SKIN[0] }, // 7 human player
-  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 moderator
+  { H: "#5b5f6b", B: "#7a8a6a", P: "#33363f", S: SKIN[4] }, // 8 grey
   { H: "#2a1d14", B: "#e86a3a", P: "#2f2f3a", S: SKIN[2] },
   { H: "#8a6236", B: "#6a7de0", P: "#3a3a4a", S: SKIN[1] },
   { H: "#101010", B: "#9ac23f", P: "#2d3550", S: SKIN[3] },
@@ -261,22 +261,31 @@ export function drawSpendingBoard(g: CanvasRenderingContext2D, px: number, py: n
   for (const [x, h] of [[3, 5], [6, 3], [9, 6], [12, 2]]) g.fillRect(px + x, py + 9 - h, 2, h);
   g.fillStyle = "#f2c94c"; g.fillRect(px + 3, py + 9, 11, 1);
 }
-/** The Bank's fountain (Free tokens tab), two tiles: a marble basin of water with coins in it; each tile draws its half. */
-export function drawBankFountain(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
-  g.fillStyle = "rgba(0,0,0,.18)"; g.fillRect(px, py + 14, T, 2);
-  g.fillStyle = "#d9cfb6"; g.fillRect(px, py + 4, T, 11);
-  g.fillStyle = "#f5f0e2"; g.fillRect(px, py + 4, T, 2);
-  if (!n.l) { g.fillStyle = "#c2b79c"; g.fillRect(px, py + 4, 2, 11); }
-  if (!n.r) { g.fillStyle = "#c2b79c"; g.fillRect(px + T - 2, py + 4, 2, 11); }
-  g.fillStyle = "#3d7fc4"; g.fillRect(px + (n.l ? 0 : 2), py + 6, T - (n.l ? 0 : 2) - (n.r ? 0 : 2), 7);
-  g.fillStyle = "#7fb6e8"; g.fillRect(px + (n.l ? 1 : 3), py + 7, 5, 1);
-  g.fillStyle = "#f2c94c"; g.fillRect(px + (n.l ? 3 : 5), py + 10, 2, 2); g.fillRect(px + 10, py + 9, 2, 2);
-  if (n.l) { // the spout rises from the middle seam
-    g.fillStyle = "#f5f0e2"; g.fillRect(px - 1, py, 2, 6);
-    g.fillStyle = "#9fd0f2"; g.fillRect(px - 2, py + 1, 1, 4); g.fillRect(px + 1, py + 1, 1, 4);
-  }
+/**
+ * The Bank's chest (Donate tab, gr_567tikzitl step 2), two tiles where the fountain stood: a dark-wood chest with gold
+ * straps, the lid seam and the lock across the middle; each tile draws its half (like the ledger desk). Nothing above the tile.
+ */
+export function drawBankChest(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
+  const x0 = px + (n.l ? 0 : 1), x1 = px + T - (n.r ? 0 : 1), w = x1 - x0;
+  g.fillStyle = "rgba(0,0,0,.2)"; g.fillRect(x0 + 1, py + 14, w - 2, 2);
+  // lid (rounded at the outer corners), then the body
+  g.fillStyle = "#5a3920"; g.fillRect(x0, py + 4, w, 4);
+  g.fillRect(x0 + (n.l ? 0 : 1), py + 3, w - (n.l ? 0 : 1) - (n.r ? 0 : 1), 1);
+  g.fillStyle = "#fff1b0"; g.fillRect(x0 + (n.l ? 0 : 2), py + 3, w - (n.l ? 0 : 2) - (n.r ? 0 : 2), 1);
+  g.fillStyle = "#3b2414"; g.fillRect(x0, py + 8, w, 6);
+  // the lid seam in gold, and a gold strap at each outer end
+  g.fillStyle = "#d7ad3a"; g.fillRect(x0, py + 8, w, 1);
+  if (!n.l) g.fillRect(x0 + 1, py + 3, 2, 11);
+  if (!n.r) g.fillRect(x1 - 3, py + 3, 2, 11);
+  // the lock plate across the seam between the two tiles, with its keyhole
+  g.fillStyle = "#f2c94c";
+  if (n.r && !n.l) g.fillRect(px + T - 2, py + 6, 2, 6);
+  if (n.l) g.fillRect(px, py + 6, 2, 6);
+  g.fillStyle = "#3b2414";
+  if (n.l) g.fillRect(px, py + 8, 1, 2);
+  if (n.r && !n.l) g.fillRect(px + T - 1, py + 8, 1, 2);
 }
-/** The Bank's ledger desk (Tokens & sources tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
+/** The Bank's ledger desk (Inputs tab), two tiles: a dark-wood desk with an open ledger and a quill; each tile draws its half. */
 export function drawBankLedger(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {
   g.fillStyle = "#3b2414"; g.fillRect(px, py + 6, T, 8);
   g.fillStyle = "#5a3920"; g.fillRect(px, py + 6, T, 2);
@@ -321,6 +330,27 @@ export function drawManagerDesk(g: CanvasRenderingContext2D, px: number, py: num
   g.fillStyle = "#e8b840"; g.fillRect(px + 12, py + 5, 3, 3);
   g.fillStyle = "#b8862a"; g.fillRect(px + 12, py + 7, 3, 1);
 }
+/**
+ * The Town Hall's hydrant (TILE.HYDRANT, place `hydrant:town-hall`, docs/legible-delegation.md §3): a red fire hydrant
+ * with a domed cap, two side outlets and a brass bolt, the stream of asks and notices pours from it. Draws on the floor.
+ */
+export function drawHydrant(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 10, 1);
+  // base flange
+  g.fillStyle = "#7a1f1f"; g.fillRect(px + 4, py + 13, 8, 2);
+  // barrel, lit from the left
+  g.fillStyle = "#c33a32"; g.fillRect(px + 5, py + 5, 6, 8);
+  g.fillStyle = "#e0584c"; g.fillRect(px + 5, py + 5, 2, 8);
+  g.fillStyle = "#8f2620"; g.fillRect(px + 10, py + 5, 1, 8);
+  // side outlets with caps
+  g.fillStyle = "#c33a32"; g.fillRect(px + 2, py + 7, 3, 3); g.fillRect(px + 11, py + 7, 3, 3);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 1, py + 7, 1, 3); g.fillRect(px + 14, py + 7, 1, 3);
+  // domed cap and its brass bolt
+  g.fillStyle = "#8f2620"; g.fillRect(px + 4, py + 4, 8, 1);
+  g.fillStyle = "#c33a32"; g.fillRect(px + 5, py + 2, 6, 2);
+  g.fillStyle = "#e0584c"; g.fillRect(px + 6, py + 2, 2, 1);
+  g.fillStyle = "#e8b840"; g.fillRect(px + 7, py + 0, 2, 2);
+}
 /** A cork board hung on a wall face (the building board). Draw the wall first. */
 export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#5a3d22"; g.fillRect(px + 1, py + 2, T - 2, 11);
@@ -342,6 +372,36 @@ export function drawGoalChart(g: CanvasRenderingContext2D, px: number, py: numbe
   g.fillStyle = "#e0b04a"; g.fillRect(px + 6, py + 4, 3, 2);
   g.fillStyle = "#4f8fc9"; g.fillRect(px + 3, py + 9, 3, 2); g.fillRect(px + 10, py + 9, 3, 2);
   g.fillStyle = "#5fb36a"; g.fillRect(px + 7, py + 10, 2, 2);
+}
+/**
+ * The Town Hall's user stats stand (TILE.STATS, place `stats`): a chart on a wooden easel, four bars stepping down
+ * like the join funnel (saw the card, signed in, asked, let in). Draws on the floor.
+ */
+export function drawStats(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 10, 1);
+  // easel legs
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 3, py + 11, 1, 5); g.fillRect(px + 12, py + 11, 1, 5); g.fillRect(px + 7, py + 12, 2, 4);
+  // the chart board
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 1, py + 1, T - 2, 12);
+  g.fillStyle = "#f2efe6"; g.fillRect(px + 2, py + 2, T - 4, 10);
+  g.fillStyle = "#6b6f85"; g.fillRect(px + 3, py + 10, 10, 1);
+  g.fillStyle = "#4f8fc9"; g.fillRect(px + 3, py + 3, 2, 7);
+  g.fillStyle = "#5fb36a"; g.fillRect(px + 6, py + 5, 2, 5);
+  g.fillStyle = "#e0b04a"; g.fillRect(px + 9, py + 7, 2, 3);
+  g.fillStyle = "#c94f4f"; g.fillRect(px + 12, py + 8, 1, 2);
+}
+/**
+ * The "?" help sign just inside every building's door (TILE.HELP, place `help:<buildingId>`): a paper-yellow board
+ * with an ink "?" on a wooden post, the paper card's colours (style guide §2). Draws on the floor.
+ */
+export function drawHelpSign(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 4, py + 15, 8, 1);
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 7, py + 11, 2, 5);
+  g.fillStyle = "#3b2f12"; g.fillRect(px + 2, py + 1, 12, 11);
+  g.fillStyle = "#fbefc4"; g.fillRect(px + 3, py + 2, 10, 9);
+  // the "?", 5x7 pixels
+  g.fillStyle = "#3b2f12";
+  for (const [x, y] of [[1, 0], [2, 0], [3, 0], [0, 1], [4, 1], [4, 2], [3, 3], [2, 4], [2, 6]]) g.fillRect(px + 6 + x, py + 3 + y, 1, 1);
 }
 /** Filing cabinet stood against a wall face: a grey steel cabinet with three drawers, the top one ajar. Draw the wall first. */
 export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number) {
@@ -458,7 +518,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals";
+export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin" | "hydrant";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -481,6 +541,10 @@ export function iconUrl(kind: IconKind): string {
     case "bank": drawGold(g, 0, 0); break;
     case "schedule": drawSchedule(g, 0, 0); break;
     case "goals": g.drawImage(tl.wallFace, 0, 0); drawGoalChart(g, 0, 0); break;
+    case "stats": drawStats(g, 0, 0); break;
+    case "help": drawHelpSign(g, 0, 0); break;
+    case "hydrant": drawHydrant(g, 0, 0); break;
+    case "bulletin": drawBulletin(g, 0, 7); break;
     case "mod": g.drawImage(tl.deskL, 0, 0); g.fillStyle = "#7a8a6a"; g.fillRect(9, 9, 5, 4); g.fillStyle = "#e8e9f0"; g.fillRect(10, 10, 3, 1); break;
     case "planning": {
       g.drawImage(tl.deskL, 0, 0);
@@ -524,6 +588,34 @@ export function drawLamp(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#ffe08a"; g.fillRect(px + 5, py - 7, 6, 5);
   g.fillStyle = "#fff6cf"; g.fillRect(px + 6, py - 6, 2, 2);
   g.fillStyle = "#3a3f58"; g.fillRect(px + 3, py - 9, 10, 2); g.fillRect(px + 6, py - 11, 4, 2);
+}
+/**
+ * The bulletin board in the town square (TILE.BULLETIN, place `bulletin:town`, flag dc_52njv3shp8): a cork board in a
+ * wooden frame on two posts under a little red roof, notes pinned on it. Stands outdoors and reaches up into the tile
+ * above, like a lamp.
+ */
+export function drawBulletin(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 1, py + 14, 14, 2);
+  // posts
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 2, py + 8, 2, 7); g.fillRect(px + 12, py + 8, 2, 7);
+  // frame and cork
+  g.fillStyle = "#6b4a2b"; g.fillRect(px + 1, py - 3, 14, 12);
+  g.fillStyle = "#c9a26b"; g.fillRect(px + 2, py - 2, 12, 10);
+  // roof
+  g.fillStyle = "#8a3b2e"; g.fillRect(px, py - 6, 16, 3);
+  g.fillStyle = "#b5503d"; g.fillRect(px + 1, py - 7, 14, 2);
+  g.fillStyle = "#5e281f"; g.fillRect(px, py - 4, 16, 1);
+  // notes, each with a pin
+  const note = (x: number, y: number, w: number, h: number, c: string, pin: string) => {
+    g.fillStyle = c; g.fillRect(px + x, py + y, w, h);
+    g.fillStyle = "rgba(59,47,18,.45)"; g.fillRect(px + x + 1, py + y + 2, w - 2, 1);
+    g.fillStyle = pin; g.fillRect(px + x + Math.floor(w / 2), py + y, 1, 1);
+  };
+  note(3, -1, 4, 4, "#f2efe6", "#c94f4f");
+  note(8, -2, 3, 4, "#fbefc4", "#4f8fc9");
+  note(11, 0, 2, 3, "#cfe9ff", "#c94f4f");
+  note(4, 4, 4, 3, "#f6c6c6", "#5fb36a");
+  note(9, 3, 4, 4, "#f2efe6", "#e0b04a");
 }
 /** A flower bed: a low stone kerb round soil and mixed blooms. */
 export function drawFlowers(g: CanvasRenderingContext2D, px: number, py: number, n: { l: boolean; r: boolean }) {

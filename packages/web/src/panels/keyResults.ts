@@ -4,17 +4,18 @@
  */
 import type { GrantView, KeyResultStatus } from "@muster-town/schema";
 import type { FinanceSpend, ObjectiveTree, ObjectiveView, SpendNode } from "../api";
-import { ADJ, fmtTokens } from "../format";
+import { ADJ, fmtTokens, fmtTokensExact } from "../format";
 
 /** Share of `total` spent, 0..1 (0 when there's no total). */
 export function spentShare(spent: number, total: number): number {
   return total > 0 ? Math.max(0, Math.min(1, spent / total)) : 0;
 }
 
-/** "1M / 2M tokens (52%)", the grant's bar label. */
-export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens">): string {
+/** "1M / 2M tokens (52%) · holds at 1.35M", the grant's bar label (a funded grant's next hold point, exact: grant C gr_95svkzi4l6). */
+export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens"> & { holdAtTokens?: number | null }): string {
   const total = g.grantTokens ?? 0;
-  return `${fmtTokens(g.spentTokens)} / ${fmtTokens(total)} ${ADJ} (${Math.round(spentShare(g.spentTokens, total) * 100)}%)`;
+  const hold = g.holdAtTokens != null ? ` · holds at ${fmtTokensExact(g.holdAtTokens)}` : "";
+  return `${fmtTokens(g.spentTokens)} / ${fmtTokens(total)} ${ADJ} (${Math.round(spentShare(g.spentTokens, total) * 100)}%)${hold}`;
 }
 
 /** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
@@ -78,13 +79,13 @@ export function goalsSummary(tree: ObjectiveTree, grants: Pick<GrantView, "keyRe
   return `${plural(tree.objectives.length, "objective")}, ${plural(krs.length, "key result")}, ${funded} funded`;
 }
 
-/** The Grants tab's order: open proposals (oldest first), then funded (newest funding first), then checkpoint / closed / rejected (latest first). Drafts aren't grants yet. */
+/** The Grants tab's order: open proposals (oldest first), then funded (newest funding first), then checkpoint / stopping / closed / rejected (latest first). Drafts aren't grants yet. */
 export function grantGroups<G extends Pick<GrantView, "status" | "createdAt" | "updatedAt" | "fundedAt">>(grants: G[]): { proposals: G[]; funded: G[]; settled: G[] } {
   const by = (k: (g: G) => string, asc: boolean) => (a: G, b: G) => asc ? k(a).localeCompare(k(b)) : k(b).localeCompare(k(a));
   return {
     proposals: grants.filter((g) => OPEN_PROPOSAL.has(g.status)).sort(by((g) => g.createdAt, true)),
     funded: grants.filter((g) => g.status === "funded").sort(by((g) => g.fundedAt ?? g.createdAt, false)),
-    settled: grants.filter((g) => g.status === "checkpoint" || g.status === "closed" || g.status === "rejected").sort(by((g) => g.updatedAt, false)),
+    settled: grants.filter((g) => g.status === "checkpoint" || g.status === "stopping" || g.status === "closed" || g.status === "rejected").sort(by((g) => g.updatedAt, false)),
   };
 }
 

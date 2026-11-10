@@ -1,6 +1,6 @@
 import { World } from "@muster-town/core";
 import type { FastifyInstance } from "fastify";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,7 +39,7 @@ async function setup() {
   const hub: Hub = new Hub(mkdtempSync(join(tmpdir(), "hub-start-")), (w: World, row: HubCollective, dir: string) => buildApp({
     world: w, webDist: false, prefix: `/${row.slug}`, exportDir: join(dir, "export"), runtime: null,
     auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-    retire: () => hub.retire(row.slug),
+    retire: () => hub.retire(row.slug), rename: (i) => hub.rename(row.slug, i),
   }));
   await hub.openAll();
   const app = await buildApp({ world, webDist: false, hub, auth });
@@ -82,7 +82,55 @@ describe("Start a collective", () => {
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("none");
     // the Workshop's own health says nothing about funding
     expect((await json(app, "GET", "/api/health")).body.funding).toBeUndefined();
+    // its goal tree is the founder's (gr_5ltmbf3a2f): root = the Start form's goal, the founder captains it, no Workshop pillars
+    const me = (await json(app, "GET", "/garden-club/api/me", { headers: { cookie: octo } })).body;
+    const goals = (await json(app, "GET", "/garden-club/api/goals")).body;
+    expect(goals.root).toMatchObject({ id: "gl_town", text: garden.goal, children: [] });
+    expect(goals.root.ownerId).toBeTruthy();
+    expect(goals.root.owner.name).toBe(me.user?.name ?? me.name);
+    expect(goals.root.owner.name).not.toBe("admin");
+    // the Workshop's tree keeps its pillars
+    expect((await json(app, "GET", "/api/goals")).body.root.children.map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining(["gl_fund", "gl_join", "gl_trust"]));
     expect(hub.ownedBy(2002)).toHaveLength(1);
+  });
+
+  it("starts with a goal-directed building on the founder's goal, its manager at a desk; no key → the 'add your key' step", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, garden)).status).toBe(201);
+    const town = (await json(app, "GET", "/garden-club/api/town")).body;
+    const labs = town.buildings.filter((b: { kind: string }) => b.kind !== "town-hall");
+    expect(labs).toHaveLength(1);
+    expect(labs[0]).toMatchObject({ name: "Workshop", kind: "lab", goalId: "gl_town", codeAccess: false });
+    const manager = town.agents.find((a: { id: string }) => a.id === labs[0].managerAgentId);
+    expect(manager).toMatchObject({ kind: "resident", homeBuildingId: labs[0].id });
+    // at one of its desks (the explore tick needs a free one beside it)
+    const w = hub.world("garden-club")!;
+    expect(w.layout.places.some((p) => p.kind === "desk" && p.buildingId === labs[0].id && p.pos.x === manager.pos.x && p.pos.y === manager.pos.y)).toBe(true);
+    expect(labs[0].headcount).toBeGreaterThan(w.layout.deskCount(labs[0].id));
+    // the HUD's one next step for a keyless founder is driven by this
+    expect(town.health.funding).toBe("none");
+  });
+
+  it("the founder's road after the key (gr_ngg1z160a8 step 3): exploring since, open proposals, ever funded; not on the Workshop", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, garden)).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const founder = async () => (await json(app, "GET", "/garden-club/api/town")).body.health.founder;
+    expect(await founder()).toEqual({ exploringSince: null, proposals: 0, funded: false });
+    const lab = w.buildings.first("kind = 'lab'")!;
+    const manager = w.agents.first("homeBuildingId = ? AND kind != 'human'", [lab.id])!;
+    const ev = w.events.append({ type: "exploration.started", agentId: manager.id, buildingId: lab.id, text: "started exploring", payload: { reservationId: "rv_x" } });
+    expect(await founder()).toEqual({ exploringSince: ev.ts, proposals: 0, funded: false });
+    const g = w.grantDesk.propose(manager, w.grantDesk.create(manager, lab.id, { objective: "Map gardens", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, keyResults: [{ text: "A map", howToCheck: "Open it" }] }).id);
+    expect(await founder()).toMatchObject({ proposals: 1, funded: false });
+    w.grants.patch(g.id, { status: "funded", fundedAt: new Date().toISOString() });
+    expect(await founder()).toMatchObject({ proposals: 0, funded: true });
+    // /api/health carries the same; the Workshop has none
+    expect((await json(app, "GET", "/garden-club/api/health")).body.founder).toMatchObject({ funded: true });
+    expect((await json(app, "GET", "/api/health")).body.founder).toBeUndefined();
+    expect((await json(app, "GET", "/api/town")).body.health.founder).toBeUndefined();
   });
 
   it("one active collective per person; a town admin has no cap", async () => {
@@ -121,6 +169,60 @@ describe("Start a collective", () => {
       expect(r.body, url).not.toContain(KEY);
     }
     expect((await json(app, "GET", "/garden-club/api/health")).body.funding).toBe("api-key");
+    // with a key there is no 'add your key' step, and still one first building
+    expect((await json(app, "GET", "/garden-club/api/town")).body.buildings.filter((b: { kind: string }) => b.kind !== "town-hall")).toHaveLength(1);
+  });
+
+  it("hosted starter key caps work", async () => {
+    // the Start form and the hosted Bank say: work on the pasted key stops at 1,000,000 tokens (about $20) until more is added
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, { ...garden, apiKey: KEY })).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const lab = (await json(app, "GET", "/garden-club/api/town")).body.buildings.find((b: { kind: string }) => b.kind === "lab");
+    const resident = w.agents.get(lab.managerAgentId)!;
+    const bid = lab.id as string;
+    // no allocations of the host's: the starter input is the whole balance
+    expect(w.budget.remaining(bid)).toBe(1_000_000);
+    const asg = w.ops.createWork(null, resident.id, { title: "Look around" });
+    expect(w.budget.canStart(resident.id)).toBe(true);
+    // a running session may overshoot (no hard stop): spend past the starter
+    w.bank.draw(bid, resident.id, 1_050_000, { overshoot: true });
+    expect(w.budget.remaining(bid)).toBe(0);
+    // new work and manage sessions are held (the scheduler, work.ts and manage.ts all ask canStart)
+    expect(w.budget.canStart(resident.id)).toBe(false);
+    expect(w.budget.canStart(resident.id, w.assignments.get(asg.id)!)).toBe(false);
+    // adding more at the Bank starts work again, once the overshoot is paid back
+    const more = await json(app, "POST", "/garden-club/api/bank/inputs", { headers: { cookie: octo }, body: { label: "more", source: "api-key", model: "claude-opus-5-5", tokens: 1_000_000, apiKey: KEY } });
+    expect(more.status).toBe(201);
+    expect(w.budget.remaining(bid)).toBe(950_000);
+    expect(w.budget.canStart(resident.id)).toBe(true);
+  });
+
+  it("the founder road is public on /api/join-funnel: dates only, never the key", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    expect((await start(app, octo, { ...garden, apiKey: KEY })).status).toBe(201);
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await start(app, mitchell, { name: "Keyless", goal: "Wait for a key" })).status).toBe(201);
+    const w = hub.world("garden-club")!;
+    const lab = (await json(app, "GET", "/garden-club/api/town")).body.buildings.find((b: { kind: string }) => b.kind === "lab");
+    const s = w.ops.startSession(lab.managerAgentId, { purpose: "manage", model: "claude-opus-5-5" });
+
+    const res = await app.inject({ method: "GET", url: "/api/join-funnel" });
+    expect(res.body).not.toContain(KEY);
+    expect(res.body).not.toContain("API key");
+    const founders = res.json().founders as { slug: string; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
+    expect(founders.map((f) => f.slug)).toEqual(["garden-club", "keyless"]);
+    expect(founders[0]).toMatchObject({ state: "active", keyAdded: true, firstSessionAt: s.startedAt, firstProposalAt: null, firstGrantFundedAt: null });
+    expect(founders[0].createdAt).toBe(hub.get("garden-club")!.createdAt);
+    expect(founders[1]).toEqual({ slug: "keyless", state: "active", createdAt: hub.get("keyless")!.createdAt, keyAdded: false, firstSessionAt: null, firstProposalAt: null, firstGrantFundedAt: null });
+    // a date once seen stays, even if the World's row goes away (a cancelled key was still added)
+    w.db.prepare("DELETE FROM sessions").run();
+    w.db.prepare("DELETE FROM bank_inputs").run();
+    expect((await json(app, "GET", "/api/join-funnel")).body.founders[0]).toMatchObject({ keyAdded: true, firstSessionAt: s.startedAt });
+    // a hosted collective's own funnel has no founders list
+    expect((await json(app, "GET", "/garden-club/api/join-funnel")).body.founders).toBeUndefined();
   });
 
   it("a hosted collective's Bank takes API keys only", async () => {
@@ -155,6 +257,51 @@ describe("Start a collective", () => {
     expect((await start(app, octo, { name: "Garden Club 2", goal: "again" })).status).toBe(201);
     // the Workshop is untouched
     expect((await app.inject({ method: "GET", url: "/api/town" })).statusCode).toBe(200);
+  });
+
+  it("its admin renames it (flag dc_hz1nz88pkt): hub row, collective.json and the town's name change, the slug stays", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    await start(app, octo, garden);
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    // not its admin (Mitchell is the Workshop's admin, not this collective's), nobody signed in, a blank name: refused
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: mitchell }, body: { name: "Mine" } })).status).toBe(403);
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { body: { name: "Mine" } })).status).toBe(401);
+    expect((await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: octo }, body: { name: "  " } })).status).toBe(400);
+    const done = await json(app, "PATCH", "/garden-club/api/collective", { headers: { cookie: octo }, body: { name: "Garden Club Town" } });
+    expect(done.status).toBe(200);
+    expect(done.body.collective).toMatchObject({ name: "Garden Club Town", slug: "garden-club", url: "/garden-club/" });
+    expect(hub.get("garden-club")).toMatchObject({ slug: "garden-club", name: "Garden Club Town" });
+    expect(JSON.parse(readFileSync(join(hub.dirOf("garden-club"), "collective.json"), "utf8")).name).toBe("Garden Club Town");
+    expect((await json(app, "GET", "/garden-club/api/town")).body.town.name).toBe("Garden Club Town");
+    expect((await json(app, "GET", "/api/collectives")).body.collectives.find((c: { slug: string }) => c.slug === "garden-club").name).toBe("Garden Club Town");
+    // the Workshop's admin renames it from the root; another collective's owner cannot
+    expect((await json(app, "PATCH", "/api/collectives/garden-club", { headers: { cookie: octo }, body: { name: "x" } })).status).toBe(403);
+    const root = await json(app, "PATCH", "/api/collectives/garden-club", { headers: { cookie: mitchell }, body: { name: "Garden Club" } });
+    expect(root.status).toBe(200);
+    expect(hub.get("garden-club")!.name).toBe("Garden Club");
+    expect((await json(app, "GET", "/garden-club/api/town")).body.town.name).toBe("Garden Club");
+    expect((await json(app, "PATCH", "/api/collectives/nowhere", { headers: { cookie: mitchell }, body: { name: "x" } })).status).toBe(404);
+  });
+
+  it("a Workshop admin retires a collective someone else owns from the root; nobody else can", async () => {
+    const { app, hub } = await setup();
+    const octo = (await signIn(app, "code_octo")).cookie;
+    await start(app, octo, garden);
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire")).status).toBe(401);
+    // its own admin is no Workshop admin: the root route is not theirs (they have /garden-club/api/collective/retire)
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: octo } })).status).toBe(403);
+    expect(hub.get("garden-club")!.state).toBe("active");
+    const mitchell = (await signIn(app, "code_mitchell")).cookie;
+    expect((await json(app, "POST", "/api/collectives/nope/retire", { headers: { cookie: mitchell } })).status).toBe(404);
+    const done = await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } });
+    expect(done.status).toBe(200);
+    expect(done.body.collective).toMatchObject({ slug: "garden-club", state: "retired" });
+    expect(hub.get("garden-club")!.state).toBe("retired");
+    expect((await app.inject({ method: "GET", url: "/garden-club/" })).statusCode).toBe(410);
+    expect((await json(app, "GET", "/api/collectives")).body.collectives.map((c: { slug: string }) => c.slug)).not.toContain("garden-club");
+    // again: a no-op, still retired
+    expect((await json(app, "POST", "/api/collectives/garden-club/retire", { headers: { cookie: mitchell } })).body.collective.state).toBe("retired");
   });
 
   it("sign-in from the Start form comes back to /#start", async () => {

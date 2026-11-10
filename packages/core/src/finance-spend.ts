@@ -1,7 +1,7 @@
-import { countsOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type Session, type UsageEntry } from "@muster-town/schema";
+import { grantName, countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
-import { townFinance } from "./finance.ts";
+import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
 
 /**
@@ -32,7 +32,51 @@ export interface SpendNode {
   /** tokens / used (0 when used is 0); the weight-mismatch and not-funded rows' shares are negative */
   share: number;
   sessions: number;
+  /** the row's dollars at API list price, to the cent: each session at its booking model's output price; the synthetic rows' tokens at BANK_MODEL's ($20/M) */
+  usd: number;
+  /** grant rows of a known grant only: the tokens a human granted it (`Grant.grantTokens`, raised at each top-up; null until funded) */
+  grantTokens?: number | null;
+  /** grant rows of a known grant only: its status (funded, checkpoint, closed, …) */
+  status?: GrantStatus;
+  /** grant rows of a known grant only: its outcome once closed (done, cut, stopped, …); null while open */
+  outcome?: GrantOutcome | null;
+  /** grant rows of a known grant only: which of the three groups of `FinanceSpend.grants.byOutcome` it counts in (`spendOutcome`) */
+  outcomeGroup?: SpendOutcome;
+  /** grant rows of a known grant only: its key results by status; `open` = not-started, on-track or at-risk */
+  krCounts?: KrCounts;
   children?: SpendNode[];
+}
+
+/** The three groups the Spending tab totals grants by: closed with the work done, closed without it, still open. */
+export type SpendOutcome = "done" | "cut" | "open";
+export interface KrCounts { met: number; missed: number; claimed: number; open: number }
+
+/**
+ * A grant's group on the Spending tab: closed as `done` or `met` → done; closed any other way (`cut`, `stopped`, `spent`)
+ * or rejected → cut; everything else (funded, checkpoint, and the not-yet-funded statuses) → open.
+ */
+export function spendOutcome(g: Pick<Grant, "status" | "outcome">): SpendOutcome {
+  if (g.status === "closed") return g.outcome === "done" || g.outcome === "met" ? "done" : "cut";
+  return g.status === "rejected" ? "cut" : "open";
+}
+
+/** What the grant rows add up to, by outcome (FinanceSpend.grants); each grant counts once however many buildings its sessions came from. */
+export interface SpendGrants {
+  /** distinct known grants with a row in the tree */
+  count: number;
+  /** Σ their grantTokens (null counts 0) */
+  funded: number;
+  /** Σ the grant rows' tokens, across all buildings */
+  spent: number;
+  byOutcome: Record<SpendOutcome, { count: number; tokens: number }>;
+  /** the grants whose spend (all their rows) is above grantTokens, and Σ (spent − grantTokens) over them */
+  overFunding: { count: number; tokens: number };
+  /**
+   * The closed grants that carry a cost estimate (docs/how-work-gets-done.md §4) and how many spent inside it (the
+   * model's range when it answered, else the similar grants'). Ranges are adjusted tokens; `badRanges` lists any whose
+   * low is above its high (npm run check:finance holds it empty).
+   */
+  estimates: { closed: number; inside: number; unit: "adjusted tokens"; badRanges: string[] };
 }
 
 export interface FinanceSpend {
@@ -74,6 +118,18 @@ export interface FinanceSpend {
   rows: SpendNode[];
   /** the rows' sum vs used; ok when they match exactly */
   check: { ok: boolean; diff: number; identity: string };
+  /**
+   * The same in dollars at API list price (gr_gmzli3f96j): `sessionsTotal` is Σ sessions' list-price cost (each at its
+   * booking model's output price, a pre-076 Fable session at $50/M), the synthetic rows are priced at BANK_MODEL ($20/M),
+   * and `used` = sessionsTotal + (used − sessionsTotal tokens) × $20/M, equal to GET /api/finance `usd.used`.
+   */
+  usd: { used: number; sessionsTotal: number; unattributed: number; weightMismatch: number; notFunded: number };
+  /** the rows' dollars (each rounded to the cent) summed vs `usd.used`; ok when |diff| is under a cent, or half a cent per row (rounding) when there are more than two rows */
+  usdSumCheck: { ok: boolean; diff: number; identity: string };
+  /** the grant rows (of known grants) summed by outcome (gr_dt1l35tydx) */
+  grants: SpendGrants;
+  /** byOutcome done + cut + open tokens vs Σ the grant rows' tokens; ok when they are equal */
+  grantsCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 
@@ -85,7 +141,9 @@ export interface SpendInputs {
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "title">[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
-  grants: Pick<Grant, "id" | "objective">[];
+  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "grantTokens" | "status" | "outcome" | "estimate">>)[];
+  /** the grants' key results, for each grant row's `krCounts` (left out = none) */
+  keyResults?: Pick<KeyResult, "grantId" | "status">[];
   /** when the Bank converted to adjusted tokens (the `bank.converted` event's ts); null = never, so no weight mismatch */
   convertedAt: string | null;
   /** the usage ledger, Bank debits and donations for `notFundedSplit` (left out = empty) */
@@ -202,8 +260,9 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
   return { split, lastAt, allocationPaid };
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; tokens: number; sessions: number; kids: Map<string, Acc> }
-const acc = (kind: SpendKind, id: string | null, name: string, objective?: string): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), tokens: 0, sessions: 0, kids: new Map() });
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; grant?: GrantFields; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
+type GrantFields = Required<Pick<SpendNode, "grantTokens" | "status" | "outcome" | "outcomeGroup" | "krCounts">>;
+const acc = (kind: SpendKind, id: string | null, name: string, objective?: string, grant?: GrantFields): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), ...(grant ? { grant } : {}), tokens: 0, usd: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
   let c = parent.kids.get(key);
   if (!c) parent.kids.set(key, c = make());
@@ -215,13 +274,25 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const assignments = new Map(inp.assignments.map((a) => [a.id, a]));
   const agents = new Map(inp.agents.map((a) => [a.id, a]));
   const buildingNames = new Map(inp.buildings.map((b) => [b.id, b.name]));
-  const grantNames = new Map(inp.grants.map((g) => [g.id, g.objective]));
+  const grantsById = new Map(inp.grants.map((g) => [g.id, g]));
+  const krs = new Map<string, KrCounts>();
+  for (const k of inp.keyResults ?? []) {
+    if (!k.grantId) continue;
+    let c = krs.get(k.grantId);
+    if (!c) krs.set(k.grantId, c = { met: 0, missed: 0, claimed: 0, open: 0 });
+    if (k.status === "met" || k.status === "missed" || k.status === "claimed") c[k.status]++;
+    else c.open++;
+  }
+  const grantFields = (g: SpendInputs["grants"][number]): GrantFields | undefined => g.status === undefined ? undefined : {
+    grantTokens: g.grantTokens ?? null, status: g.status, outcome: g.outcome ?? null, outcomeGroup: spendOutcome({ status: g.status, outcome: g.outcome ?? null }),
+    krCounts: krs.get(g.id) ?? { met: 0, missed: 0, claimed: 0, open: 0 },
+  };
   const root = acc("building", null, "");
   let weightMismatch = 0, mismatched = 0;
   const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
   for (const s of inp.sessions) {
-    const tokens = sessionTokens(s);
+    const tokens = sessionTokens(s), usd = sessionListUsd(s);
     if (inp.convertedAt && s.endedAt && s.endedAt < inp.convertedAt) {
       const d = tokens - ledgerBookedBeforeConversion(s, since);
       if (d) { weightMismatch += d; mismatched++; }
@@ -237,20 +308,21 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
       const grantId = s.grantId ?? a?.grantId ?? null;
       const g = grantId
         ? child(b, `grant:${grantId}`, () => {
-          const objective = grantNames.get(grantId);
-          return objective ? acc("grant", grantId, grantTitle(objective), objective) : acc("grant", grantId, grantId);
+          const gr = grantsById.get(grantId);
+          return gr ? acc("grant", grantId, grantName(gr), gr.objective, grantFields(gr)) : acc("grant", grantId, grantId);
         })
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
       path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
-    for (const n of path) { n.tokens += tokens; n.sessions++; }
+    for (const n of path) { n.tokens += tokens; n.usd += usd; n.sessions++; }
     root.tokens += tokens;
+    root.usd += usd;
   }
 
   const share = (t: number) => (used ? Math.round((t / used) * 1e4) / 1e4 : 0);
   const out = (n: Acc): SpendNode => {
     const kids = [...n.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
-    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, ...(kids.length ? { children: kids } : {}) };
+    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...n.grant, ...(kids.length ? { children: kids } : {}) };
   };
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
@@ -258,12 +330,18 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const booked = sessionsTotal - weightMismatch;
   const unattributed = Math.max(0, used - booked);
   const notFunded = Math.max(0, booked - used);
-  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0 });
-  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched });
-  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0 });
+  const usdOf = (t: number) => cents(bankTokensUsd(t));
+  if (unattributed) rows.push({ kind: "unattributed", id: null, name: UNATTRIBUTED, tokens: unattributed, share: share(unattributed), sessions: 0, usd: usdOf(unattributed) });
+  if (weightMismatch) rows.push({ kind: "weight-mismatch", id: null, name: WEIGHT_MISMATCH, tokens: -weightMismatch, share: share(-weightMismatch), sessions: mismatched, usd: usdOf(-weightMismatch) });
+  if (notFunded) rows.push({ kind: "not-funded", id: null, name: NOT_FUNDED, tokens: -notFunded, share: share(-notFunded), sessions: 0, usd: usdOf(-notFunded) });
   const diff = rows.reduce((s, r) => s + r.tokens, 0) - used;
+  // the same formula as financeSummary's usd.used, so the two endpoints agree to the cent
+  const usd = { used: cents(root.usd + bankTokensUsd(used - sessionsTotal)), sessionsTotal: cents(root.usd), unattributed: usdOf(unattributed), weightMismatch: usdOf(weightMismatch), notFunded: usdOf(notFunded) };
+  const usdDiff = cents(rows.reduce((s, r) => s + r.usd, 0) - usd.used);
   const nf = notFundedUsage(inp);
   const splitSum = nf.split.reduce((t, g) => t + g.tokens, 0);
+  const gs = spendGrants(rows, new Map(inp.grants.flatMap((g) => g.estimate ? [[g.id, g.estimate] as const] : [])));
+  const grantsDiff = gs.grants.byOutcome.done.tokens + gs.grants.byOutcome.cut.tokens + gs.grants.byOutcome.open.tokens - gs.rowsSum;
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
   return {
     used, sessionsTotal, unattributed, weightMismatch,
@@ -273,8 +351,54 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     notFundedSplitCheck: splitSum === notFunded ? { sum: splitSum, notFunded, ok: true } : { sum: splitSum, notFunded, ok: false, reason: NOT_FUNDED_SPLIT_REASON },
     rows,
     check: { ok: diff === 0, diff, identity: SPEND_IDENTITY },
+    usd,
+    usdSumCheck: { ok: Math.abs(usdDiff) < Math.max(0.01, 0.005 * rows.length + 1e-9), diff: usdDiff, identity: `${SPEND_IDENTITY}, in dollars at API list price` },
+    grants: gs.grants,
+    grantsCheck: { ok: grantsDiff === 0 && gs.grants.spent === gs.rowsSum, diff: grantsDiff, identity: GRANTS_IDENTITY },
     at: now.toISOString(),
   };
+}
+
+export const GRANTS_IDENTITY = "done + cut + still open = Σ grant rows' tokens (every building)";
+
+/**
+ * FinanceSpend.grants from the finished tree: per grant (by id, across buildings) its rows' tokens, then by outcome group.
+ * `rowsSum` is Σ the same rows' tokens taken row by row, which `grantsCheck` holds the groups against.
+ */
+export function spendGrants(rows: SpendNode[], estimates: Map<string, GrantEstimate> = new Map()): { grants: SpendGrants; rowsSum: number } {
+  const per = new Map<string, { tokens: number; node: SpendNode }>();
+  let rowsSum = 0;
+  const walk = (n: SpendNode) => {
+    if (n.kind === "grant" && n.id && n.outcomeGroup) {
+      rowsSum += n.tokens;
+      const p = per.get(n.id);
+      if (p) p.tokens += n.tokens; else per.set(n.id, { tokens: n.tokens, node: n });
+    }
+    for (const c of n.children ?? []) walk(c);
+  };
+  for (const r of rows) walk(r);
+  const byOutcome: SpendGrants["byOutcome"] = { done: { count: 0, tokens: 0 }, cut: { count: 0, tokens: 0 }, open: { count: 0, tokens: 0 } };
+  const overFunding = { count: 0, tokens: 0 };
+  let funded = 0, spent = 0;
+  for (const { tokens, node } of per.values()) {
+    const o = byOutcome[node.outcomeGroup!];
+    o.count++;
+    o.tokens += tokens;
+    spent += tokens;
+    const f = node.grantTokens ?? 0;
+    funded += f;
+    if (node.grantTokens != null && tokens > f) { overFunding.count++; overFunding.tokens += tokens - f; }
+  }
+  const est: SpendGrants["estimates"] = { closed: 0, inside: 0, unit: "adjusted tokens", badRanges: [] };
+  for (const [id, { tokens, node }] of per) {
+    const e = node.status === "closed" ? estimates.get(id) : undefined;
+    const r = estimateRangeOf(e);
+    if (!e || !r) continue;
+    est.closed++;
+    if (tokens >= r.low && tokens <= r.high) est.inside++;
+    if ((e.low !== null && e.high !== null && e.low > e.high) || (e.model && e.model.low > e.model.high)) est.badRanges.push(id);
+  }
+  return { grants: { count: per.size, funded, spent, byOutcome, overFunding, estimates: est }, rowsSum };
 }
 
 /** The `bank.converted` event's time (migration 037, once per database), or null when the Bank was born adjusted. */
@@ -288,6 +412,7 @@ export function townSpend(repos: Repos, events: EventLog, now = new Date()): Fin
     agents: repos.agents.all(),
     buildings: repos.buildings.all(),
     grants: repos.grants.all(),
+    keyResults: repos.keyResults.all(),
     convertedAt: bankConvertedAt(events),
     usage: repos.usage.all(),
     debits: repos.bankDebits.all(),

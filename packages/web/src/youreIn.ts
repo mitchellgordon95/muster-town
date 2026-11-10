@@ -1,0 +1,45 @@
+/**
+ * The one-time "You're in" card (gr_58n37j410s step 2, kr_xqbhxxptf3): a member let in while away saw nothing say so,
+ * because the live toast only fires while the page is open. The card shows when the signed-in user's latest access
+ * request is granted and this browser hasn't dismissed that grant yet: one localStorage key per decision
+ * (`musterTown.youreIn.<decidedAt>`), so a later re-grant shows it again.
+ */
+import type { AuthMe, SnapshotBuilding } from "@muster-town/schema";
+
+export const youreInKey = (decidedAt: string): string => `musterTown.youreIn.${decidedAt}`;
+
+type Store = Pick<Storage, "getItem">;
+
+/** The storage key of the grant to welcome, or null when there is nothing to show (no grant, or dismissed already). */
+export function youreInDue(me: AuthMe | null, storage: Store | null): string | null {
+  const req = me?.accessRequest;
+  if (!me || me.canInteract === false || req?.status !== "granted" || !req.decidedAt) return null;
+  const key = youreInKey(req.decidedAt);
+  try { return storage?.getItem(key) ? null : key; } catch { return key; }
+}
+
+/** "Mitchell let you join Workshop Collective." by the decider's name; one named admin stands in for an older server; else "An admin let you join." */
+export function youreInLine(me: AuthMe, collective: string): string {
+  const req = me.accessRequest;
+  const who = req?.decidedByName ?? (req?.deciders.length === 1 ? req.deciders[0] : null);
+  return who ? `${who} let you join ${collective}.` : "An admin let you join.";
+}
+
+/**
+ * What a new member can do now (as_6828q9xef6). With a manager to talk to: walk, talk, bring an agent. A plain "Let in"
+ * (no "direct work under" any goal) gives no 1:1 or meeting, so "talk" would overpromise: say what Say does and who
+ * grants the rest (canDirect, core; granted from the Members table).
+ */
+export function youreInCanLine(hasManager: boolean): string {
+  return hasManager
+    ? "You can walk, talk and bring your own agent now."
+    : "You can walk, say hello to whoever is nearby and bring your own agent now. To work with a building's manager (1:1s, meetings) you need direct work under its goal: an admin or that goal's captain grants it from the Members table.";
+}
+
+/**
+ * The first building with a manager that isn't the Town Hall (the Workshop here) and where `canTalk` holds: the card's
+ * "Talk to ★" goes to them. The HUD passes `canTalkToManager`, so a member without "direct work under" gets no Talk (gr_cuobjlny6r).
+ */
+export function firstManagerBuilding(buildings: SnapshotBuilding[], canTalk: (buildingId: string) => boolean = () => true): SnapshotBuilding | null {
+  return buildings.find((b) => b.kind !== "town-hall" && !!b.managerAgentId && canTalk(b.id)) ?? null;
+}

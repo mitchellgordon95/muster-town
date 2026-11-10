@@ -9,7 +9,7 @@ import { authStore } from "../auth/auth";
 import { T, CHAR_W, CHAR_H, charSheet, outlineSheet, tiles, HUMAN_SPRITE } from "./sprites";
 import { layoutEdit, type LayoutDraft } from "./layoutEdit";
 import { openTownPlanning, townPlan, type PlanDraft } from "./townPlan";
-import { BANK_SIGN_H, bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
+import { BANK_SIGN_H, bubbleFor, buildingBudgetLine, drawBadge, drawFlag, drawBankSign, drawBlockLine, drawBubble, drawGoalSign, drawLabel, drawPill, drawSign, drawTip, layoutBubbles, placeGoalSigns, measureBubble, residentBudgetLine, type Bubble } from "./overlay";
 import { blockedByRedeploy } from "../redeploy";
 import { scheduleTipRow, scheduleTipTitle } from "../format";
 import { api } from "../api";
@@ -20,7 +20,11 @@ import { stackBodies } from "./stacks";
 import { whoIsHere } from "../whoIsHere";
 import { purposeOf } from "../purpose";
 import { TILE, bankTabOf } from "@muster-town/schema";
+import { defaultZoom, coarsePointer } from "./zoom";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
+import { drawTour, spotBox, type Tour } from "./tour";
+import { HydrantStream, prefersReducedMotion, streamParticles } from "./hydrant";
+import { secretaryOf } from "../panels/oneOnOne";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -34,7 +38,7 @@ const SPEED = 5 * T; // px per second
 const ROUTE_SPEED = 11 * T;
 const INTERACT_PX = 26;
 const bname = (p: Place) => store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? "the building";
-const BANK_VERB: Record<string, string> = { "Tokens & sources": "Open", "Free tokens": "Look into", Spending: "Read", Hosting: "Check" };
+const BANK_VERB: Record<string, string> = { Donate: "Open", Inputs: "Open", Spending: "Read", Hosting: "Check" };
 /** Every panel is a place: what E opens when you stand at each place kind. */
 const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb: string }>> = {
   board: (p) => ({ kind: "board", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} board` }),
@@ -48,10 +52,17 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   schedule: (p) => p.id === "schedule-board" ? { kind: "schedule", verb: "Read the meeting schedule" }
     : { kind: "building", id: p.buildingId ?? undefined, tab: "Schedule", verb: `Read the ${bname(p)} schedule` },
   "mod-station": () => ({ kind: "mod", verb: "Visit the mod station" }),
+  hydrant: (p) => {
+    const n = store.state.buildings.find((b) => b.id === p.buildingId)?.intray ?? 0;
+    return { kind: "queue", verb: `Open the decision queue${n ? ` (${n} waiting)` : ""}` };
+  },
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
   outbox: () => ({ kind: "outbox", verb: "Check the outbox" }),
-  // the vault opens Overview; each station its own tab (BANK_FIXTURES.stations)
+  stats: () => ({ kind: "stats", verb: "Read the user stats" }),
+  bulletin: () => ({ kind: "bulletin", verb: "Read the bulletin board" }),
+  help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
+  // the vault opens Balance; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);
     return { kind: "bank", tab, verb: p.id === "bank" ? "Open the Bank's vault" : `${BANK_VERB[tab] ?? "Use"} the ${p.name.replace(/^Bank /, "")}` };
@@ -67,6 +78,12 @@ function placeTarget(p: Place): Target | null {
   const f = PLACE_PANEL[p.kind]; if (!f) return null;
   const { verb, ...panel } = f(p);
   return { label: verb, panel };
+}
+
+/** The panel E opens at a place (the help card's "What's here" rows walk there and open it), or null. */
+export function placePanel(p: Place): PanelRef | null {
+  const t = placeTarget(p);
+  return t && !t.action ? t.panel : null;
 }
 
 /**
@@ -92,7 +109,9 @@ export class MapRenderer {
   private onArrive: (() => void) | null = null;
   private keys = new Set<string>();
   private cam = { x: 0, y: 0, init: false };
+  /** the walking zoom: picked from the viewport (`defaultZoom`) until the -/+ keys set it (`userZoom`) */
   zoom = 3;
+  userZoom = false;
   /** the zoom actually drawn: eases toward `zoom`, or toward the whole-town fit while the Bank's town map is open */
   private z = 0;
   /** the Bank's town map, while it's open */
@@ -112,6 +131,8 @@ export class MapRenderer {
   hoverId: string | null = null;
   /** when each fork's ghost first appeared on the map (its 400 ms fade-in) */
   private ghostSince = new Map<string, number>();
+  /** the Town Hall hydrant's counts (the stream's particles) */
+  private stream = new HydrantStream();
   /** Building banners on screen, for click-to-open their building panel. */
   private signHits: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverSign: string | null = null;
@@ -122,6 +143,10 @@ export class MapRenderer {
   hoverBlock: string | null = null;
   /** The badge whose reasons card a tap opened (touch has no hover); a second tap on it opens the queue. */
   tapTip: string | null = null;
+  /** a building's tour (its help sign is open): the camera frames the lot, the rest is shadowed, things are hotspots */
+  tour: Tour | null = null;
+  /** this frame's tour hotspots, canvas CSS px */
+  private tourHits: { id: string; n: number; x: number; y: number; w: number; h: number }[] = [];
   /** last frame's camera, for screen -> tile */
   private view = { ox: 0, oy: 0, z: 3 };
   onTarget?: (t: Target | null) => void;
@@ -290,6 +315,27 @@ export class MapRenderer {
     return best;
   }
 
+  /** The tour hotspot under a screen point (CSS px), padded to a finger-sized target. */
+  tourSpotAt(cx: number, cy: number): string | null {
+    if (!this.tour) return null;
+    for (let i = this.tourHits.length - 1; i >= 0; i--) {
+      const h = this.tourHits[i], px = Math.max(4, (28 - h.w) / 2), py = Math.max(4, (28 - h.h) / 2);
+      if (cx >= h.x - px && cx <= h.x + h.w + px && cy >= h.y - py && cy <= h.y + h.h + py) return h.id;
+    }
+    return null;
+  }
+  /** A tour hotspot's screen rect (canvas CSS px), for the help card's tooltip. */
+  tourRect(placeId: string): { x: number; y: number; w: number; h: number } | null {
+    return this.tourHits.find((h) => h.id === placeId) ?? null;
+  }
+  /** Whether a screen point (CSS px) is inside the toured building's lot. */
+  inTourLot(cx: number, cy: number): boolean {
+    const b = this.tour ? store.state.buildings.find((x) => x.id === this.tour!.buildingId) : null;
+    if (!b?.lot) return false;
+    const t = this.tileAt(cx, cy);
+    return t.x >= b.lot.x && t.x < b.lot.x + b.lot.w && t.y >= b.lot.y && t.y < b.lot.y + b.lot.h;
+  }
+
   /** Building whose banner is under a screen point (CSS px). */
   signAt(cx: number, cy: number): string | null {
     for (let i = this.signHits.length - 1; i >= 0; i--) {
@@ -362,6 +408,8 @@ export class MapRenderer {
     const dpr = window.devicePixelRatio || 1;
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
+      // phone or laptop, re-picked on resize and rotation until the -/+ keys choose one
+      if (!this.userZoom && w > 0) this.zoom = defaultZoom(w, coarsePointer());
       this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
     }
   }
@@ -447,7 +495,7 @@ export class MapRenderer {
   private updateTarget() {
     const s = store.state;
     // nearest of agents and places wins, so standing on a place's spot (e.g. the mod station, next to the
-    // seated moderators) targets the place, and stepping toward an agent targets the agent
+    // seated residents) targets the place, and stepping toward an agent targets the agent
     const near: { d: number; t: Target }[] = [];
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;
@@ -511,27 +559,74 @@ export class MapRenderer {
     }
   }
 
+  /**
+   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as amber dots settling at the
+   * Secretary beside it (else pooling in front of it), today's notices as blue dots drifting to the Town Hall board (the
+   * feed). World px; nothing under reduced motion.
+   */
+  private drawStream(g: CanvasRenderingContext2D, now: number) {
+    const s = store.state, w = this.world!;
+    const hall = s.buildings.find((b) => b.kind === "town-hall");
+    if (!hall) return;
+    this.stream.sync(hall.id, hall.intray);
+    const place = (id: string) => s.places.find((p) => p.id === id);
+    /** the centre of the tile of kind `k` beside place `p` (the thing used from there), else of the place's own tile */
+    const beside = (p: Place, k: number, dy = 0) => {
+      const n = [[0, 1], [0, -1], [1, 0], [-1, 0]].find(([ax, ay]) => w.at(p.pos.x + ax, p.pos.y + ay) === k) ?? [0, 0];
+      return { x: (p.pos.x + n[0]) * T + T / 2, y: (p.pos.y + n[1]) * T + T / 2 + dy };
+    };
+    const hydrant = place(`hydrant:${hall.id}`);
+    if (!hydrant) return;
+    const secretary = secretaryOf(s.agents, hall.id);
+    const settle = (secretary && place(`desk:${secretary.id}`)) || hydrant;
+    const feed = place(`board:${hall.id}`);
+    const dots = streamParticles(beside(hydrant, TILE.HYDRANT, -T / 2 + 1),
+      { ask: { x: settle.pos.x * T + T / 2, y: settle.pos.y * T + T - 3 }, notice: feed ? { x: feed.pos.x * T + T / 2, y: feed.pos.y * T + 4 } : null },
+      this.stream.counts, now, prefersReducedMotion());
+    for (const d of dots) {
+      g.fillStyle = d.kind === "ask" ? "#ffcf5e" : "#7cc4ff";
+      g.fillRect(Math.round(d.x) - 1, Math.round(d.y) - 1, 2, 2);
+    }
+  }
+
   private draw(now: number) {
-    const g = this.g, w = this.world!;
+    const g = this.g, w = this.world!, s0 = store.state;
     const dpr = window.devicePixelRatio || 1;
     const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
     const viewW = cw - this.panelInset;
     const ww = w.w * T, wh = w.h * T;
     // centre the avatar in the strip between the HUD and the panel
     const hud = document.querySelector(".hud")?.getBoundingClientRect();
-    this.leftInset = hud ? Math.min(hud.right + 12, viewW * 0.45) : 0;
+    // (a phone's HUD is a strip across the top, not a card on the left: nothing to centre around there)
+    this.leftInset = hud && hud.width < viewW * 0.6 ? Math.min(hud.right + 12, viewW * 0.45) : 0;
     // ease the zoom: out to the whole town (fitted in that strip) while the Bank's town map is open, back to `zoom` after
     const overview = this.overview();
-    const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom) : this.zoom;
+    // a tour frames the building's lot in the room the help sheet leaves: left of a side sheet, above a bottom strip,
+    // below a phone's HUD strip
+    const tourLot = !overview && this.tour ? s0.buildings.find((b) => b.id === this.tour!.buildingId)?.lot ?? null : null;
+    let fr = { l: this.leftInset, r: viewW, t: 0, b: ch };
+    if (tourLot) {
+      const sh = document.querySelector(".help-sheet")?.getBoundingClientRect();
+      if (sh && sh.left > cw * 0.45) fr.r = Math.min(fr.r, sh.left - 8);
+      else if (sh && sh.height) fr.b = Math.min(fr.b, sh.top);
+      if (hud && !this.leftInset && hud.bottom < ch * 0.5) fr.t = hud.bottom;
+      if (fr.r - fr.l < 120 || fr.b - fr.t < 120) fr = { l: 0, r: viewW, t: 0, b: ch };
+    }
+    const goalZ = overview ? fitZoom(ww, wh, viewW - this.leftInset, ch, this.zoom)
+      : tourLot ? fitZoom(tourLot.w * T, tourLot.h * T, fr.r - fr.l, fr.b - fr.t, this.zoom) : this.zoom;
     this.z = !this.z ? goalZ : Math.abs(goalZ - this.z) < 0.01 ? goalZ : this.z + (goalZ - this.z) * 0.12;
     const z = this.z;
     const ed = layoutEdit.draft;
     // editing a layout: centre the room instead of the avatar; the town map: centre the whole town
     const fx = ed ? (ed.lot.x + ed.lot.w / 2) * T : overview ? ww / 2 : this.me.x, fy = ed ? (ed.lot.y + ed.lot.h / 2) * T : overview ? wh / 2 : this.me.y;
     let cx = fx - (this.leftInset + (viewW - this.leftInset) / 2) / z, cy = fy - ch / 2 / z;
+    if (tourLot && !ed) {
+      cx = (tourLot.x + tourLot.w / 2) * T - ((fr.l + fr.r) / 2) / z;
+      cy = (tourLot.y + tourLot.h / 2) * T - ((fr.t + fr.b) / 2) / z;
+    }
     // let the camera pan past the left edge by the HUD's width so nothing hides under it
     const lead = this.leftInset / z;
-    if (!overview) {
+    if (!overview && !(tourLot && !ed)) {
       cx = ww * z + this.leftInset <= viewW ? -(viewW / z - ww) / 2 : Math.max(-lead, Math.min(ww - viewW / z, cx));
       cy = wh * z <= ch ? -(ch / z - wh) / 2 : Math.max(0, Math.min(wh - ch / z, cy));
     }
@@ -552,6 +647,7 @@ export class MapRenderer {
     const s = store.state;
     // planted flags (dc_r40dq3znse): a pole on the tile it was planted on, until the building's manager picks it up
     for (const f of s.flags) drawFlag(g, f.x * T + T - 4, f.y * T + T - 2, now);
+    this.drawStream(g, now);
     // bodies, sorted by feet y
     // w/h: drawn body size, by the agent's model tier
     type D = { id: string; a: Agent | null; x: number; y: number; moving: boolean; w: number; h: number };
@@ -602,14 +698,14 @@ export class MapRenderer {
     }
     // each goal's signpost carries its words (the goal tree is the map)
     const signs = s.places.filter((p) => p.kind === "plaza" && p.id.startsWith("plaza:"));
+    const at = this.canvas.getBoundingClientRect();
+    const avoid = [...document.querySelectorAll(".hud, .minimap")].map((e) => e.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0).map((r) => ({ x: r.left - at.left, y: r.top - at.top, w: r.width, h: r.height }));
     const drawSigns = (max: number) => {
-      const at = signs.map((p) => ({ p, sp: w.signpostOf(p) })).filter((x) => !!x.sp).map((x) => ({ p: x.p, q: toScreen(x.sp!.x * T, x.sp!.y * T) }));
-      for (const { p, q } of at) {
-        if (q.x < -300 || q.x > cw + 300 || q.y < -40 || q.y > ch + 40) continue;
-        // a label stops short of the next signpost on its row, so siblings' words don't overlap
-        const next = Math.min(...at.filter((o) => o.q.y === q.y && o.q.x > q.x).map((o) => o.q.x));
-        drawGoalSign(g, q.x, q.y - 1, p.name, Math.max(24, Math.min(max, next - q.x - 16)));
-      }
+      const posts = signs.map((p) => ({ p, sp: w.signpostOf(p) })).filter((x) => !!x.sp).map((x) => ({ p: x.p, q: toScreen(x.sp!.x * T, x.sp!.y * T) }));
+      // each label on screen, off the HUD and minimap, short of the next signpost on its row (kr_c3c7651d18)
+      placeGoalSigns(posts.map(({ q }) => ({ x: q.x, y: q.y - 1, max })), { x: 0, y: 0, w: viewW, h: ch }, avoid,
+        (i, x, y, room) => drawGoalSign(g, x, y, posts[i].p.name, room));
     };
     if (plan) {
       // the town map: each building's name and each goal's signpost, nothing else (bodies can't be clicked)
@@ -708,6 +804,12 @@ export class MapRenderer {
       const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
       if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.outbox);
     }
+    // the bulletin board's badge: notes the signed-in human hasn't opened (flag dc_04q4h8s229), on the board (the tile above its standing spot)
+    if (s.bulletinUnread && s.me) {
+      const p = s.places.find((x) => x.kind === "bulletin");
+      const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
+      if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.bulletinUnread);
+    }
     // bubbles last so they sit above every label
     const bubbles: { d: (typeof list)[number]; b: Bubble }[] = [];
     for (const d of list) {
@@ -719,9 +821,6 @@ export class MapRenderer {
     // each fully on screen, off the HUD card, the minimap and any other bubble (kr_aba1s2qx7p)
     const rank = (x: { d: { id: string }; b: Bubble }) => (x.d.id === targetId ? 4 : 0) + (x.d.id === this.hoverId ? 2 : 0) + (x.b.tone === "speech" ? 1 : 0);
     bubbles.sort((p, q) => rank(q) - rank(p));
-    const at = this.canvas.getBoundingClientRect();
-    const avoid = [...document.querySelectorAll(".hud, .minimap")].map((e) => e.getBoundingClientRect())
-      .filter((r) => r.width > 0 && r.height > 0).map((r) => ({ x: r.left - at.left, y: r.top - at.top, w: r.width, h: r.height }));
     const sized = bubbles.map(({ d, b }) => {
       const p = toScreen(d.x, d.y - d.h), full = d.id === targetId || d.id === this.hoverId;
       return { d, b, p, ...measureBubble(g, b, full) };
@@ -768,5 +867,16 @@ export class MapRenderer {
     const hf = !tipFor && this.hoverId ? s.agents[this.hoverId] : undefined;
     const hb = hf?.forkOf ? this.hitboxes.find((h) => h.id === hf.id) : undefined;
     if (hf && hb) drawTip(g, hb.x, hb.y + hb.h + 4, hf.name, [forkTip(hf, (id) => s.agents[id]?.name ?? store.names.get(id) ?? id, hf.currentAssignmentId)], cw, ch);
+    // a building's tour, over everything: the shadow, the lit lot and its numbered hotspots
+    this.tourHits = [];
+    if (tourLot && this.tour) {
+      const a = toScreen(tourLot.x * T, tourLot.y * T);
+      for (const sp of this.tour.spots) {
+        const p = s.places.find((x) => x.id === sp.placeId); if (!p) continue;
+        const bx = spotBox((x, y) => w.at(x, y), p.pos), q = toScreen(bx.x * T, bx.y * T);
+        this.tourHits.push({ id: sp.placeId, n: sp.n, x: q.x - 2, y: q.y - 2, w: bx.w * T * z + 4, h: bx.h * T * z + 4 });
+      }
+      drawTour(g, cw, ch, { x: a.x, y: a.y, w: tourLot.w * T * z, h: tourLot.h * T * z }, this.tourHits, this.tour.hot, now);
+    }
   }
 }

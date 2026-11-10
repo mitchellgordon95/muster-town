@@ -1,0 +1,83 @@
+import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { GrantView } from "@muster-town/schema";
+import { store } from "../src/state";
+import { GrantRow } from "../src/panels/Places";
+import { grants } from "../src/mock/fixture";
+
+// sprites draw on a canvas and grant links read location, which node lacks
+vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), portraitUrl: () => "", iconUrl: () => "" }));
+vi.mock("../src/route", async (orig) => ({ ...(await orig<object>()), grantUrl: (id: string) => `/#/grant/${id}` }));
+vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span>, openDocLink: () => undefined }));
+
+// no history: its last note names an agent through the live api
+const hud = { ...grants.find((g) => g.id === "gr_hud")!, history: [] };
+const STATE = {
+  me: { isAdmin: true, roles: [], user: { id: "us_m" } } as never,
+  agents: { ag_keel: { id: "ag_keel", name: "Keel", kind: "resident", status: "idle", homeBuildingId: "bl_workshop", buildingId: "bl_workshop", forkOf: null }, ag_moss: { id: "ag_moss", name: "Moss", kind: "resident", status: "idle", homeBuildingId: "bl_carbon", buildingId: "bl_carbon", forkOf: null } } as never,
+  buildings: [{ id: "bl_workshop", name: "Workshop", managerAgentId: "ag_keel" }, { id: "bl_carbon", name: "Carbon", managerAgentId: "ag_moss" }] as never,
+};
+const row = (g: GrantView) => renderToStaticMarkup(<GrantRow grant={g} onDecided={() => undefined} onOpenDoc={() => undefined} />);
+
+describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
+  it("one line per key result with the manager's note, the top-up line and the report's Shipped titles, then Continue / Adjust / Cut; the plan under a fold", () => {
+    store.state = { ...store.state, ...STATE };
+    const html = row(hud);
+    expect(html).toContain("✓ shipped: Live: at 650px the HUD folds into one row (PR #41).");
+    expect(html).toContain("~ partly: The panel still covers the HUD&#x27;s last button at 650px.");
+    expect(html).toContain("A top-up of 400,000 tokens buys: KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.");
+    expect(html).toContain("The HUD collapses below 700px");
+    const evidence = html.indexOf("checkpoint-evidence"), buttons = html.indexOf(">Continue</button>"), fold = html.indexOf("<details");
+    expect(evidence).toBeGreaterThan(-1);
+    expect(buttons).toBeGreaterThan(evidence);
+    expect(fold).toBeGreaterThan(buttons);
+    expect(html.indexOf("Stop when")).toBeGreaterThan(fold);
+    expect(html.indexOf("How to check")).toBeGreaterThan(fold);
+  });
+
+  it("with the forks' evidence: each key result names who filed it, then the grant's reports (grant C, gr_95svkzi4l6)", () => {
+    store.state = { ...store.state, ...STATE };
+    const html = row(hud);
+    expect(html).toContain("✓ shipped: Live: at 650px the HUD folds into one row (PR #41). (Keel 2)");
+    expect(html).toContain("The grant&#x27;s reports:");
+    expect(html).toContain("Step 1: the HUD folds below 700px (PR #41)");
+    expect(html.indexOf("evidence-krs")).toBeLessThan(html.indexOf("evidence-reports"));
+    expect(html.indexOf("evidence-reports")).toBeLessThan(html.indexOf("A top-up of 400,000"));
+    expect(html).not.toContain("No evidence filed by the forks");
+  });
+
+  it("without evidence: 'No evidence filed by the forks', no top-up line; a not-started key result reads not shipped", () => {
+    store.state = { ...store.state, ...STATE };
+    const e = hud.evidence!;
+    const old = { ...hud, evidence: { ...e, topUpTokens: null, whatTopUpBuys: "", reports: [], filed: false, keyResults: [{ ...e.keyResults[0]!, status: "not-started" as const, verdict: "not" as const, note: "", by: null }] } };
+    const html = row(old);
+    expect(html).toContain("No evidence filed by the forks");
+    expect(html).not.toContain("A top-up");
+    expect(html).not.toContain("The grant&#x27;s reports");
+    expect(html).toContain("✗ not shipped: HUD collapses below 700px");
+  });
+
+  it("an overspent checkpoint says how far over, not a capped 100% (gr_5ltmbf3a2f live: 545k of 500k)", () => {
+    store.state = { ...store.state, ...STATE };
+    const html = row({ ...hud, spentTokens: 545_488, grantTokens: 500_000 });
+    expect(html).toContain("spent (109%)");
+  });
+
+  it("a proposal naming the grant it continues shows that grant's evidence above its own key results", () => {
+    store.state = { ...store.state, ...STATE };
+    const proposal = { ...grants.find((g) => g.status === "proposed")!, history: [] };
+    const html = row({ ...proposal, evidence: hud.evidence });
+    expect(html).toContain("Continues the earlier grant");
+    expect(html).toContain("Spent 2M of 2M adj. tokens granted.");
+    expect(html.indexOf("checkpoint-evidence")).toBeLessThan(html.indexOf("How to check"));
+    expect(html).not.toContain('class="grant-plan"'); // the plan is not folded on a proposal (only each key result's how-to-check is)
+  });
+
+  it("a proposal that names no earlier grant shows no other grant's evidence (1:1 mt_z1b38bwg98)", () => {
+    store.state = { ...store.state, ...STATE };
+    const proposal = { ...grants.find((g) => g.status === "proposed")!, history: [], evidence: null };
+    const html = row(proposal);
+    expect(html).not.toContain("checkpoint-evidence");
+    expect(html).not.toContain("Continues the earlier grant");
+  });
+});

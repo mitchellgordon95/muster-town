@@ -10,7 +10,7 @@ import { sessionTokens, AppError, booked, NoCredential, resultLine, type Booked,
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { CODE_TOOLS, codeGuard, type CodeCheckout, type CodeSource } from "./code.ts";
 import { describeTool } from "./describe.ts";
-import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
+import { assertNoEnvCredentials, blocksOf, InputChannel, noUsage, sessionEnv, usageOf, type ImageBlock, type LooseMessage, type Options, type QueryHandle, type Sdk, type Usage } from "./sdk.ts";
 
 export interface Ctx {
   world: World;
@@ -71,6 +71,8 @@ interface SessionSpec {
   model: string;
   system: string;
   prompt: string;
+  /** pictures sent with the prompt (a human's pasted screenshot in a 1:1: meetingImages.ts) */
+  images?: ImageBlock[];
   maxTurns: number;
   web: boolean;
   assignmentId?: string | null;
@@ -83,6 +85,8 @@ interface SessionSpec {
   alongside?: boolean;
   /** read the town's code: Read, Grep and Glob over this snapshot (its dir is the cwd; a guard denies paths outside it) */
   code?: CodeCheckout | null;
+  /** `system` is the whole system prompt, without the Claude Code preset in front of it (team-lead sessions: docs/prompt-caching.md) */
+  bare?: boolean;
   /** continue this SDK session (its JSONL under the claude dir) instead of starting a new one: a team-lead session cut by a restart (manage.ts `resumableManage`) */
   resume?: string | null;
   /** work sessions: ends the session instead of the default endSession + charge (see finishWorkSession) */
@@ -204,10 +208,10 @@ export type { Funding };
  * Funding for an agent's next session: the Bank's one answer (`Budget.fundingFor`) for the agent's building. The host
  * env is never consulted; the Bank holding nothing that can run it throws `NoCredential` (post-mortem 2026-10-30).
  */
-export function fundingFor(world: World, agentId: string): Funding {
+export function fundingFor(world: World, agentId: string, model?: string | null): Funding {
   const bid = homeOf(world, agentId);
   if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
-  return world.budget.fundingFor(bid);
+  return world.budget.fundingFor(bid, { model: model ?? world.budget.sessionModel(agentId) });
 }
 
 
@@ -222,7 +226,8 @@ export function fundingForSession(world: World, agentId: string, assignmentId: s
   if (!bid) throw new NoCredential(`${world.nameOf(agentId)} has no building to be funded through`);
   const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
   const grant = asg?.grantId ? world.grants.get(asg.grantId) ?? null : null;
-  return world.budget.fundingFor(bid, { grant, stream: world.streams.pick(asg, bid) });
+  // the model the session runs on: availability is per model, and a limited credential is never swapped for another model
+  return world.budget.fundingFor(bid, { grant, stream: world.streams.pick(asg, bid), model: world.budget.sessionModel(agentId, asg) });
 }
 
 /** "funded by subscription" / "funded by API key" / "funded by a donor's API key", for status lines. */
@@ -230,14 +235,17 @@ export function fundedBy(auth: AllocationAuth | null | undefined): string {
   return auth === "subscription" ? "funded by subscription" : auth === "donor-key" ? "funded by a donor's API key" : auth === "api-key" ? "funded by API key" : "unfunded";
 }
 
-export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential): Options {
-  const token = ctx.world.tokens.getOrCreate("agent", spec.agentId);
+export function townOptions(ctx: Ctx, spec: SessionSpec, credential: Credential, sessionId?: string): Options {
+  // the session's own token, revoked when it ends (docs/secrets.md "Login tokens")
+  const token = sessionId ? ctx.world.tokens.createForSession(spec.agentId, sessionId) : ctx.world.tokens.getOrCreate("agent", spec.agentId);
   const townTools = spec.verbs ? spec.verbs.map((v) => `mcp__town__${v}`) : TOWN_TOOLS;
   const readTools: string[] = spec.code ? [...CODE_TOOLS] : [];
   return {
     model: spec.model,
     maxTurns: spec.maxTurns,
-    systemPrompt: { type: "preset", preset: "claude_code", append: spec.system },
+    // a bare prompt (team-lead sessions) is sent as is: the Claude Code preset's own sections were a third of the
+    // prefix those sessions re-wrote to cache on every wake (docs/prompt-caching.md); work sessions keep the preset
+    systemPrompt: spec.bare ? spec.system : { type: "preset", preset: "claude_code", append: spec.system },
     mcpServers: { town: { type: "http", url: ctx.mcpUrl, headers: { Authorization: `Bearer ${token}` }, alwaysLoad: true } },
     // `tools` is the built-in tool set available to the session; `allowedTools` only auto-approves within it.
     // In-process sessions never edit or run code (that happens in desks); a manage session may read it (code.ts).
@@ -305,7 +313,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
   const meter = new UsageMeter();
   const bookMs = ctx.usageBookMs ?? USAGE_BOOK_MS;
   let bookedAt = Date.now();
-  live.input.push(spec.prompt);
+  live.input.push(spec.prompt, spec.images);
   if (spec.purpose === "work") {
     // interrupts queued while the agent had no in-process session arrive right after the prompt
     const queued = world.ops.pendingInterrupts(agent.id, session.id);
@@ -313,7 +321,7 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
     if (queued.length) world.ops.ackInterrupts(queued.map((i) => i.id));
   }
   try {
-    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.credential) });
+    const q = ctx.sdk.query({ prompt: live.input, options: townOptions(ctx, spec, funding.credential, session.id) });
     live.q = q;
     for await (const raw of q) {
       const m = raw as LooseMessage;
@@ -337,6 +345,14 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
             finalText = t;
             emit("agent.thought", clipThought(t));
           }
+        }
+      } else if (m.type === "rate_limit_event") {
+        // the plan's own word on the window this session runs in (availability.ts): rejected records a limit with its
+        // reset, allowed clears one. Only for a Bank input the session ran on.
+        const info = (m as { rate_limit_info?: { status?: string; resetsAt?: number; rateLimitType?: string; overageStatus?: string; isUsingOverage?: boolean } }).rate_limit_info;
+        if (info && funding.credential.inputId) {
+          try { world.bank.availability.observeRateLimit(funding.credential.inputId, info, session.id); }
+          catch (e) { console.warn(`[runtime] rate_limit_event: ${e instanceof Error ? e.message : e}`); }
         }
       } else if (m.type === "user") {
         // each call's outcome, one line, for the manager's `fork_status`

@@ -4,8 +4,8 @@
  * the building queue (a fork of the manager runs it); a building with no manager agent has nobody to take it.
  * Each fire is ordinary work that ends in a report the manager decides; the schedule only saves re-typing the `assign`.
  */
-import { CreateScheduleInput, EditScheduleInput, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
-import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
+import { CreateScheduleInput, EditScheduleInput, isGone, type Agent, type Assignment, type Building, type Origin, type Schedule, type ScheduleRepeat } from "@muster-town/schema";
+import { createAssignment, createDoc, forkableManagerOf, managerAgentOf, visitorManagerRefusal } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { checkForkModel } from "./forks.ts";
 import { resolveLane } from "./lanes.ts";
@@ -14,6 +14,9 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
+import { secretaryIdleReason } from "./secretary.ts";
+import { calibrationIdleReason, calibrationRunText } from "./planner.ts";
+import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 /** A repeating schedule ends by default this long after it is made, and at most MAX_SCHEDULE_DAYS out. */
@@ -90,32 +93,57 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   if (!parsed.success) throw badRequest(`Invalid schedule: ${parsed.error.issues.map((i) => `${i.path.join(".") || "input"}: ${i.message}`).join("; ")}`);
   const input = parsed.data;
   const b = world.buildings.require(buildingId, "building");
-  if (b.kind === "town-hall") throw badRequest("The Town Hall has no workers to run a schedule; schedule work on a building.");
+  const taker = input.takerId ? residentTaker(world, b, input.takerId) : null;
+  if (input.takerId && !taker) throw badRequest(`takerId ${input.takerId} isn't a resident of ${b.name} who can take work (not a fork, not stopped or gone).`);
+  if (b.kind === "town-hall" && !taker) throw badRequest("The Town Hall has no forks to run a schedule: name a resident as takerId (its Secretary), or schedule work on a building.");
+  const visitor = taker ? null : visitorManagerRefusal(world, b);
+  if (visitor) throw visitor;
   const r = input.repeat;
   const rep = repeatOf(r);
   let next: Date | null = input.runsAt ? new Date(input.runsAt) : nextOccurrence(rep, at);
   if (!next) throw badRequest("A schedule needs runsAt (when it runs), a repeat, or both.");
   next = checkRunsAt(next, at, input.runsAt);
   const endsAt = endOf(r, next, at);
-  const lane = resolveLane(world, b.id, by, input);
+  const tokensPerRun = input.tokensPerRun ?? 0;
+  const lane = scheduleLane(world, b.id, by, input, !!(rep.everyMinutes || rep.dailyAt), tokensPerRun);
   const pages = input.pages?.length ? attachablePages(world, b.id, input.pages) : [];
   const model = input.model ? checkForkModel(b, input.model) : null;
   const ts = at.toISOString();
   const s = world.schedules.upsert({
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
-    ...rep, endsAt, paused: false, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
-    pages, model, origin, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
+    ...rep, endsAt, paused: false, missedRuns: 0, missedSince: null, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
+    pages, model, origin, takerId: taker?.id ?? null, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
+    tokensPerRun, retainer: lane.lane === "retainer" ? "asked" : "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
   });
-  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${stamp(s.nextRunAt!)}`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane } });
+  world.events.append({ type: "schedule.created", buildingId: b.id, text: `${world.nameOf(by.id)} scheduled "${truncate(s.title, 80)}" in ${b.name}: ${describeRepeat(s)}, next ${stamp(s.nextRunAt!)}`, payload: { scheduleId: s.id, nextRunAt: s.nextRunAt, ...rep, endsAt, lane: s.lane, tokensPerRun } });
+  if (s.retainer === "asked") askRetainer(world, s, "new schedule", at);
   return s;
+}
+
+/**
+ * A schedule's lane (1:1 mt_cyd2t5ioob decision 2): a repeat is never grant (grants are one-time); "retainer" when it asks for one
+ * (tokensPerRun > 0, or lane retainer), and an agent's repeating job must (every recurring job needs a human's approval).
+ * A retainer's runs get sourceId = the schedule when they fire. Other lanes are checked as `assign` checks them.
+ */
+function scheduleLane(world: World, buildingId: string, by: Holder, input: CreateScheduleInput, repeating: boolean, tokensPerRun: number) {
+  if (repeating && (input.lane === "grant" || input.grantId)) throw badRequest("A repeating job can't draw on a grant (grants are one-time work): give it a retainer instead (tokensPerRun: what one run may spend), which a human approves in the Town Hall in-tray. A one-shot may still run on a grant.");
+  if (input.lane === "retainer" || tokensPerRun > 0) {
+    if (input.lane && input.lane !== "retainer") throw badRequest(`tokensPerRun makes the schedule a retainer: leave lane out (or say "retainer"), not "${input.lane}".`);
+    if (input.grantId) throw badRequest("A retainer draws on its own approved money, not a grant: leave grantId out.");
+    if (tokensPerRun <= 0) throw badRequest("A retainer names tokensPerRun: what one run may spend, in Bank tokens (Opus 5.5 output tokens).");
+    return { lane: "retainer" as const, grantId: null, keyResultId: null, gap: input.gap?.trim() || null, sourceId: null };
+  }
+  if (repeating && by.kind === "agent") throw badRequest("A repeating job runs on a retainer a human approves: give tokensPerRun (what one run may spend, in Bank tokens). It asks in the Town Hall in-tray; its runs start once approved.");
+  return resolveLane(world, buildingId, by, input);
 }
 
 /** End a schedule (cancelled, ran, past its end, lane gone): it never fires again. */
 export function endSchedule(world: World, id: string, reason: string, at: Date = new Date()): Schedule {
   const s = world.schedules.require(id, "schedule");
   if (s.status === "ended") return s;
-  const e = world.schedules.upsert({ ...s, status: "ended", endedReason: reason, nextRunAt: null, updatedAt: at.toISOString() });
+  releaseRetainer(world, s, reason, at);
+  const e = world.schedules.upsert({ ...world.schedules.require(id, "schedule"), status: "ended", endedReason: reason, nextRunAt: null, updatedAt: at.toISOString() });
   world.events.append({ type: "schedule.ended", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" ended: ${reason}`, payload: { scheduleId: s.id, reason, runs: s.runs } });
   return e;
 }
@@ -150,24 +178,61 @@ export function editSchedule(world: World, actor: Agent, id: string, raw: unknow
   const endsAt = input.repeat !== undefined ? endOf(input.repeat, next, at) : s.endsAt;
   if (rep.maxRuns && s.runs >= rep.maxRuns) throw badRequest(`repeat.times: it has already run ${s.runs} time(s); give more, or cancel it.`);
   const changed = Object.keys(input).filter((k) => k !== "paused" || input.paused !== s.paused);
+  if (input.tokensPerRun !== undefined && s.lane !== "retainer" && input.tokensPerRun > 0) throw badRequest(`Schedule "${s.title}" runs in lane ${s.lane ?? "directed"}, not on a retainer: cancel it and schedule it again with tokensPerRun.`);
+  if (input.tokensPerRun === 0 && s.lane === "retainer") throw badRequest("A retainer's tokensPerRun stays above 0: cancel the schedule to stop it.");
+  const draft: Schedule = { ...s, ...rep, endsAt, paused, nextRunAt: next.toISOString(), tokensPerRun: input.tokensPerRun ?? s.tokensPerRun };
+  const ret = retainerAfterEdit(s, draft, at);
   const e = world.schedules.upsert({
-    ...s, ...rep, endsAt, paused, nextRunAt: next.toISOString(), updatedAt: at.toISOString(),
+    ...draft, retainer: ret.retainer, updatedAt: at.toISOString(),
     ...(input.title !== undefined ? { title: input.title } : {}), ...(input.description !== undefined ? { description: input.description } : {}),
     ...(input.pages !== undefined ? { pages: attachablePages(world, s.buildingId, input.pages) } : {}),
     ...(input.model !== undefined ? { model: input.model ? checkForkModel(world.buildings.require(s.buildingId, "building"), input.model) : null } : {}),
   });
   const what = input.paused !== undefined && input.paused !== s.paused ? (input.paused ? "paused" : "resumed") : "edited";
-  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${stamp(e.nextRunAt!)}`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt } });
+  world.events.append({ type: "schedule.edited", buildingId: s.buildingId, text: `${actor.name} ${what} schedule "${truncate(e.title, 80)}": ${describeRepeat(e)}${e.paused ? ", paused" : `, next ${stamp(e.nextRunAt!)}`}`, payload: { scheduleId: s.id, changed, paused: e.paused, nextRunAt: e.nextRunAt, tokensPerRun: e.tokensPerRun, retainer: e.retainer } });
+  if (ret.reask) askRetainer(world, e, ret.reask, at);
   return e;
 }
 
 /**
- * Who takes a fired schedule's work: the building queue (held by the manager until a fork takes it); a building with no
- * manager agent: nobody (null). One named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1).
+ * Raise a retainer schedule's per-run amount from the code (no human actor: the town keeps a schedule it made in step
+ * with a constant, e.g. the Secretary's ranking run moving to Fable). The same path as an edit's: the retainer is asked
+ * again (`retainerAfterEdit`, `askRetainer`), so the new total runs only once a human approves it; `schedule.edited`
+ * says why. Never lowers it; a schedule that ended or isn't on a retainer is returned as it is.
  */
-export function scheduleTaker(world: World, b: Building): { agentId: string; queue: "agent" | "building" } | null {
-  const manager = managerAgentOf(world, b);
-  return manager ? { agentId: manager.id, queue: "building" } : null;
+export function raiseRetainerPerRun(world: World, s: Schedule, tokensPerRun: number, why: string, at: Date = new Date()): Schedule {
+  if (s.status === "ended" || s.lane !== "retainer" || s.tokensPerRun >= tokensPerRun) return s;
+  const draft: Schedule = { ...s, tokensPerRun };
+  const ret = retainerAfterEdit(s, draft, at);
+  const e = world.schedules.upsert({ ...draft, retainer: ret.retainer, updatedAt: at.toISOString() });
+  world.events.append({
+    type: "schedule.edited", buildingId: s.buildingId,
+    text: `The town raised schedule "${truncate(e.title, 80)}" from ${s.tokensPerRun.toLocaleString("en-US")} to ${tokensPerRun.toLocaleString("en-US")} tokens per run (${why})${ret.reask ? "; its retainer is asked again" : ""}`,
+    payload: { scheduleId: s.id, changed: ["tokensPerRun"], from: s.tokensPerRun, tokensPerRun, retainer: e.retainer, why },
+  });
+  if (ret.reask) askRetainer(world, e, ret.reask, at);
+  return e;
+}
+
+/** `takerId` when it names a resident of `b` who can take work (not a fork, not stopped or gone), else undefined. */
+function residentTaker(world: World, b: Building, takerId: string): Agent | undefined {
+  const a = world.agents.get(takerId);
+  return a && a.kind === "resident" && !a.forkOf && (a.homeBuildingId ?? a.buildingId) === b.id && a.status !== "stopped" && !isGone(a) ? a : undefined;
+}
+
+/**
+ * Who takes a fired schedule's work: its `takerId` (a resident of the building: the Town Hall's Secretary, whose
+ * building has no forks, on its own queue; gr_kdlogzzo5s) when it names one who can still work; else the forkable
+ * manager, whose work createAssignment puts on the building queue; a building with no manager agent: nobody (null).
+ */
+export function scheduleTaker(world: World, b: Building, s?: Pick<Schedule, "takerId">): { agentId: string } | null {
+  // a takerId naming the forking manager still lands on the building queue (createAssignment routes by building)
+  if (s?.takerId) {
+    const r = residentTaker(world, b, s.takerId);
+    return r ? { agentId: r.id } : null;
+  }
+  const manager = forkableManagerOf(world, b);
+  return manager ? { agentId: manager.id } : null;
 }
 
 /**
@@ -177,6 +242,9 @@ export function scheduleTaker(world: World, b: Building): { agentId: string; que
  */
 export function fireSchedules(world: World, at: Date = new Date()): { fired: Assignment[]; ended: Schedule[] } {
   const fired: Assignment[] = [], ended: Schedule[] = [];
+  watchRetainerRuns(world);
+  // a paused schedule past its end never fires again: end it, so its retainer's claim goes back to the Bank
+  for (const s of world.schedules.where("status = 'active' AND paused = 1 AND endsAt IS NOT NULL AND endsAt < ?", [at.toISOString()])) ended.push(endSchedule(world, s.id, "past its end (paused)", at));
   for (const s of world.schedules.where("status = 'active' AND paused = 0 AND nextRunAt <= ?", [at.toISOString()], "ORDER BY nextRunAt")) {
     const b = world.buildings.get(s.buildingId);
     if (!b) { ended.push(endSchedule(world, s.id, "its building is gone", at)); continue; }
@@ -196,15 +264,33 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       advance({});
       continue;
     }
-    const taker = scheduleTaker(world, b);
-    if (!taker) { ended.push(endSchedule(world, s.id, `${b.name} has nobody to take it (no manager or residents)`, at)); continue; }
+    // a funded retainer's run with nothing usable to run on is missed, not queued (retainers.ts; Mitchell 2026-11-01)
+    if (s.lane === "retainer" && s.retainer === "funded") {
+      const why = retainerMissReason(world, s, at);
+      if (why) {
+        missRetainerRun(world, s, why, at);
+        advance({ missedRuns: s.missedRuns + 1, missedSince: s.missedSince ?? at.toISOString() });
+        continue;
+      }
+    }
+    // a run with nothing to do ends here, before any session (the Secretary: nothing new since its last ranking, or an empty week)
+    const idle = scheduleIdleReason(world, s, at);
+    if (idle) {
+      world.events.append({ type: "schedule.skipped", buildingId: s.buildingId, text: `Schedule "${truncate(s.title, 80)}" skipped a run: ${idle}`, payload: { scheduleId: s.id, reason: idle } });
+      advance({});
+      continue;
+    }
+    const taker = scheduleTaker(world, b, s);
+    if (!taker) { ended.push(endSchedule(world, s.id, s.takerId ? `${world.nameOf(s.takerId)} can no longer take it` : `${b.name} has nobody to take it (no manager or residents)`, at)); continue; }
     let a: Assignment;
     try {
       a = world.transaction(() => {
         const made = createAssignment(world, {
-          agentId: taker.agentId, title: s.title, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
-          lane: { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
-          origin: s.origin, queue: taker.queue, model: taker.queue === "building" ? s.model : null,
+          agentId: taker.agentId, title: s.title, description: calibrationRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
+          // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
+          lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
+          // a named taker runs on the schedule's model too (the Secretary: SECRETARY_MODEL)
+          origin: s.origin, model: s.model,
         });
         return s.pages.length ? world.assignments.patch(made.id, { pages: s.pages }) : made;
       });
@@ -223,11 +309,16 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
       }, `Schedule ended: ${s.title}`);
       continue;
     }
-    advance({ runs: s.runs + 1, lastRunAt: at.toISOString(), lastAssignmentId: a.id });
-    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${taker.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: taker.queue } });
+    advance({ runs: s.runs + 1, lastRunAt: at.toISOString(), lastAssignmentId: a.id, missedRuns: 0, missedSince: null });
+    world.events.append({ type: "schedule.fired", agentId: a.agentId, buildingId: b.id, text: `Schedule "${truncate(s.title, 80)}" fired: ${a.queue === "building" ? `queued to ${b.name} (a fork runs it)` : `${world.nameOf(a.agentId)} takes it`}`, payload: { scheduleId: s.id, assignmentId: a.id, queue: a.queue, ...(s.missedRuns ? { afterMissed: s.missedRuns } : {}) } });
     fired.push(a);
   }
   return { fired, ended };
+}
+
+/** Why a due run has nothing to do (it is skipped, no session), or null: the Secretary's runs and the Planner's calibration know one. */
+function scheduleIdleReason(world: World, s: Schedule, at: Date): string | null {
+  return s.takerId && s.takerId === world.secretary.agent()?.id ? secretaryIdleReason(world, s, at) : calibrationIdleReason(world, s, at);
 }
 
 /** A building's schedules, active first (soonest run first), then the 20 most recently ended. */

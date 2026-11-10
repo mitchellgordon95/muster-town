@@ -7,7 +7,6 @@
  * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { store, useTown } from "../state";
@@ -19,8 +18,10 @@ import { krStatusLabel, krTone } from "./keyResults";
 import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
-import { FreeTokensLine, capText } from "./FreeTokens";
+import { FreeTokensLine, capText, desksText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
+import { GE_DETAIL_KEY } from "./panelResize";
+import { Sheet } from "./Sheet";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -65,16 +66,6 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
     const at = root && focusKr ? krGoal(root, focusKr) : null;
     if (at) select(at.id);
   }, [root?.id, focusKr]);
-  // Esc closes the sheet only when no side panel sits beside it (the app's own Esc closes that panel first)
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      const el = document.activeElement as HTMLElement | null;
-      if (e.key !== "Escape" || store.state.panel || (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"))) return;
-      onClose();
-    };
-    window.addEventListener("keydown", key, true);
-    return () => window.removeEventListener("keydown", key, true);
-  }, [onClose]);
   const toggle = (id: string) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const select = (id: string | null) => {
     const to = id ?? ROOT_GOAL_ID;
@@ -83,45 +74,36 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   };
   const byNode = new Map<string, number>();
   if (root) for (const p of proposals.data ?? []) { const id = proposalNode(root, p).id; byNode.set(id, (byNode.get(id) ?? 0) + 1); }
-  return createPortal(
-    <div className="ge-wrap" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="ge" role="dialog" aria-label="Goal tree">
-        <header className="ge-head">
-          <div className="panel-icon"><Glyph kind="goals" /></div>
-          <div className="who">
-            <div className="who-title">Goal tree</div>
-            <div className="who-sub">{anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}</div>
+  return (
+    <Sheet label="Goal tree" className="goal-sheet" icon={<Glyph kind="goals" />} title="Goal tree" onClose={onClose}
+      sub={anyEdit ? "The town's goals and key results: pick one to edit it, add under it or decide its proposals" : "The town's goals and key results (read-only)"}
+      actions={anyEdit ? <Act small tone="primary" run={() => openPlanner(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
+      status={<ErrorLine error={tree.error ?? proposals.error} />}
+      mainClass={root && node ? "ge-canvas" : undefined} mainLabel={root && node ? "Goals" : undefined}
+      sideKey={GE_DETAIL_KEY} sideShare={40} dividerLabel="Resize the goal detail" phone="split"
+      sideIsMain sideClass="plain" sideRef={detail}
+      side={root && node ? (
+        <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
+          proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
+      ) : undefined}>
+      {!root || !node ? <Loading /> : (
+        <>
+          <div className="ge-tools">
+            <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="">All buildings</option>
+              {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
+              {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
           </div>
-          {anyEdit ? <Act small tone="primary" run={() => openPlanner(node?.id)} title="Open your 1:1 with the Planner beside the tree: it drafts proposals you accept or cut here">Talk to the Planner</Act> : null}
-          <button className="close" title="Close (Esc)" aria-label="Close" onClick={onClose}>×</button>
-        </header>
-        <ErrorLine error={tree.error ?? proposals.error} />
-        {!root || !node ? <Loading /> : (
-          <div className="ge-body">
-            <div className="ge-tree ge-canvas" aria-label="Goals">
-              <div className="ge-tools">
-                <select aria-label="Building filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
-                  <option value="">All buildings</option>
-                  {isFunder ? <option value={FUNDED}>Funded by me</option> : null}
-                  {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
-              </div>
-              <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
-                scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
-                canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
-                onSelect={select} onToggle={toggle} onMoved={reload}
-                onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
-            </div>
-            <main className="ge-detail" ref={detail} tabIndex={-1}>
-              <GoalDetail key={node.id} root={root} node={node} me={me} focusKr={focusKr} onSelect={select} onDone={reload}
-                proposals={(proposals.data ?? []).filter((p) => node.id === ROOT_GOAL_ID || subtreeIds(node).has(proposalNode(root, p).id))} />
-            </main>
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
+          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
+            scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
+            canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
+            onSelect={select} onToggle={toggle} onChanged={reload}
+            onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
+        </>
+      )}
+    </Sheet>
   );
 }
 
@@ -281,6 +263,7 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
  * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
  * funder's with goals.edit here (an admin or the goal's captain); blank = inherit.
  */
+let settingsOpen = false;
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
   const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
   useEffect(() => setCap(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay)), [node.id, node.exploreCapTokensPerDay]);
@@ -288,22 +271,53 @@ function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: G
   const { exploreCap } = node.funding;
   const above = node.parentId ? findGoal(root, node.parentId)?.funding.exploreCap ?? null : null;
   const next = cap.trim() === "" ? null : Math.max(0, fromMillions(cap) || 0);
+  const summary = [exploreCap ? `cap ${fmtTokens(exploreCap.tokensPerDay)} / day` : "no cap", `exploration ${node.funding.explore.on ? "on" : "off"}`, desksText(node, root) ? "desk total set" : null].filter(Boolean).join(" · ");
   return (
     <div className="ge-funding">
       <div className="ge-funding-row">
         <span className="ge-funding-label">Free tokens</span>
         <FreeTokensLine free={node.funding.free} />
       </div>
-      <div className="ge-funding-row">
-        <span className="ge-funding-label">Exploration cap</span>
-        {can ? <>
-          <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
-          <span className="muted">/ day</span>
-          <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
-        </> : null}
-        <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
-      </div>
-      <ExploreRow node={node} can={can} onDone={onDone} />
+      {/* the knobs (cap, explore rule, chunk, desk total) fold to one line (kr_3jie8qwdt6): the goal opens on the goal; the
+          open state carries across goals so a captain setting several doesn't reopen it each time */}
+      <details className="ge-settings" open={settingsOpen} onToggle={(e) => { settingsOpen = e.currentTarget.open; }}>
+        <summary><b>Exploration and money settings</b><span className="muted">{summary}</span></summary>
+        <div className="ge-funding-row">
+          <span className="ge-funding-label">Exploration cap</span>
+          {can ? <>
+            <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
+            <span className="muted">/ day</span>
+            <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
+          </> : null}
+          <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
+        </div>
+        <ExploreRow node={node} can={can} onDone={onDone} />
+        <DesksRow root={root} node={node} can={can} onDone={onDone} />
+      </details>
+    </div>
+  );
+}
+
+/**
+ * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks the buildings under this goal may have, set here
+ * or above (the smallest on the path binds). Same editors as the cap; a captain can't go above the total over them.
+ */
+function DesksRow({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
+  const own = node.desksTotal ?? null;
+  const [total, setTotal] = useState(own == null ? "" : String(own));
+  useEffect(() => setTotal(own == null ? "" : String(own)), [node.id, own]);
+  const line = desksText(node, root);
+  if (!can && !line) return null;
+  const next = total.trim() === "" ? null : Math.max(0, Math.round(Number(total)) || 0);
+  const above = node.parentId ? findGoal(root, node.parentId)?.funding.desksTotal ?? null : null;
+  return (
+    <div className="ge-funding-row">
+      <span className="ge-funding-label">Desk total</span>
+      {can ? <>
+        <input className="ge-desks-input" type="number" min={0} style={{ width: 64 }} value={total} placeholder={above ? String(above.total) : "none"} onChange={(e) => setTotal(e.target.value)} />
+        <Act small tone="primary" disabled={next === own} title="The most desks the buildings under this goal may have; blank = none set here (the smallest total on the path binds)" run={() => api().updateGoal(node.id, { desksTotal: next }).then(onDone)}>Save</Act>
+      </> : null}
+      <span className={line ? undefined : "muted"}>{line ?? "none"}</span>
     </div>
   );
 }
@@ -386,7 +400,7 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
 
 /**
  * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
- * The ask waits in the Town Hall in-tray for the goal's current captain or an admin; once asked, it says so instead.
+ * The ask waits in the decision queue for the goal's current captain or an admin; once asked, it says so instead.
  */
 function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
   const member = useTown((s) => !!s.me?.canInteract);
@@ -394,10 +408,10 @@ function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) 
   const [open, setOpen] = useState(false), [note, setNote] = useState("");
   const mine = asks.data?.find((r) => r.userId === userId);
   if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
-  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the Town Hall in-tray for {mine.captainName} to accept or decline.</div>;
+  if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the decision queue for {mine.captainName} to accept or decline.</div>;
   const ask = async () => {
     await api().askToCaptain(node.id, note.trim() || undefined);
-    store.toast(`Asked to captain "${node.text}": ${node.owner.name} decides from the Town Hall in-tray.`, "ok");
+    store.toast(`Asked to captain "${node.text}": ${node.owner.name} decides from the decision queue.`, "ok");
     setOpen(false); setNote(""); asks.reload();
   };
   return (
@@ -562,7 +576,7 @@ export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: G
 }
 
 /**
- * One goal proposal with its Accept / Edit and accept / Cut, outside the editor (the Town Hall in-tray and the review
+ * One goal proposal with its Accept / Edit and accept / Cut, outside the editor (the decision queue and the review
  * deck, step 4): loads the tree it needs for the proposal's place and the viewer's `goals.edit` there.
  */
 export function GoalProposalItem({ p, onDone }: { p: GoalProposalView; onDone: () => void }) {

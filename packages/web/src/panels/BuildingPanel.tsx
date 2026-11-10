@@ -1,24 +1,26 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+import { goToQueue } from "./DecisionQueue";
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
-import { BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type SnapshotBuilding, type Workspace } from "@muster-town/schema";
-import { api } from "../api";
+import { type Agent, BuildingDefaults, MAX_HEADCOUNT, ROOT_GOAL_ID, type Schedule, type ScheduleView, type SnapshotBuilding, type TownPublish, type Workspace } from "@muster-town/schema";
+import { ApiError, api } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { QueueTab } from "./QueueTab";
 import { Meter } from "./AgentPanel";
-import { Act, Empty, Field, KV, NumberInput, Pill, Section, fmtTokens, usd, useLoad } from "./ui";
+import { ADJ_HINT, Act, Empty, ErrorLine, Field, KV, NumberInput, Pill, Section, fmtTokens, timeAgo, usd, useLoad } from "./ui";
 import { repeatLabel, runsAtLabel } from "../format";
 import { layoutEdit } from "../map/layoutEdit";
-import { canOneOnOne, openOneOnOne, openPlanner } from "./oneOnOne";
+import { canTalkAtTownHall, canTalkToManager, openOneOnOne, openPlanner, secretaryOf } from "./oneOnOne";
 import { UNBLOCK_LINE, blockedLabel } from "./keyResults";
 import { GoalTabsSummary, GoalsTab, GrantsTab } from "./GoalsTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { findGoal } from "./goalTree";
 import { purposeOf } from "../purpose";
 import { IdLink } from "./Markdown";
+import { PlantFlag } from "./Places";
 
-/** "Captain: <captain>" (docs/goals.md "Captains on nodes"): the attachment's effective owner, once; the goal card above already says the goal, so only a link to it in the Town Hall goal tree follows. */
+/** "Captain: <captain>" (docs/goals.md "Captains on nodes"): the attachment's effective owner, once; the goal card above already says the goal (its place in the Town Hall goal tree is in the "Go to" fold). */
 function GoalOwner({ b }: { b: SnapshotBuilding }) {
   const root = useGoalTree();
   if (!root) return null;
@@ -26,7 +28,7 @@ function GoalOwner({ b }: { b: SnapshotBuilding }) {
   const node = findGoal(root, goalId);
   if (!node) return null;
   return (
-    <div className="muted goal-meta">Captain: <b>{node.owner.name}</b> · <button className="link" title={goalPath(root, goalId)} onClick={() => store.open({ kind: "goals", id: goalId })}>in the goal tree →</button></div>
+    <div className="muted goal-meta" title={goalPath(root, goalId)}>Captain: <b>{node.owner.name}</b></div>
   );
 }
 
@@ -62,9 +64,15 @@ function repoLabel(ws: Workspace): string {
   return ws.repoUrl ? ws.repoUrl.replace(/^(?:https:\/\/|ssh:\/\/)?(?:git@)?github\.com[:/]/, "").replace(/\.git$/, "") : ws.path;
 }
 
+/** Whether the "Go to" fold is open: kept across buildings and tabs for the page's life. */
+let walkOpen = false;
+
 function Overview({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
+  const secretary = b.kind === "town-hall" ? secretaryOf(agents, b.id) : null;
+  const goalRoot = useGoalTree();
+  const rootCaptain = b.kind === "town-hall" && goalRoot ? findGoal(goalRoot, ROOT_GOAL_ID)?.owner.name ?? null : null;
   const members = useMemo(() => Object.values(agents).filter((a) => (a.homeBuildingId ?? a.buildingId) === b.id && a.kind === "resident"), [agents, b.id]);
   const budget = useLoad(() => api().budget(), [b.id]);
   const row = budget.data?.buildings.find((x) => x.buildingId === b.id);
@@ -73,10 +81,16 @@ function Overview({ b }: { b: SnapshotBuilding }) {
     ? { today: row.tokensToday ?? 0, allTime: row.tokensAllTime } : live ? { today: live.tokensToday ?? 0, allTime: live.tokensAllTime ?? 0 } : null;
   const places = useTown((s) => s.places);
   const hasBoard = places.some((p) => p.id === `board:${b.id}`);
+  // Plant a flag here (gr_zsm1piyqyx): whoever may (building.assign, or a captain of its goal), same form as F on the map
+  const canInteract = useTown((s) => s.me?.canInteract !== false);
+  const flagHere = b.kind !== "town-hall" && canInteract && store.canFlag(b.id);
+  const [flagging, setFlagging] = useState(false);
   const hasCabinet = places.some((p) => p.id === `cabinet:${b.id}`);
   const hasTray = places.some((p) => p.id === `intray:${b.id}`);
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
+  const hasHydrant = places.some((p) => p.id === `hydrant:${b.id}`);
   const purpose = purposeOf(b, places);
+  const goTo = [hasBoard && "board", hasCabinet && "filing cabinet", hasTray && "manager's desk", hasHydrant && "decision queue", hasRoom && "meeting table", b.kind !== "town-hall" && "goal tree"].filter(Boolean);
   return (
     <>
       {purpose ? <div className="goal-card"><span>Goal</span>{purpose}</div> : null}
@@ -87,33 +101,40 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       ) : null}
       {b.kind !== "town-hall" ? <GoalOwner b={b} /> : null}
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
-      {hasBoard || hasTray || hasRoom ? (
+      {/* the places here and the goal tree, folded to one line (gr_zak30564zh step 4: the first screen keeps the summary) */}
+      {goTo.length ? <details className="walk-fold" open={walkOpen} onToggle={(e) => { walkOpen = (e.currentTarget as HTMLDetailsElement).open; }}>
+        <summary>Go to: {goTo.join(" · ")}{b.intray && (hasTray || hasHydrant) ? <> <Pill tone="warn">{b.intray} waiting</Pill></> : null}</summary>
         <div className="walk-links">
           {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
           {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
           {hasTray ? (
             <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
-              <Glyph kind="intray" /><span>Walk to the in-tray</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+              <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+            </button>
+          ) : null}
+          {hasHydrant ? (
+            <button className="walk-link" onClick={goToQueue}>
+              <Glyph kind="hydrant" /><span>Walk to the hydrant (the decision queue, one item at a time)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
             </button>
           ) : null}
           {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
+          {b.kind !== "town-hall" ? <button className="walk-link" onClick={() => store.open({ kind: "goals", id: b.goalId ?? ROOT_GOAL_ID })}><Glyph kind="building" /><span>This goal in the town goal tree</span></button> : null}
+          {store.can("building.manage", b.id) && !api().mock ? (
+            <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
+              <Glyph kind="building" /><span>Edit layout</span>
+            </button>
+          ) : null}
+        </div>
+      </details> : null}
+      {b.kind !== "town-hall" && ((b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id)) || flagHere) ? (
+        <div className="actions">
+          {b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? <Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act> : null}
+          {flagHere && !flagging ? <button className="btn" onClick={() => setFlagging(true)} title="A quick request for this building's manager to delegate (F on the map)">⚑ Plant a flag</button> : null}
         </div>
       ) : null}
-      {b.kind !== "town-hall" && b.managerAgentId && agents[b.managerAgentId] && canOneOnOne(b.id) ? (
-        <div className="actions"><Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
-      ) : null}
-      {b.kind === "town-hall" && b.managerAgentId && agents[b.managerAgentId] && (store.can("goals.edit") || canOneOnOne(b.id)) ? (
-        <div className="actions"><Act tone="primary" run={() => openPlanner()}>Talk to ★ {agents[b.managerAgentId].name}</Act></div>
-      ) : null}
-      {store.can("building.manage", b.id) && !api().mock ? (
-        <div className="walk-links">
-          <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
-            <Glyph kind="building" /><span>Edit layout</span>
-          </button>
-        </div>
-      ) : null}
+      {flagging ? <PlantFlag targets={[b]} onClose={() => setFlagging(false)} /> : null}
       <KV items={[
-        ["Adj. tokens used", usage ? <><b>{fmtTokens(usage.today)}</b> today · <b>{fmtTokens(usage.allTime)}</b> all-time</> : budget.loading ? "…" : "—"],
+        ["Work done", usage ? <span title={ADJ_HINT}><b>{fmtTokens(usage.today)}</b> tokens today · <b>{fmtTokens(usage.allTime)}</b> in all</span> : budget.loading ? "…" : "—"],
         ...(b.kind !== "town-hall" ? [
           ["Budget", live && live.bankTokens > 0 ? <>{fmtTokens(live.remainingTokens)} left to draw from the Bank</>
             : row && row.allocated > 0 ? <>{fmtTokens(row.allocated - row.spent)} left of {fmtTokens(row.allocated)} <Meter v={row.spent / row.allocated} /></>
@@ -121,26 +142,55 @@ function Overview({ b }: { b: SnapshotBuilding }) {
           ["Spent", row?.spentUsd !== undefined ? usd(row.spentUsd) : "—"],
           ["Collective defaults", defaultsLine(b, repo)],
           ["Desks", `${members.length} / ${b.headcount}`],
-          ["In-tray", b.managerAgentId ? `worked by ★ ${agents[b.managerAgentId]?.name ?? "the manager agent"}` : "worked by you (no manager agent)"],
+          ["Reports", b.managerAgentId ? `★ ${agents[b.managerAgentId]?.name ?? "The manager agent"} reads and decides them` : "people with review rights read and decide them (no manager agent)"],
         ] : [
-          ["Manager", b.managerAgentId && agents[b.managerAgentId] ? <>★ {agents[b.managerAgentId].name}: the planning agent. It answers 1:1s and facilitates reorg meetings; the in-tray is the humans'.</> : "the Planner, once someone plans with it"],
+          // the Town Hall is the humans' (1:1 mt_1vs893enaw decision 2): its manager is the root goal's captain; its agents are staff
+          ["Manager", <>the root goal's captain{rootCaptain ? <>: <b>{rootCaptain}</b></> : null}. The decision queue at the hydrant is the humans'.</>],
+          ["Staff", <TownHallStaff hallId={b.id} planner={b.managerAgentId ? agents[b.managerAgentId] : undefined} secretary={secretary} />],
         ]) as [string, ReactNode][],
       ]} />
     </>
   );
 }
 
+/** The Town Hall's agents a human can talk to, a button each (no ★: the Town Hall's manager is the root goal's captain). */
+export function TownHallStaff({ hallId, planner, secretary }: { hallId: string; planner?: Agent; secretary: Agent | null }) {
+  const can = !!store.state.me && canTalkAtTownHall(hallId);
+  const live = planner && planner.status !== "stopped" ? planner : undefined;
+  if (!live && !secretary) return <>none yet</>;
+  return (
+    <span className="actions">
+      {live ? (can ? <Act small run={() => openPlanner()} title="Plan the goal tree with it: goal changes and reorgs">Talk to {live.name}</Act> : <span>{live.name} (plans the goal tree)</span>) : null}
+      {secretary ? (can ? <Act small run={() => openOneOnOne(hallId, { agentId: secretary.id })} title="It ranks your asks and writes the money slate; in a 1:1 it does a decision you say in your own words">Talk to {secretary.name}</Act> : <span>{secretary.name} (ranks your asks)</span>) : null}
+    </span>
+  );
+}
+
 /** The collective defaults as this building runs them (read-only here; an admin sets them in the Town Hall's Settings). */
 function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNode {
   return <span title="Set for every building at once in the Town Hall's Settings (admins)">
-    {b.model} · cheap: {b.cheapModel} · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : " · no code access"}
+    {b.model} · cheap: {b.cheapModel} · {b.maxTurnsPerSession} turns{b.codeAccess && repo ? <> · code on <code>{repoLabel(repo)}</code></> : repo ? " · no code access" : null}
   </span>;
 }
 
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
 function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
-  const lane = x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
+  const lane = x.lane === "retainer" ? "retainer" : x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
   return <>{lane} · {b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}</>;
+}
+
+const RETAINER_WORDS: Record<ScheduleView["retainer"], string> = { none: "none", asked: "asked: waits on a human in the decision queue", funded: "approved", countered: "countered: waits on the manager", rejected: "rejected", ended: "ended" };
+
+/** A schedule's retainer on its card: per run, runs left, drawn (of the approved total) and its state. */
+function RetainerMeta({ x }: { x: ScheduleView }) {
+  const n = (t: number) => t.toLocaleString("en-US");
+  return (
+    <div className="doc-row-meta retainer-meta">
+      <span>retainer: {n(x.tokensPerRun)} per run · {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"} left · drawn {n(x.drawnTokens ?? 0)}{x.retainerTokens ? ` of ${n(x.retainerTokens)}` : ""}{x.retainer === "funded" ? ` · claims ${n(x.claimTokens ?? 0)} now` : ""}</span>
+      <Pill tone={x.retainer === "funded" ? "ok" : x.retainer === "asked" || x.retainer === "countered" ? "warn" : undefined}>{RETAINER_WORDS[x.retainer] ?? x.retainer}</Pill>
+      {x.missedRuns ? <Pill tone="bad">missed {x.missedRuns} run{x.missedRuns === 1 ? "" : "s"}</Pill> : null}
+    </div>
+  );
 }
 
 /** The building's Schedule tab (GET /api/scheduled): timed jobs that live on the building; each run goes to whoever is around. The schedule board on the map opens it. */
@@ -156,7 +206,7 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
       {!rows.length ? <Empty>Nothing scheduled. A manager adds a timed job with the <code>schedule</code> tool; each run goes to whoever is around.</Empty> : (
         <div className="doc-list">{rows.map((x) => {
           const last = x.lastAssignmentId ? assignments[x.lastAssignmentId] : undefined;
-          const swap = (y: Schedule) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
+          const swap = (y: ScheduleView) => store.set({ scheduled: store.state.scheduled.map((z) => z.id === y.id ? y : z) });
           return (
             <div key={x.id} className="doc-row" title={x.description}>
               <b>{x.title}</b> {x.paused ? <Pill tone="warn">paused</Pill> : null}
@@ -164,6 +214,10 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
                 <span>next {x.paused ? "— (paused)" : x.nextRunAt ? runsAtLabel(x.nextRunAt) : "—"}</span>
                 <span>{repeatLabel(x)}{x.endsAt ? ` until ${x.endsAt.slice(0, 10)}` : ""}{x.runs ? ` · ran ${x.runs}×` : ""}</span>
               </div>
+              {/* the retainer, the last run, what it creates and Pause / Cancel fold under the row (gr_zak30564zh step 5): the tab opens on what runs when */}
+              <details className="kr-more schedule-more">
+              <summary>{[x.lane === "retainer" ? "retainer" : "", x.lastAssignmentId ? "last run" : "", "what it creates", canCancel ? "pause or cancel" : ""].filter(Boolean).join(" · ")}</summary>
+              {x.lane === "retainer" ? <RetainerMeta x={x} /> : null}
               {x.lastAssignmentId ? <div className="doc-row-meta"><span>last fired: {last ? `"${last.title}" (${last.status === "pending" ? "queued" : last.status === "active" ? "running" : last.status})` : x.lastAssignmentId}{x.lastRunAt ? ` · ${runsAtLabel(x.lastRunAt)}` : ""}</span></div> : null}
               <div className="doc-row-meta">
                 <span>creates: {createsLabel(x, b)}</span>
@@ -172,6 +226,7 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
                   <Act small run={async () => { await api().cancelSchedule(x.id); store.set({ scheduled: store.state.scheduled.filter((y) => y.id !== x.id) }); }}>Cancel</Act>
                 </span> : null}
               </div>
+              </details>
             </div>
           );
         })}</div>
@@ -209,7 +264,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           ? <span><input type="number" min={1} max={MAX_HEADCOUNT} value={desks} onChange={(e) => setDesks(Math.max(1, Math.min(MAX_HEADCOUNT, Math.floor(Number(e.target.value)) || 1)))} /> {b.lot ? `${b.lot.w}×${b.lot.h} now` : ""}</span>
           : <span>{b.lot ? `${b.lot.w}×${b.lot.h} · ` : ""}{b.headcount} desk{b.headcount === 1 ? "" : "s"}</span>}
       </Field>
-      {b.kind !== "town-hall" ? <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups go to the Town Hall in-tray. None: you work the in-tray.">
+      {b.kind !== "town-hall" ? <Field label="Manager" hint="Every building made at the planning desk gets its manager when it is built: one named agent at a desk. It works the in-tray (its forks' reports), facilitates meetings and wears the ★ badge; queued work runs on its forks; its rollups reach the decision queue at the Town Hall. None: you work the in-tray.">
         <select value={f.managerAgentId ?? ""} onChange={(e) => set("managerAgentId", e.target.value || null)}>
           <option value="">none</option>
           {named.map((a) => <option key={a.id} value={a.id} disabled={a.status === "stopped" || a.status === "banned"}>{a.name}{a.status === "stopped" || a.status === "banned" ? ` (${a.status})` : ""}</option>)}
@@ -228,7 +283,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
       }}>Save settings</Act></div>
     </form>
     </Section>
-    {b.kind === "town-hall" && admin ? <CollectiveDefaults /> : null}
+    {b.kind === "town-hall" && admin ? <><CollectiveDefaults /><PublishToGitHub /></> : null}
   </>);
 }
 
@@ -257,17 +312,104 @@ function CollectiveDefaults() {
         <div className="row2">
           <Field label="Max turns / session" hint="Safety rail"><NumberInput min={1} value={f.maxTurnsPerSession} onChange={(n) => set("maxTurnsPerSession", n)} /></Field>
         </div>
-        <Field label="Code access" hint={repo
+        {/* no repo (every hosted collective): nothing to give code access to, so no row (1:1 mt_1vs893enaw) */}
+        {repo ? <Field label="Code access" hint={repo
           ? "Managers and their forks work on the collective's repo, each on its own branch. Needs Docker and a Claude token in the collective's .env on the host (README, Run it)."
           : "This collective has no repo yet (collective.json `workspace`), so there is nothing to give code access to."}>
           <span className="check"><input type="checkbox" checked={f.codeAccess} disabled={!repo && !f.codeAccess} onChange={(e) => set("codeAccess", e.target.checked)} /> {repo ? <>Work on <code>{repoLabel(repo)}</code></> : "No collective repo"}</span>
-        </Field>
+        </Field> : null}
         {differ.length ? <p className="direction">Saving changes {differ.map((x) => x.name).join(", ")} (they run on other values now).</p> : null}
         <div className="actions"><Act tone="primary" disabled={!f.model.trim() || !f.cheapModel.trim()} run={async () => {
           const r = await api().setTownDefaults(next);
           if (town) store.set({ town: { ...town, defaults: r.defaults } });
           store.toast(`Collective defaults saved for ${r.buildings.length} building${r.buildings.length === 1 ? "" : "s"}`, "ok");
         }}>Save for every building</Act></div>
+      </form>
+    </Section>
+  );
+}
+
+/** The Publish to GitHub block's last-push line (gr_30f8obzab8): what the hourly export last did with the repo. */
+export function publishLine(p: TownPublish | undefined, ago: (iso: string) => string = timeAgo): { text: string; bad: boolean } | null {
+  if (!p) return null;
+  if (p.lastPushError) return { text: `Last push failed: ${p.lastPushError}`, bad: true };
+  if (p.lastPushAt) return { text: `Last push: ${ago(p.lastPushAt)}${p.lastPushCommit ? ` · ${p.lastPushCommit.slice(0, 7)}` : ""}`, bad: false };
+  return { text: "No push yet: the next hourly export pushes.", bad: false };
+}
+
+/** The token field's placeholder: the token is write-only, so the field only says whether one is stored. */
+export function tokenPlaceholder(p: TownPublish | undefined): string {
+  return p?.tokenSet ? "set (leave blank to keep it)" : "blank: use the collective's GH_TOKEN";
+}
+
+/** Which token the next push uses (`publish.tokenSource`, read live by the server); null before a repo is saved. */
+export function tokenSourceLine(p: TownPublish | undefined): { text: string; bad: boolean } | null {
+  if (!p) return null;
+  if (p.tokenSource === "own" || (!p.tokenSource && p.tokenSet)) return { text: "Pushes with: this block's own token.", bad: false };
+  if (p.tokenSource === "collective") return { text: "Pushes with: the collective's GH_TOKEN (Secrets tab). It must be able to write to this repo.", bad: false };
+  return { text: "No token: paste one here, or set GH_TOKEN in the Secrets tab. Until then the push fails.", bad: true };
+}
+
+const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
+
+/**
+ * Publish to GitHub (gr_30f8obzab8, admins of this World): the repo the hourly export pushes its mirror to and a token
+ * kept encrypted on the host (or, left blank, the collective's GH_TOKEN) (PUT / DELETE /api/town/publish). A hosted World's panel calls its own /<slug>/api.
+ */
+export function PublishToGitHub() {
+  const town = useTown((s) => s.town);
+  const p = town?.publish;
+  const [repoUrl, setRepoUrl] = useState(p?.repoUrl ?? "");
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const line = publishLine(p);
+  const source = tokenSourceLine(p);
+  const fail = (e: unknown) => {
+    // 409 NO_DATA_KEY and 400 bad URL: keep the server's words in the block, not only a toast
+    if (e instanceof ApiError) { setError(e.message); return; }
+    throw e;
+  };
+  return (
+    <Section title="Publish to GitHub">
+      <form className="form" onSubmit={(e) => e.preventDefault()}>
+        <p className="direction">Every hour the town exports its published docs, meetings, outbox and event log (no drafts, no secrets) and pushes them to a GitHub repo, so anyone can browse its work there.</p>
+        <ol className="muted">
+          <li><b>Repo:</b> create an empty repo you own on GitHub (no README) and paste its URL.</li>
+          <li><b>Token:</b> a <a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">fine-grained token</a> with Contents read/write on that repo, kept encrypted and never shown again. Or leave it blank: the push then uses the collective's <code>GH_TOKEN</code> from the Secrets tab, if that token can write to the repo.</li>
+          <li>Save. The next hourly export pushes; the last push, or its error, shows below.</li>
+        </ol>
+        <Field label="Repo" hint="https://github.com/<owner>/<repo>">
+          <input value={repoUrl} placeholder="https://github.com/owner/repo" onChange={(e) => setRepoUrl(e.target.value)} />
+        </Field>
+        <Field label="Token" hint="Optional when the collective's GH_TOKEN covers the repo">
+          <input type="password" autoComplete="new-password" value={token} placeholder={tokenPlaceholder(p)} onChange={(e) => setToken(e.target.value)} />
+        </Field>
+        {source ? <div className={source.bad ? "error-line" : "muted"}>{source.text}</div> : null}
+        {line ? <div className={line.bad ? "error-line" : "muted"}>{line.text}</div> : null}
+        <ErrorLine error={error} />
+        <div className="actions">
+          <Act tone="primary" disabled={!repoUrl.trim()} run={async () => {
+            setError(null);
+            try {
+              const r = await api().publishSettings({ repoUrl: repoUrl.trim(), ...(token.trim() ? { token: token.trim() } : {}) });
+              const now = store.state.town;
+              if (now) store.set({ town: { ...now, publish: r.publish } });
+              setToken("");
+              store.toast("Publish to GitHub saved: the next hourly export pushes", "ok");
+            } catch (e) { fail(e); }
+          }}>Save</Act>
+          {p ? <Act tone="bad" run={async () => {
+            if (!window.confirm(`Stop publishing to ${p.repoUrl}? The repo URL and the stored token are removed; the repo itself is left as it is.`)) return;
+            setError(null);
+            try {
+              await api().clearPublish();
+              const now = store.state.town;
+              if (now) { const { publish: _gone, ...rest } = now; store.set({ town: rest }); }
+              setRepoUrl(""); setToken("");
+              store.toast("Publishing stopped", "ok");
+            } catch (e) { fail(e); }
+          }}>Clear</Act> : null}
+        </div>
       </form>
     </Section>
   );

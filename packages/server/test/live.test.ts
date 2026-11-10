@@ -1,4 +1,5 @@
 import { VERB_NAMES, LookResult, ServerMessage } from "@muster-town/schema";
+import { townRoleId } from "@muster-town/core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { AddressInfo } from "node:net";
@@ -29,7 +30,8 @@ describe("MCP over Streamable HTTP", () => {
   it("lists every verb and `look` returns a LookResult", async () => {
     const client = await mcpClient(agentToken);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...VERB_NAMES].sort());
+    // this test world has no repo (repoMode none, like a hosted collective): no `redeploy` tool (1:1 mt_1vs893enaw)
+    expect(tools.map((t) => t.name).sort()).toEqual(VERB_NAMES.filter((v) => v !== "redeploy").sort());
     expect(tools.find((t) => t.name === "go")!.inputSchema.properties).toHaveProperty("to");
 
     const res = await client.callTool({ name: "look", arguments: {} });
@@ -37,6 +39,35 @@ describe("MCP over Streamable HTTP", () => {
     const look = LookResult.parse(JSON.parse((res.content as { text: string }[])[0].text));
     expect(look.me.name).toBe("Test Claude");
     await client.close();
+  });
+
+  it("the tool list follows the repo mode: `redeploy` only on this server's repo for whoever holds it; no deploy or PR waits without a repo", async () => {
+    let client = await mcpClient(agentToken);
+    let { tools } = await client.listTools();
+    const report = tools.find((t) => t.name === "submit_report")!;
+    expect(report.description).not.toMatch(/redeploy|\{pr/);
+    // the wait (resumeWhen) offers no deploy or PR kind; a rollup ask's claim check may still be of kind "pr"
+    expect(JSON.stringify((report.inputSchema.properties as Record<string, unknown>).resumeWhen)).not.toMatch(/"deploy"|"pr"/);
+    await client.close();
+    ctx.world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main" } });
+    try {
+      const me = ctx.world.agents.first("name = 'Test Claude'")!;
+      ctx.world.permissions.grant(me, townRoleId("deployer"));
+      client = await mcpClient(agentToken);
+      ({ tools } = await client.listTools());
+      expect(ctx.world.permissions.can(me, "town.redeploy")).toBe(true);
+      expect(tools.map((t) => t.name)).toContain("redeploy");
+      expect(tools.find((t) => t.name === "submit_report")!.description).toMatch(/a redeploy/);
+      await client.close();
+      ctx.world.host.hosted = true;
+      client = await mcpClient(agentToken);
+      ({ tools } = await client.listTools());
+      expect(tools.map((t) => t.name)).not.toContain("redeploy");
+      await client.close();
+    } finally {
+      ctx.world.host.hosted = false;
+      ctx.world.town.set({ workspace: undefined });
+    }
   });
 
   it("verb errors come back as isError tool results; `go` awaits arrival", async () => {
@@ -90,6 +121,26 @@ describe("WebSocket", () => {
     const pos = await waitFor((m) => m.type === "agents.pos" && m.positions.some((p: any) => p.id === snap.avatarAgentId && p.x === plaza.x + 1));
     expect(pos).toBeTruthy();
     ws.close();
+  });
+
+  it("a change reaching N sockets is stringified once, not once per socket (gr_n0p3ast5pp step 4, kr_vc8rkafulk)", async () => {
+    const N = 5;
+    const sockets = Array.from({ length: N }, () => new WebSocket(`${base.replace("http", "ws")}/ws`));
+    const got = sockets.map((ws) => new Promise<void>((resolve) => ws.on("message", (d) => { if (String(d).startsWith('{"type":"snapshot"')) resolve(); })));
+    await Promise.all(got);
+    const change = { type: "agents.pos" as const, positions: [{ id: "ag_stringify_once", x: 1, y: 2, status: "idle" as const }] };
+    const delivered = Promise.all(sockets.map((ws) => new Promise<void>((resolve) => ws.on("message", (d) => { if (String(d).includes("ag_stringify_once")) resolve(); }))));
+    const original = JSON.stringify;
+    let stringified = 0;
+    JSON.stringify = ((value: unknown, ...rest: unknown[]) => { if (value === change) stringified++; return (original as (...a: unknown[]) => string)(value, ...rest); }) as typeof JSON.stringify;
+    try {
+      ctx.world.changes.emit(change);
+      await delivered;
+    } finally {
+      JSON.stringify = original;
+    }
+    expect(stringified).toBe(1);
+    for (const ws of sockets) ws.close();
   });
 
   it("GET /api/health says the Bank counts adjusted output tokens (Bank grant step 3, kr_vyrhhiyotb)", async () => {

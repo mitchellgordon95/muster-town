@@ -5,10 +5,12 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, endMeeting, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, managerAgentOf, managerNewReport, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, sessionMemory, skillsBlock, workSystemPrompt, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, inForce, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
+import { meetingImages } from "./meetingImages.ts";
+import type { ImageBlock } from "./sdk.ts";
 import { claudeDirOf, findSdkTranscript, homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
 
 /** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
@@ -21,10 +23,12 @@ interface ManageState {
   fed: Map<string, { sessionId: string; idx: number }>;
   /** 1:1 meetingId → the busy session already announced in it (one "busy" notice per 1:1 per session) */
   busyNoticed: Map<string, string>;
+  /** 1:1 meetingId → the Bank hold already announced in it (one notice per 1:1 per reason; forgotten when the hold lifts) */
+  heldNoticed: Map<string, string>;
   /** manage sessions given in-tray reports (team-lead work): a 1:1 fed into one cuts its current turn short (interrupt now) */
   leading: Set<string>;
 }
-export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), leading: new Set() });
+export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), heldNoticed: new Map(), leading: new Set() });
 
 /** A 1:1 nobody spoke in for this long (and nobody is typing in) is closed by the town. */
 const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
@@ -70,8 +74,8 @@ interface ManageGate {
  * Offer the building's new in-tray reports and its open 1:1s to its manager agent: stream them into its running manage
  * session, or start one if the manager is idle and can. A no-op for the Town Hall, buildings without a working manager
  * agent, and reports already offered. The manager's rollups are Town Hall items, never in `intrayOf(building)`, so a
- * manage session can't wake itself; the manager's own work reports (self-assigned or meeting-decided work, town hall
- * 2026-10-25 decision 6) are in it and wake the session like a resident's. A 1:1 that ended is announced to the session it was fed
+ * manage session can't wake itself; its forks' reports and the town-written rows (tells, mentions, outbox answers,
+ * grant counter/reject: wakes.ts `intrayRow`) are in it and wake the session. A 1:1 that ended is announced to the session it was fed
  * into (which then ends once no 1:1 is open). While draining, a 1:1 is still answered (and started) but new reports
  * wait; the restart cuts the session, and a fresh one picks the 1:1 up after it. A resident a human opened a 1:1 with is
  * woken the same way, for its 1:1s only. Returns the started sessions' promises.
@@ -81,7 +85,8 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   const building = world.buildings.get(buildingId);
   if (!building) return [];
   // the Town Hall's manager (the Planner) has no in-tray to work: only its 1:1s ("Plan with an agent") are answered, below
-  const mgr = building.kind === "town-hall" ? undefined : managerAgentOf(world, building);
+  // a visitor manager works its in-tray from its own client: the town never starts a session as it (forkableManagerOf)
+  const mgr = building.kind === "town-hall" ? undefined : forkableManagerOf(world, building);
   const out: Promise<Session>[] = [];
   const add = (p: Promise<Session> | null) => { if (p) out.push(p); };
   if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, intrayOf(world, building.id).filter((d) => !st.offered.has(d.id))));
@@ -100,6 +105,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
     if (m?.buildingId === building.id && m.phase !== "discussing" && ![...ctx.live.values()].some((l) => l.sessionId === f.sessionId)) st.fed.delete(mid);
   }
   for (const mid of [...st.busyNoticed.keys()]) if (world.meetings.get(mid)?.phase !== "discussing") st.busyNoticed.delete(mid);
+  for (const mid of [...st.heldNoticed.keys()]) if (world.meetings.get(mid)?.phase !== "discussing") st.heldNoticed.delete(mid);
   return out;
 }
 
@@ -112,6 +118,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
   const talks = openOneOnOnes(world, agent.id);
+  noticeHeld(ctx, st, agent, talks);
   const live = ctx.live.get(agent.id);
   const side = ctx.talking.get(agent.id);
   // the session this agent's conversation goes into: the one alongside its work, else its own manage session
@@ -139,8 +146,8 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     for (const m of talks) {
       const f = st.fed.get(m.id);
       if (f?.sessionId !== talker.sessionId) {
-        const prompt = oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined));
-        if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt)) {
+        const [prompt, images] = seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined)), humanLines(m));
+        if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt, images)) {
           st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
           if (busy) {
             if (st.busyNoticed.get(m.id) !== talker.sessionId) { st.busyNoticed.set(m.id, talker.sessionId); meetingNotice(world, m.id, `${agent.name} is in a team-lead session; it answers between steps.`); }
@@ -150,7 +157,13 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
         continue;
       }
       let said = false;
-      for (const u of m.transcript.slice(f.idx)) if (u.speakerId !== agent.id && u.speakerKind !== "system") said = talker.input.push(oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at) + (busy ? `\n\n${RESUME_IN_TRAY}` : "")) || said;
+      for (const u of m.transcript.slice(f.idx)) {
+        if (u.speakerId === agent.id || u.speakerKind === "system") continue;
+        // the human's line carries the item open on their screen (the decision queue), read live now: "this" means it
+        const onScreen = u.speakerKind === "user" ? focusBlock(world, m) : "";
+        const [line, images] = seeing(world, `${onScreen ? `${onScreen}\n\n` : ""}${oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at)}`, [u]);
+        said = talker.input.push(line + (busy ? `\n\n${RESUME_IN_TRAY}` : ""), images) || said;
+      }
       f.idx = m.transcript.length;
       if (said && busy) cutIn(ctx, talker, `a line in 1:1 ${m.id}`);
     }
@@ -170,6 +183,15 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   const offer = gate.draining() ? [] : fresh;
   for (const d of offer) st.offered.add(d.id);
   return runManageSession(ctx, st, agent.id, offer, talks, undefined, resume);
+}
+
+/** A human's lines in a meeting (the pictures an agent is shown come from these). */
+const humanLines = (m: Meeting) => m.transcript.filter((u) => u.speakerKind === "user");
+
+/** `text` with the pictures in `lines` (meetingImages.ts): the note on what is attached appended, and the image blocks. */
+function seeing(world: World, text: string, lines: Meeting["transcript"]): [string, ImageBlock[]] {
+  const { images, note } = meetingImages(world, lines);
+  return [note ? `${text}\n\n${note}` : text, images];
 }
 
 /** What a team-lead session cut short by a 1:1 is told before the 1:1's prompt. */
@@ -197,6 +219,31 @@ function noticeBusy(ctx: Ctx, st: ManageState, agent: Agent, sessionId: string, 
   }
 }
 
+/**
+ * Tell each open 1:1 whose human is waiting what stops its agent from replying: the Bank holds every credential that
+ * could run it (a plan limit, no token, a hosted collective without a key). Without this the human's lines met silence
+ * until the limit's reset (2026-11-10: the Max plan ran out mid-1:1 and four 1:1s went unanswered with no word why).
+ * Said once per 1:1 per reason, whether the agent has no session or a live one the provider refuses; when the hold
+ * lifts it is forgotten, so a later hold is said again.
+ */
+function noticeHeld(ctx: Ctx, st: ManageState, agent: Agent, talks: Meeting[]): void {
+  if (!talks.length) return;
+  const { world } = ctx;
+  const bid = homeOf(world, agent.id);
+  const now = new Date(); // wall clock, as Budget.canStart reads the same hold
+  const reason = bid ? world.budget.credentialHold(bid, now, { model: world.budget.sessionModel(agent.id) }) : null;
+  for (const m of talks) {
+    if (!reason) { st.heldNoticed.delete(m.id); continue; }
+    // the agent had the last word: nobody is waiting on it yet
+    const last = [...m.transcript].reverse().find((u) => u.speakerKind !== "system");
+    if (last?.speakerId === agent.id || st.heldNoticed.get(m.id) === reason) continue;
+    st.heldNoticed.set(m.id, reason);
+    // an observed limit can be retried by hand once the plan has credit again; the other holds already say what to do
+    const limited = world.bank.availability.open().some((l) => inForce(l, now));
+    meetingNotice(world, m.id, `${agent.name} can't reply yet: ${reason}. ${limited ? `No session can start until then. If the plan has credit again sooner, "Try now" on that input at the Bank lets ${agent.name} answer here.` : `${agent.name} answers here once that is fixed.`}`);
+  }
+}
+
 /** A 1:1 whose last word is the human's while its agent is busy in a work session with no conversation beside it: it waits for that session to end. */
 const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
   if (ctx.talking.has(m.facilitatorId ?? "")) return false;
@@ -206,11 +253,11 @@ const awaitingBusyAgent = (ctx: Ctx, m: Meeting): boolean => {
 };
 
 /**
- * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's brief in a Planner 1:1,
- * and, beside a live work session, what that session is doing and how to hand it the human's request.
+ * What a 1:1's prompt carries after the conversation: the human's past decisions, the Planner's (or the Secretary's) brief in its 1:1,
+ * and, beside a live work session, what that session is doing and how to hand it the human's request; last, the item open on the human's screen.
  */
 const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSession): string =>
-  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : ""].filter(Boolean).join("\n\n");
+  [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), world.secretary.brief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : "", focusBlock(world, m)].filter(Boolean).join("\n\n");
 
 /**
  * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
@@ -243,14 +290,22 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   const [first, ...more] = talks;
   // the snapshot as it is now (the runtime tick keeps it within minutes of main; the session never waits on a fetch)
   const code = ctx.code?.current() ?? null;
+  // the system prompt holds only what is the same every wake, so the provider's cache matches it across wakes; the
+  // live state (clock, in-tray, team, grants, board, wiki index, the code snapshot's commit) opens the first message
+  // (docs/prompt-caching.md). No Claude Code preset: a manager decides and talks, it edits no code.
+  const state = [managerStateBlock(world, agent, building), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n");
+  const [prompt, images] = first
+    ? seeing(world, `${state}\n\n${oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work))}`, humanLines(first))
+    : [`${state}\n\n${resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf)}`, []];
   const run = runAgentSession(ctx, {
     agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
     ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
-    system: [workSystemPrompt(agent, building, world.town.get(), { ...sessionMemory(world, agent, building), skills: skillsBlock(world.skills.forAgent(agentId)) }), code ? codeBlock(code) : ""].filter(Boolean).join("\n\n"),
+    system: managerSystemPrompt(agent, building, world.town.get(), { purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), skills: skillsBlock(world.skills.forAgent(agentId)), code: !!code, repo: world.repoMode(), captain: world.captainName() }),
+    bare: true,
     // main's code, read-only (Read, Grep, Glob): the manager reads before it answers how something works
     ...(code ? { code } : {}),
-    prompt: first ? oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work)) : resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf),
+    prompt, images,
     keepOpen: () => openOneOnOnes(world, agentId).length > 0,
     ...(resume && !first ? { resume: resume.sdkSessionId } : {}),
   });
@@ -258,7 +313,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   const live = work ? ctx.talking.get(agentId) : ctx.live.get(agentId);
   if (live && first) {
     for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
-    for (const m of more) live.input.push(oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)));
+    for (const m of more) live.input.push(...seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)), humanLines(m)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   } else if (live && resume) {
     // the resumed conversation already knows its in-tray as it was; reports undecided now follow its first message

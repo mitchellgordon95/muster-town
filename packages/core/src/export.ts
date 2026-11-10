@@ -9,7 +9,22 @@ import { createRepos } from "./store.ts";
 import { Emitter, parseFrontmatter, slugify, stringifyFrontmatter } from "./util.ts";
 import type { World } from "./world.ts";
 
-export interface ExportResult { dir: string; commit: string | null; changed: boolean; files: number }
+/**
+ * `error`: the first line of what git said when a git step failed (null when git ran clean), so export.done shows why `commit` is null.
+ * Publish to GitHub (gr_30f8obzab8): `pushedAt`/`pushCommit` when this run pushed to the collective's repo, `pushError` when the
+ * push failed (git's first line, tokens masked); all three null when no push was due (no repo set, or the repo already has HEAD).
+ */
+export interface ExportResult {
+  dir: string; commit: string | null; changed: boolean; files: number; error: string | null;
+  pushedAt: string | null; pushCommit: string | null; pushError: string | null;
+}
+
+/**
+ * Where an export pushes (gr_30f8obzab8): the World's own `Town.publish.repoUrl`, its runtime-owned token (null: push without
+ * auth, e.g. a file:// remote in tests) and the commit its last push landed (a run pushes when HEAD differs from it, so a run
+ * after a failed push catches up even when nothing changed locally).
+ */
+export interface PublishTarget { repoUrl: string; token: string | null; lastPushCommit: string | null }
 
 /**
  * Path of a doc inside the export mirror (null = not exported: drafts are private).
@@ -54,8 +69,46 @@ export function importLinks(body: string, idOf8: (id8: string) => string | null)
     .replace(/\]\((?![a-z]+:)[^)\s]*-([a-z0-9]{8})\.md( "doc:")?\)/g, (all, id8: string, doc: string | undefined) => { const id = idOf8(id8); return id ? `](${doc ? "doc:" : ""}${id})` : all; }));
 }
 
-function git(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" }).trim();
+const STALE_LOCK_MS = 10 * 60_000;
+
+/**
+ * One git call of the export. `safe.directory=*`: git >= 2.35.2 refuses a repo owned by another uid ("detected dubious
+ * ownership"), and the export dir on the Fly volume may predate the server's uid; never prompt for anything.
+ * A failure throws an Error whose message is `git <cmd>: <first line git printed>` (not node's "Command failed: …").
+ */
+function git(cwd: string, args: string[], env: Record<string, string> = {}): string {
+  try {
+    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } }).trim();
+  } catch (e) {
+    const err = e as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
+    const said = `${String(err.stderr ?? "")}\n${String(err.stdout ?? "")}\n${err.message}`.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("Command failed:"));
+    throw new Error(`git ${args.find((a) => !a.startsWith("-") && !a.includes("=")) ?? ""}: ${said ?? "failed"}`.slice(0, 500));
+  }
+}
+
+/** Token-looking strings (GitHub tokens, and the given secrets and their Basic header) masked out of a message. */
+export function maskTokens(text: string, secrets: string[] = []): string {
+  let out = text;
+  for (const v of secrets) if (v) out = out.split(v).join("***");
+  return out.replace(/\b(gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})/g, "***");
+}
+
+/**
+ * Push HEAD to the collective's repo as `main`. The token rides in the environment of this one git call as an
+ * `http.extraheader` (GIT_CONFIG_COUNT/KEY/VALUE): never in argv, never in the remote URL, never in .git/config
+ * (no `git remote add`). A failure is returned, never thrown: the local commit already landed.
+ */
+function pushExport(dir: string, commit: string, p: PublishTarget): Pick<ExportResult, "pushedAt" | "pushCommit" | "pushError"> {
+  const header = p.token ? Buffer.from(`x-access-token:${p.token}`).toString("base64") : null;
+  const env: Record<string, string> = header ? { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraheader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${header}` } : {};
+  try {
+    git(dir, ["push", "-q", "--", p.repoUrl, "HEAD:refs/heads/main"], env);
+    return { pushedAt: new Date().toISOString(), pushCommit: commit, pushError: null };
+  } catch (e) {
+    const pushError = maskTokens((e as Error).message, [p.token ?? "", header ?? ""]);
+    console.log("[core] export: push failed:", pushError);
+    return { pushedAt: null, pushCommit: null, pushError };
+  }
 }
 
 /** What an export reads: the World's repos on the main thread, or a read-only connection of its own in the export worker. */
@@ -108,14 +161,15 @@ export function dbSource(db: DB): ExportSource {
  * Never writes secrets (no users, tokens, or API keys). Drafts are not exported.
  */
 export function exportWorld(world: World, dir: string): ExportResult {
-  const r = writeExport(worldSource(world), dir);
-  world.events.append(exportDoneEvent(r));
+  const r = writeExport(worldSource(world), dir, world.publishTarget());
+  world.recordExport(r);
   return r;
 }
 
 /** The one `export.done` event of a run (the runtime appends it when the worker answers). */
 export function exportDoneEvent(r: ExportResult) {
-  return { type: "export.done" as const, text: r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes", payload: { ...r } };
+  const push = r.pushError ? `; push failed: ${r.pushError}` : r.pushedAt ? `; pushed ${r.pushCommit?.slice(0, 7)} to GitHub` : "";
+  return { type: "export.done" as const, text: `${r.changed ? `Exported the town (${r.commit?.slice(0, 7) ?? "no commit"})` : "Export: no changes"}${push}`, payload: { ...r } };
 }
 
 /** the worker file: the source under tsx or vitest, dist/export-worker.js in the prebuilt server (server/build.mjs bundles it) */
@@ -128,12 +182,12 @@ export type ExportWorkerMessage = { ok: true; result: ExportResult } | { ok: fal
  * `dbPath` read-only on its own connection and runs writeExport there, so the reads (~1 s at the live size), the ~1,600 file
  * writes and git never block the event loop. Resolves with the worker's result; the caller appends `export.done`.
  */
-export function exportInWorker(dbPath: string, dir: string): Promise<ExportResult> {
+export function exportInWorker(dbPath: string, dir: string, publish: PublishTarget | null = null): Promise<ExportResult> {
   // the sources need tsx's loader in the worker (core uses TypeScript Node can't strip); tsx's own runs pass it down already
   const needsTsx = WORKER_FILE.pathname.endsWith(".ts") && !process.execArgv.some((a) => a.includes("tsx"));
   return new Promise((done, fail) => {
     let settled = false;
-    const worker = new Worker(WORKER_FILE, { workerData: { exportRun: { dbPath, dir: resolve(dir) } }, ...(needsTsx ? { execArgv: [...process.execArgv, "--import", "tsx"] } : {}) });
+    const worker = new Worker(WORKER_FILE, { workerData: { exportRun: { dbPath, dir: resolve(dir), publish } }, ...(needsTsx ? { execArgv: [...process.execArgv, "--import", "tsx"] } : {}) });
     worker.once("message", (m: ExportWorkerMessage) => { settled = true; if (m.ok) done(m.result); else fail(new Error(m.error)); });
     worker.once("error", (e) => { if (!settled) { settled = true; fail(e); } });
     worker.once("exit", (code) => { if (!settled) { settled = true; fail(new Error(`export worker exited with code ${code} before answering`)); } });
@@ -141,7 +195,7 @@ export function exportInWorker(dbPath: string, dir: string): Promise<ExportResul
 }
 
 /** The export itself, without the event: synchronous file writes and git (the runtime runs it in a worker, export-worker.ts). */
-export function writeExport(src: ExportSource, dirIn: string): ExportResult {
+export function writeExport(src: ExportSource, dirIn: string, publish: PublishTarget | null = null): ExportResult {
   const dir = resolve(dirIn);
   mkdirSync(dir, { recursive: true });
   // regenerate everything except .git so moved/deleted docs disappear
@@ -187,7 +241,9 @@ export function writeExport(src: ExportSource, dirIn: string): ExportResult {
   for (const m of src.meetings()) {
     const name = (id: string) => src.nameOf(id);
     const body = [`# ${m.title}`, "", ...m.transcript.map((u) => `- **${name(u.speakerId)}** (${u.at}): ${u.text}`)].join("\n");
-    write(meetingExportPath(m), stringifyFrontmatter({ ...m }, body));
+    // focus is what the human's screen shows this minute, not a record: left out so the export doesn't churn on every J / K
+    const { focus: _onScreen, ...rest } = m;
+    write(meetingExportPath(m), stringifyFrontmatter(rest, body));
   }
   write("agents.json", JSON.stringify(src.agents(), null, 2) + "\n");
   const byDay = new Map<string, Event[]>();
@@ -205,9 +261,13 @@ export function writeExport(src: ExportSource, dirIn: string): ExportResult {
   }
   for (const [day, evs] of byDay) write(join("events", day.slice(0, 7), `${day}.jsonl`), evs.map((e) => JSON.stringify(e)).join("\n") + "\n");
 
-  let commit: string | null = null, changed = false;
+  let commit: string | null = null, changed = false, error: string | null = null;
   try {
     if (!existsSync(join(dir, ".git"))) git(dir, ["init", "-q"]);
+    // a server killed mid-export (a redeploy) leaves .git/index.lock behind and every later `git add` fails on it; runs are one
+    // at a time, so a lock older than 10 min is stale
+    const lock = join(dir, ".git", "index.lock");
+    if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) rmSync(lock, { force: true });
     git(dir, ["add", "-A"]);
     changed = git(dir, ["status", "--porcelain"]).length > 0;
     if (changed) {
@@ -215,9 +275,12 @@ export function writeExport(src: ExportSource, dirIn: string): ExportResult {
     }
     try { commit = git(dir, ["rev-parse", "HEAD"]); } catch { commit = null; }
   } catch (e) {
-    console.log("[core] export: git unavailable or failed:", (e as Error).message);
+    error = (e as Error).message;
+    console.log("[core] export: git unavailable or failed:", error);
   }
-  return { dir, commit, changed, files };
+  // Publish to GitHub (gr_30f8obzab8): push when the repo doesn't have HEAD yet (a new commit, or an earlier push failed)
+  const pushed = publish && commit && !error && commit !== publish.lastPushCommit ? pushExport(dir, commit, publish) : { pushedAt: null, pushCommit: null, pushError: null };
+  return { dir, commit, changed, files, error, ...pushed };
 }
 
 const LATEST = 30;

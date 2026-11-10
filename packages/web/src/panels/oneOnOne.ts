@@ -1,16 +1,25 @@
 /** 1:1s (docs/waterfall.md §3.4): "Talk to ★ <manager>", a doc's "Talk to <author>" and a grant's "Talk to <manager>" open a meeting with that agent. */
-import type { Agent } from "@muster-town/schema";
+import { isGone } from "@muster-town/schema";
+import type { Agent, Meeting } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
 
-/** A human who can facilitate or review in the building opens 1:1s there. */
+/** A human who can facilitate or review in the building (its staff). */
 export const canOneOnOne = (buildingId: string | null | undefined) => !!buildingId && (store.can("meeting.facilitate", buildingId) || store.can("building.review", buildingId));
 
+/**
+ * "Talk to ★ <manager>" and a 1:1 in a building (not the Town Hall): where the server's `canDirect` holds for me (gr_cuobjlny6r,
+ * /api/me `directBuildingIds`: its staff, a captain over its goal, or a member granted "direct work under" it). No permission, no Talk.
+ */
+export const canTalkToManager = (buildingId: string | null | undefined) =>
+  !!buildingId && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall" && (canOneOnOne(buildingId) || !!store.state.me?.directBuildingIds?.includes(buildingId));
+
 /** Open (or return to) my 1:1 with the building's manager agent, or with `opts.agentId` about `opts.docId` / `opts.grantId`, in the meeting panel. */
-export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<void> {
+export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<Meeting> {
   const m = await api().openOneOnOne(buildingId, opts);
   store.putMeeting(m);
   store.open({ kind: "meeting", id: m.id });
+  return m;
 }
 
 /** "Plan with an agent" (docs/goals.md "The planning agent"): open (or return to) my 1:1 with the Planner, the Town Hall's manager, about `goalId`. */
@@ -20,7 +29,19 @@ export async function openPlanner(goalId?: string): Promise<void> {
   store.open({ kind: "meeting", id: m.id });
 }
 
-const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+/**
+ * The Town Hall's Secretary (gr_kdlogzzo5s): a live resident titled "Secretary" whose home is the Town Hall, or null.
+ * Its 1:1 is openOneOnOne(townHallId, { agentId }); core createOneOnOne allows it for the Planner's people.
+ */
+export function secretaryOf(agents: Record<string, Agent>, townHallId: string | null | undefined): Agent | null {
+  if (!townHallId) return null;
+  return Object.values(agents).find((a) => a.kind === "resident" && a.homeBuildingId === townHallId && a.title === "Secretary" && !a.forkOf && a.status !== "stopped" && !isGone(a)) ?? null;
+}
+
+/** Who may open a 1:1 at the Town Hall (the Planner's and the Secretary's): an admin or captain, or the Town Hall's staff. */
+export const canTalkAtTownHall = (townHallId: string | null | undefined) => store.can("goals.edit") || canOneOnOne(townHallId);
+
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**
  * Who a doc's "Talk to <author>" reaches (mirrors core oneOnOneTarget): the author if it's a working resident; a

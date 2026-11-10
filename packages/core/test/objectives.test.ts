@@ -19,7 +19,7 @@ function setup() {
 describe("objectives (1:1 mt_akz25kqo2q)", () => {
   it("the manager writes up to 3 objectives naming a KPI; KRs hang off one (at most 4); existing KRs stay Unsorted", async () => {
     const { world, mei, noor, admin, notes } = setup();
-    const grant = (krs: { text: string; howToCheck: string }[], goalId?: string) => world.grantDesk.create(mei, LAB, { goalId, keyResults: krs, objective: "o", stopCondition: "s", askTokens: 1000 });
+    const grant = (krs: { text: string; howToCheck: string }[], goalId?: string) => world.grantDesk.create(mei, LAB, { goalId, keyResults: krs, objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const old = world.keyResults.require(grant([KR]).keyResultId!);
     expect(old.objectiveId).toBeNull();
     const r = await world.verbs.set_objective(mei, { text: "Funders see what every token bought", kpi: "trust", sourceDocIds: [notes.id] });
@@ -53,7 +53,7 @@ describe("objectives (1:1 mt_akz25kqo2q)", () => {
 
   it("the desk brief lists the building's subtree: each goal (objectives are goals) with its open key results", async () => {
     const { world, mei, admin, notes } = setup();
-    const propose = (text: string, goalId?: string) => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { goalId, keyResults: [{ ...KR, text }], objective: `Plan: ${text}`, stopCondition: "s", askTokens: 1000 }).id);
+    const propose = (text: string, goalId?: string) => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { goalId, keyResults: [{ ...KR, text }], objective: `Plan: ${text}`, steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).id);
     const loose = propose("Loose one");
     const o = world.grantDesk.createObjective(mei, LAB, { text: "Strangers can join", kpi: "join", horizon: "2026-Q4", sourceDocIds: [notes.id] });
     const g = propose(KR.text, o.id);

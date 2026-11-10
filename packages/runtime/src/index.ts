@@ -3,7 +3,8 @@
  * managers' team-lead sessions over the in-tray, meeting summaries + facilitation, interrupts, scheduler,
  * startup reconcile, dismissal (onAgentRetired), host redeploy (v1.3).
  */
-import { AppError, checkWaits, exportDoneEvent, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
+import { isAbsolute, resolve as resolvePath } from "node:path";
+import { AppError, type SubTimer, withTickMemo, checkWaits, circuitBreakerTick, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, isForkingManager, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
 import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
@@ -13,12 +14,15 @@ import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRed
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
 import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
+import { estimateGrantWithModel, estimateOpenProposals } from "./estimate.ts";
+import { nameBuilding } from "./naming.ts";
 import { hostedEnv, InputChannel, realSdk, type Sdk } from "./sdk.ts";
 import { fundingForSession, type Ctx } from "./session.ts";
 import { createPrPoller, type PrPollerDeps } from "./pr-checks.ts";
 import { reconcileDue } from "./reconcile.ts";
+import { cacheMissDue } from "./cache-miss.ts";
 export { reconcileDue } from "./reconcile.ts";
-import { abortWork, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
+import { abortWork, cutFlaggedSessions, finishWorkSession, interrupt, runWorkSession, type WorkOutcome } from "./work.ts";
 import { startWaker } from "./waker.ts";
 
 export { describeTool } from "./describe.ts";
@@ -110,6 +114,8 @@ export interface Runtime {
   interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<boolean>;
   /** Meeting entered collecting (or scheduled → collecting): run attendees' summaries. */
   onMeetingStart(meetingId: string): Promise<void>;
+  /** A building was just made under a goal with no name typed: one cheap-model call renames it like a place (naming.ts); never throws. */
+  nameBuilding(buildingId: string): Promise<Building>;
   /** Run one work session now; resolves with the ended session. */
   runWorkSession(agentId: string, assignmentId: string): Promise<Session>;
   /** One scheduler pass. Starts sessions in the background (see whenIdle). */
@@ -147,6 +153,18 @@ export interface Runtime {
 }
 
 const HOUR_MS = 3_600_000;
+/** a world that never exported runs its first export this long after boot (gr_30f8obzab8 KR3: deploys restarted /publish-check/ every <1 h) */
+export const FIRST_EXPORT_DELAY_MS = 10 * 60_000;
+
+/**
+ * The time the hourly export counts its hour from at boot: the last `export.done` (so a restart does not push the next
+ * export back an hour), or, when the world never exported, a time that makes the first one due FIRST_EXPORT_DELAY_MS after boot.
+ */
+export function exportBaseline(lastDoneTs: string | null, startedAt: number): number {
+  const last = lastDoneTs ? Date.parse(lastDoneTs) : NaN;
+  if (Number.isFinite(last)) return Math.min(last, startedAt);
+  return startedAt - HOUR_MS + FIRST_EXPORT_DELAY_MS;
+}
 
 /** A tick that blocks the event loop longer than this logs one line naming its slowest phase (post-mortem 2026-10-31 item 7). */
 export const SLOW_TICK_MS = 500;
@@ -158,18 +176,24 @@ export interface TickTiming {
   phase: string | null;
   phaseMs: number;
   phases: Record<string, number>;
+  /** steps inside a phase, named `phase.step` (gr_db6ofyd0yf step 3: what in explore and work grows live); not added to `ms` */
+  sub?: Record<string, number>;
 }
 
-/** Rounds a tick's phase timings (ms, one decimal) and picks the slowest phase. */
-export function tickTiming(at: Date, raw: Record<string, number>): TickTiming {
+const round1 = (v: number) => Math.round(v * 10) / 10;
+
+/** Rounds a tick's phase timings (ms, one decimal) and picks the slowest phase; `sub` (steps inside phases) is kept apart. */
+export function tickTiming(at: Date, raw: Record<string, number>, sub: Record<string, number> = {}): TickTiming {
   const phases: Record<string, number> = {};
   let ms = 0, phase: string | null = null, phaseMs = 0;
   for (const [k, v] of Object.entries(raw)) {
     ms += v;
-    phases[k] = Math.round(v * 10) / 10;
+    phases[k] = round1(v);
     if (v > phaseMs) { phase = k; phaseMs = v; }
   }
-  return { at: at.toISOString(), ms: Math.round(ms), phase, phaseMs: Math.round(phaseMs), phases };
+  const t: TickTiming = { at: at.toISOString(), ms: Math.round(ms), phase, phaseMs: Math.round(phaseMs), phases };
+  if (Object.keys(sub).length) t.sub = Object.fromEntries(Object.entries(sub).map(([k, v]) => [k, round1(v)]));
+  return t;
 }
 
 /** The one log line for a slow tick: total, the phase that took it, then the next two. */
@@ -214,7 +238,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const manage = newManageState();
   const startedAt = now().getTime();
   let lastDate = localDate(now());
-  let lastExport = startedAt;
+  // the hour counts from the last export.done, not from boot: a server restarted more often than hourly would otherwise never export
+  let lastExport = exportBaseline(world.events.list({ types: ["export.done"], limit: 1, desc: true })[0]?.ts ?? null, startedAt);
   let exporting = false;
   let lastPresence = 0;
   let stopped = false;
@@ -259,7 +284,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   }
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
   try {
-    reconciled = world.ops.reconcile(ctx.live.keys());
+    reconciled = world.ops.reconcile([...ctx.live.values()].map((l) => l.sessionId));
     if (reconciled.orphanedSessions.length || reconciled.requeuedAssignments.length) {
       console.log(`[runtime] reconcile: ended ${reconciled.orphanedSessions.length} orphaned session(s), ${reconciled.requeuedAssignments.length} assignment(s) back to pending`);
     }
@@ -385,10 +410,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       facilitate: (id) => facilitate(ctx, mst, id),
       meetingMention: (id, toId, byId, byKind) => onMeetingMention(ctx, mst, id, toId, byId, byKind),
       wakeManagers: (bid) => wakeManagers(bid),
+      estimateGrant: (grantId) => estimateGrantWithModel(ctx, grantId),
       abort: (agentId) => abortWork(ctx, agentId, killGraceMs),
     },
   });
   void track(waker.booted.catch(log("waker replay")));
+  // open proposals the grant-estimate wake rule missed (made while down, or before it shipped) get the model's range once
+  void track(waker.booted.then(() => stopped ? 0 : estimateOpenProposals(ctx)).catch(log("grant estimates")));
 
   function scheduleMeetings(t: number): void {
     const meetings = world.meetings.all();
@@ -479,8 +507,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     for (const b of world.buildings.all()) {
       // like a resident of a code building: no fork on the host backend (the resident loop warns)
       if (backend?.kind === "host" && codeWorkspace(world.town.get(), b)) continue;
-      let free = freeDesks(world, b);
-      for (const a of forkableQueue(world, b)) {
+      let free = subTimed("work.forks.freeDesks", () => freeDesks(world, b));
+      for (const a of subTimed("work.forks.queue", () => forkableQueue(world, b))) {
         if (free <= 0) break;
         const s = slots();
         if (s.running + startedNow >= s.max) { held.push(a.agentId); break; }
@@ -490,13 +518,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         startedNow++;
         forkRuns.add(fork.id);
         let failed: { error: unknown } | null = null;
-        void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
+        subTimed("work.start", () => void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
           forkRuns.delete(fork.id);
           // rejected before a session row existed: the desk itself failed (a session that ended in error has a fallback report)
           const atStartup = failed && !world.sessions.count("agentId = ? AND purpose = 'work'", [fork.id]);
           retireAfter(fork.id, atStartup ? `desk failed at startup: ${failed!.error instanceof Error ? failed!.error.message : String(failed!.error)}` : undefined);
           if (atStartup) onForkStartupFailure(a, b, failed!.error);
-        });
+        }));
       }
     }
   }
@@ -567,21 +595,30 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
+  /** the running tick's sub-step timings (null outside tickOnce: scheduleWork also runs from callbacks) */
+  let tickSub: Record<string, number> | null = null;
+  const subTimed: SubTimer = (name, fn) => {
+    const s = performance.now();
+    try { return fn(); } finally { if (tickSub) tickSub[name] = (tickSub[name] ?? 0) + performance.now() - s; }
+  };
+
   function scheduleWork(): void {
-    watchAdopted();
+    subTimed("work.adopted", () => watchAdopted());
     // after the sweep: an adopted fork whose session ended is retired there, and spawnForks below may hand its desk to the
     // next fork in the same pass, so the stale check must see the slot in that gap (10-31: Workshop slots 2 and 4 missed it)
-    sweepForks();
-    recreateStaleDesks();
+    subTimed("work.sweep", () => sweepForks());
+    subTimed("work.staleDesks", () => recreateStaleDesks());
     if (draining) return;
     const held: string[] = [];
     // sessions this pass started (startWork registers them as `starting` only after its first await)
     let startedNow = 0;
     // forks run only through spawnForks (below): the fork row exists from the spawn, before its session does
-    for (const a of world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt")) {
+    for (const a of subTimed("work.residents", () => world.agents.where("kind = 'resident' AND status = 'idle' AND forkOf IS NULL", [], "ORDER BY createdAt"))) {
       if (ctx.live.has(a.id) || starting.has(a.id) || reaping.has(a.id)) continue;
+      // work routing step 2: a forking manager never runs a work session (its work is the building's, its own is the in-tray)
+      if (subTimed("work.residents", () => isForkingManager(world, a))) continue;
       // queue order (position, createdAt, rowid), skipping what Budget.canStart holds (lane gate: they stay pending with a heldReason)
-      const next = nextStartable(world, a.id);
+      const next = subTimed("work.residents", () => nextStartable(world, a.id));
       if (!next) continue;
       // the host's cap: a running session costs real memory, so queued work waits for a free slot instead of starting
       const s = slots();
@@ -598,9 +635,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         continue;
       }
       startedNow++;
-      void startWork(a.id, next.id).catch(log(`work session for ${a.name}`));
+      subTimed("work.start", () => void startWork(a.id, next.id).catch(log(`work session for ${a.name}`)));
     }
-    spawnForks(held, startedNow);
+    subTimed("work.forks", () => spawnForks(held, startedNow));
     // one notice when the slots fill, one when they free up (not every pass)
     if (held.length && !slotsFull) {
       slotsFull = true;
@@ -634,8 +671,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   let lastTick: TickTiming | null = null;
   let lastSlowTick: TickTiming | null = null;
 
-  function recordTick(d: Date, phases: Record<string, number>): void {
-    const timing = tickTiming(d, phases);
+  function recordTick(d: Date, phases: Record<string, number>, sub: Record<string, number>): void {
+    const timing = tickTiming(d, phases, sub);
     lastTick = timing;
     if (timing.ms > SLOW_TICK_MS) { lastSlowTick = timing; console.warn(slowTickLine(timing)); }
   }
@@ -648,6 +685,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   async function tickOnce(): Promise<void> {
     if (stopped) return;
     const phases: Record<string, number> = {};
+    const sub: Record<string, number> = {};
+    tickSub = sub;
     const d = now();
     const t = d.getTime();
     try {
@@ -665,25 +704,33 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         lastExport = t;
         exporting = true;
         timed("export", () => void track(world.exportOffThread(opts.exportDir || undefined))
-          .then((r) => { if (!stopped) world.events.append(exportDoneEvent(r)); }, log("export"))
+          .then((r) => { if (!stopped) world.recordExport(r); }, log("export"))
           .finally(() => { exporting = false; }));
       }
       timed("bankCredit", () => world.bank.creditDue(d), "bank");
       timed("bankDrift", () => world.bank.driftDue(d), "bank drift");
+      timed("bankMix", () => world.bank.mixDue(d), "bank token mix");
       // goal tree step 7: an earmark with no draw for 7 days tells its donor (in town only)
       timed("streams", () => world.streams.tick(d), "bank streams");
       // post-mortem 2026-10-30: once a day, the day before's funding against the Bank's books and the Console (alert when unexplained)
       timed("reconcile", () => void track(reconcileDue(ctx, d)).catch(log("bank reconcile")), "bank reconcile");
+      // gr_lwgus14rd2 step 2: after a session ends, the share of the day's sessions per purpose that bust their prompt prefix (`alert: cache-miss`)
+      timed("cacheMiss", () => void cacheMissDue(world, d), "cache-miss check");
       if (t - lastPresence >= PRESENCE_TICK_MS) { lastPresence = t; timed("presence", () => void presenceTick()); }
       timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");
       timed("meetings", () => scheduleMeetings(t));
       timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
       timed("waits", () => checkWaits(world, d));
       timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
+      // the session circuit breaker (docs/legible-delegation.md §7.3): asked to file at 90%, a work session cut at 100% the way a
+      // drain cuts one (its kill grace), only while the flagged session is still its agent's live one
+      timed("circuitBreaker", () => { cutFlaggedSessions(ctx, circuitBreakerTick(world), killGraceMs); }, "circuit breaker");
+      // a stopped grant (Grants.stop) closes as stopped once no session runs on it
+      timed("stoppingGrants", () => world.grantDesk.finishStopping(), "stopping grants");
       if (ctx.code) timed("code", () => void track(ctx.code!.fresh()).catch(log("code checkout")), "code checkout");
       timed("schedules", () => fireSchedules(world, d));
       // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
-      timed("explore", () => exploreTick(world, d));
+      timed("explore", () => withTickMemo(world.db, () => exploreTick(world, d, subTimed)));
       timed("reorgs", () => world.reorgs.tick(d));
       timed("walkHome", () => walkIdleHome(world, t), "walk home");
       timed("blocked", () => { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); }, "blocked buildings");
@@ -694,12 +741,12 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       else if (needsProbe()) await track(currentBackend()).catch(log("docker re-probe"));
       if (stopped) return;
       // startup and managers whose work session just ended: in-trays with reports no manage session has seen yet.
-      // Before scheduleWork, so a manager's in-tray goes ahead of its own queued work (it registers as live right away).
-      timed("managers", () => wakeManagers(), "manager sessions");
+      // Before scheduleWork, so the in-tray is offered first each tick (the manage session registers as live right away).
+      timed("managers", () => withTickMemo(world.db, () => wakeManagers()), "manager sessions");
       // after wakeManagers: a 1:1 whose agent's work just ended gets its answer session before it can count as quiet
       timed("quiet1on1", () => closeQuietOneOnOnes(ctx), "quiet 1:1s");
-      timed("work", () => scheduleWork());
-    } finally { recordTick(d, phases); }
+      timed("work", () => withTickMemo(world.db, () => scheduleWork()));
+    } finally { tickSub = null; recordTick(d, phases, sub); }
   }
 
   const interval = opts.intervalMs ?? 5000;
@@ -828,6 +875,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   world.host.interrupt = hostInterrupt;
   const commit = gitHead(ctx.repoRoot);
   if (commit) world.host.commit = commit;
+  // the repo this server runs from: `World.repoMode` tells muster.town's own Workshop from a collective with no or another repo
+  // (a workspace whose path is this very checkout is this server's repo, whatever its stored URL says: the repo was renamed)
+  const ws = world.town.get().workspace;
+  const ownRepo = ws?.repoUrl && isAbsolute(ws.path) && resolvePath(ws.path) === resolvePath(ctx.repoRoot) ? ws.repoUrl : originUrl(ctx.repoRoot);
+  if (ownRepo) world.host.repoUrl = ownRepo;
   // `{deploy}` waits: "next" holds once this server started after the assignment was made; a sha once the live commit contains it
   const bootIso = now().toISOString();
   world.host.startedAt = bootIso;
@@ -841,6 +893,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   world.host.isLive = hostIsLive;
   const hostPrChecks = (pr: number) => prPoller.get(pr);
   world.host.prChecks = hostPrChecks;
+  const hostMainCi = () => prPoller.main();
+  world.host.mainCi = hostMainCi;
 
   return {
     async stop() {
@@ -854,6 +908,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (world.host.startedAt === bootIso) delete world.host.startedAt;
       if (world.host.isLive === hostIsLive) delete world.host.isLive;
       if (world.host.prChecks === hostPrChecks) delete world.host.prChecks;
+      if (world.host.mainCi === hostMainCi) delete world.host.mainCi;
       if (timer) clearInterval(timer);
       waker.stop();
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
@@ -863,6 +918,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     },
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
+    nameBuilding: (buildingId) => track(nameBuilding(ctx, buildingId)),
     runWorkSession: (agentId, assignmentId) => startWork(agentId, assignmentId),
     tickOnce,
     tickStats: () => ({ last: lastTick, slow: lastSlowTick }),

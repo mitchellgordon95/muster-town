@@ -1,5 +1,6 @@
-import { Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
+import { NOT_GONE, Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
 import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
+import { STARTER_MANAGER_MODEL } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { GoalNode } from "./goals.ts";
 import { createMeeting, createOneOnOne, defaultFacilitator, meetingNotice } from "./meetings.ts";
@@ -36,7 +37,7 @@ export class Reorgs {
   // ---- the Planner ----
   /** The Planner, if it has been created. */
   planner(): Agent | undefined {
-    return this.world.agents.first("homeBuildingId = ? AND kind = 'resident' AND title = ? AND forkOf IS NULL AND status NOT IN ('banned', 'retired')", [TOWN_HALL_ID, PLANNER_TITLE], "ORDER BY createdAt");
+    return this.world.agents.first(`homeBuildingId = ? AND kind = 'resident' AND title = ? AND forkOf IS NULL AND ${NOT_GONE}`, [TOWN_HALL_ID, PLANNER_TITLE], "ORDER BY createdAt");
   }
 
   isPlanner(a: Actor): boolean {
@@ -46,7 +47,7 @@ export class Reorgs {
   }
 
   /**
-   * The Planner, created on first use: a Town Hall resident seated at a free mod-station seat (else by the door), and
+   * The Planner, created on first use: a Town Hall resident holding a mod-station desk slot (else by the door) whose desk is drawn beside the goal tree (TOWN_HALL_RESTS), and
    * the Town Hall's manager (`managerAgentId`; Mitchell, 1:1 mt_wql34b8gkl). It manages in name only: `managerAgentOf`
    * leaves the Town Hall out, so its in-tray stays the humans' and the Planner only answers 1:1s and facilitates reorgs.
    * A stopped Planner is resumed (`stopped` → `idle`): it is the Town Hall's only agent, and every caller is a human
@@ -65,7 +66,7 @@ export class Reorgs {
       const id = newId("ag");
       this.world.agents.upsert(Agent.parse({
         id, name: PLANNER_TITLE, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
-        title: PLANNER_TITLE, sprite: 5, direction: PLANNER_DIRECTION, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
+        title: PLANNER_TITLE, sprite: 5, direction: PLANNER_DIRECTION, model: STARTER_MANAGER_MODEL, pos: this.world.layout.door(th.id) ?? { x: 0, y: 0 }, status: "idle", createdAt: nowIso(),
       }), { silent: true });
       let agent = this.world.agents.require(id, "agent");
       try { agent = this.world.agents.patch(id, { pos: this.world.layout.claimDesk(th.id, id).pos }); }
@@ -164,7 +165,7 @@ export class Reorgs {
       });
       for (const { b, mgr } of managed) {
         createAssignment(this.world, {
-          agentId: mgr!.id, queue: "building", buildingId: b.id, createdBy: by,
+          agentId: mgr!.id, buildingId: b.id, createdBy: by,
           title: `Reorg prep: review your work against "${clip(inp.toText, 80)}"`,
           description: `A human is changing the goal "${goal.text}" (${goal.id}) to "${inp.toText}" (change ${id}; their note ${note.id}).\n\nWhy: ${inp.why}\n\nReview your work against the new goal. Bring proposals for what goes underneath: tree changes with propose_goal and reorgId ${id}; a new key result goes on a grant proposal (propose_grant with its keyResults, naming ${id} in its note). Say in your report which of your key results and grants still serve it. Your key results under this goal are marked "under review"; their grants keep running until a human cuts them. The planning meeting (${meeting.id}) opens when every attached building's prep report is in, or at ${deadline}, whichever comes first.`,
           lane: { lane: "directed", sourceId: note.id },

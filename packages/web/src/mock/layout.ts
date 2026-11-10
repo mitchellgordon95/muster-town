@@ -3,7 +3,7 @@
  * including TOWN_HALL_FIXTURES, copied here because the web bundle can't import core); lots are packed
  * side by side around the Town Hall so the mock map stays compact. Core owns the real layout.
  */
-import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE, bankPlaces } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, BULLETIN_PLACE, TILE, WALKABLE, bankPlaces } from "@muster-town/schema";
 import type { Agent, Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
 
@@ -15,7 +15,7 @@ const F = {
   modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
   modStand: { x: 5, y: 8 },
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
-  intray: { x: 14, y: 9 }, intrayStand: { x: 14, y: 8 },
+  hydrant: { x: 15, y: 9 }, hydrantStand: { x: 15, y: 8 },
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
   board: { x: 8, y: 0 }, boardStand: { x: 8, y: 1 },
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
@@ -64,11 +64,11 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
     if (b.kind === "town-hall") {
       for (const p of F.modDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
       for (const p of F.planningDesk) set(x0 + p.x, y0 + p.y, TILE.DESK);
-      set(x0 + F.intray.x, y0 + F.intray.y, TILE.MANAGER_DESK);
+      set(x0 + F.hydrant.x, y0 + F.hydrant.y, TILE.HYDRANT);
       set(x0 + F.schedule.x, y0 + F.schedule.y, TILE.SCHEDULE);
       set(x0 + F.board.x, y0 + F.board.y, TILE.BOARD);
       for (const p of F.bench) set(x0 + p.x, y0 + p.y, TILE.BENCH);
-      // town moderators (Town Hall residents) sit at the mod station
+      // the Town Hall's residents (the Planner) sit at the mod station
       const mods = agents.filter((a) => a.homeBuildingId === b.id && a.kind === "resident" && a.status !== "retired");
       F.modSeats.forEach((p, n) => {
         const a = mods[n];
@@ -79,23 +79,30 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       places.push(
         { id: "mod-station", kind: "mod-station", name: "Mod station", buildingId: b.id, pos: at(F.modStand) },
         { id: "planning-desk", kind: "planning", name: "Planning desk", buildingId: b.id, pos: at(F.planningStand) },
-        { id: `intray:${b.id}`, kind: "intray", name: "Town Hall in-tray (rollups, proposals, checkpoints)", buildingId: b.id, pos: at(F.intrayStand) },
+        { id: `hydrant:${b.id}`, kind: "hydrant", name: "Hydrant (the decision queue: the humans' asks, one at a time; notices flow to the feed)", buildingId: b.id, pos: at(F.hydrantStand) },
         { id: "schedule-board", kind: "schedule", name: "Schedule board", buildingId: b.id, pos: at(F.scheduleStand) },
         { id: `board:${b.id}`, kind: "board", name: "Town Hall board (town-wide FYIs)", buildingId: b.id, pos: at(F.boardStand) },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: at(F.benchSeats[0]) },
       );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) for (let y = 2; y <= 3; y++) set(x0 + x, y0 + y, TILE.TOWN_MAP);
-      for (let x = 2; x <= 5; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      for (let x = 2; x <= 3; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
+      set(x0 + 5, y0 + 6, TILE.STATS);
+      set(x0 + 6, y0 + 9, TILE.HELP); // = core's `help` piece
       for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
       set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
       places.push(
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 4 } },
         { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
+        { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: { x: x0 + 5, y: y0 + 7 } },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
+        { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 9 } },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
+        // = core's bulletin board (flag dc_52njv3shp8): outside, three tiles left of the Town Hall's door, read from the road
+        { id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: door.x - 3, y: roadY } },
       );
+      set(door.x - 3, roadY - 1, TILE.BULLETIN);
     } else {
       // residents first, then visitors registered into the building (they claim free desks too)
       const residents = [
@@ -126,6 +133,10 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       for (let x = bw - 5; x <= bw - 3; x++) set(x0 + x, yMeet, TILE.TABLE);
       set(x0 + 1, yMeet, TILE.PLANT);
       places.push({ id: `meeting-room:${b.id}`, kind: "meeting-room", name: `${b.name} meeting room`, buildingId: b.id, pos: { x: x0 + bw - 4, y: yMeet + 1 } });
+      // = core's `help` piece: the "?" sign two tiles left of the door, read from the tile beside the doorway
+      const hx = x0 + Math.floor(bw / 2) - 2, hy = y0 + bh - 2;
+      set(hx, hy, TILE.HELP);
+      places.push({ id: `help:${b.id}`, kind: "help", name: `${b.name} help sign (what this building is, what each thing here is, what to do)`, buildingId: b.id, pos: { x: hx + 1, y: hy } });
     }
     cx += bw + GAP;
   }

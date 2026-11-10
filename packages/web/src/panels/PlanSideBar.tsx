@@ -4,7 +4,8 @@
  * goal tree, so attaching it elsewhere moves it), then its budget (spend today against the daily cap, funded and held
  * grants) and stats (agents and forks, assignments running / queued / scheduled, the live build).
  */
-import { ROOT_GOAL_ID, type SnapshotBuilding } from "@muster-town/schema";
+import type { ReactNode } from "react";
+import { ROOT_GOAL_ID, grantName, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { townPlan } from "../map/townPlan";
 import { purposeOf } from "../purpose";
@@ -63,7 +64,7 @@ function PlanBudget({ b }: { b: SnapshotBuilding }) {
   const today = b.budget?.tokensToday ?? 0;
   const row = (g: (typeof funded)[number]) => (
     <div key={g.id} className="doc-row">
-      <b>{g.objective || g.id}</b>
+      <b>{grantName(g) || g.id}</b>
       <div className="doc-row-meta"><span>{g.status === "checkpoint" ? <Pill tone="warn">held</Pill> : <Pill tone="ok">funded</Pill>}</span><span>{grantSpendLine(g)}</span></div>
     </div>
   );
@@ -86,6 +87,8 @@ function PlanStats({ b }: { b: SnapshotBuilding }) {
   const rev = useTown((s) => s.rev);
   const stats = useLoad(() => api().buildingStats(b.id), [b.id, rev]);
   const s = stats.data;
+  // the build is the hub's, not this collective's, unless it works on this server's own repo (1:1 mt_1vs893enaw)
+  const ownBuild = useTown((t) => t.health?.repoMode ?? "muster") === "muster";
   return (
     <Section title="Stats">
       <ErrorLine error={stats.error} />
@@ -93,7 +96,7 @@ function PlanStats({ b }: { b: SnapshotBuilding }) {
         <KV items={[
           ["Agents", <>{s.agents} named · {s.forks} fork{s.forks === 1 ? "" : "s"} · {s.working} working</>],
           ["Assignments", <>{s.assignments.running} running · {s.assignments.queued} queued{s.assignments.blocked ? ` (${s.assignments.blocked} blocked)` : ""} · {s.assignments.scheduled} scheduled</>],
-          ["Live build", <>{s.host.commit ? <code>{s.host.commit.slice(0, 7)}</code> : "unknown"}{s.host.startedAt ? <> · redeployed {timeAgo(s.host.startedAt)}</> : null}</>],
+          ...(ownBuild ? [["Live build", <>{s.host.commit ? <code>{s.host.commit.slice(0, 7)}</code> : "unknown"}{s.host.startedAt ? <> · redeployed {timeAgo(s.host.startedAt)}</> : null}</>] as [string, ReactNode]] : []),
         ]} />
       )}
     </Section>

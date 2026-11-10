@@ -76,7 +76,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     // both spellings for one release: the desk may run an image from before or after the rename
     // sandbox providers run desks off this host, so they call the town's public URL; docker desks use the host gateway
     ...townEnvBoth("URL", ctx.desks.townUrl?.replace(/\/+$/, "") ?? `http://host.docker.internal:${portOf(ctx.mcpUrl)}`),
-    ...townEnvBoth("TOKEN", world.tokens.getOrCreate("agent", agent.id)),
+    ...townEnvBoth("TOKEN", world.tokens.createForSession(agent.id, session.id)), // its own token, revoked at session end,
     DESK_MODEL: session.model,
     DESK_MAX_TURNS: String(building.maxTurnsPerSession),
     // a fork's desk slot is shared by the forks before and after it: its commits carry its own name, whatever the
@@ -84,7 +84,7 @@ export function deskEnv(ctx: Ctx, session: Session, opts: DeskSessionOptions = {
     ...(agent.forkOf ? gitIdentityEnv(agent.name) : {}),
   };
   Object.assign(env, grantedSecrets(ctx, session, building.id));
-  const f = funding ?? fundingFor(world, agent.id);
+  const f = funding ?? fundingFor(world, agent.id, session.model);
   assertHostedCredential(f.credential, !!ctx.hosted || world.bank.hosted()); // a hosted collective's desk never gets a subscription token
   const auth = deskAuth(f);
   Object.assign(env, auth.env);
@@ -142,7 +142,7 @@ export function gitAuthEnv(world: World, mode: DesksConfig["ghToken"], hostEnv: 
  */
 export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: Set<string>, agentId: string, assignmentId: string, opts: DeskSessionOptions = {}): Promise<Session> {
   const { world } = ctx;
-  const { agent, building } = preflightWork(ctx, starting, agentId, assignmentId);
+  const { agent, building, assignment } = preflightWork(ctx, starting, agentId, assignmentId);
   starting.add(agentId);
   let live: LiveSession | null = null;
   let session: Session | null = null;
@@ -155,7 +155,7 @@ export async function runDeskSession(ctx: Ctx, backend: DeskBackend, starting: S
     }
     const funding = fundingForSession(world, agentId, assignmentId);
     const mode = funding.auth;
-    session = world.ops.startSession(agentId, { purpose: "work", model: agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId, size: handle.size ?? null });
+    session = world.ops.startSession(agentId, { purpose: "work", model: assignment.model ?? agent.model ?? building.model, assignmentId, backend: "docker", funding: mode, inputId: funding.inputId ?? null, credentialInputId: funding.credential.inputId, size: handle.size ?? null });
     if (handle.sizeFallback && handle.size) {
       // gr_uhh6u39vv9 step 3: past the town-wide desk bill cap a session still starts, on the cheaper size
       const bill = world.deskBill();
@@ -206,6 +206,9 @@ export function onDeskActivity(ctx: Ctx, agentId: string, input: DeskActivityInp
     if (live?.sessionId === s.id && tool === "mcp__town__submit_report") live.reportSubmitted = true;
   } else if (input.kind === "result") {
     if (input.toolUseId) world.toolResults.record(s.id, input.toolUseId, input.text ?? "", !!input.isError);
+  } else if (input.kind === "rate-limit") {
+    // the plan's word on this session's window (availability.ts), for the Bank input the session was handed
+    if (input.rateLimit && s.credentialInputId) world.bank.availability.observeRateLimit(s.credentialInputId, input.rateLimit, s.id);
   } else if (input.kind === "thought") {
     const t = (input.text ?? "").trim();
     if (t) world.events.append({ type: "agent.thought", agentId, buildingId: bid, text: clipThought(t), payload: base });

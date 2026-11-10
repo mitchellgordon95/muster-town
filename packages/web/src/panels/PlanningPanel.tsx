@@ -4,18 +4,20 @@ import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
 import { SecretsTab } from "./Secrets";
+import { PricingTab } from "./PricingTab";
 import { GoalPicker, goalPath, useGoalTree } from "./GoalPicker";
 import { NEW_LAB_LOT, ROOT_GOAL_ID, desksForLot } from "@muster-town/schema";
 import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, useLoad } from "./ui";
 
 export function PlanningPanel({ tab }: { tab?: string }) {
   const me = useTown((s) => s.me);
-  const tabs = ["Buildings", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
+  const tabs = ["Buildings", "Step sizes", "Roles", ...(me?.isAdmin ? ["Secrets"] : []), "System"];
   return (
     <PanelShell icon={<Glyph kind="planning" />} title="Planning desk" subtitle={me ? `Signed in as ${me.user.name}${me.isAdmin ? " · admin" : ""}` : "Read-only · sign in to plan"} tabs={tabs} initialTab={tab && tabs.includes(tab) ? tab : "Buildings"}>
       {(t) => (
         <>
           {t === "Buildings" ? <Buildings /> : null}
+          {t === "Step sizes" ? <PricingTab /> : null}
           {t === "Roles" ? <RolesTab /> : null}
           {t === "Secrets" ? <SecretsTab /> : null}
           {t === "System" ? <System /> : null}
@@ -35,7 +37,7 @@ export function Buildings() {
   const can = store.can("town.manage_buildings");
   return (
     <>
-      <p className="direction">A building is a thin layer on the goal tree: the goal it is attached to, its desks, an optional name and its manager. Open one to change them in its Settings. To move or draw buildings, use the town map table in the Town Hall.</p>
+      <p className="direction">Open a building to change its goal, desks, name or manager in its Settings. Move or draw buildings at the town map table in the Town Hall.</p>
       <Section title="Buildings">
         {buildings.map((b) => (
           <button key={b.id} className="doc-row" title="Open its Settings" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}>
@@ -127,9 +129,23 @@ function ThisCollective() {
   const funding = useTown((s) => s.health?.funding);
   const me = useTown((s) => s.me);
   const [sure, setSure] = useState(false);
+  const town = useTown((s) => s.town);
+  const [name, setName] = useState("");
   const admin = !!me?.isAdmin;
+  const address = `${location.host}${API_BASE}`;
+  const next = name.trim();
   return (
     <Section title="This collective">
+      {admin ? (
+        <>
+          <Field label="Name" hint={`Shown on the homepage and at the top of the town. The address ${address} stays.`}>
+            <input value={name} placeholder={town?.name ?? ""} maxLength={80} onChange={(e) => setName(e.target.value)} aria-label="Collective name" />
+          </Field>
+          <div className="actions">
+            <Act disabled={!next || next === town?.name} run={async () => { await api().renameCollective(next); location.reload(); }}>Rename</Act>
+          </div>
+        </>
+      ) : null}
       <p className="direction">
         {funding === "api-key" ? "Runs on its own Anthropic API key (at the Bank)." : "No key yet: its agents are held until an admin adds an Anthropic API key at the Bank."}
         {" "}Muster Town never spends its own credentials here.
@@ -147,14 +163,39 @@ function ThisCollective() {
   );
 }
 
+/**
+ * The Workshop's admins see every hosted collective and may retire one (a test, an abandoned one): the same retire as
+ * its own admin's (the address shows a retired notice and is never reused; its data stays on the server).
+ */
+function HostedCollectives() {
+  const r = useLoad(() => api().collectives(), []);
+  const [sure, setSure] = useState<string | null>(null);
+  const hosted = (r.data ?? []).filter((c, i) => i > 0 && c.url === `/${c.slug}/`);
+  if (!hosted.length) return null;
+  return (
+    <Section title="Hosted collectives">
+      <p className="direction">Retiring one stops it at once; its address shows a retired notice and is never reused. Its data stays on the server.</p>
+      {hosted.map((c) => (
+        <div key={c.slug} className="actions">
+          <a href={c.url}>{c.name}</a> <code>{location.host}{c.url}</code>
+          {sure === c.slug
+            ? <><Act tone="bad" run={async () => { await api().retireHostedCollective(c.slug); store.toast(`${c.name} retired`, "ok"); setSure(null); r.reload(); }}>Retire {c.name} for good</Act><button className="btn" onClick={() => setSure(null)}>Keep it</button></>
+            : <button className="btn" onClick={() => setSure(c.slug)}>Retire…</button>}
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 function System() {
   const [commit, setCommit] = useState<string | null>(null);
   const conn = useTown((s) => s.conn);
-  useTown((s) => s.me);
+  const admin = useTown((s) => !!s.me?.isAdmin);
   return (
     <>
       {store.can("town.redeploy") ? <Redeploy /> : null}
       {API_BASE ? <ThisCollective /> : null}
+      {!API_BASE && admin ? <HostedCollectives /> : null}
       <Slots />
       <Section title="Git export">
         <p className="direction">Writes the town to a readable git mirror (buildings, docs, meetings, events) and commits if anything changed.</p>
@@ -182,15 +223,24 @@ function RolesTab() {
         return (
           <Section key={role.id} title={<>{role.name} <Pill tone="type">{role.scope === "building" && role.buildingId ? store.state.buildings.find((b) => b.id === role.buildingId)?.name ?? role.buildingId : role.scope}</Pill></>}>
             <div className="holders">
-              {holders.length ? holders.map((h) => (
-                <span key={h.holderId} className="holder">
-                  {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
-                  {canManage ? <button className="x" title="Remove role" onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button> : null}
-                </span>
-              )) : <span className="muted">nobody</span>}
+              {holders.length ? holders.map((h) => <span key={h.holderId} className="holder">{nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}</span>) : <span className="muted">nobody</span>}
             </div>
             <div className="perms">{role.permissions.map((p) => <code key={p}>{p}</code>)}</div>
-            {canManage ? <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} /> : null}
+            {/* remove (×) and add fold under one line per role: the tab opens on who holds what (gr_zak30564zh step 5) */}
+            {canManage ? (
+              <details className="kr-more role-edit">
+                <summary>Change holders</summary>
+                <div className="holders">
+                  {holders.map((h) => (
+                    <span key={h.holderId} className="holder">
+                      {nameOf(h.holderId)}{h.holderKind === "user" ? " (human)" : ""}
+                      <button className="x" title="Remove role" aria-label={`Remove ${nameOf(h.holderId)}`} onClick={async () => { try { await api().unassignRole(h); r.reload(); } catch (e) { store.toast((e as Error).message, "bad"); } }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <AddHolder onAdd={async (holderKind, holderId) => { await api().assignRole({ roleId: role.id, holderKind, holderId }); r.reload(); }} />
+              </details>
+            ) : null}
           </Section>
         );
       })}
@@ -205,7 +255,7 @@ function AddHolder({ onAdd }: { onAdd: (kind: "agent" | "user", id: string) => P
     <div className="inline-form">
       <select value={v} onChange={(e) => setV(e.target.value)}>
         <option value="">Add holder…</option>
-        {Object.values(agents).filter((a) => a.kind !== "service").map((a) => (
+        {Object.values(agents).map((a) => (
           <option key={a.id} value={a.kind === "human" ? `user:${a.ownerUserId ?? a.id}` : `agent:${a.id}`}>{a.name}{a.kind === "human" ? " (human)" : ""}</option>
         ))}
       </select>

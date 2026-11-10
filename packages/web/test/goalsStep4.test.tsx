@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CaptainRequestView, GoalSpend, IntrayRoute, ReviewSlide } from "@muster-town/schema";
-import { ReviewAsDeckButton, mineOnly } from "../src/panels/Places";
+import { mineOnly } from "../src/panels/Places";
 import { SlideDecision, mineSlides } from "../src/panels/ReviewDeck";
-import { laneLine, seriesBars } from "../src/panels/GoalSpend";
+import { laneLine, seriesBars, visitorsLine } from "../src/panels/GoalSpend";
 
 vi.mock("../src/panels/Markdown", () => ({ Markdown: ({ text }: { text: string }) => <div className="md">{text}</div>, DocText: ({ text }: { text: string }) => <span>{text}</span> }));
 
@@ -12,7 +12,7 @@ const ROUTES: Record<string, IntrayRoute> = { gr_a: route(true), gr_b: route(fal
 const s = (key: string, itemId: string | null, extra: Partial<ReviewSlide> = {}): ReviewSlide =>
   ({ key, itemId, kind: "rollup", group: 5, buildingId: null, since: null, waiters: 0, history: "", text: `## ${key}`, notes: "", title: key, pictures: [], ...extra });
 
-describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4)", () => {
+describe("the decision queue: Mine / All and goal proposals (docs/goals.md step 4)", () => {
   it("Mine keeps the items routed to me; All keeps everything", () => {
     const items = [{ id: "gr_a" }, { id: "gr_b" }, { id: "gp_c" }, { id: "gp_unknown" }];
     expect(mineOnly(items, ROUTES, "mine").map((x) => x.id)).toEqual(["gr_a", "gp_c"]);
@@ -23,13 +23,6 @@ describe("Town Hall in-tray: Mine / All and goal proposals (docs/goals.md step 4
       s("goal-proposal:gp_c", "gp_c", { kind: "goal-proposal", group: 4 }), s("rollup:dc_r:1", "dc_r", { docIds: ["dc_r"] }), s("record", null, { kind: "record", docIds: ["dc_x"] })];
     expect(mineSlides(slides, ROUTES, "mine").map((x) => x.key)).toEqual(["town", "proposal:gr_a", "goal-proposal:gp_c", "record"]);
     expect(mineSlides(slides, ROUTES, "all")).toHaveLength(6);
-  });
-  it("the header shows Mine / All for a signed-in viewer and how many more wait under All", () => {
-    const html = renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} view={{ view: "mine", hidden: 3, set: () => undefined }} />);
-    expect(html).toContain("Mine");
-    expect(html).toContain("All");
-    expect(html).toContain("3 more under All");
-    expect(renderToStaticMarkup(<ReviewAsDeckButton count={2} onOpen={() => undefined} />)).not.toContain("Mine");
   });
   it("a goal proposal slide whose proposal was decided says so", () => {
     const html = renderToStaticMarkup(<SlideDecision slide={s("goal-proposal:gp_z", "gp_z", { kind: "goal-proposal", group: 4 })} n={2} grants={[]} reports={[]} goalProposals={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />);
@@ -56,5 +49,11 @@ describe("the Bank's Spend by goal helpers", () => {
     expect(laneLine({ grant: 0, exploration: 0, directed: 0, none: 0 })).toBe("nothing");
     const series: GoalSpend["series"] = [{ start: "2026-10-29T00:00:00Z", tokens: 50, byLane: { grant: 50, exploration: 0, directed: 0, none: 0 } }, { start: "2026-10-30T00:00:00Z", tokens: 200, byLane: { grant: 0, exploration: 0, directed: 200, none: 0 } }];
     expect(seriesBars(series).map((b) => b.pct)).toEqual([25, 100]);
+  });
+  it("visitors' tokens are said to be not tracked, never guessed (1:1 mt_i50xwu4z2t)", () => {
+    expect(visitorsLine(0)).toBeNull();
+    expect(visitorsLine(1)).toMatch(/^1 visitor at a desk under this goal: what it spends is not tracked\./);
+    expect(visitorsLine(2)).toMatch(/^2 visitors at desks .* is not tracked\./);
+    expect(visitorsLine(2)).toMatch(/unknown and in none of these figures/);
   });
 });

@@ -1,5 +1,5 @@
-import { AppError, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, accessRequestOf, boardWithTownDocs, canInteract, decideAccess, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, AccessRequestInput, AddBankInput, CreateBuildingInput, DesksPatch, MapLayout, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures } from "@muster-town/core";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -10,9 +10,13 @@ const EventsQuery = z.object({
   since: z.coerce.number().int().nonnegative().optional(),
   agentId: z.string().optional(),
   buildingId: z.string().optional(),
+  /** only system events whose payload.alert is this (e.g. `cache-miss`): the HUD reads the day's alerts that scrolled out of its last 300 events */
+  alert: z.string().min(1).max(40).optional(),
+  /** only events at or after this ISO time */
+  from: z.string().datetime().optional(),
   limit: z.coerce.number().int().positive().max(1000).default(100),
 });
-const SessionsQuery = z.object({ agentId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
+const SessionsQuery = z.object({ agentId: z.string().optional(), grantId: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) });
 const FunderQuery = z.object({ days: z.coerce.number().int().min(1).max(90).default(7) });
 const LimitQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(30) });
 const CabinetQuery = LimitQuery.extend({ type: DocType.optional(), authorId: z.string().optional() });
@@ -41,25 +45,35 @@ export async function townRoutes(app: FastifyInstance) {
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
    * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
-   * cached and `figuresAt` is when they were computed; the route itself never touches SQLite (503 post-mortem follow-up A).
+   * cached and `figuresAt` is when they were computed; so is `capacity` (root app, capacity.ts): `{at, wsClients: {now, ceiling},
+   * tick: {p95Ms, slowMs, samples}, db: {mb, volumeGb}, restarts24h}` against docs/scaling.md "How to check headroom live"; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
   // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
-  const figures = new HealthCache(() => ({
+  const figures = new HealthCache(() => {
+    // what steps really cost per size, last 30 days (grant-estimate.ts): computed here on the timer, never on a request
+    const cal = stepCalibration(world);
+    return {
     // goal-directed budgets: exploration (held only with no free tokens or at a goal's cap) and directed (a human asked; metered, never held) today
-    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world),
+    budgets: world.grantDesk.laneBudgets(), backup: app.backup?.snapshot() ?? null, desks: desksHealth(world), export: exportHealth(world),
+    // legible delegation step 9: the §9 counts (core measures.ts), the Planner's calibration reads them too
+    legible: legibleMeasures(world, new Date(), cal),
+    stepCalibration: cal,
     // the self-hosted towns directory (root app where it's on): {verified, listed, pending, lastTickAt}
     ...(app.directory ? { directory: app.directory.view() } : {}),
     // a hosted collective: its own key or none (its agents are held), never the host's funding
-    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none" } : {}),
-  }), app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
+    // live headroom against docs/scaling.md's triggers (gr_n0p3ast5pp step 3): root app only
+    ...(app.capacity ? { capacity: app.capacity.compute() } : {}),
+    ...(world.host.hosted ? { funding: world.bank.liveApiKeyInput() ? "api-key" : "none", founder: world.founderProgress(), started: world.hasRun() } : {}),
+    };
+  }, app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
 
   app.get("/api/health", async () => {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
     return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
-      budgets, backup, monitor: app.monitor?.view() ?? null, desks,
+      budgets, backup, monitor: app.monitor?.view() ?? null, desks, main: mainHealth(world),
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
       // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
@@ -77,9 +91,19 @@ export async function townRoutes(app: FastifyInstance) {
     });
   }
 
+  // public and polled: the snapshot only. The calibration and the §9 measures are on /api/health (cached) and, for the
+  // planning desk's Step sizes tab, GET /api/town/pricing
   app.get("/api/town", async () => {
     const { type: _type, ...snap } = world.snapshot();
     return snap;
+  });
+
+  // the planning desk's Step sizes tab (an admin): the table, oversell, and the cached calibration beside them
+  app.get("/api/town/pricing", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin reads the step-size pricing here.");
+    const { figures: f, at } = figures.get();
+    return { ...grantPricingOf(world.town.get()), stepCalibration: f.stepCalibration, figuresAt: at };
   });
 
   app.get("/api/me", async (req): Promise<AuthMe> => {
@@ -90,16 +114,39 @@ export async function townRoutes(app: FastifyInstance) {
       roles: world.permissions.rolesOf(holder),
       avatarAgentId: world.ops.ensureAvatar(user.id).id,
       isAdmin: world.permissions.isAdmin(holder),
+      canRedeploy: world.permissions.can(holder, "town.redeploy"),
       canInteract: canInteract(world, user.id),
       accessRequest: accessView(world, accessRequestOf(world, user.id)),
+      direct: directGoals(user.id),
+      directDefaultGoalId: defaultDirectGoal(world, holder),
+      captainOf: world.buildings.all().filter((b) => world.goalTree.captainsBuilding(holder, b.id)).map((b) => b.id),
+      directBuildingIds: world.buildings.where("kind != 'town-hall'", [], "ORDER BY createdAt, rowid").filter((b) => canDirect(world, holder, b.id)).map((b) => b.id),
     };
   });
+
+  /** The goals a user may direct work under: granted rows, then the goals they captain (gr_cuobjlny6r). */
+  const directGoals = (userId: string): AuthMe["direct"] => {
+    const granted = directGrantsOf(world, userId).map((r) => ({ goalId: r.goalId, text: world.goalTree.get(r.goalId)?.text ?? r.goalId, how: "granted" as const }));
+    const captained = world.goals.where("ownerId = ? AND status = 'active'", [userId], "ORDER BY createdAt, rowid").map((g) => ({ goalId: g.id, text: g.text, how: "captain" as const }));
+    return [...granted, ...captained];
+  };
 
   // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the Town Hall in-tray.
   app.post("/api/access-requests", async (req) => {
     const user = requireUser(req);
     const input = parse(AccessRequestInput, req.body);
     return { accessRequest: requestAccess(world, user.id, input.message ?? "") };
+  });
+
+  // Self-service role reset (dc_ia2hybtuax): the signed-in user goes back to a never-granted visitor (core reset.ts).
+  // Refused for an admin and the root's captain. Allowlisted past the write gate: a visitor with a pending request may reset too.
+  app.post("/api/me/reset", async (req) => {
+    const user = requireUser(req);
+    const reset = resetOwnAccount(world, user.id);
+    for (const id of reset.agentsRetired) {
+      try { await app.runtime?.onAgentRetired?.(id, { purge: false }); } catch (e) { app.log.error({ err: e }, "[server] runtime.onAgentRetired failed"); }
+    }
+    return { reset };
   });
 
   // pending requests for the admin's HUD notice (gr_fibsfwr4tz step 2): only who may decide them (`town.manage_roles`)
@@ -110,12 +157,33 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/access-requests/:id/decide", async (req) => {
     const input = parse(AccessDecisionInput, req.body);
-    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant) };
+    return { accessRequest: decideAccess(world, actorOf(world, req), req.params.id, input.grant, input.directGoalId ?? null) };
+  });
+
+  // "Direct work under <goal>" (gr_cuobjlny6r): let-in members with their goals (User stats' Members table), for an
+  // admin or a captain; grant and revoke one goal at a time (an admin, or a captain of the goal or one above it).
+  app.get("/api/members", async (req) => {
+    const actor = actorOf(world, req);
+    const h = world.holderOf(actor);
+    if (!world.permissions.can(actor, "town.manage_roles") && !(h.kind === "user" && world.goals.first("ownerId = ?", [h.id]))) {
+      throw new AppError("forbidden", "Only an admin or a goal's captain sees the members list.", 403, "town.manage_roles");
+    }
+    return { members: membersView(world) };
+  });
+
+  app.post<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body);
+    return { direct: grantDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
+  });
+
+  app.delete<{ Params: { userId: string } }>("/api/members/:userId/direct", async (req) => {
+    const input = parse(DirectGrantInput, req.body ?? req.query);
+    return { removed: revokeDirect(world, actorOf(world, req), req.params.userId, input.goalId) };
   });
 
   app.get("/api/events", async (req) => {
     const q = parse(EventsQuery, req.query);
-    const base = { agentId: q.agentId, buildingId: q.buildingId, limit: q.limit };
+    const base = { agentId: q.agentId, buildingId: q.buildingId, limit: q.limit, from: q.from, ...(q.alert ? { alert: q.alert, types: ["system" as const] } : {}) };
     const events = q.since !== undefined ? world.events.list({ ...base, since: q.since }) : world.events.recent(base);
     return { events };
   });
@@ -126,6 +194,16 @@ export async function townRoutes(app: FastifyInstance) {
    */
   app.get("/api/sessions", async (req) => {
     const q = parse(SessionsQuery, req.query);
+    // one grant's sessions (gr_4tf9hd64d5): every one, newest first, each with its list-price dollars, agent name and
+    // assignment title; their adjustedOutputTokens sum to GET /api/grants/:id spentTokens (Grants.spent reads the same rows)
+    if (q.grantId) {
+      const rows = world.sessions.where("grantId = ?", [q.grantId], "ORDER BY startedAt DESC, rowid DESC");
+      const sessions = rows.map((s) => ({
+        ...sessionView(s), usd: cents(sessionListUsd(s)), agentName: world.nameOf(s.agentId),
+        assignmentTitle: (s.assignmentId && world.assignments.get(s.assignmentId)?.title) || null,
+      }));
+      return { sessions, grantId: q.grantId, tokens: sessions.reduce((n, s) => n + s.adjustedOutputTokens, 0), usd: cents(rows.reduce((n, s) => n + sessionListUsd(s), 0)) };
+    }
     const rows = q.agentId
       ? world.sessions.where("agentId = ?", [q.agentId], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`)
       : world.sessions.where("1 = 1", [], `ORDER BY startedAt DESC, rowid DESC LIMIT ${q.limit}`);
@@ -184,7 +262,10 @@ export async function townRoutes(app: FastifyInstance) {
 
   app.post("/api/buildings", async (req, reply) => {
     const input = parse(CreateBuildingInput, req.body);
-    const building = world.ops.createBuilding(actorOf(world, req), input);
+    const created = world.ops.createBuilding(actorOf(world, req), input);
+    // no name typed: one cheap-model call names it like a place (flag dc_42c9cjbzls); the goal's short text stays on failure
+    const named = !input.name?.trim() && app.runtime?.nameBuilding;
+    const building = named ? await app.runtime!.nameBuilding!(created.id).catch(() => world.buildings.require(created.id, "building")) : created;
     return reply.code(201).send({ building });
   });
 
@@ -256,6 +337,14 @@ export async function townRoutes(app: FastifyInstance) {
     return { operatingReserveTokens: world.setOperatingReserve(tokens, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
   });
 
+  /** The retainer lookahead (admin): `{hours}` of due runs each retainer claims (default 6; docs/bank.md). → { retainerLookaheadHours, free } */
+  app.put("/api/town/retainer-lookahead", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the retainer lookahead.");
+    const { hours } = parse(z.object({ hours: z.number().int().min(1).max(168) }), req.body);
+    return { retainerLookaheadHours: world.setRetainerLookahead(hours, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
   /**
    * The map's shape, town-wide (1:1 mt_q10xf3bkoq): `{layout: "fountain" | "tree" | "radial"}`, by an admin or a goal
    * owner. Redraws the map for everyone at once. → { mapLayout }
@@ -270,10 +359,35 @@ export async function townRoutes(app: FastifyInstance) {
    * The collective defaults (admin; 1:1 mt_n25udpflus decision 3): model, cheap model, max turns, daily budget per agent
    * and code access for every building. Saving writes them through to every lab. → { defaults, buildings }
    */
+  /**
+   * Publish to GitHub (gr_30f8obzab8; docs/architecture.md "Export"), an admin of this collective: `{repoUrl, token?}`, repoUrl
+   * `https://github.com/<owner>/<repo>`; token a GitHub token with Contents read/write, stored encrypted as the runtime-owned
+   * secret (409 without a data key); left out = keep the stored one. The hourly export pushes its mirror there.
+   * → { publish: {repoUrl, tokenSet, lastPushAt, lastPushCommit, lastPushError} } (never the token; GET /api/town carries it too)
+   */
+  app.put("/api/town/publish", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can set where the town publishes.");
+    return { publish: world.setPublish(parse(PutPublishInput, req.body), world.ops.ensureAvatar(user.id).id) };
+  });
+
+  /** Stop publishing (admin): clears the repo URL, the token and the last-push fields. → { cleared } */
+  app.delete("/api/town/publish", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can stop publishing.");
+    return world.clearPublish(world.ops.ensureAvatar(user.id).id);
+  });
+
   app.put("/api/town/defaults", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
-    return world.setTownDefaults(parse(TownDefaultsPatch, req.body), world.ops.ensureAvatar(user.id).id);
+    const { stepSizes, oversell, ...rest } = parse(TownDefaultsPatch, req.body);
+    const by = world.ops.ensureAvatar(user.id).id;
+    // the step-size table and oversell (docs/legible-delegation.md §7.3) ride the same route; the rest are building defaults
+    const t = world.town.get();
+    const pricing = stepSizes || oversell !== undefined ? world.setGrantPricing({ stepSizes, oversell }, by) : grantPricingOf(t);
+    const saved = Object.values(rest).some((v) => v !== undefined) ? world.setTownDefaults(rest, by) : { defaults: world.town.defaults(), buildings: [] };
+    return { ...saved, ...pricing };
   });
 
   /**
@@ -286,11 +400,26 @@ export async function townRoutes(app: FastifyInstance) {
     if (b.kind === "town-hall") {
       // routes: each item's goal, owner, "Mine" and whether this viewer may decide it (docs/goals.md step 4)
       const intray = world.ops.townHallIntray();
-      return { ...intray, ...intrayRoutes(world, viewerOf(world, req), intray) };
+      // rankRun: the "Rank now" button (the Secretary's ranking run), only for a human who may press it; `digestRun` is its
+      // old name, kept one release for the web. notices: the latest 20 (closed loops, shipped, the slate) beside the asks
+      // (docs/legible-delegation.md §8). The digest card is gone: nothing writes one since step 5.
+      const viewer = viewerOf(world, req);
+      const rankRun = rankRunView(world, viewer);
+      return { ...intray, rankRun, digestRun: rankRun, notices: listNotices(world, { limit: 20 }), ...intrayRoutes(world, viewer, intray) };
     }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);
     return { reports, chains: reportChains(world, reports) };
+  });
+
+  /**
+   * Notices (docs/legible-delegation.md §8): state changes with nothing to do (shipped items, closed loops, verified key
+   * results, the Secretary's slate and pattern notes), newest first. Readable by anyone, like the in-tray.
+   * `?building=&goal=&kind=&limit=` (limit default 50, at most 200). → { notices }
+   */
+  app.get<{ Querystring: { building?: string; goal?: string; kind?: string; limit?: string } }>("/api/notices", async (req) => {
+    const q = req.query;
+    return { notices: listNotices(world, { building: q.building || undefined, goal: q.goal || undefined, kind: q.kind || undefined, limit: q.limit ? Number(q.limit) || undefined : undefined }) };
   });
 
   /**
@@ -411,19 +540,34 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   // ---- bank ----
+  // what the Fly estimate needs: a hosted collective does not pay for the hub's town Machine (muster.town runs the server): townPaidBy "host", window from its creation
+  const flyArgs = () => {
+    const hosted = !!world.host.hosted;
+    return { desks: world.desksConfig(), townOnFly: !!process.env.FLY_APP_NAME && !hosted, hosted };
+  };
   app.get("/api/bank", async () => world.bank.summary());
   // public, read-only: total received, used, expired, left, overdrawn and a 30-day projection (docs/bank.md "Finance")
   // `free`: the town-wide free tokens (docs/how-work-gets-done.md §7; core free-tokens.ts), the one number exploration reads
-  app.get("/api/finance", async () => ({ ...world.bank.finance(), free: world.bank.freeTokens?.() ?? null }));
+  // `cash` + `cashCheck` (gr_qggxximtru step 2): the last 30 days in cash (plans prorated, API-key sessions at list price, the Fly estimate as /api/finance/fly prices it)
+  app.get("/api/finance", async () => {
+    const now = new Date();
+    const { desks, townOnFly, hosted } = flyArgs();
+    return { ...world.bank.finance(now), free: world.bank.freeTokens?.() ?? null, ...world.bank.cash(desks, townOnFly, { capUsdPerDay: desks.billCapUsd, hosted }, now) };
+  });
   // public, read-only: `used` by building → grant → assignment from the sessions table; rows sum to used (gr_8gtgmd828o)
-  app.get("/api/finance/spend", async () => world.bank.spend());
+  // ?window=today|7d (default today) picks the window of `byLaneKind`, the lane × token-kind table (gr_lwgus14rd2 step 1); every other field is all-time
+  app.get<{ Querystring: { window?: string } }>("/api/finance/spend", async (req) => {
+    const window = req.query.window ?? "today";
+    if (!(LANE_KIND_WINDOWS as readonly string[]).includes(window)) throw badRequest(`window must be one of ${LANE_KIND_WINDOWS.join(", ")}`);
+    return world.bank.spend(new Date(), window as LaneKindWindow);
+  });
   app.get("/api/finance/sources", async () => world.bank.sources());
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it
   app.get<{ Querystring: { days?: string } }>("/api/finance/fly", async (req) => {
-    const desks = world.desksConfig();
+    const { desks, townOnFly, hosted } = flyArgs();
     const days = req.query.days ? Number(req.query.days) : undefined;
-    return world.bank.fly(desks, !!process.env.FLY_APP_NAME, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined });
+    return world.bank.fly(desks, townOnFly, { capUsdPerDay: desks.billCapUsd, windowDays: Number.isFinite(days) ? days : undefined, hosted });
   });
 
   app.post("/api/bank/inputs", async (req, reply) => {
@@ -439,6 +583,25 @@ export async function townRoutes(app: FastifyInstance) {
   app.delete<{ Params: Params }>("/api/bank/inputs/:id", async (req) => {
     const user = requireUser(req);
     return { input: world.bank.cancelInput(user.id, req.params.id) };
+  });
+
+  // Plans paid for (gr_qggxximtru step 1; docs/bank.md "Plans paid for"): what the town pays in cash for a subscription plan.
+  // GET is public and read-only; an admin records or ends one. A hosted collective has no plans (core refuses there).
+  app.get("/api/bank/fees", async () => ({ fees: world.bank.fees() }));
+  app.post("/api/bank/fees", async (req, reply) => {
+    const user = requireUser(req);
+    const fee = world.bank.addFee(user.id, parse(AddBankFee, req.body));
+    return reply.code(201).send({ fee });
+  });
+  app.post<{ Params: Params }>("/api/bank/fees/:id/end", async (req) => {
+    const user = requireUser(req);
+    return { fee: world.bank.endFee(user.id, req.params.id, parse(EndBankFee, req.body).to) };
+  });
+
+  // "Try now": clear an observed credential limit (core availability.ts) so the next session may try the input again
+  app.post<{ Params: Params }>("/api/bank/limits/:id/clear", async (req) => {
+    const user = requireUser(req);
+    return { limit: world.bank.clearLimit(user.id, req.params.id) };
   });
 
   // public, read-only: every funding stream (earmarks too), what each can still pay, and the expected session size a key
@@ -482,7 +645,7 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.require(actor, "town.redeploy");
     const input = parse(RedeployInput, req.body);
     if (!app.runtime?.redeploy) throw new AppError("internal", "runtime not available", 503);
-    const r = await app.runtime.redeploy({ image: input.image, requestedBy: actor.name });
+    const r = await app.runtime.redeploy({ image: input.image, ...(input.restart ? { restart: input.restart } : {}), requestedBy: actor.name });
     return reply.code(r.started ? 202 : 200).send(r);
   });
 
@@ -503,7 +666,16 @@ export async function townRoutes(app: FastifyInstance) {
 }
 
 function accessView(world: World, r: AccessRequest | null): AuthMe["accessRequest"] {
-  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world) } : null;
+  return r ? { status: r.status, message: r.message, decidedAt: r.decidedAt, ...accessContext(world), decidedByName: r.decidedBy ? world.nameOf(r.decidedBy) : null } : null;
+}
+
+/**
+ * GET /api/health `main` (gr_7op2v8fjcl, kr_mvj61meiwx): main's CI as the runtime last read it from GitHub, from memory (no
+ * database read): `{state green|red|pending, sha, failedStep, since, fixer, checkedAt}`; null without a runtime or before its first read.
+ */
+function mainHealth(world: World) {
+  const m = world.host.mainCi?.();
+  return m ? { state: m.state, sha: m.sha, failedStep: m.failedStep, since: m.since, fixer: m.fixer, checkedAt: m.checkedAt } : null;
 }
 
 /** GET /api/health `desks`: the desk size new sessions get and today's desk bill against the town-wide cap (gr_uhh6u39vv9 step 3). */
@@ -511,4 +683,14 @@ function desksHealth(world: World) {
   const desks = world.desksConfig();
   const bill = world.deskBill();
   return { backend: desks.backend, size: deskPreset(deskSizeFor(desks, bill).size), billCapUsd: bill.capUsd, billTodayUsd: bill.todayUsd, billPct: bill.pct, overCap: bill.overCap, day: bill.day };
+}
+
+/**
+ * GET /api/health `export` (gr_30f8obzab8): the last hourly export's time and commit (from its `export.done`) and the
+ * collective's last push to GitHub and its error (from `Town.publish`); nulls when never run or no repo is set.
+ */
+function exportHealth(world: World): { lastAt: string | null; commit: string | null; lastPushAt: string | null; pushError: string | null } {
+  const done = world.events.list({ types: ["export.done"], limit: 1, desc: true })[0];
+  const p = world.town.get().publish;
+  return { lastAt: done?.ts ?? null, commit: (done?.payload.commit as string | null | undefined) ?? null, lastPushAt: p?.lastPushAt ?? null, pushError: p?.lastPushError ?? null };
 }

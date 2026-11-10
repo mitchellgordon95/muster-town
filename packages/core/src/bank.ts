@@ -1,15 +1,21 @@
-import { AddBankInput, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitRaw, subTokens, type TokenCounts, type BankCredit, type BankInput, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
-import { CAP_THOUGHT, TYPICAL_SESSIONS, capReason, countDeaths, learnedCap, median, nearCap, type BankDeaths } from "./caps.ts";
+import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { Availability, inForce, limitText } from "./availability.ts";
+import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
+import { tickMemo } from "./tick-memo.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
+import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
+import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
-import { townFly, type FinanceFly, type FlyInputs } from "./finance-fly.ts";
+import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
+import { cashCheck, financeCash, CASH_FLY_DAYS, type CashCheck, type FinanceCash } from "./finance-cash.ts";
 import type { EventLog } from "./events.ts";
 import type { Holder, Permissions } from "./permissions.ts";
 import type { Repos } from "./store.ts";
 import { newId, nowIso } from "./util.ts";
+import { computeTokenMix, mixWindow } from "./token-mix.ts";
 
 const DAY_MS = 86_400_000;
 
@@ -124,11 +130,13 @@ export interface Booked { tokens: number; counts: TokenCounts }
  * A charge as the Bank books it, in `BANK_MODEL`'s output tokens. Counters are priced at `model`'s list price (per model
  * with `byModel`) and converted at Opus 5.5's output price. A bare number is already Bank tokens; its counters are the
  * back-fill split (docs/bank.md) of the raw tokens of `model` that cost the same: raw = n × rawPerAdjusted(model) ×
- * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw).
+ * Opus output price / the split family's output price (a Fable split of 1 Bank token is 24 / 2.5 = 9.6 raw). With the
+ * Bank's adjusted-token `mix` (what the Bank passes since 1:1 mt_rbc3exb393) a bare number is split by the mix instead.
  */
-export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null): Booked {
+export function booked(t: number | Partial<TokenCounts> | Booked, model?: string | null, byModel?: Record<string, TokenCounts> | null, mix?: TokenMix | null): Booked {
   if (typeof t === "number") {
     const tokens = Math.max(0, Math.round(t));
+    if (mix) return { tokens, counts: splitByMix(tokens, mix) };
     const splitModel = backfillFamily(model) === "fable" ? model : BANK_MODEL;
     const perBank = tokenPrices(BANK_MODEL).usdPerMTok.output / tokenPrices(splitModel).usdPerMTok.output;
     return { tokens, counts: splitRaw(tokens * rawPerAdjusted(model) * perBank, model) };
@@ -199,7 +207,7 @@ export interface BankSummary {
   /** expected tokens per day from active recurring inputs (monthly counts as 30 days) */
   dailyInflowTokens: number;
   /** per input, also: `debitedTokens`, what grants it pays for drew from it by name; `balanceTokens`, inputBalance (member funding) */
-  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens: number; balanceTokens: number })[];
+  inputs: (BankInput & { userName: string; creditedCounts: TokenCounts; adjustedCreditedTokens: number; debitedTokens: number; balanceTokens: number; limits: BankLimitView[] })[];
   buildings: BankBuildingShare[];
   /** free tokens town-wide (the root's: docs/how-work-gets-done.md §7); null when the Bank runs without a world (tests) */
   free: FreeTokens | null;
@@ -208,30 +216,29 @@ export interface BankSummary {
   freeTokens: number;
   /** top contributors by tokens given, most first (zero-token users left out) */
   contributors: BankContributor[];
+  /** the adjusted-token mix: what 1 adj. token is made of over the last 7 days (core token-mix.ts) */
+  mix: TokenMix;
   /** Bank step 4: the latest drift run (adjusted output tokens × output list price vs the SDK's costUsd); null before the first */
   drift: BankDrift | null;
   /** Bank step 5: unexpected out-of-tokens deaths over the last 7 days (docs/bank.md) */
   deaths: BankDeaths;
-  /** Bank step 5: the subscription's learned daily cap and whether new subscription starts are held near it */
+  /** the subscription's observed cap: today's spend and whether a cap event's reset is still ahead (no learned cap, no hold) */
   cap: BankCapState;
 }
 
-/** The subscription cap as the Bank has learned it from `bank.cap` events (GET /api/bank `cap`). */
+/** An observed limit on an input as GET /api/bank shows it (availability.ts): in force now or not, and its words. */
+type BankLimitView = CredentialLimit & { inForce: boolean; text: string };
+
+/**
+ * The subscription cap as observed from `bank.cap` events (GET /api/bank `cap`). Observed only: the Bank no longer learns
+ * a daily cap from where sessions died or holds starts near one (removed 2026-11-01: one Fable-only limit froze the town).
+ */
 interface BankCapState {
   /** the subscription input (null when there is none) */
   inputId: string | null;
-  /** learned daily cap in adjusted output tokens; null = no cap seen yet (then nothing is held) */
-  learnedCap: number | null;
-  /** days with a cap event the learned cap is the median of */
-  days: number;
   /** the subscription's adjusted spend since today's window opened (00:00 UTC, or a cap reset that already passed today) */
   spentToday: number;
   windowStart: string;
-  /** median adjusted size of the last 50 ended sessions that used tokens (null with none) */
-  typicalSession: number | null;
-  /** new subscription-funded starts are held */
-  held: boolean;
-  reason: string | null;
   /** when the cap resets: the latest cap event's reset if still ahead, else the next 00:00 UTC */
   resetsAt: string;
   /**
@@ -309,6 +316,16 @@ const EXPECTED_SESSION_MIN_SAMPLE = 5;
 export const STREAM_IDLE_DAYS = 7;
 
 /** The p-th percentile (0..1) of `xs`, nearest rank; 0 for none. */
+/** `Bank.expectedSession`'s window: work sessions that ended after `?`. */
+const ENDED_WORK = "purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?";
+/** The columns `sessionTokens` reads, plus the agent (read raw: zod-parsing whole rows was most of the tick, dc_avj0n0doki). */
+const ENDED_COLS = ["agentId", "model", "bankModel", "byModel", "input", "output", "cacheRead", "cacheWrite5m", "cacheWrite1h"];
+type EndedRow = { agentId: string; model: string; bankModel: string | null; byModel: string | null } & { [K in keyof TokenCounts]: number | null };
+const endedRowUsage = (r: EndedRow) => ({
+  model: r.model, bankModel: r.bankModel, byModel: r.byModel ? (JSON.parse(r.byModel) as Record<string, TokenCounts>) : null,
+  input: r.input ?? 0, output: r.output ?? 0, cacheRead: r.cacheRead ?? 0, cacheWrite5m: r.cacheWrite5m ?? 0, cacheWrite1h: r.cacheWrite1h ?? 0,
+});
+
 export function percentile(xs: number[], p: number): number {
   if (!xs.length) return 0;
   const sorted = [...xs].sort((a, b) => a - b);
@@ -316,7 +333,12 @@ export function percentile(xs: number[], p: number): number {
 }
 
 export class Bank {
-  constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {}
+  /** what the provider actually serves, observed per input and model class (availability.ts) */
+  readonly availability: Availability;
+
+  constructor(private repos: Repos, private events: EventLog, private permissions: Permissions) {
+    this.availability = new Availability(repos, events);
+  }
   /** A hosted collective (served by the hub at `/<slug>/`): API keys only, never a subscription (`HOSTED_KEY_ONLY_HOLD`). */
   hosted(): boolean { return this.permissions.isHosted(); }
   /** the town-wide free tokens (set by the World: they need grants and the goal tree; core free-tokens.ts) */
@@ -369,20 +391,156 @@ export class Bank {
     return this.repos.bankInputs.require(row.id, "bank input");
   }
 
-  /** The five counters behind a credit of `tokens` adjusted output tokens: the back-fill split of the raw tokens they stand for. */
-  private creditCounts(tokens: number, model: string): TokenCounts {
-    return splitRaw(tokens * rawPerAdjusted(model), model);
+  /** The five counters behind a credit of `tokens` adjusted output tokens: the raw tokens they stand for, split by the adjusted-token mix. */
+  private creditCounts(tokens: number, _model: string): TokenCounts {
+    return splitByMix(tokens, this.mix());
   }
 
-  /** Stop an input's future credits and forget its key. Its owner or an admin. Past credits stay in the Bank. */
-  cancelInput(userId: string, inputId: string): BankInput {
+  // ---- The adjusted-token mix (1:1 mt_rbc3exb393; core token-mix.ts) ----
+  private mixCache: TokenMix | null = null;
+
+  /** The one global adjusted-token mix (GET /api/bank and /api/finance `mix`). The first read back-fills it from the usage logs. */
+  mix(now = new Date()): TokenMix {
+    this.mixCache ??= this.repos.town.tokenMix();
+    return this.mixCache ?? this.refreshMix(now);
+  }
+
+  /** Recompute the mix from the last 7 full UTC days of ended sessions, store it and post one `bank.mix` event. */
+  refreshMix(now = new Date()): TokenMix {
+    const { from, to } = mixWindow(now);
+    const sessions = this.repos.sessions.where("status != 'running' AND endedAt >= ? AND endedAt < ?", [from, to]);
+    const mix = computeTokenMix(sessions, BANK_MODEL, tokenWeights(BANK_MODEL), now);
+    this.repos.town.setTokenMix(mix);
+    this.mixCache = mix;
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+    const r = mix.rawShare;
+    this.events.append({
+      type: "bank.mix",
+      text: `Bank: 1 adj. token ≈ ${mix.rawPerAdjusted.toFixed(1)} raw tokens (${pct(r.input)} input, ${pct(r.cacheRead)} cache read, ${pct(r.cacheWrite5m + r.cacheWrite1h)} cache write, ${pct(r.output)} output) ${mix.source === "usage" ? `from ${mix.sessions} sessions, ${from.slice(0, 10)} to ${to.slice(0, 10)}` : "(no usage in the window: the step-1 calibration)"}`,
+      payload: { ...mix },
+    });
+    return mix;
+  }
+
+  /** Recompute the mix once per UTC day (the runtime calls this every tick). Returns the new mix, or null when today's is already stored. */
+  mixDue(now = new Date()): TokenMix | null {
+    const cur = this.mixCache ?? this.repos.town.tokenMix();
+    if (cur && cur.computedAt.slice(0, 10) === now.toISOString().slice(0, 10)) { this.mixCache = cur; return null; }
+    return this.refreshMix(now);
+  }
+
+  /**
+   * Stop an input's future credits and forget its key. Its owner or an admin. What it credited but nobody spent expires
+   * now (2026-11-01, promised and available): a credit is a promise backed only by the input's own credential, so once its
+   * token or key is forgotten nothing can pay for the rest. A subscription's live credit is today's plan quota; an API
+   * key's is what its donor agreed to be billed for, and a cancelled key would otherwise leave tokens in the shared balance
+   * that other donors' keys end up paying for. Spent tokens stay in the history.
+   */
+  cancelInput(userId: string, inputId: string, now = new Date()): BankInput {
     const inp = this.repos.bankInputs.require(inputId, "bank input");
     if (inp.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can cancel it.");
     if (inp.cancelledAt) return inp;
     this.repos.bankInputs.setApiKey(inputId, null);
-    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: nowIso() });
-    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled`, payload: { inputId, cancelled: true } });
+    const row = this.repos.bankInputs.upsert({ ...this.repos.bankInputs.require(inputId), nextCreditAt: null, cancelledAt: now.toISOString() });
+    let expiredTokens = 0;
+    for (const c of this.inputCredits(inputId, now)) {
+      if (!c.expiresAt) continue;
+      expiredTokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+      this.repos.bankCredits.upsert({ ...c, expiresAt: now.toISOString() });
+    }
+    expiredTokens += this.lapseDurable(inp, now);
+    const lapsed = expiredTokens ? `; its unspent ${expiredTokens.toLocaleString("en-US")} adj. tokens of ${inp.source === "subscription" ? "today's credit" : "credit"} expired` : "";
+    this.events.append({ type: "bank.input", text: `${inp.label} was cancelled${lapsed}`, payload: { inputId, cancelled: true, expiredTokens } });
     return row;
+  }
+
+  /** "Try now": clear an observed limit by hand (the input's owner or an admin), so the next session may try it. */
+  clearLimit(userId: string, limitId: string): CredentialLimit {
+    const l = this.repos.credentialLimits.require(limitId, "limit");
+    const inp = this.repos.bankInputs.get(l.inputId);
+    if (inp?.userId !== userId && !this.permissions.isAdmin({ kind: "user", id: userId })) throw forbidden("town.allocate_budget", "Only the input's owner or an admin can clear its limit.");
+    if (l.clearedAt) return l;
+    return this.availability.clear(l, new Date(), `${this.repos.users.get(userId)?.name ?? userId} cleared it by hand`);
+  }
+
+  // ---- Plans paid for (gr_qggxximtru step 1; docs/bank.md "Plans paid for") ----
+
+  /** Every plan fee the town recorded, newest first by its first day. Public. */
+  fees(): BankFee[] {
+    return this.repos.bankFees.all("ORDER BY fromDate DESC, createdAt DESC");
+  }
+
+  /** An admin records what the town pays in cash for a subscription plan. A hosted collective has no plans. */
+  addFee(userId: string, input: AddBankFee): BankFee {
+    if (this.permissions.isHosted()) throw badRequest(HOSTED_KEY_ONLY_HOLD);
+    this.requireAdmin(userId, "record a plan fee");
+    const f = AddBankFee.parse(input);
+    if (f.to && f.to < f.from) throw badRequest("A plan can't end before it starts.");
+    const user = this.repos.users.require(userId, "user");
+    const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: userId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+    this.events.append({ type: "bank.fee", text: `${user.name} recorded a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate } });
+    return fee;
+  }
+
+  /**
+   * collective.json `plans` at boot (seed.ts): each plan the file spells out is recorded once, by the admin, unless a
+   * fee with its label and first day is already there (a plan an admin recorded by hand, or an earlier boot). A hosted
+   * collective has no plans, so nothing is recorded there. Returns the fees it added.
+   */
+  seedFees(adminId: string, plans: AddBankFee[]): BankFee[] {
+    if (!plans.length || this.permissions.isHosted()) return [];
+    const have = new Set(this.fees().map((f) => `${f.label}\n${f.fromDate}`));
+    const added: BankFee[] = [];
+    for (const raw of plans) {
+      const f = AddBankFee.parse(raw);
+      if (have.has(`${f.label}\n${f.from}`)) continue;
+      const fee = this.repos.bankFees.upsert({ id: newId("bf"), label: f.label, paidBy: adminId, usdPerMonth: f.usdPerMonth, fromDate: f.from, toDate: f.to ?? null, createdAt: nowIso() });
+      this.events.append({ type: "bank.fee", text: `collective.json records a plan paid for: ${fee.label}, $${fee.usdPerMonth}/month from ${fee.fromDate}${fee.toDate ? ` to ${fee.toDate}` : ""}`, payload: { feeId: fee.id, usdPerMonth: fee.usdPerMonth, fromDate: fee.fromDate, toDate: fee.toDate, seeded: true } });
+      added.push(fee);
+    }
+    return added;
+  }
+
+  /** An admin sets a plan fee's last paid day (an ended plan can be moved). */
+  endFee(userId: string, feeId: string, to: string): BankFee {
+    this.requireAdmin(userId, "end a plan fee");
+    const fee = this.repos.bankFees.require(feeId, "plan fee");
+    const day = EndBankFee.parse({ to }).to;
+    if (day < fee.fromDate) throw badRequest("A plan can't end before it starts.");
+    const row = this.repos.bankFees.patch(feeId, { toDate: day });
+    this.events.append({ type: "bank.fee", text: `Plan paid for ended: ${fee.label}, last day ${day}`, payload: { feeId, toDate: day } });
+    return row;
+  }
+
+  /**
+   * A cancelled input's durable (API-key) credits: split each into what was spent (stays durable) and its unspent rest, a
+   * new credit row that expires now, so the balance drops by exactly the rest and the finance identity counts it as
+   * expired. Draws from the general balance don't name a credit, so they are taken to spend the oldest credits first (the
+   * Bank hands out the oldest live key); an earmark's draws name their credits. Returns the tokens that lapsed.
+   */
+  private lapseDurable(inp: BankInput, now: Date): number {
+    const rows: { c: BankCredit; rest: number }[] = [];
+    if (inp.goalId) {
+      for (const c of this.repos.bankCredits.where("inputId = ? AND expiresAt IS NULL", [inp.id])) rows.push({ c, rest: Math.max(0, c.tokens - this.debited("creditId = ?", [c.id])) });
+    } else {
+      let anonymous = this.debited("creditId IS NULL", []);
+      for (const c of this.repos.bankCredits.where(`expiresAt IS NULL AND NOT ${EARMARKED}`, [], "ORDER BY createdAt, rowid")) {
+        const room = Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        const take = Math.min(room, anonymous);
+        anonymous -= take;
+        if (c.inputId === inp.id) rows.push({ c, rest: room - take });
+      }
+    }
+    let lapsed = 0;
+    for (const { c, rest } of rows) {
+      if (rest <= 0) continue;
+      const part = sliceBooked({ tokens: c.tokens, counts: countsOf(c) }, rest);
+      const { rawTokens: _raw, ...kept } = c;
+      this.repos.bankCredits.upsert({ ...kept, ...subTokens(countsOf(c), part.counts), tokens: c.tokens - part.tokens });
+      this.repos.bankCredits.upsert({ id: newId("bc"), inputId: inp.id, ...part.counts, tokens: part.tokens, createdAt: c.createdAt, expiresAt: now.toISOString() });
+      lapsed += part.tokens;
+    }
+    return lapsed;
   }
 
   input(inputId: string): BankInput | undefined {
@@ -428,8 +586,8 @@ export class Bank {
   }
 
   /** An api-key input's credential: `inputId`'s when it is live and holds its key, else the oldest live keyed api-key input's; null when none. */
-  apiKeyCredential(inputId?: string | null): Credential | null {
-    const inp = inputId ? this.repos.bankInputs.get(inputId) : this.liveApiKeyInput();
+  apiKeyCredential(inputId?: string | null, model?: string | null, now = new Date()): Credential | null {
+    const inp = inputId ? this.repos.bankInputs.get(inputId) : this.liveApiKeyInput(model, now);
     if (!inp || inp.source !== "api-key" || !inp.hasApiKey || inp.cancelledAt) return null;
     const secret = this.apiKeyFor(inp.id);
     return secret ? { kind: "api-key", secret, inputId: inp.id } : null;
@@ -515,16 +673,36 @@ export class Bank {
    */
   expectedSession(buildingId?: string | null, now = new Date()): { tokens: number; sample: number } {
     const since = new Date(now.getTime() - 7 * DAY_MS).toISOString();
-    const ended = this.repos.sessions.where("purpose = 'work' AND endedAt IS NOT NULL AND endedAt > ?", [since]);
-    const sizes = (rows: Session[]) => rows.map((s) => sessionTokens(s)).filter((t) => t > 0);
-    if (buildingId) {
-      const homes = new Set(this.repos.agents.where("homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId]).map((a) => a.id));
-      const own = sizes(ended.filter((s) => homes.has(s.agentId)));
-      if (own.length >= EXPECTED_SESSION_MIN_SAMPLE) return { tokens: percentile(own, 0.9), sample: own.length };
+    // it runs every tick and at every session start: keep the window's sizes while the window holds the same ended sessions
+    // (count, newest end and raw total: a session ending, settling its usage or leaving the window changes the key)
+    const key = this.repos.sessions.columns<{ n: number; last: string | null; raw: number | null }>(["COUNT(*) AS n", "MAX(endedAt) AS last", "SUM(tokens) AS raw"], ENDED_WORK, [since])[0]!;
+    const stamp = `${key.n}|${key.last ?? ""}|${key.raw ?? 0}`;
+    let c = this.expectedCache;
+    if (c?.stamp !== stamp) {
+      const ended = this.repos.sessions.columns<EndedRow>(ENDED_COLS, ENDED_WORK, [since]).map((r) => ({ agentId: r.agentId, tokens: sessionTokens(endedRowUsage(r)) }));
+      c = this.expectedCache = { stamp, ended, byBuilding: new Map(), town: null };
     }
-    const all = sizes(ended);
-    return all.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(all, 0.9), sample: all.length } : { tokens: EXPECTED_SESSION_DEFAULT, sample: 0 };
+    if (buildingId) {
+      // who counts as the building's is read every call (one small read), so a move between buildings shows at once
+      const homes = this.repos.agents.columns<{ id: string }>(["id"], "homeBuildingId = ? OR buildingId = ?", [buildingId, buildingId], "ORDER BY id").map((a) => a.id);
+      const members = homes.join(",");
+      let hit = c.byBuilding.get(buildingId);
+      if (hit?.members !== members) {
+        const set = new Set(homes);
+        const own = c.ended.filter((s) => set.has(s.agentId)).map((s) => s.tokens).filter((t) => t > 0);
+        hit = { members, value: own.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(own, 0.9), sample: own.length } : null };
+        c.byBuilding.set(buildingId, hit);
+      }
+      if (hit.value) return { ...hit.value };
+    }
+    if (!c.town) {
+      const all = c.ended.map((s) => s.tokens).filter((t) => t > 0);
+      c.town = all.length >= EXPECTED_SESSION_MIN_SAMPLE ? { tokens: percentile(all, 0.9), sample: all.length } : { tokens: EXPECTED_SESSION_DEFAULT, sample: 0 };
+    }
+    return { ...c.town };
   }
+  /** `expectedSession`'s cache: the window's ended work sessions as (agent, booked tokens), and the p90s taken from them (per building, with the members they were taken over). */
+  private expectedCache: { stamp: string; ended: { agentId: string; tokens: number }[]; byBuilding: Map<string, { members: string; value: { tokens: number; sample: number } | null }>; town: { tokens: number; sample: number } | null } | null = null;
 
   /** Live keyed earmarks scoped to `goalId`, oldest first. */
   earmarksFor(goalId: string): BankInput[] {
@@ -556,6 +734,59 @@ export class Bank {
     return expiring + durable;
   }
 
+  /**
+   * Promised and available (docs/bank.md): the part of the general balance no session can draw on, by input, because
+   * the input can't serve any model before its credit runs out. A subscription credit counts as unavailable when an
+   * every-model limit on its input lasts past the credit's expiry (the quota is behind a reset that comes too late).
+   * A durable (api-key) credit counts as unavailable while its input is broken (billing, auth) or limited with no reset
+   * named; a limit with a named reset still counts (the money comes back). A limit on one model (Fable) changes nothing
+   * here: other models can still spend it. Durable figures are the input's credits less the debits that name it,
+   * capped by the durable balance (anonymous pool draws aren't attributed to an input).
+   */
+  unavailable(now = new Date()): { tokens: number; inputs: { inputId: string; label: string; tokens: number; text: string }[] } {
+    const iso = now.toISOString();
+    const out = new Map<string, { inputId: string; label: string; tokens: number; text: string }>();
+    let durableOut = 0;
+    for (const inp of this.repos.bankInputs.where("goalId IS NULL")) {
+      const lim = this.availability.limitFor(inp.id, null, now);
+      if (!lim) continue;
+      const ends = lim.until ?? lim.probeAt ?? iso;
+      const broken = lim.kind === "billing" || lim.kind === "auth" || !lim.until;
+      // expiring (subscription) credits whose expiry comes before the input can serve again
+      let tokens = 0;
+      for (const c of this.repos.bankCredits.where("inputId = ? AND expiresAt > ?", [inp.id, iso])) {
+        if (ends >= c.expiresAt!) tokens += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+      }
+      // durable (api-key) credits of a broken input: what is left of them
+      if (broken) {
+        const credited = this.repos.bankCredits.sum("tokens", "inputId = ? AND expiresAt IS NULL", [inp.id]);
+        const durable = Math.max(0, credited - this.debited("inputId = ? AND creditId IN (SELECT id FROM bank_credits WHERE expiresAt IS NULL)", [inp.id]));
+        tokens += durable;
+        durableOut += durable;
+      }
+      if (tokens > 0) out.set(inp.id, { inputId: inp.id, label: inp.label, tokens, text: limitText(lim, inp.label) });
+    }
+    // anonymous pool draws may have spent a broken key's money: never more unavailable than the durable balance holds
+    const over = Math.max(0, durableOut - this.totals(now).durable);
+    let rows = [...out.values()];
+    if (over > 0) {
+      let cut = over;
+      rows = rows.map((r) => {
+        const inp = this.repos.bankInputs.get(r.inputId);
+        if (inp?.source !== "api-key" || cut <= 0) return r;
+        const take = Math.min(cut, r.tokens);
+        cut -= take;
+        return { ...r, tokens: r.tokens - take };
+      }).filter((r) => r.tokens > 0);
+    }
+    return { tokens: rows.reduce((s, r) => s + r.tokens, 0), inputs: rows };
+  }
+
+  /** The general balance sessions can actually draw on now: `balance` less `unavailable` (docs/bank.md "Promised and available"). */
+  usableBalance(now = new Date()): number {
+    return Math.max(0, this.balance(now) - this.unavailable(now).tokens);
+  }
+
   private live(now: Date): BankCredit[] {
     const iso = now.toISOString();
     return this.repos.bankCredits.where(`(expiresAt IS NULL OR expiresAt > ?) AND NOT ${EARMARKED}`, [iso], "ORDER BY expiresAt, createdAt, rowid");
@@ -584,12 +815,15 @@ export class Bank {
    */
   available(buildingId: string, now = new Date()): { expiring: number; durable: number } {
     if (!this.repos.buildings.get(buildingId)) return { expiring: 0, durable: 0 };
-    let expiring = 0, durableIn = 0;
-    for (const c of this.live(now)) {
-      if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
-      else durableIn += c.tokens;
-    }
-    return { expiring, durable: durableIn - this.debited(`creditId IS NULL OR ${DURABLE_CREDIT}`, []) };
+    // the same for every building: one sum per scheduler pass (tick-memo.ts)
+    return { ...tickMemo(this, "available", now, () => {
+      let expiring = 0, durableIn = 0;
+      for (const c of this.live(now)) {
+        if (c.expiresAt) expiring += Math.max(0, c.tokens - this.debited("creditId = ?", [c.id]));
+        else durableIn += c.tokens;
+      }
+      return { expiring, durable: durableIn - this.debited(`creditId IS NULL OR ${DURABLE_CREDIT}`, []) };
+    }) };
   }
 
   private requireAdmin(userId: string, what: string): void {
@@ -606,14 +840,22 @@ export class Bank {
    * The API-key input a subscription-funded session can fail over to when the plan hits its spend limit:
    * the oldest live api-key input with a key, if the Bank still has durable tokens (else null).
    */
-  fallbackInput(buildingId: string, now = new Date()): BankInput | null {
+  fallbackInput(buildingId: string, now = new Date(), model?: string | null): BankInput | null {
     if (this.available(buildingId, now).durable <= 0) return null;
-    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
+    return this.liveApiKeyInput(model, now);
   }
 
-  /** The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). */
-  liveApiKeyInput(): BankInput | null {
-    return this.repos.bankInputs.first(LIVE_KEYED, ["api-key"], "ORDER BY createdAt, rowid") ?? null;
+  /** Every live input of `source` that holds its key (earmarks left out), oldest first, limited or not. */
+  keyedInputs(source: "api-key" | "subscription"): BankInput[] {
+    return this.repos.bankInputs.where(LIVE_KEYED, [source], "ORDER BY createdAt, rowid");
+  }
+
+  /**
+   * The oldest live api-key input that still has its key (a hosted collective without one is held: `NO_KEY_HOLD`). With
+   * `model`, the oldest one not limited for that model now (availability.ts); without, the oldest not limited for every model.
+   */
+  liveApiKeyInput(model?: string | null, now = new Date()): BankInput | null {
+    return this.keyedInputs("api-key").find((i) => this.availability.available(i.id, model, now)) ?? null;
   }
 
   /** Where the building's next session should be funded from, or null when the general balance is used up. */
@@ -621,8 +863,8 @@ export class Bank {
     const a = this.available(buildingId, now);
     if (a.expiring > 0) return { kind: "expiring" };
     if (a.durable <= 0) return null;
-    // the oldest live api-key input that still has its key
-    const input = this.liveApiKeyInput();
+    // the oldest live api-key input that still has its key and isn't limited for every model now
+    const input = this.liveApiKeyInput(null, now);
     return { kind: "durable", inputId: input?.id ?? null };
   }
 
@@ -633,7 +875,7 @@ export class Bank {
    * stop). A bare number is adjusted output tokens; see `drawTokens` for the counters.
    */
   draw(buildingId: string, agentId: string, tokens: number | TokenCounts | Booked, opts: { overshoot?: boolean; now?: Date } = {}): number {
-    return this.drawTokens(buildingId, agentId, booked(tokens), opts).tokens;
+    return this.drawTokens(buildingId, agentId, booked(tokens, undefined, undefined, this.mix()), opts).tokens;
   }
 
   /**
@@ -727,13 +969,13 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary {
-    return townFinance(this.repos, now);
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix } {
+    return { ...townFinance(this.repos, now), mix: this.mix(now) };
   }
 
-  /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts). */
-  spend(now = new Date()): FinanceSpend {
-    return townSpend(this.repos, this.events, now);
+  /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
+  spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes } {
+    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, now) };
   }
 
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */
@@ -742,8 +984,20 @@ export class Bank {
   }
 
   /** GET /api/finance/fly: the Fly.io hosting estimate per day (desk sessions' wall time at the desk size's list price + the town Machine) and per building (finance-fly.ts). */
-  fly(desks: FlyInputs["desks"], townOnFly: boolean, o: { capUsdPerDay?: number | null; windowDays?: number } = {}, now = new Date()): FinanceFly {
-    return townFly(this.repos, desks, townOnFly, o, now);
+  fly(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt"> = {}, now = new Date()): FinanceFly {
+    // a hosted collective's creation = its first event (the window starts no earlier than that day)
+    const createdAt = o.hosted ? this.events.list({ limit: 1 })[0]?.ts ?? null : null;
+    return townFly(this.repos, desks, townOnFly, { ...o, createdAt }, now);
+  }
+
+  /**
+   * GET /api/finance `cash` + `cashCheck`: what the last 30 days cost in cash (plan fees prorated, API-key sessions at
+   * list price, the Fly estimate) next to the list-price value of the same work (finance-cash.ts). Read-only.
+   */
+  cash(desks: FlyInputs["desks"], townOnFly: boolean, o: Omit<FlyOptions, "createdAt" | "windowDays"> = {}, now = new Date()): { cash: FinanceCash; cashCheck: CashCheck } {
+    const fly = this.fly(desks, townOnFly, { ...o, windowDays: CASH_FLY_DAYS }, now);
+    const cash = financeCash({ fees: this.fees(), sessions: this.repos.sessions.all(), inputs: this.repos.bankInputs.all(), fly, hosted: !!o.hosted }, now);
+    return { cash, cashCheck: cashCheck(cash) };
   }
 
   summary(): BankSummary {
@@ -756,7 +1010,8 @@ export class Bank {
     const inputViews = inputs.map((i) => {
       const counts = countsOf(byInput.get(i.id) ?? ZERO_TOKENS);
       const debitedTokens = this.debited("inputId = ?", [i.id]);
-      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts), debitedTokens, balanceTokens: this.inputBalance(i.id, now) };
+      const limits = this.availability.open(i.id).map((l) => ({ ...l, inForce: inForce(l, now), text: limitText(l, i.label) }));
+      return { ...i, userName: this.repos.users.get(i.userId)?.name ?? i.userId, creditedCounts: counts, adjustedCreditedTokens: adjustedOutputTokens(i.model, counts), debitedTokens, balanceTokens: this.inputBalance(i.id, now), limits };
     });
     const totals = this.totals(now);
     const held = new Map<string, HeldByAuth>();
@@ -797,12 +1052,13 @@ export class Bank {
       freeTokens: free?.freeTokens ?? 0,
       contributors: this.contributors(),
       drift: this.latestDrift(),
+      mix: this.mix(now),
       deaths: this.deaths(now),
       cap: this.capState(now),
     };
   }
 
-  // ---- Bank step 5: deaths and the cap hold (caps.ts) ----
+  // ---- Bank step 5: deaths and the observed cap (caps.ts) ----
   /** Unexpected out-of-tokens deaths over the 7 days before `now` (definition in caps.ts and docs/bank.md). */
   deaths(now = new Date()): BankDeaths {
     const from = new Date(now.getTime() - 7 * DAY_MS).toISOString();
@@ -815,15 +1071,12 @@ export class Bank {
   }
 
   private capCache: { at: number; state: BankCapState } | null = null;
-  /** the day the `bank.hold` event was last logged (once per day) */
-  private holdDay: string | null = null;
 
-  /** The learned subscription cap and whether starts are held near it; cached 30 s (recordCap clears it). */
+  /** The observed subscription cap: today's subscription spend and whether a cap is in force; cached 30 s (recordCap clears it). */
   capState(now = new Date()): BankCapState {
     if (this.capCache && now.getTime() - this.capCache.at >= 0 && now.getTime() - this.capCache.at < 30_000) return this.capCache.state;
     const today = utcDay(now);
     const caps = this.events.list({ types: ["bank.cap"], from: new Date(now.getTime() - 15 * DAY_MS).toISOString(), desc: true, limit: 5000 });
-    const learned = learnedCap(caps.map((e) => ({ day: String(e.payload.day ?? e.ts.slice(0, 10)), subscriptionAdjustedToday: Number(e.payload.subscriptionAdjustedToday ?? e.payload.adjustedSpendToday ?? 0) })), today);
     const midnight = `${today}T00:00:00.000Z`, nowIso = now.toISOString();
     const resets = caps.map((e) => e.payload.resetsAt).filter((r): r is string => typeof r === "string");
     // a cap that reset earlier today reopens the window; the next reset is the latest one still ahead, else next midnight
@@ -836,16 +1089,8 @@ export class Bank {
     for (const s of this.repos.sessions.where("status != 'running' AND endedAt >= ?", [windowStart])) {
       if (!s.funding || s.funding === "subscription") spentToday += sessionTokens(s);
     }
-    const recent = this.repos.sessions.where("status != 'running' AND tokens > 0", [], `ORDER BY endedAt DESC LIMIT ${TYPICAL_SESSIONS}`);
-    const typicalSession = median(recent.map((s) => sessionTokens(s)));
-    const held = nearCap(spentToday, learned?.cap ?? null, typicalSession);
-    const reason = held && learned ? capReason(spentToday, learned.cap, resetsAt) : null;
     const inputId = this.repos.bankInputs.first("source = 'subscription' AND cancelledAt IS NULL", [], "ORDER BY createdAt, rowid")?.id ?? null;
-    const state: BankCapState = { inputId, learnedCap: learned?.cap ?? null, days: learned?.days ?? 0, spentToday, windowStart, typicalSession, held, reason, resetsAt, cappedAt };
-    if (held && this.holdDay !== today && !this.events.list({ types: ["bank.hold"], from: midnight, limit: 1 }).length) {
-      this.holdDay = today;
-      this.events.append({ type: "bank.hold", text: `Bank: new subscription starts held, ${reason}`, payload: { ...state } });
-    }
+    const state: BankCapState = { inputId, spentToday, windowStart, resetsAt, cappedAt };
     this.capCache = { at: now.getTime(), state };
     return state;
   }

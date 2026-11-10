@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { api } from "../api";
 import { store } from "../state";
+import { DesignSection } from "./DesignSection";
 import { Markdown } from "./Markdown";
 import { manualSections } from "./manualSections";
 import { useLoad } from "./ui";
@@ -49,6 +50,7 @@ export function ManualSheet({ section }: { section?: string }) {
               {parts.sections.map((s) => (
                 <a key={s.slug} href={`#/manual/${s.slug}`} className={s.slug === section ? "on" : ""}>{s.title}</a>
               ))}
+              <a href="#/manual/design" className={section === "design" ? "on" : ""}>Design</a>
             </nav>
             {parts.sections.map((s) => (
               <section key={s.slug} data-slug={s.slug}>
@@ -56,6 +58,11 @@ export function ManualSheet({ section }: { section?: string }) {
                 <Markdown className="manual-md" text={s.body} />
               </section>
             ))}
+            {/* not in the manual's text: drawn from the CSS tokens themselves (kr_z4junko6nt) */}
+            <section data-slug="design">
+              <h3><a href="#/manual/design">Design</a></h3>
+              <DesignSection />
+            </section>
             <p className="manual-note">This manual is a Town Hall document: <a href={`#/doc/${load.data!.doc.id}`}>open it in the library</a>.</p>
           </> : null}
         </div>

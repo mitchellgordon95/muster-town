@@ -112,8 +112,7 @@ describe("buildings & agents", () => {
   it("the message and proxy-chat routes are gone (1:1 mt_wql34b8gkl); interrupt and meeting start call the runtime when attached", async () => {
     const off = await setup();
     const mei = off.by("Mei");
-    const ada = off.world.agents.first("kind = 'service'")!;
-    expect((await json(off.app, "POST", `/api/agents/${ada.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
+    expect((await json(off.app, "POST", `/api/agents/${mei.id}/chat`, { headers: off.auth, body: { message: "hi" } })).status).toBe(404);
     expect((await json(off.app, "POST", `/api/agents/${mei.id}/message`, { headers: off.auth, body: { text: "hi" } })).status).toBe(404);
 
     const calls: unknown[] = [];
@@ -127,6 +126,29 @@ describe("buildings & agents", () => {
     const started = await json(on.app, "POST", `/api/meetings/${m.body.meeting.id}/start`, { headers: on.auth });
     expect(started.body.meeting.phase).toBe("discussing");
     expect(calls).toEqual([["interrupt", mei2.id, "stop that"], ["meeting", m.body.meeting.id]]);
+  });
+
+  it("POST /api/buildings with no name asks the runtime to name it (flag dc_42c9cjbzls); a typed name or a failed call keeps it", async () => {
+    const named: string[] = [];
+    let fail = false;
+    const on = await setup({ runtime: {
+      interrupt: async () => undefined,
+      nameBuilding: async (id) => {
+        named.push(id);
+        if (fail) throw new Error("boom");
+        return on.world.ops.updateBuilding(null, id, { name: "Outreach" });
+      },
+    } });
+    const blank = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { headcount: 1 } });
+    expect(blank.status).toBe(201);
+    expect(blank.body.building.name).toBe("Outreach");
+    const typed = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { name: "Ocean Lab", headcount: 1 } });
+    expect(typed.body.building.name).toBe("Ocean Lab");
+    expect(named).toEqual([blank.body.building.id]);
+    fail = true;
+    const kept = await json(on.app, "POST", "/api/buildings", { headers: on.auth, body: { headcount: 1 } });
+    expect(kept.status).toBe(201);
+    expect(kept.body.building.name).toBe(on.world.goalTree.defaultName("gl_town"));
   });
 });
 
@@ -178,7 +200,7 @@ describe("reports: Talk to the author and Archive", () => {
     world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
     const notes = world.docs.upsert({ ...world.docs.first("1 = 1")!, id: "dc_notes1", type: "meeting-notes", state: "building", buildingId: "carbon-cycle", title: "notes", body: "KR" });
-    const { grantId } = await world.verbs.propose_grant(mei, { keyResults: [{ text: "Sink banner", howToCheck: "Open it" }], objective: "Ship the sink banner", stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
+    const { grantId } = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [{ text: "Sink banner", howToCheck: "Open it" }], objective: "Ship the sink banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
     const kr = world.keyResults.require(world.grants.require(grantId).keyResultId!);
     const r = await json(app, "POST", "/api/buildings/carbon-cycle/one-on-one", { headers: auth, body: { grantId } });
     expect(r.status).toBe(200);
@@ -351,13 +373,30 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(world.allocations.require(done.body.allocations[0].id).retired).toBe(true);
   });
 
+  it("plans paid for: GET /api/bank/fees is public; only an admin records or ends one (gr_qggxximtru step 1)", async () => {
+    const { app, auth, world } = await setup();
+    expect((await json(app, "GET", "/api/bank/fees")).body).toEqual({ fees: [] });
+    const body = { label: "Max 20x", usdPerMonth: 200, from: "2026-10-20" };
+    expect((await json(app, "POST", "/api/bank/fees", { body })).status).toBe(401);
+    const { token } = world.ops.createUser("Guest");
+    expect((await json(app, "POST", "/api/bank/fees", { headers: { authorization: `Bearer ${token}` }, body })).status).toBe(403);
+    expect((await json(app, "POST", "/api/bank/fees", { headers: auth, body: { ...body, usdPerMonth: 0 } })).status).toBe(400);
+    const added = await json(app, "POST", "/api/bank/fees", { headers: auth, body });
+    expect(added.status).toBe(201);
+    expect(added.body.fee).toMatchObject({ label: "Max 20x", usdPerMonth: 200, fromDate: "2026-10-20", toDate: null });
+    const listed = await json(app, "GET", "/api/bank/fees");
+    expect(listed.body.fees.map((f: any) => f.id)).toEqual([added.body.fee.id]);
+    const ended = await json(app, "POST", `/api/bank/fees/${added.body.fee.id}/end`, { headers: auth, body: { to: "2026-11-30" } });
+    expect(ended.body.fee.toDate).toBe("2026-11-30");
+  });
+
   it("roles, budget, events", async () => {
-    const { app, auth, by } = await setup();
+    const { app, auth, by, world } = await setup();
     const roles = await json(app, "GET", "/api/roles?buildingId=carbon-cycle");
     expect(roles.body.roles.length).toBeGreaterThan(0);
     expect(roles.body.memberships.length).toBeGreaterThan(0);
     const mei = by("Mei");
-    const m = { roleId: roles.body.roles.find((r: any) => r.name === "reviewer" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
+    const m = { roleId: roles.body.roles.find((r: any) => r.name === "manager" && r.buildingId === "carbon-cycle").id, holderKind: "agent", holderId: mei.id };
     expect((await json(app, "POST", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
     expect((await json(app, "DELETE", "/api/roles/assign", { headers: auth, body: m })).status).toBe(200);
 
@@ -376,11 +415,26 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.free).toMatchObject({ goalId: "gl_town" });
     expect(typeof finance.body.free.freeTokens).toBe("number");
     expect(finance.body).not.toHaveProperty("pools");
+    // Paid in cash, last 30 days (gr_qggxximtru step 2): no plan recorded; hosting is the Fly estimate over the same 30 days
+    expect(finance.body.cash).toMatchObject({ windowDays: 30, plans: 0, pricedAt: "cash" });
+    expect(finance.body.cash.hosting).toBeGreaterThanOrEqual(0);
+    expect(finance.body.cashCheck).toMatchObject({ ok: true });
+    expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);
     expect(sources.body).toMatchObject({ creditedTokens: 2000, totalReceived: finance.body.total, financeTotal: finance.body.total, matchesFinance: true, sumCheck: { ok: true, diff: 0 } });
     expect(sources.body.inputs.find((r: any) => r.label === "Key")).toMatchObject({ source: "api-key", tokens: 2000, credits: [{ tokens: 2000, expiresAt: null }] });
     expect(sources.body.donations.some((d: any) => d.buildingId === "carbon-cycle" && d.sizeTokens === 1000)).toBe(true);
+    // the lane × token-kind table (gr_lwgus14rd2 step 1): today by default, 7d on ask, a bad window refused
+    const spendToday = await json(app, "GET", "/api/finance/spend");
+    expect(spendToday.body.byLaneKind).toMatchObject({ window: "today", check: { ok: true }, notCounted: { sessions: 0 } });
+    const spend7d = await json(app, "GET", "/api/finance/spend?window=7d");
+    expect(spend7d.body.byLaneKind).toMatchObject({ window: "7d", windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
+    expect(spend7d.body.rows).toEqual(spendToday.body.rows);
+    // manager wakes per building per day (gr_lwgus14rd2 step 3): the same 7 d window whatever ?window= is
+    expect(spendToday.body.managerWakes).toMatchObject({ windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
+    expect(spend7d.body.managerWakes.total).toEqual(spendToday.body.managerWakes.total);
+    expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);
     const fly = await json(app, "GET", "/api/finance/fly?days=7");
@@ -388,6 +442,21 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(fly.body).toMatchObject({ windowDays: 7, capUsdPerDay: 10, sumCheck: { ok: true, diff: 0 }, totals: { deskUsd: 0 } });
     expect(fly.body.days).toHaveLength(7);
     expect(fly.body.rates.source).toContain("fly.io");
+    expect(fly.body).toMatchObject({ townPaidBy: "self", createdAt: null });
+    // a hosted collective on the hub's Fly Machine: the town Machine is muster.town's, not its own
+    const flyApp = process.env.FLY_APP_NAME;
+    process.env.FLY_APP_NAME = "muster-town";
+    try {
+      expect((await json(app, "GET", "/api/finance/fly?days=7")).body).toMatchObject({ townOnFly: true, townPaidBy: "self" });
+      world.host.hosted = true;
+      const h = (await json(app, "GET", "/api/finance/fly?days=7")).body;
+      expect(h).toMatchObject({ townOnFly: false, townPaidBy: "host", rates: { town: null }, totals: { townUsd: 0 }, sumCheck: { ok: true } });
+      expect(h.createdAt).toBe(world.events.list({ limit: 1 })[0]!.ts);
+      expect(h.days.every((d: any) => d.townUsd === 0)).toBe(true);
+    } finally {
+      world.host.hosted = false;
+      if (flyApp === undefined) delete process.env.FLY_APP_NAME; else process.env.FLY_APP_NAME = flyApp;
+    }
     const bank = await json(app, "GET", "/api/bank");
     expect(bank.body).toMatchObject({ balanceTokens: 2000, expiringTokens: 0, durableTokens: 2000, inputs: expect.arrayContaining([expect.objectContaining({ label: "Key", hasApiKey: true })]) });
     expect(bank.body.buildings.find((b: any) => b.buildingId === "carbon-cycle")).toMatchObject({ durableTokens: 2000 });
@@ -410,6 +479,33 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(ev.body.events.length).toBe(5);
     const since = await json(app, "GET", `/api/events?since=${ev.body.events[0].id}&limit=2`);
     expect(since.body.events[0].id).toBe(ev.body.events[0].id + 1);
+  });
+
+  it("GET /api/events?alert=&from= returns only that alert's system events since then (the HUD's day of cache-miss alerts)", async () => {
+    const { app, world } = await setup();
+    const a = world.events.append({ type: "system", text: "Cache miss: manage", payload: { alert: "cache-miss", purpose: "manage" } });
+    world.events.append({ type: "system", text: "Funding alert", payload: { alert: "funding-mismatch" } });
+    for (let i = 0; i < 5; i++) world.events.append({ type: "system", text: `noise ${i}`, payload: {} });
+    const r = await json(app, "GET", "/api/events?alert=cache-miss&limit=50");
+    expect(r.body.events.map((e: { id: number }) => e.id)).toEqual([a.id]);
+    const later = await json(app, "GET", `/api/events?alert=cache-miss&from=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}`);
+    expect(later.body.events).toEqual([]);
+    expect((await json(app, "GET", "/api/events?from=yesterday")).status).toBe(400);
+  });
+
+  it("desks per subtree (gr_yu6qw3j9x5): a goal's desksTotal shows on GET /api/goals; raising desks past it is a 409 naming it, admins too", async () => {
+    const { app, auth } = await setup();
+    const own = (await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "Carbon's goal" } })).body.goal.id;
+    await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: own, headcount: 3 } });
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.desksTotal).toBeNull();
+    expect((await json(app, "PATCH", `/api/goals/${own}`, { body: { desksTotal: 4 } })).status).toBe(401);
+    expect((await json(app, "PATCH", `/api/goals/${own}`, { headers: auth, body: { desksTotal: 4 } })).body.goal.desksTotal).toBe(4);
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.desksTotal).toEqual({ total: 4, goalId: own, desks: 3 });
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 4 } })).status).toBe(200);
+    const over = await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 5 } });
+    expect(over.status).toBe(409);
+    expect(JSON.stringify(over.body)).toMatch(/Desk total reached: \\"Carbon's goal\\".*allows 4 desks/);
+    expect((await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { headcount: 2 } })).status).toBe(200);
   });
 
   it("moveHuman validates walkability (WS human.move path)", async () => {

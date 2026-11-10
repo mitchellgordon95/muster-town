@@ -8,6 +8,10 @@ import { stoplightLabel } from "../src/format";
 describe("board key-results view", () => {
   it("grant bar: spend / grant with a percentage, clamped", () => {
     expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000 })).toBe("1M / 2M adj. tokens (52%)");
+    expect(grantSpendLine({ spentTokens: 1_040_000, grantTokens: 2_000_000, holdAtTokens: 1_500_000 })).toBe("1M / 2M adj. tokens (52%) · holds at 1.5M");
+    expect(grantSpendLine({ spentTokens: 700_000, grantTokens: 1_500_000, holdAtTokens: 1_350_000 })).toBe("700k / 1.5M adj. tokens (47%) · holds at 1.35M");
+    expect(grantSpendLine({ spentTokens: 10_000, grantTokens: 100_000, holdAtTokens: 66_667 })).toBe("10k / 100k adj. tokens (10%) · holds at 66,667");
+    expect(grantSpendLine({ spentTokens: 10_000, grantTokens: 30_000, holdAtTokens: 20_000 })).toBe("10k / 30k adj. tokens (33%) · holds at 20k");
     expect(spentShare(3, 2)).toBe(1);
     expect(spentShare(5, 0)).toBe(0);
   });
@@ -79,14 +83,14 @@ describe("board key-results view", () => {
   it("stoplight: the mock board and snapshot carry it for every lab, never the Town Hall; the rule is the schema's", async () => {
     const api = new MockApi();
     const ws = await api.board("bl_workshop");
-    expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD works on narrow screens" is held at its checkpoint' });
+    expect(ws.stoplight).toEqual({ light: "yellow", reason: 'grant "HUD on narrow screens" is held at its checkpoint' });
     const snap = await api.town();
     expect(snap.buildings.find((b) => b.id === "bl_workshop")?.stoplight?.light).toBe("yellow");
     expect(snap.buildings.find((b) => b.id === "bl_carbon")?.stoplight?.light).toBe("grey");
     expect((await api.board("bl_carbon")).stoplight?.light).toBe("grey");
     expect(snap.buildings.find((b) => b.id === "bl_townhall")?.stoplight).toBeNull();
     expect(stoplightOf([{ status: "funded", objective: "x" }])).toEqual({ light: "green", reason: "1 funded grant running" });
-    expect(stoplightOf([{ status: "checkpoint", objective: "x" }])).toEqual({ light: "yellow", reason: 'grant "x" is held at its checkpoint' });
+    expect(stoplightOf([{ status: "checkpoint", objective: "x", title: "Lab banner" }])).toEqual({ light: "yellow", reason: 'grant "Lab banner" is held at its checkpoint' });
     expect(stoplightOf([])).toEqual({ light: "grey", reason: "no funded grant: the building explores or idles" });
     expect([stoplightLabel("green"), stoplightLabel("yellow"), stoplightLabel("grey")]).toEqual(["Running", "Held at a checkpoint", "No funded grant"]);
   });

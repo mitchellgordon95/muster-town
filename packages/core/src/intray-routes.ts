@@ -1,5 +1,6 @@
-import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes } from "@muster-town/schema";
+import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes, ScheduleView } from "@muster-town/schema";
 import { canDecideCaptain } from "./captain.ts";
+import { canDecideRetainer } from "./retainers.ts";
 import type { GoalProposalView } from "./goals.ts";
 import { holderOf } from "./permissions.ts";
 import type { World } from "./world.ts";
@@ -10,10 +11,11 @@ import type { World } from "./world.ts";
  * or parent, rollups by the building's attachment. "Mine" = routed to the viewer, nothing else: the root always has a
  * captain, so an admin who captains nothing has an empty Mine. `canDecide`: grants by `Grants.canFund` (building.fund, or the goal's owner); goal
  * proposals by `goals.edit` at their node (a human only); captain requests to the goal asked about, decided by `goals.edit`
- * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, as today.
+ * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, or by
+ * the captain of the report's building's goal or a goal above it (`Goals.captainsBuilding`, gr_zsm1piyqyx).
  * Anonymous viewers get routes with nothing theirs and nothing decidable.
  */
-export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[] }): IntrayRoutes {
+export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; stopped?: GrantView[] }): IntrayRoutes {
   const human = viewer?.kind === "human" ? viewer : undefined;
   const user = human ? holderOf(human) : null;
   const userId = user?.kind === "user" ? user.id : null;
@@ -28,12 +30,16 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
     };
   };
   for (const g of items.grants) add(g.id, { grantId: g.id }, !!human && world.grantDesk.canFund(human, g));
+  // a stopped grant has nothing left to decide: routed like a grant so "Mine" shows it to its goal's captain
+  for (const g of items.stopped ?? []) add(g.id, { grantId: g.id }, false);
   for (const p of items.goalProposals) {
     const node = world.goalTree.nodeOfProposal(p);
     add(p.id, { proposalId: p.id }, !!human && (!node || world.goalTree.canEdit(human, node)));
   }
   for (const c of items.captains ?? []) add(c.id, { goalId: c.goalId }, canDecideCaptain(world, human, c.goalId));
-  for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && !!th && world.permissions.can(human, "building.review", th.id));
+  // a retainer routes like its building's rollups (its attachment); decided by building.fund there or the goal's captain
+  for (const r of items.retainers ?? []) add(r.id, { buildingId: r.buildingId }, r.retainer === "asked" && canDecideRetainer(world, human, r));
+  for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && ((!!th && world.permissions.can(human, "building.review", th.id)) || world.goalTree.captainsBuilding(human, d.buildingId)));
   // an owner who is not an admin starts on Mine; everyone else on All
   const ownsNode = !!userId && world.goals.count("ownerId = ? AND status = 'active'", [userId]) > 0;
   return { routes, defaultView: ownsNode && !admin ? "mine" : "all" };

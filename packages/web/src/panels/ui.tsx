@@ -22,7 +22,6 @@ export function dayClock(iso: string): string {
   return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${clock(iso)}`;
 }
 import { ADJ, ADJ_HINT } from "../format";
-import { clipText } from "./showMore";
 export { ADJ, ADJ_HINT, breakdownTitle, fmtTokens, fromMillions,  } from "../format";
 export const usd = (n: number) => `$${n.toFixed(2)}`;
 
@@ -76,13 +75,6 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | n
   return { data, error, loading, reload };
 }
 
-/** A long text collapsed to its first `max` characters with a "Show more" that reveals all of it in place (never cut for good). */
-export function ShowMore({ text, max = 400, render }: { text: string; max?: number; render: (text: string) => ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const { head, cut } = clipText(text, max);
-  return <>{render(open || !cut ? text : head)}{cut ? <button type="button" className="link show-more" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>{open ? "Show less" : "Show more"}</button> : null}</>;
-}
-
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div>; }
 export function Loading() { return <div className="empty"><span className="spin" /> Loading…</div>; }
 export function ErrorLine({ error }: { error: string | null }) { return error ? <div className="error-line">{error}</div> : null; }
@@ -134,11 +126,37 @@ export function nameOf(id: string | null | undefined): string {
   if (s.me?.user.id === id) return s.me.user.name;
   const known = store.names.get(id);
   if (known) return known;
-  // dismissed/banned agents aren't in the snapshot; GET /api/agents/:id still answers for them
-  if (id.startsWith("ag_") && !lookups.has(id)) {
-    lookups.add(id);
-    api().agent(id).then((d) => { store.names.set(id, d.agent.name); store.set({ rev: store.state.rev + 1 }); }, () => undefined);
+  // a user id (a 1:1's human, a doc's human author): its avatar in the snapshot carries the name
+  if (id.startsWith("us_")) {
+    const avatar = Object.values(s.agents).find((a) => a.kind === "human" && a.ownerUserId === id);
+    if (avatar) return avatar.name;
   }
+  // dismissed/banned agents and retired forks aren't in the snapshot; GET /api/agents/:id still answers for them
+  if (id.startsWith("ag_")) void lookUpName(id);
   return id;
 }
-const lookups = new Set<string>();
+const lookups = new Map<string, Promise<void>>();
+function lookUpName(id: string): Promise<void> {
+  let p = lookups.get(id);
+  if (!p) {
+    p = api().agent(id).then((d) => { store.names.set(id, d.agent.name); store.set({ rev: store.state.rev + 1 }); }, () => undefined);
+    lookups.set(id, p);
+  }
+  return p;
+}
+
+/**
+ * `nameOf` for a component that doesn't re-render on `rev` (a doc's byline): when the name isn't known yet it waits for
+ * the lazy agent lookup and re-renders with the name, so a retired fork's doc never stays "by ag_…".
+ */
+export function useNameOf(id: string | null | undefined): string {
+  const [, bump] = useState(0);
+  const name = nameOf(id);
+  useEffect(() => {
+    if (!id || name !== id || !id.startsWith("ag_")) return;
+    let live = true;
+    void lookUpName(id).then(() => { if (live && store.names.has(id)) bump((n) => n + 1); });
+    return () => { live = false; };
+  }, [id, name]);
+  return name;
+}

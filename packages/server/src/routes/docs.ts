@@ -1,8 +1,8 @@
-import { AppError, canSeeDoc, findManual, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
-import { CreateMeetingInput, DocState, DocType, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, ReviewInput, VerbInputs } from "@muster-town/schema";
+import { AppError, bulletinNotesFor, markBulletinRead, markSeen, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { CreateMeetingInput, DocState, DocType, MeetingFocusInput, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { actorOf, parse, requireAuth, viewerId, type Params } from "../context.ts";
+import { actorOf, parse, requireAuth, requireUser, viewerId, type Params } from "../context.ts";
 
 const DocsQuery = z.object({
   state: DocState.optional(),
@@ -12,9 +12,12 @@ const DocsQuery = z.object({
   limit: z.coerce.number().int().positive().max(200).default(50),
 });
 const PromoteBody = z.object({ state: z.enum(["building", "library"]) });
-const RequestBody = z.object({ action: z.enum(["claim", "done", "delete"]), body: z.string().optional() });
+/** `body`: the report for done, the note for withdraw / decline (`note` is accepted as an alias). */
+const RequestBody = z.object({ action: RequestAction, body: z.string().optional(), note: z.string().optional() });
 const MeetingsQuery = z.object({ buildingId: z.string().optional(), phase: MeetingPhase.optional() });
 const EditBoardNoteBody = z.object({ title: z.string().max(300).optional(), body: z.string().max(100_000).optional() });
+const BulletinQuery = z.object({ limit: z.coerce.number().int().positive().max(200).default(50) });
+const BulletinBody = z.object({ title: z.string(), body: z.string() });
 const EndBody = z.object({ closing: z.string().optional() });
 
 /** Library/board docs, reviews, outbox lifecycle; meetings. */
@@ -41,6 +44,8 @@ export async function docRoutes(app: FastifyInstance) {
   app.get<{ Params: Params }>("/api/docs/:id", async (req) => {
     const doc = world.docs.get(req.params.id);
     if (!doc || !canSeeDoc({ kind: "user", id: viewerId(req) }, doc)) throw new AppError("not_found", `doc not found: ${req.params.id}`);
+    // what this human has seen (legible delegation step 3): the reader's delta on an ask lists the reports they never opened
+    if (req.auth?.kind === "user") markSeen(world, req.auth.user.id, "report", doc.id);
     // topic pages: the bodies their rewrites replaced, oldest first (anyone who can read the page)
     return { doc, author: world.nameOf(doc.authorId), ...(doc.topicOf ? { revisions: revisionsOf(world, doc.id) } : {}) };
   });
@@ -72,6 +77,16 @@ export async function docRoutes(app: FastifyInstance) {
   /** Take a town-wide FYI off the Town Hall board (back to its author's drafts): its author or a town admin. */
   app.post<{ Params: Params }>("/api/docs/:id/unpublish", async (req) => ({ doc: unpublishTownFyi(world, actorOf(world, req), req.params.id) }));
 
+  /** The bulletin board in the town square (flag dc_52njv3shp8): its notes newest first (anyone, guests too); a signed-in human pins one; its author or an admin takes it down. */
+  app.get("/api/bulletin", async (req) => bulletinNotesFor(world, req.auth?.kind === "user" ? req.auth.user.id : null, parse(BulletinQuery, req.query).limit));
+  /** Read / unread per signed-in human (flag dc_04q4h8s229): mark one note read, or `all` of them. → { unread }. */
+  app.post<{ Params: Params }>("/api/bulletin/:id/read", async (req) => ({ unread: markBulletinRead(world, requireUser(req).id, req.params.id) }));
+  app.post("/api/bulletin", async (req, reply) => {
+    requireUser(req);
+    return reply.code(201).send({ doc: postBulletin(world, actorOf(world, req), parse(BulletinBody, req.body)) });
+  });
+  app.post<{ Params: Params }>("/api/bulletin/:id/take-down", async (req) => ({ doc: takeDownBulletin(world, actorOf(world, req), req.params.id) }));
+
   /** Edit a board note's title/body (the board panel's Edit): its author, a town admin or the building's manager. */
   app.patch<{ Params: Params }>("/api/docs/:id", async (req) => {
     requireAuth(req);
@@ -86,8 +101,8 @@ export async function docRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/docs/:id/request", async (req) => {
-    const { action, body } = parse(RequestBody, req.body);
-    const r = world.ops.requestAction(actorOf(world, req), req.params.id, action, body);
+    const { action, body, note } = parse(RequestBody, req.body);
+    const r = world.ops.requestAction(actorOf(world, req), req.params.id, action, body ?? note);
     return { doc: r.request, deleted: r.request === null, humanReport: r.humanReport };
   });
 
@@ -145,6 +160,15 @@ export async function docRoutes(app: FastifyInstance) {
     requireAuth(req);
     const { docId, slide } = parse(MeetingPresentInput, req.body);
     return { meeting: world.ops.meetingPresent(actorOf(world, req), req.params.id, docId, slide) };
+  });
+
+  /** The item open in the 1:1's human's decision queue ({kind, id}; null clears it): only that human, signed in; the same item again writes nothing. */
+  app.put<{ Params: Params }>("/api/meetings/:id/focus", async (req) => {
+    requireUser(req);
+    // JSON null, no body or {} clears it (the queue closed)
+    const raw = req.body;
+    const focus = raw == null || raw === "" || (typeof raw === "object" && !Object.keys(raw).length) ? null : parse(MeetingFocusInput, raw);
+    return { meeting: world.ops.meetingFocus(actorOf(world, req), req.params.id, focus) };
   });
 
   // agents writing a reply or decisions right now; the meeting panel polls this while the meeting is live

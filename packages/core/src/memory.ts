@@ -7,6 +7,7 @@
  * Also the manager's **team** block: who is in the building, what each one knows (wiki page titles) and is doing, so
  * the manager, the building's only conversational surface, can turn a human's request into the right assignment.
  */
+import { NOT_GONE } from "@muster-town/schema";
 import type { Agent, Assignment, Building, Doc } from "@muster-town/schema";
 import { buildingQueue, createDoc, homeOf, updateDoc } from "./domain.ts";
 import { AppError } from "./errors.ts";
@@ -280,6 +281,28 @@ export function memoryBlock(world: World, authorId: string, opts: { now?: number
   return out.join("\n");
 }
 
+/**
+ * "## Your wiki" as an index (title, id, age, one-line gist) and "## Your log" as the last `tail` lines: the memory of
+ * a manager's team-lead session. The pages stay out of the prompt and are `read` on demand, so the cached system prompt
+ * doesn't change every time the manager rewrites one (docs/prompt-caching.md).
+ */
+export function memoryIndexBlock(world: World, authorId: string, opts: { now?: number; tail?: number } = {}): string {
+  const now = opts.now ?? Date.now();
+  const pages = wikiOf(world, authorId);
+  const out: string[] = ["## Your wiki (`read` the pages that matter before you decide or rewrite them)"];
+  out.push(pages.length ? pages.map((p) => `- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${oneLine(docGist(p), 120)}`).join("\n")
+    : `(no pages yet. Before \`submit_report\`, write one page per topic you worked on: \`write\` type "wiki", title = the topic.)`);
+  const log = logOf(world, authorId);
+  const total = log ? log.body.split("\n").filter((l) => l.trim()).length : 0;
+  const tail = logTail(log, opts.tail ?? MEMORY_INDEX_LOG_TAIL);
+  out.push(`\n## Your log${total > tail.length ? ` (last ${tail.length} of ${total}${log ? `; \`read\` ${log.id} for all` : ""})` : ""}`);
+  out.push(tail.length ? tail.join("\n") : "(empty)");
+  return out.join("\n");
+}
+
+/** Log lines a team-lead session's memory index carries (the full tail, LOG_TAIL, is for work sessions). */
+const MEMORY_INDEX_LOG_TAIL = 4;
+
 /** Titles of the author's wiki pages (what they know), newest first. */
 export function topicsOf(world: World, authorId: string): string[] {
   return wikiOf(world, authorId).map((p) => p.title);
@@ -291,7 +314,7 @@ export function topicsOf(world: World, authorId: string): string[] {
  * (pending, held, waiting, resuming: a parked continuation's time still ahead, not a block) and the building's schedules, and the routing rule is "attach the topic pages that cover it".
  */
 export function teamBlock(world: World, building: Building, managerId: string): string {
-  const forks = world.agents.where("forkOf = ? AND status NOT IN ('retired', 'banned')", [managerId], "ORDER BY forkN");
+  const forks = world.agents.where(`forkOf = ? AND ${NOT_GONE}`, [managerId], "ORDER BY forkN");
   const forkLines = forks.map((f) => {
     const cur = f.currentAssignmentId ? world.assignments.get(f.currentAssignmentId) : undefined;
     const chain = cur ? reportChain(world, { id: "", assignmentId: cur.id, createdAt: cur.createdAt }) : null;
@@ -305,7 +328,7 @@ export function teamBlock(world: World, building: Building, managerId: string): 
   const queueLines = queue.slice(0, 12).map((a) => `- ${a.id} "${oneLine(a.title, 60)}": ${state(a)}`);
   if (queue.length > 12) queueLines.push(`- … and ${queue.length - 12} more`);
   return `## Your team (you are the manager of the ${building.name})
-Humans talk to you; forks work from assignments. A \`tell\` to a live fork reaches it mid-session as an interrupt (use it to redirect or add to its work); \`stop_fork\` asks it to wrap up and file its report now (hard stop after 5 min); after its session ends, mail to it comes to you. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. Do the work yourself only when it is yours.
+Humans talk to you; forks work from assignments. A \`tell\` to a live fork reaches it mid-session as an interrupt (use it to redirect or add to its work); \`stop_fork\` asks it to wrap up and file its report now (hard stop after 5 min); after its session ends, mail to it comes to you. When a human writes to you, reply with \`tell\` first, then turn what they want into assignments with \`assign\` and no agentId: it goes on the building queue and a fork of you runs it. Attach the topic pages that cover it (\`assign\` pages, at most 3) so the fork starts from what the building knows; one assignment per piece of work, and say in your report what went on the queue. You never run a work session yourself: \`assign\` naming your own id goes on the building queue too.
 Live forks (${forks.length}; \`fork_status\` with its id says what one is doing now: assignment, tokens so far, last tool calls):
 ${forkLines.length ? forkLines.join("\n") : "(none running)"}
 Building queue (${counts.pending} pending, ${counts.held} held, ${counts.waiting} waiting, ${counts.resuming} resuming at a time):

@@ -10,7 +10,8 @@ function setup(memberTokens = 50_000) {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
-  const g = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A visitor can read the banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
+  world.setGrantPricing({ stepSizes: { S: 10_000, M: 20_000, L: 40_000 } }); // one M step asks 20k
+  const g = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A visitor can read the banner", howToCheck: "Open the lab" }], objective: "Banner", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 20_000 });
   world.grantDesk.propose(manager, g.id);
   const user = world.ops.createUser("Member").user;
   const member = world.ops.ensureAvatar(user.id);
@@ -75,7 +76,7 @@ describe("member funding (fundWith)", () => {
   it("what an input already owes another live grant counts against it", () => {
     const { world, g, member, manager, input } = setup(30_000);
     world.grantDesk.decide(member, g.id, { action: "fund", fundWith: input.id });
-    const g2 = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A second banner", howToCheck: "Open the lab" }], objective: "Banner 2", approach: "a line", stopCondition: "two tries", askTokens: 20_000 });
+    const g2 = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "A second banner", howToCheck: "Open the lab" }], objective: "Banner 2", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 20_000 });
     world.grantDesk.propose(manager, g2.id);
     expect(() => world.grantDesk.decide(member, g2.id, { action: "fund", fundWith: input.id })).toThrow(/can pay 10,000 more tokens \(after 20,000 it owes other grants\)/);
   });

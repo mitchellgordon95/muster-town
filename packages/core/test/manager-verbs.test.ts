@@ -24,7 +24,8 @@ describe("one named manager: assign, flags, cancel", () => {
     const q = await world.verbs.assign(mei, { title: "Q", description: "d", gap: "g" });
     expect(world.assignments.require(q.assignmentId)).toMatchObject({ agentId: mei.id, queue: "building" });
     const own = await world.verbs.assign(mei, { agentId: mei.id, title: "Mine", description: "d", gap: "g" });
-    expect(world.assignments.require(own.assignmentId)).toMatchObject({ agentId: mei.id, queue: "agent" });
+    // the manager naming itself still queues to the building (work routing, mt_lsyqj98z0w): a fork runs it
+    expect(world.assignments.require(own.assignmentId)).toMatchObject({ agentId: mei.id, queue: "building" });
     await expect(world.verbs.assign(mei, { agentId: noor.id, title: "No", description: "d", gap: "g" })).rejects.toThrow(/Leave agentId out to queue it to the building/);
     const v = world.ops.registerVisitor(admin.ownerUserId!, { name: "V", buildingId: LAB }).agent;
     const offer = await world.verbs.assign(mei, { agentId: v.id, title: "Offer", description: "d", gap: "g" });

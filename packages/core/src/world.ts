@@ -1,24 +1,27 @@
 import { ToolResults } from "./forkstatus.ts";
-import { ROOT_GOAL_ID, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type MapLayout, type RedeployLive, type RedeployResult, type ServerMessage, type Tile } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, grantPricingOf, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type StepSizeTable, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
+import { Secretary } from "./secretary.ts";
+import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { laneHold } from "./lanes.ts";
-import { intrayCount, intrayCounts, isTownHallItem } from "./domain.ts";
+import { intrayCount, intrayCounts, isTownHallItem, moveManagerRowsToBuildingQueue } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
+import { AppError } from "./errors.ts";
 import { deskBillToday, type BillSession, type DeskBill } from "./desk-bill.ts";
 import { EventLog } from "./events.ts";
-import { exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult } from "./export.ts";
+import { exportDoneEvent, exportInWorker, exportWorld, importExport, worldSource, writeExport, type ExportResult, type PublishTarget } from "./export.ts";
 import { importV0, type ImportV0Options, type ImportV0Result } from "./import-v0.ts";
 import { Ops, type Actor } from "./ops.ts";
 import { holderOf, Permissions, type Holder } from "./permissions.ts";
 import { Presence } from "./presence.ts";
-import { Secrets } from "./secrets.ts";
+import { PUBLISH_TOKEN_SECRET, REPO_TOKEN_SECRET, Secrets } from "./secrets.ts";
 import { Media } from "./media.ts";
 import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
@@ -52,10 +55,37 @@ export interface PrChecks {
   checkedAt: string;
 }
 
+/** "git@github.com:O/agent-town.git", "https://github.com/o/agent-town" → "github.com/o/agent-town": one repo, however it is cloned. */
+export function repoKey(url: string): string {
+  const u = url.trim().toLowerCase().replace(/\/+$/, "").replace(/\.git$/, "");
+  const scp = /^[\w.-]+@([\w.-]+):(.+)$/.exec(u);
+  if (scp) return `${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  return u.replace(/^[a-z+]+:\/\/(?:[^@/]+@)?/, "").replace(/:\d+\//, "/");
+}
+
+/**
+ * Main's CI (gr_7op2v8fjcl): `green` once every check on main's head finished and passed, `red` once one failed
+ * (`failedStep` names the failed check runs), `pending` while they run. `since` is the first read that saw this state
+ * (kept in meta `mainCi`, so it survives a restart); `fixer` is the agent holding the fix assignment (the building's manager while it is queued; core/main-fix.ts).
+ */
+export interface MainCi {
+  state: "green" | "red" | "pending";
+  sha: string;
+  failedStep: string | null;
+  since: string;
+  fixer: string | null;
+  /** the last red sha a fix assignment covers (core/main-fix.ts `queueMainFix`): one fix assignment per red sha */
+  fixSha?: string | null;
+  /** the red episode's fix assignment: while it is open, a new red sha gets no second one */
+  fixAssignmentId?: string | null;
+  /** when this was read (ISO) */
+  checkedAt: string;
+}
+
 /** Host-side hooks the runtime fills in; core verbs call them when present. */
 export interface HostHooks {
   /** Pull main, reinstall, rebuild, restart (runtime/redeploy.ts). A request while one runs joins it: `{ queued: true }`. */
-  redeploy?(o: { image: boolean; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
+  redeploy?(o: { image: boolean; restart?: string; requestedBy: string }): Promise<RedeployResult> | RedeployResult;
   /** Whether the agent has a live (or starting) work session. Without it, a running work Session row counts. */
   isWorking?(agentId: string): boolean;
   /** Hand `text` to the agent's in-process session. False = not in-process (the caller queues it for a desk). */
@@ -71,6 +101,12 @@ export interface HostHooks {
    * minute). Undefined = not read yet; without it, `pr` waits never hold (and expire after 24 h).
    */
   prChecks?(pr: number): PrChecks | undefined;
+  /** GET one of the town's own API paths in-process, as a signed-out reader (set by the server): an ask's `api` claim check (ask-checks.ts). */
+  apiGet?(path: string): Promise<{ status: number; body: unknown }>;
+  /** Run an ask's claim checks in the background as it is filed (set by the server; unset in tests and scripts, which run no network). */
+  claimChecks?: boolean;
+  /** Main's CI as last read from GitHub (runtime/pr-checks.ts, about once a minute): `GET /api/health` `main`. Unset without a runtime. */
+  mainCi?(): MainCi | undefined;
   /** The runtime's live redeploy state (`GET /api/admin/redeploy`). */
   redeployStatus?(): RedeployLive;
   /** The runtime's last docker probe: false while docker is down (code desks can't start). Unset = not probed. */
@@ -84,6 +120,8 @@ export interface HostHooks {
   quiesce?(ms: number): Promise<void>;
   /** A hosted collective (docs/hosted-collectives.md): runs only on its own API key, never the host's credentials. */
   hosted?: boolean;
+  /** The repo the running server was built from (`git remote get-url origin` of its checkout), set by the runtime: `repoMode` compares the collective's repo with it. */
+  repoUrl?: string;
 }
 
 /** A hosted collective's work waits on this until an admin adds an Anthropic API key at its Bank (HUD: "No key yet"). */
@@ -102,6 +140,8 @@ export class World {
   readonly goalTree: Goals;
   /** "Change this goal" (the reorg) and the Planner (docs/goals.md, build step 5) */
   readonly reorgs: Reorgs;
+  /** the Town Hall's Secretary: the daily in-tray digest and its 1:1 (gr_kdlogzzo5s, secretary.ts) */
+  readonly secretary: Secretary;
   /** goal tree step 7: funding streams, earmarks and the draw order */
   readonly streams: Streams;
   /** skills: SKILL.md docs, bundled files, pins, usage (docs/skills.md) */
@@ -125,6 +165,8 @@ export class World {
 
   // repositories
   readonly users: Repos["users"];
+  /** Bank inputs with their secret column (the Bank's API is `bank`; this is for the boot back-fill and tests) */
+  readonly bankInputs: Repos["bankInputs"];
   readonly roles: Repos["roles"];
   readonly memberships: Repos["memberships"];
   readonly buildings: Repos["buildings"];
@@ -149,6 +191,10 @@ export class World {
   readonly kpis: Repos["kpis"];
   readonly accessRequests: Repos["accessRequests"];
   readonly captainRequests: Repos["captainRequests"];
+  /** asks (docs/legible-delegation.md §4; core asks.ts) */
+  readonly asks: Repos["asks"];
+  /** notices (docs/legible-delegation.md §8; core notices.ts) */
+  readonly notices: Repos["notices"];
   readonly skillPins: Repos["skillPins"];
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
@@ -165,25 +211,27 @@ export class World {
     // v1.2 roles split: data fix on every open (idempotent), before any role is parsed through the schema
     migrateRoles(db);
     const repos = createRepos(db, this.changes);
-    this.users = repos.users; this.roles = repos.roles; this.memberships = repos.memberships;
+    this.users = repos.users; this.bankInputs = repos.bankInputs; this.roles = repos.roles; this.memberships = repos.memberships;
     this.buildings = repos.buildings; this.allocations = repos.allocations; this.agents = repos.agents;
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.skillPins = repos.skillPins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.skillPins = repos.skillPins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
-    this.permissions = new Permissions(repos, () => !!this.host.hosted);
+    this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
     this.bank = new Bank(repos, this.events, this.permissions);
     this.budget = new Budget(repos, this.events, this.bank, this.changes);
     this.layout = new WorldMap(db, repos);
     this.layout.follow = (before, moved) => followRelayout(this, before, moved);
+    this.layout.beforeGrow = (buildingId, headcount) => this.goalTree.requireDesksFit(buildingId, this.goalTree.attachmentOf(buildingId), headcount);
     this.movement = new Movement(repos, this.layout, this.events, this.changes);
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
     this.goalTree = new Goals(this);
     this.reorgs = new Reorgs(this);
+    this.secretary = new Secretary(this);
     this.streams = new Streams(this);
     this.budget.gate = (a) => laneHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
@@ -247,6 +295,18 @@ export class World {
     this.layout.rebuild();
     this.repairDesks();
     this.grantDesk.releaseHalfway();
+    moveManagerRowsToBuildingQueue(this);
+    // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
+    backfillAsks(this);
+    // migration 105: live town-written cards that quoted a clipped objective are written again from their target; idempotent
+    retitleClippedAsks(this);
+    retitleGrantAsks(this);
+    // asks read from rollup prose: their title is the line's whole first sentence, not a clause cut before a colon; idempotent
+    retitleProseAsks(this);
+    // asks read from rollup prose as money asks only because the line named a grant: clicks; idempotent
+    retypeProseAsks(this);
+    // one rollup line filed twice (an older boot re-filed it after its title or target changed): one ask; idempotent
+    foldTwinProseAsks(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
@@ -309,6 +369,28 @@ export class World {
   }
 
   /**
+   * The step-size table and the oversell setting (`PUT /api/town/defaults`, an admin; docs/legible-delegation.md §7.3):
+   * a proposal's ask is the sum of its steps' sizes; oversell scales funded grants' earmarks toward their expected spend.
+   * The caller checks admin. Logs it.
+   */
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }, by: string | null = null): { stepSizes: StepSizeTable; oversell: number } {
+    const was = grantPricingOf(this.town.get());
+    const t = grantPricingOf(this.town.set({ ...(patch.stepSizes && { stepSizes: patch.stepSizes }), ...(patch.oversell !== undefined && { oversell: patch.oversell }) }));
+    const sizes = (x: StepSizeTable) => `S ${x.S.toLocaleString("en-US")}, M ${x.M.toLocaleString("en-US")}, L ${x.L.toLocaleString("en-US")}`;
+    this.events.append({ type: "system", agentId: by, text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%)`, payload: { stepSizes: t.stepSizes, oversell: t.oversell, from: { stepSizes: was.stepSizes, oversell: was.oversell } } });
+    return { stepSizes: t.stepSizes, oversell: t.oversell };
+  }
+
+  /** Set the retainer lookahead (`PUT /api/town/retainer-lookahead`, an admin): hours of due runs a retainer claims. Logs it. */
+  setRetainerLookahead(hours: number, by: string | null = null): number {
+    const was = this.town.get().retainerLookaheadHours;
+    if (was === hours) return hours;
+    this.town.set({ retainerLookaheadHours: hours });
+    this.events.append({ type: "system", agentId: by, text: `Retainer lookahead set to ${hours} hours (was ${was})`, payload: { retainerLookaheadHours: hours, from: was } });
+    return hours;
+  }
+
+  /**
    * Save the collective defaults (`PUT /api/town/defaults`, 1:1 mt_n25udpflus decision 3) and write them through to every
    * lab, so the Building columns stay the effective values every reader uses. The Town Hall keeps its own (no code access).
    */
@@ -350,10 +432,14 @@ export class World {
     return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? (id === "system" ? "Town" : id);
   }
 
-  /** Set status (no-op if unchanged) and append `agent.status`. */
+  /**
+   * Set status (no-op if unchanged) and append `agent.status`. Only the moves in STATUS_TRANSITIONS (schema) are allowed:
+   * any other throws a 409 conflict ("X is retired"), so nothing revives a gone agent (docs/invariants/agent-lifecycle.md).
+   */
   setStatus(agentId: string, status: AgentStatus, text?: string, extra: Record<string, unknown> = {}): Agent {
     const a = this.agents.require(agentId, "agent");
     if (a.status === status) return a;
+    if (!canTransition(a.status, status)) throw new AppError("conflict", `${a.name} is ${a.status}: can't become ${status}.`);
     const updated = this.agents.upsert({ ...a, status });
     this.events.append({ type: "agent.status", agentId, buildingId: a.homeBuildingId ?? a.buildingId, text: text ?? `${a.name} is ${status}`, payload: { ...extra, status, from: a.status } });
     return updated;
@@ -368,7 +454,7 @@ export class World {
     if (!place || place.kind !== "meeting-room") return place?.pos;
     const taken = new Set<string>();
     let mine: Tile | undefined;
-    for (const a of this.agents.where("status NOT IN ('banned','retired')")) {
+    for (const a of this.agents.where(NOT_GONE)) {
       const t = this.movement.destination(a.id) ?? a.pos;
       if (a.id === agentId) mine = t;
       else taken.add(`${t.x},${t.y}`);
@@ -409,20 +495,58 @@ export class World {
   }
 
   /** Same shape as the WS `snapshot` message and `GET /api/town`. */
+  /**
+   * What code this collective works on (schema `RepoMode`; Mitchell, 1:1 mt_1vs893enaw: "collectives that aren't developing
+   * Muster Town must not get the redeploy/PR machinery"). `none`: no `Town.workspace`. `own`: a repo that is not the one this
+   * server runs from. `muster`: this server's own repo, or a repo with no known URL on either side (as before this mode).
+   */
+  repoMode(): RepoMode {
+    const ws = this.town.get().workspace;
+    if (!ws) return "none";
+    if (!ws.repoUrl || !this.host.repoUrl) return "muster";
+    return repoKey(ws.repoUrl) === repoKey(this.host.repoUrl) ? "muster" : "own";
+  }
+
+  /**
+   * Who the collective's prompts and rollup heading address ("## Needs from <name>"; 1:1 mt_1vs893enaw decision 5): on
+   * muster.town "Mitchell", unchanged; a collective on another repo or none, the root goal's captain (its founder, else
+   * the first admin), or "your captain" while it has none.
+   */
+  captainName(): string {
+    if (this.repoMode() === "muster") return "Mitchell";
+    const root = this.goalTree.get(ROOT_GOAL_ID);
+    const id = root?.ownerId ?? this.goalTree.firstAdminId();
+    return (id ? this.users.get(id)?.name?.trim() : "") || "your captain";
+  }
+
   snapshot(): SnapshotMessage {
     return {
       type: "snapshot",
-      town: this.town.get(),
+      town: this.townView(),
       buildings: this.buildingsWithIntray(),
-      agents: this.agents.where("status NOT IN ('banned','retired')"),
+      agents: this.agents.where(NOT_GONE),
       places: this.layout.places,
       flags: this.docs.where("type = 'flag' AND decision = 'pending' AND pickedUpAt IS NULL AND flagPos IS NOT NULL", [], "ORDER BY createdAt").map(mapFlagOf).filter((f) => f !== null),
       grid: this.layout.grid,
       meetings: this.meetings.where("phase IN ('scheduled','collecting','discussing')", [], "ORDER BY scheduledAt"),
-      health: { docker: this.host.docker ?? true, ...(this.host.slots ? { slots: this.host.slots() } : {}),
-        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const } : {}) },
+      health: { docker: this.host.docker ?? true, repoMode: this.repoMode(), ...(this.host.slots ? { slots: this.host.slots() } : {}),
+        ...(this.host.hosted ? { funding: this.bank.liveApiKeyInput() ? "api-key" as const : "none" as const, founder: this.founderProgress(), started: this.hasRun() } : {}) },
       outbox: this.outboxOpen(),
     };
+  }
+
+  /**
+   * Whether an agent ever worked here: any work, manage or review session (not naming or summaries; the founder road's
+   * `firstSessionAt`). False is a collective that has never run (a hosted one waiting for its founder's key).
+   */
+  hasRun(): boolean {
+    return this.sessions.count("purpose IN ('work', 'manage', 'review')") > 0;
+  }
+
+  /** A hosted collective's founder road (TownHealth `founder`): latest exploration start, open proposals, ever funded. */
+  founderProgress(): FounderProgress {
+    const ex = this.db.prepare("SELECT ts FROM events WHERE type = 'exploration.started' ORDER BY id DESC LIMIT 1").get() as { ts: string } | undefined;
+    return { exploringSince: ex?.ts ?? null, proposals: this.grants.count("status IN ('proposed', 'countered')"), funded: this.grants.count("fundedAt IS NOT NULL") > 0 };
   }
 
   /** Outbox requests nobody has claimed yet (requestStatus open): the map's outbox badge. */
@@ -444,7 +568,71 @@ export class World {
    * db has no file to share, so it runs here). Appends nothing: the runtime appends the one `export.done`.
    */
   async exportOffThread(dir = townEnv("EXPORT") ?? "./export"): Promise<ExportResult> {
-    return this.db.memory ? writeExport(worldSource(this), dir) : exportInWorker(this.db.name, dir);
+    const publish = this.publishTarget();
+    return this.db.memory ? writeExport(worldSource(this), dir, publish) : exportInWorker(this.db.name, dir, publish);
+  }
+
+  /**
+   * Publish to GitHub (gr_30f8obzab8): where this World's export pushes, read from this World's own town meta and secret
+   * (a hosted collective's runtime reads its own, so its export dir only ever pushes to its own repo). null when unset.
+   */
+  publishTarget(): PublishTarget | null {
+    const p = this.town.get().publish;
+    if (!p?.repoUrl) return null;
+    // its own token first; else the collective's GH_TOKEN (1:1 mt_z1b38bwg98: one all-repos token can serve both)
+    const token = this.secrets.value(PUBLISH_TOKEN_SECRET) ?? this.secrets.value(REPO_TOKEN_SECRET);
+    return { repoUrl: p.repoUrl, token, lastPushCommit: p.lastPushCommit };
+  }
+
+  /** Which token the next push uses: Publish's own, the collective's GH_TOKEN secret (the fallback), or none. Read live, never stored. */
+  publishTokenSource(): PublishTokenSource {
+    if (this.secrets.hasOwn(PUBLISH_TOKEN_SECRET)) return "own";
+    return this.secrets.hasOwn(REPO_TOKEN_SECRET) ? "collective" : "none";
+  }
+
+  /** The town as GET /api/town and the snapshot show it: `publish.tokenSource` filled in live. */
+  townView(): Town {
+    // the step-size table and oversell are always shown, the seeds when an admin never set them
+    const t = { ...this.town.get(), ...grantPricingOf(this.town.get()) };
+    return t.publish ? { ...t, publish: { ...t.publish, tokenSource: this.publishTokenSource() } } : t;
+  }
+
+  /** One finished export: append its `export.done` and write the push outcome into `Town.publish` (when a repo is set and a push was due). */
+  recordExport(r: ExportResult): void {
+    this.events.append(exportDoneEvent(r));
+    const p = this.town.get().publish;
+    if (!p || (!r.pushedAt && !r.pushError)) return;
+    this.town.set({ publish: r.pushedAt ? { ...p, lastPushAt: r.pushedAt, lastPushCommit: r.pushCommit, lastPushError: null } : { ...p, lastPushError: r.pushError } });
+  }
+
+  /**
+   * PUT /api/town/publish (an admin): the repo the hourly export pushes to and, when given, its token (stored as the
+   * runtime-owned secret; 409 without a data key). No token keeps the stored one. A new repo URL resets the last-push
+   * fields so the next export pushes. The event never carries the token.
+   */
+  setPublish(input: { repoUrl: string; token?: string }, by: string | null = null): TownPublish {
+    const repoUrl = input.repoUrl.trim();
+    if (input.token !== undefined) this.secrets.setOwn(PUBLISH_TOKEN_SECRET, input.token, by);
+    const cur = this.town.get().publish;
+    const same = cur?.repoUrl === repoUrl && input.token === undefined;
+    const publish: TownPublish = {
+      repoUrl, tokenSet: this.secrets.hasOwn(PUBLISH_TOKEN_SECRET),
+      lastPushAt: same ? cur.lastPushAt : null, lastPushCommit: same ? cur.lastPushCommit : null, lastPushError: same ? cur.lastPushError : null,
+    };
+    this.town.set({ publish });
+    publish.tokenSource = this.publishTokenSource();
+    this.events.append({ type: "town.publish-set", agentId: by, text: `Publish to GitHub set to ${repoUrl}${input.token !== undefined ? " (token saved)" : ""}`, payload: { repoUrl, tokenSaved: input.token !== undefined, tokenSet: publish.tokenSet, tokenSource: publish.tokenSource } });
+    return publish;
+  }
+
+  /** DELETE /api/town/publish (an admin): forget the repo, its token and the last-push fields. */
+  clearPublish(by: string | null = null): { cleared: boolean } {
+    const had = !!this.town.get().publish;
+    const token = this.secrets.clearOwn(PUBLISH_TOKEN_SECRET);
+    if (!had && !token) return { cleared: false };
+    this.town.set({ publish: undefined });
+    this.events.append({ type: "town.publish-cleared", agentId: by, text: "Publish to GitHub cleared", payload: { tokenRemoved: token } });
+    return { cleared: true };
   }
   importV0(dir: string, opts: ImportV0Options = {}): ImportV0Result {
     return importV0(this, dir, opts);

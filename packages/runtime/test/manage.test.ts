@@ -55,7 +55,13 @@ describe("manager team-lead session", () => {
     expect(s.received[0]).toContain(r1.id);
     expect(s.received[1]).toContain(r2.id);
     expect(s.options.tools).toEqual([]); // no web, no code tools
-    expect(s.options.systemPrompt).toMatchObject({ append: expect.stringContaining("## Your in-tray") });
+    // the cached prefix: a plain string (no Claude Code preset) with the in-tray rules but nothing live (docs/prompt-caching.md);
+    // the live state opens the first message, before the task
+    expect(typeof s.options.systemPrompt).toBe("string");
+    expect(s.options.systemPrompt).toContain("Working the in-tray.");
+    expect(s.options.systemPrompt).not.toMatch(/Clock: it is|## Your in-tray \(you work it|## Your team \(|## Your wiki \(/);
+    expect(s.received[0]).toMatch(/^Clock: it is .* as this starts/);
+    expect(s.received[0].indexOf("## Your in-tray")).toBeLessThan(s.received[0].indexOf("This is a team-lead session"));
     expect(world.docs.require(r1.id).decision).toBe("approve");
     expect(world.docs.require(r2.id).decision).toBe("approve");
     expect(intrayOf(world, lab.id)).toHaveLength(0);
@@ -78,7 +84,7 @@ describe("manager team-lead session", () => {
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
     const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", stopCondition: "two tries", askTokens: 10_000_000 });
+    const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
     const kr = world.keyResults.require(draft.keyResultId!);
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();
@@ -86,7 +92,7 @@ describe("manager team-lead session", () => {
     expect(manages()).toHaveLength(1);
     expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
     // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund" });
+    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund", tokens: 10_000_000 });
     await settle();
     expect(rows()).toHaveLength(1);
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
@@ -121,7 +127,7 @@ describe("manager team-lead session", () => {
       yield init();
       const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: id, decision: "approve" });
-      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\nNothing needed.`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
+      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\n- Should the lab publish its growth rates weekly?`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
       yield result(200, 0.03);
     });
     const { world, runtime, sdk, by } = env;
@@ -237,7 +243,9 @@ describe("a team-lead session cut by a restart resumes (gr_w9ue1k1p0c step 2)", 
     const mine = manageSessions(sdk.sessions, mei);
     expect(mine).toHaveLength(1);
     expect(mine[0].options.resume).toBe("sdk-cut-1");
-    expect(mine[0].received[0]).toBe(resumePrompt({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" }));
+    // the live state (clock, in-tray) opens the message; the resume instruction ends it
+    expect(mine[0].received[0]).toMatch(/^Clock: it is/);
+    expect(mine[0].received[0].endsWith(resumePrompt({ sessionId: cut.id, sdkSessionId: "sdk-cut-1" }))).toBe(true);
     const running = world.sessions.first("agentId = ? AND status = 'running'", [mei])!;
     expect(running).toMatchObject({ purpose: "manage", sdkSessionId: "sdk-session-1" });
     expect(world.events.list({ agentId: mei, limit: 200 }).some((e) => (e.payload as { resumedFrom?: string }).resumedFrom === cut.id)).toBe(true);

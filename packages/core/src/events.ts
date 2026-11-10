@@ -22,6 +22,8 @@ export interface EventQuery {
   textLike?: string;
   /** only events whose payload has this key set (not null) */
   payloadKey?: string;
+  /** only events whose `payload.alert` is this value (e.g. "cache-miss") */
+  alert?: string;
   limit?: number;
   /** newest first instead of oldest first */
   desc?: boolean;
@@ -60,6 +62,7 @@ export class EventLog {
       q.from && { sql: "ts >= ?", params: [q.from] },
       q.textLike && { sql: "text LIKE ?", params: [q.textLike] },
       q.payloadKey && { sql: "json_extract(payload, ?) IS NOT NULL", params: [`$.${q.payloadKey}`] },
+      q.alert && { sql: "json_extract(payload, '$.alert') = ?", params: [q.alert] },
     ]);
     const limit = Math.min(Math.max(q.limit ?? 100, 1), 5000);
     const sql = `SELECT * FROM events ${where.sql ? "WHERE " + where.sql : ""} ORDER BY id ${q.desc ? "DESC" : "ASC"} LIMIT ${limit}`;

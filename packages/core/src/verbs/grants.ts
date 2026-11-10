@@ -1,5 +1,8 @@
-import type { Agent, Grant } from "@muster-town/schema";
+import { askStructure, askWarnings, grantName, grantPricingOf, type Agent, type Grant } from "@muster-town/schema";
+import { lastCounterAt, proposalCard, refuseMissingStructure, setAskCard } from "../asks.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
+import { counteredTokens } from "../grants.ts";
 import { AppError, badRequest } from "../errors.ts";
 import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
@@ -11,43 +14,46 @@ import type { VerbIn } from "./types.ts";
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
  * (docs/how-work-gets-done.md §4).
  */
+/** A proposal's money ask's buttons (the same as `askForProposal` files). */
+const PROPOSAL_BRANCHES = [{ label: "Fund" }, { label: "Counter" }, { label: "Reject" }];
+
 export async function propose_grant(world: World, caller: Agent, input: VerbIn<"propose_grant">) {
   // a fork of the manager (an explorer, docs/how-work-gets-done.md §3) proposes for its building as its manager
   const me = world.permissions.managerOfFork(caller) ?? caller;
   const bid = homeOf(me);
   if (!bid) throw badRequest("You have no building to propose a grant for.");
-  const { note, grantId, ...fields } = input;
+  const { note, grantId, ask, ...fields } = input;
   let open: Grant | undefined;
   if (grantId) {
     open = world.grants.get(grantId);
     if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
     if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
   }
+  // the money ask's card (the explorer's, else the town's from the plan) is refused only when it lacks structure (1:1
+  // mt_ewxnhs90cq decision 5); the style rules it breaks are filed as warnings in its history and named in the answer
+  const card = ask
+    ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
+    : proposalCard({ askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
+  const vetCard = { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) };
+  refuseMissingStructure("proposal", askStructure("money", vetCard));
+  const warnings = ask ? askWarnings("money", vetCard) : [];
   const g = world.transaction(() => {
-    if (open) {
-      world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" });
-      return world.grantDesk.propose(me, open.id, note);
-    }
-    const draft = world.grantDesk.create(me, bid, fields);
-    return world.grantDesk.propose(me, draft.id, note);
+    const proposed = open
+      ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
+      : world.grantDesk.propose(me, world.grantDesk.create(me, bid, fields).id, note);
+    if (ask) setAskCard(world, "grant", proposed.id, card, caller.id);
+    return proposed;
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;
   if (asg?.reservationId) {
-    world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${g.objective.slice(0, 120)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
+    world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${grantName(g)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
   }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
-    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}`,
-  };
-}
-
-/** `checkpoint_grant` (the manager): the status of the grant's open key results (or one) up to claimed, and the checkpoint report link. */
-export async function checkpoint_grant(world: World, me: Agent, input: VerbIn<"checkpoint_grant">) {
-  const g = world.grantDesk.fileCheckpoint(me, input.grantId, { reportId: input.reportId ?? null, status: input.status ?? null, note: input.note, keyResultId: input.keyResultId ?? null });
-  return {
-    grantId: g.id, status: g.status, checkpointDocId: g.checkpointDocId, keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })),
-    note: g.checkpointDocId ? "Linked. A human continues, adjusts or cuts it from the Town Hall in-tray." : "Now submit_report with rollup: true: it links itself to this grant as the checkpoint report.",
+    // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask is the sum of the steps' sizes
+    estimate: g.estimate?.sentence ?? null,
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${warnings.length ? ` Its ask card is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ")}` : ""}`,
   };
 }
 
@@ -62,7 +68,23 @@ export async function close_grant(world: World, me: Agent, input: VerbIn<"close_
   return {
     grantId: g.id, status: g.status, outcome: g.outcome, spentTokens: g.spentTokens, grantTokens: g.grantTokens, unspentTokens,
     keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })), checkpointDocId: g.checkpointDocId,
-    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}A human marks each key result met or missed from the Town Hall in-tray.`,
+    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}Its open key results are marked met (a human can flip one to missed from the grant).`,
+  };
+}
+
+/**
+ * `withdraw_grant` (the manager, or a fork of it on the manager's behalf; 1:1 mt_a6wb51enia): take back the building's own
+ * proposed or countered grant with a note. It leaves the Town Hall in-tray and the deck; its key results archive.
+ */
+export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<"withdraw_grant">) {
+  const me = world.permissions.managerOfFork(caller) ?? caller;
+  const bid = homeOf(me);
+  const cur = world.grants.get(input.grantId);
+  if (!cur || cur.buildingId !== bid) throw badRequest(`${input.grantId} is not a grant of your building.`);
+  const g = world.grantDesk.withdraw(me, input.grantId, input.note);
+  return {
+    grantId: g.id, status: g.status, outcome: g.outcome, keyResults: g.keyResults.map((k) => ({ id: k.id, archived: !!k.archivedAt })),
+    note: `Withdrawn: ${g.id} left the Town Hall in-tray and its key results are archived; your note is on the grant. To try a new plan, propose_grant fresh (no grantId).`,
   };
 }
 

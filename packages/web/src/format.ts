@@ -42,7 +42,7 @@ export function scheduleTipRow(x: { title: string; nextRunAt: string | null; eve
 /** The Bank's unit (step 3): every token figure is adjusted output tokens; this is its short label. */
 export const ADJ = "adj. tokens";
 /** What the unit means, for a hover title. */
-export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price, counted in Opus 5.5 output tokens ($20 per million): a Fable 5.1 output token counts 2.5, a Haiku 5.5 one 0.025. 1 adj. token ≈ 30 raw tokens on Opus.";
+export const ADJ_HINT = "Adjusted output tokens: output + input, cache reads and cache writes (5m, 1h) weighted by their list price, counted in Opus 5.5 output tokens ($20 per million): a Fable 5.1 output token counts 2.5, a Haiku 5.5 one 0.025. What one is made of (input, cache read, cache write, output over the last 7 days, updated daily) is on the Bank's Inputs tab.";
 
 const COUNT_LABELS = [["input", "input"], ["output", "output"], ["cacheRead", "cache read"], ["cacheWrite5m", "cache write 5m"], ["cacheWrite1h", "cache write 1h"]] as const;
 
@@ -59,6 +59,16 @@ export function fmtTokens(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace(/\.0$/, "")}M`;
   if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
   return String(n);
+}
+
+/**
+ * A token figure that must not round (a grant's hold point, grant C gr_95svkzi4l6): the short form when it is exact
+ * ("1.35M", "20k"), else every digit ("66,667"). 1,350,000 read "1.4M" with `fmtTokens`.
+ */
+export function fmtTokensExact(n: number): string {
+  if (n >= 1e6 && n % 1e3 === 0) return `${Number((n / 1e6).toFixed(3))}M`;
+  if (n >= 1e3 && n < 1e6 && n % 1e3 === 0) return `${n / 1e3}k`;
+  return n.toLocaleString("en-US");
 }
 
 /** ms → "45s", "4.5m", "31m", "1.2h" (one decimal under 10 of a unit). */
@@ -96,7 +106,17 @@ export function fromMillions(s: string): number {
   return t === "" ? NaN : Math.round(Number(t) * 1e6);
 }
 
-/** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining. */
-export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number }): number {
-  return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens;
+/** Tokens already claimed town-wide (GET /api/bank `free`): open reservations + open proposals' asks + funded grants' remaining + retainers. */
+/** Free tokens net of the overdraft: core clamps `freeTokens` at zero and reports the shortfall as `overdraftTokens`; the Bank sign shows it negative. */
+export function netFreeTokens(f: { freeTokens: number; overdraftTokens?: number }): number {
+  return f.freeTokens - (f.overdraftTokens ?? 0);
+}
+
+/** `fmt(n)` with a real minus sign (U+2212) when n is negative. */
+export function signed(n: number, fmt: (n: number) => string): string {
+  return n < 0 ? `\u2212${fmt(-n)}` : fmt(n);
+}
+
+export function claimedTokens(f: { reservedTokens: number; openAsksTokens: number; fundedRemainingTokens: number; retainerTokens?: number }): number {
+  return f.reservedTokens + f.openAsksTokens + f.fundedRemainingTokens + (f.retainerTokens ?? 0);
 }

@@ -1,5 +1,5 @@
 import { isAppError, type World } from "@muster-town/core";
-import { VERB_DESCRIPTIONS, VERB_NAMES, VerbInputs, type VerbName } from "@muster-town/schema";
+import { VERB_NAMES, verbToolFor } from "@muster-town/schema";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -12,12 +12,19 @@ function text(t: string, isError = false): CallToolResult {
   return { content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) };
 }
 
-/** One MCP server whose tools are the verbs, acting as `agentId`. */
+/**
+ * One MCP server whose tools are the verbs, acting as `agentId`. A collective that doesn't run on this server's own repo
+ * gets no `redeploy` tool, and nobody without `town.redeploy` does; its wait fields and texts leave out the waits it
+ * can't use (schema `verbToolFor`; 1:1 mt_1vs893enaw).
+ */
 export function buildMcpServer(world: World, agentId: string): McpServer {
   const server = new McpServer({ name: "muster-town", version: "0.1.0" });
+  const mode = world.repoMode();
   for (const name of VERB_NAMES) {
-    const shape = VerbInputs[name].shape as ZodRawShape;
-    server.registerTool(name, { description: VERB_DESCRIPTIONS[name as VerbName], inputSchema: shape }, async (args: unknown) => {
+    if (name === "redeploy" && (mode !== "muster" || !world.permissions.can({ kind: "agent", id: agentId }, "town.redeploy"))) continue;
+    const tool = verbToolFor(name, mode);
+    const shape = tool.input.shape as ZodRawShape;
+    server.registerTool(name, { description: tool.description, inputSchema: shape }, async (args: unknown) => {
       try {
         // same path as POST /api/verbs/:verb: stamps presence, then runs the verb
         const result = await runVerb(world, agentId, name, args ?? {});

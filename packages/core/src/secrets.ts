@@ -19,7 +19,16 @@ const RESERVED = /^(MUSTER_TOWN_|AGENT_TOWN_|DESK_|CLAUDE_|ANTHROPIC_|GH_|GITHUB
  */
 export const REPO_TOKEN_SECRET = "GH_TOKEN";
 
-const NO_KEY = "Secret values can't be stored: the host has no MUSTER_TOWN_DATA_KEY (32 bytes, base64 or hex; e.g. `openssl rand -base64 32`). The operator sets it in the server's env. Values are never stored in plaintext.";
+/**
+ * The Publish to GitHub token (gr_30f8obzab8): a runtime-owned secret under a reserved name, so PUT /api/secrets refuses
+ * it, `list` and `forAgent` never show it and no desk can be granted it. Only `setOwn`/`clearOwn` write it (PUT/DELETE
+ * /api/town/publish) and only the export's push reads it (`value`).
+ */
+export const PUBLISH_TOKEN_SECRET = "MUSTER_TOWN_PUBLISH_TOKEN";
+/** Secrets the runtime keeps for itself: never listed, never granted, never deleted through /api/secrets. */
+const RUNTIME_OWNED = new Set([PUBLISH_TOKEN_SECRET]);
+
+export const NO_DATA_KEY = "Secret values can't be stored: the host has no MUSTER_TOWN_DATA_KEY (32 bytes, base64 or hex; e.g. `openssl rand -base64 32`). The operator sets it in the server's env. Values are never stored in plaintext.";
 
 /** The host data key from `MUSTER_TOWN_DATA_KEY`: 32 bytes as 64 hex chars or base64. null when unset; throws when malformed. */
 export function dataKeyFrom(raw: string | undefined): Buffer | null {
@@ -62,14 +71,23 @@ export class Secrets {
     try { return !!dataKeyFrom(this.dataKey()); } catch { return false; }
   }
 
+  /**
+   * Boot back-fill (docs/secrets.md "Bank secrets at rest"): encrypt every plaintext Bank input secret and donor key in
+   * place under the data key. Idempotent; does nothing without a key. Returns the counts it converted.
+   */
+  encryptBankSecrets(): { inputs: number; donors: number } {
+    return { inputs: this.world.bankInputs.secret.encryptPlaintext(), donors: this.world.users.secret.encryptPlaintext() };
+  }
+
   private key(): Buffer {
     const k = dataKeyFrom(this.dataKey());
-    if (!k) throw new AppError("conflict", NO_KEY);
+    if (!k) throw new AppError("conflict", NO_DATA_KEY);
     return k;
   }
 
+  /** the collective's secrets: never the runtime-owned ones */
   private rows(): Row[] {
-    return this.world.db.prepare("SELECT * FROM secrets ORDER BY name").all() as Row[];
+    return (this.world.db.prepare("SELECT * FROM secrets ORDER BY name").all() as Row[]).filter((r) => !RUNTIME_OWNED.has(r.name));
   }
 
   private row(name: string): Row | undefined {
@@ -85,6 +103,7 @@ export class Secrets {
   }
 
   get(name: string): SecretView | null {
+    if (RUNTIME_OWNED.has(name)) return null;
     const r = this.row(name);
     return r ? this.view(r) : null;
   }
@@ -130,7 +149,31 @@ export class Secrets {
     return this.view(this.row(name)!);
   }
 
+  /**
+   * Store a runtime-owned secret (PUBLISH_TOKEN_SECRET): skips `checkName` (the name is reserved on purpose), no grants,
+   * refused (409) without a data key. Appends no event: the caller's own event says what changed, never the value.
+   */
+  setOwn(name: string, value: string, by: string | null): void {
+    if (!RUNTIME_OWNED.has(name)) throw badRequest(`"${name}" is not a runtime-owned secret.`);
+    const ciphertext = encryptSecret(this.key(), name, value);
+    this.world.db.prepare(
+      "INSERT INTO secrets (name, ciphertext, grants, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET ciphertext = excluded.ciphertext, grants = excluded.grants, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy",
+    ).run(name, ciphertext, JSON.stringify(SecretGrants.parse({})), nowIso(), by);
+  }
+
+  /** Remove a runtime-owned secret; true when one was stored. */
+  clearOwn(name: string): boolean {
+    if (!RUNTIME_OWNED.has(name)) throw badRequest(`"${name}" is not a runtime-owned secret.`);
+    return this.world.db.prepare("DELETE FROM secrets WHERE name = ?").run(name).changes > 0;
+  }
+
+  /** Whether a secret has a stored value (`Town.publish.tokenSet` mirrors the publish token; `tokenSource` reads GH_TOKEN too). */
+  hasOwn(name: string): boolean {
+    return !!this.row(name)?.ciphertext;
+  }
+
   delete(name: string, by: string | null): { removed: boolean } {
+    if (RUNTIME_OWNED.has(name)) return { removed: false };
     const removed = this.world.db.prepare("DELETE FROM secrets WHERE name = ?").run(name).changes > 0;
     if (removed) this.world.events.append({ type: "secret.deleted", text: `Secret ${name} deleted`, payload: { name, by } });
     return { removed };

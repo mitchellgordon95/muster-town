@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Agent, Doc } from "@muster-town/schema";
 import { store } from "../src/state";
 import { DocView } from "../src/panels/DocView";
-import { grantTalkTarget, talkTarget } from "../src/panels/oneOnOne";
-import { GrantRow } from "../src/panels/Places";
+import { canOneOnOne, canTalkToManager, grantTalkTarget, talkTarget } from "../src/panels/oneOnOne";
+import { AccessRow, GrantRow } from "../src/panels/Places";
 import { SlideDecision } from "../src/panels/ReviewDeck";
 
 // sprites draw on a canvas and grant links read location, which node lacks
@@ -93,5 +93,40 @@ describe("a report's Talk to <author> (1:1 mt_uf1bwd3exq)", () => {
     expect(foot).toBeGreaterThan(row.indexOf("Stop when"));
     expect(row.indexOf(">Fund</button>")).toBeGreaterThan(foot);
     expect(row.indexOf("Talk to Pix")).toBeGreaterThan(foot);
+  });
+});
+
+describe("Talk to ★ <manager> follows the server's direct-work gate (gr_cuobjlny6r)", () => {
+  it("a let-in member talks only where /api/me lists the building; never the Town Hall's; a visitor or guest never", () => {
+    const blds = [...BUILDINGS, { id: "town-hall", kind: "town-hall", managerAgentId: "ag_planner" }];
+    store.state = { ...store.state, agents: AGENTS, buildings: blds as never, me: { isAdmin: false, canInteract: true, roles: [], user: { id: "us_ana" }, direct: [], directBuildingIds: [] } as never };
+    expect(canOneOnOne("workshop")).toBe(false);
+    expect(canTalkToManager("workshop")).toBe(false);
+    store.state = { ...store.state, me: { isAdmin: false, canInteract: true, roles: [], user: { id: "us_ana" }, direct: [{ goalId: "gl_town", text: "Town", how: "granted" }], directBuildingIds: ["workshop", "town-hall"] } as never };
+    expect(canTalkToManager("workshop")).toBe(true);
+    expect(canTalkToManager("town-hall")).toBe(false);
+    const html = renderToStaticMarkup(<DocView doc={report("ag_lena")} />);
+    expect(html).not.toContain("Talk to Lena");
+    store.state = { ...store.state, me: { isAdmin: false, canInteract: false, roles: [], user: { id: "us_vic" } } as never };
+    expect(canTalkToManager("workshop")).toBe(false);
+    store.state = { ...store.state, me: null };
+    expect(canTalkToManager("workshop")).toBe(false);
+    store.state = { ...store.state, me: { isAdmin: true, canInteract: true, roles: [], user: { id: "us_m" } } as never };
+    expect(canTalkToManager("workshop")).toBe(true);
+  });
+});
+
+describe("the Let in card (gr_cuobjlny6r step 2)", () => {
+  const req = { id: "ar_1", userId: "us_x", message: "", status: "pending", decidedBy: null, createdAt: "2026-11-03T00:00:00Z", decidedAt: null, name: "Ex", githubLogin: "ex", avatarUrl: null } as never;
+  it("offers Let in and Let in + direct work under the decider's default goal; nothing extra without one", () => {
+    store.state = { ...store.state, places: [{ id: "plaza:gl_town", name: "Make Muster Town something strangers can fund, steer, and trust", kind: "plaza" }] as never,
+      me: { isAdmin: true, canInteract: true, roles: [], user: { id: "us_m" }, direct: [], directDefaultGoalId: "gl_town", directBuildingIds: [] } as never };
+    const html = renderToStaticMarkup(<AccessRow req={req} onDecided={() => undefined} />);
+    expect(html).toContain(">Let in</button>");
+    expect(html).toContain("Let in + direct work under Make Muster Town something strangers…</button>");
+    expect(html).toContain("Decline");
+    expect(html.match(/btn primary/g)?.length).toBe(1);
+    store.state = { ...store.state, me: { ...(store.state.me as object), directDefaultGoalId: null } as never };
+    expect(renderToStaticMarkup(<AccessRow req={req} onDecided={() => undefined} />)).not.toContain("direct work under");
   });
 });

@@ -1,11 +1,12 @@
 /**
- * Fixture world for VITE_MOCK=1 (v1.2): Town Hall (Wren at the mod station, Ada), Carbon Cycle Lab (5 residents,
- * Moss the reviewer, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building with
- * reviewer policy, one report in its in-tray), meetings now / upcoming / done.
+ * Fixture world for VITE_MOCK=1 (v1.2): Town Hall (the Planner at the mod station), Carbon Cycle Lab (5 residents,
+ * Moss its manager, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building managed by
+ * Keel, whose forks do the work; one report in its in-tray), meetings now / upcoming / done.
  */
-import type { Agent, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Objective, Role, Town, User } from "@muster-town/schema";
+import type { Agent, Ask, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Notice, Objective, Role, StepCalibration, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 import deckShot from "./deck-shot.svg?no-inline";
+import samplePage from "./sample-page.html?raw";
 
 export const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -14,7 +15,11 @@ export const town: Town = {
   goal: "Return atmospheric CO2 to 350 ppm by 2100",
   tagline: "AI agents working in public on climate science. Humans watch, fund and steer.",
   mapLayout: "fountain",
+  retainerLookaheadHours: 6,
   operatingReserveTokens: 500_000,
+  // the grant pricing (docs/legible-delegation.md §7.3): the planning desk's step-size table and oversell
+  stepSizes: { S: 50_000, M: 150_000, L: 400_000 },
+  oversell: 0.5,
   goalNote: "Current level is about 427 ppm (2025 annual mean, NOAA).",
   workspace: {
     path: ".", branchPrefix: "agent", base: "main", repoUrl: "https://github.com/example/agent-town.git",
@@ -24,11 +29,12 @@ export const town: Town = {
 
 export const users: User[] = [
   { id: "us_mitchell", name: "Mitchell", createdAt: ago(9000), donatedTokens: 50_000_000, hasApiKey: false },
+  { id: "us_ada", name: "Ada", createdAt: ago(3000), donatedTokens: 0, hasApiKey: false },
 ];
 
 const base = { goal: "", goalId: "gl_town", description: "", budgetMode: "goal-directed" as const, blockedAt: null, headcount: 6, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5", maxTurnsPerSession: 80, dailyTokensPerAgent: 2_000_000, meetings: [], rules: "", managerAgentId: null as string | null, codeAccess: false, furniture: {} };
 export const buildings: Building[] = [
-  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, description: "Library, town map, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
+  { ...base, id: "bl_townhall", name: "Town Hall", kind: "town-hall", headcount: 3, managerAgentId: "ag_planner", description: "Library, town map, outbox, mod station, planning desk, schedule board, and the town meeting room.", createdAt: ago(9000) },
   {
     ...base, id: "bl_carbon", name: "Carbon Cycle Lab", kind: "lab", createdAt: ago(8900), createdBy: "us_mitchell", managerAgentId: "ag_moss",
     goal: "Understand the carbon cycle well enough to say what it would take to get to 350 ppm",
@@ -55,16 +61,15 @@ export const agents: Agent[] = [
   resident("ag_mei", "Mei", 3, "Ocean sink", "Ocean carbon uptake: solubility and biological pumps, SOCAT pCO2, cumulative uptake, acidification, the Southern Ocean.", { status: "stopped", spentTokensTotal: 640_000, spentUsdTotal: 5.2, lastActiveAt: ago(55) }),
   resident("ag_ravi", "Ravi", 4, "Human emissions", "Fossil and land-use emissions, their uncertainty, and how the Global Carbon Budget closes the books (the budget imbalance).", { spentTokensTotal: 980_000, spentUsdTotal: 7.1, lastActiveAt: ago(300) }),
   resident("ag_ingrid", "Ingrid", 5, "Feedbacks & futures", "Carbon-climate feedbacks: permafrost, fire, Amazon dieback, ocean warming, model projections, remaining carbon budgets."),
-  resident("ag_moss", "Moss", 8, "Reviewer", "Reviews reports against the building goal: sources present, units and uncertainty, one concrete question, no duplication."),
+  resident("ag_moss", "Moss", 8, "", ""),
   // dismissed: the row stays so documents keep their author; the client must never draw it
   resident("ag_otto", "Otto", 6, "Methane", "Methane budget (dismissed).", { status: "retired", lastActiveAt: ago(3000) }),
-  resident("ag_keel", "Keel", 11, "Reviewer", "Reviews Workshop PR reports: tests added, checks green, scope small.", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop" }),
+  resident("ag_keel", "Keel", 11, "", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop" }),
   resident("ag_pike", "Pike", 9, "Web client", "Small fixes to the web client: one PR per session, with a screenshot.", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", spentTokensTotal: 300_000, spentUsdTotal: 2.4, lastActiveAt: ago(30) }),
   // manager forks (dc_mymt27yz25): Keel 2 works at a desk as a ghost; Keel 1 is retired, its report waits in the in-tray
   resident("ag_keel2", "Keel 2", 11, "Fork of Keel", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", forkOf: "ag_keel", forkN: 2, status: "working", activity: "Editing renderer.ts: ghost outline", currentAssignmentId: "as_fork2", spentTokensToday: 48_000, spentTokensTotal: 48_000, createdAt: ago(14), lastActiveAt: ago(0) }),
   resident("ag_keel1", "Keel 1", 11, "Fork of Keel", "", { buildingId: "bl_workshop", homeBuildingId: "bl_workshop", forkOf: "ag_keel", forkN: 1, status: "retired", spentTokensTotal: 41_000, createdAt: ago(90), lastActiveAt: ago(20) }),
-  { ...agentBase, id: "ag_wren", name: "Wren", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Town moderator", direction: "Collective-wide misuse prevention: deletes abusive outbox requests, bans abuse.", sprite: 10, pos: { x: 0, y: 0 } },
-  { ...agentBase, id: "ag_ada", name: "Ada", kind: "service", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", ownerUserId: null, title: "Librarian", direction: "Knows every document in the library.", sprite: 0, pos: { x: 0, y: 0 }, activity: "Ask me about the library" },
+  { ...agentBase, id: "ag_planner", name: "Planner", kind: "resident", buildingId: "bl_townhall", homeBuildingId: "bl_townhall", title: "Planner", direction: "", sprite: 5, pos: { x: 0, y: 0 } },
   // v1.4: Mitchell's Claude Code session as a visitor with a Workshop desk; it's offline (laptop closed), an offer waits
   { ...agentBase, id: "ag_stranger", name: "Ada's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_townhall", homeBuildingId: null, title: "Visitor", direction: "", sprite: 9, pos: { x: 0, y: 0 }, status: "idle", currentAssignmentId: null, createdAt: ago(60), lastSeenAt: ago(25), lastActiveAt: ago(25) },
   { ...agentBase, id: "ag_visitor", name: "Mitch's Claude", kind: "visitor", inheritsOwner: true, buildingId: "bl_workshop", homeBuildingId: "bl_workshop", title: "Visitor", direction: "", sprite: 6, pos: { x: 0, y: 0 }, status: "offline", currentAssignmentId: "as_visit1", createdAt: ago(600), lastSeenAt: ago(95), lastActiveAt: ago(95) },
@@ -109,10 +114,12 @@ export const memoryDocs: Doc[] = [
 ];
 
 export const docs: Doc[] = [
+  { ...docBase, id: "dc_bulletin_picnic", type: "bulletin", state: "building", title: "Picnic in the square on Saturday", authorId: "us_ada", authorKind: "user", buildingId: null, body: "Bring a blanket; the fountain end has shade after noon.", createdAt: ago(90), updatedAt: ago(90) },
   { ...docBase, id: "dc_town_merge", type: "fyi", state: "building", title: "Town-wide merge rules", authorId: "ag_moss", buildingId: "bl_townhall", body: "A manager merges their own building's green PR to main and redeploys without asking. Schema migrations ship with the PR (additive, backward compatible). Ask Mitchell first only for Bank or token-accounting changes, or another building's code.", createdAt: ago(600), updatedAt: ago(600) },
   { ...docBase, id: "dc_gcb_essd", type: "source", state: "library", title: "GCB 2025 ESSD", tags: ["gcb-2025-essd"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Global Carbon Budget 2025 (ESSD)\n\n**Says:** fossil CO2 emissions 10.2 ± 0.5 GtC in 2024; ocean sink 2.9 ± 0.4 GtC/yr; land sink 3.2 ± 0.9 GtC/yr (2014–2023).\n\n**Link:** https://essd.copernicus.org/\n\nSee also the [data note](gcb-2025-data.md).", provenance: { sourceIds: [], urls: ["https://essd.copernicus.org/"] }, createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_gcb_data", type: "source", state: "library", title: "GCB 2025 data", tags: ["gcb-2025-data"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# GCB 2025 data files\n\nNational and global budget spreadsheets (v1.0). Budget imbalance for the last decade: −0.4 GtC/yr.", createdAt: ago(5000), updatedAt: ago(5000) },
   { ...docBase, id: "dc_carbonbrief", type: "source", state: "library", title: "Carbon Brief on GCB 2025", tags: ["carbon-brief-gcb-2025"], authorId: "ag_ravi", buildingId: "bl_carbon", body: "# Carbon Brief: Global Carbon Budget 2025\n\nJournalistic summary. Useful framing; numbers should be cited from the [ESSD paper](gcb-2025-essd.md).", createdAt: ago(4990), updatedAt: ago(4990) },
+  { ...docBase, id: "dc_ws_page", type: "page", state: "library", title: "Bank balance over a week (sample page)", authorId: "ag_pike", buildingId: "bl_workshop", tags: ["page", "demo"], body: samplePage, createdAt: ago(40), updatedAt: ago(40) },
   { ...docBase, id: "dc_ws_deck", type: "deck", state: "building", title: "Workshop review deck (demo)", authorId: "ag_pike", buildingId: "bl_workshop", tags: ["deck", "demo"], body: "# Workshop review deck (demo)\n\nThree slides. Use ← → or space, Home/End, `f` for fullscreen, `n` for presenter notes.\nNotes: open with the budget line, then go slide by slide.\n\n---\n\n## The HUD on a narrow screen\n\n![HUD overflow at 360px](" + DECK_SHOT + ")\n\n**What it is:** the HUD wraps instead of clipping. **Your call:** None.\nNotes: Pike's fix; screenshot from the mock.\n\n---\n\n## A long slide scrolls inside the slide\n\n```yaml\n---\nnot: a slide split\n---\n```\n\n" + Array.from({ length: 30 }, (_, i) => `- Line ${i + 1}: long slide text scrolls inside the slide and is never clipped.`).join("\n"), createdAt: ago(50), updatedAt: ago(45) },
   { ...docBase, id: "dc_master", type: "article", state: "building", title: "Master article", authorId: "us_mitchell", authorKind: "user", buildingId: "bl_carbon", body: "# Carbon Cycle Lab — master article\n\n## Where the carbon goes\nOf every 10 tonnes of carbon emitted, about 4.4 stay in the air, 2.6 go to the ocean and 3.0 to land ([GCB 2025](../sources/gcb-2025-essd.md)).\n\n## Open questions\n- Is the land sink weakening? (Tomas)\n- What does 350 ppm imply for net-negative emissions? (Ingrid)\n\nLatest report: [Noor on the airborne fraction](dc_noor_r2).", createdAt: ago(6000), updatedAt: ago(30) },
   { ...docBase, id: "dc_ravi_r1", type: "report", state: "building", title: "Ravi run 1: GCB 2025 headline budget", authorId: "ag_ravi", buildingId: "bl_carbon", verdict: "continue", decision: "approve", decidedBy: "us_mitchell", decidedAt: ago(320), tokens: 980_000, costUsd: 7.1, body: "# GCB 2025 headline budget\n\n## Summary\nFossil emissions 10.2 GtC (2024), +0.8% on 2023. Land-use change 1.1 ± 0.7 GtC.\n\n## Proposal for next session\nHow uncertain is the land-use change term, and why is it the largest error bar?", createdAt: ago(340), updatedAt: ago(320) },
@@ -122,7 +129,7 @@ export const docs: Doc[] = [
   // Town Hall in-tray: an unhomed visitor's report (submit_report files it under the Town Hall, tagged visitor)
   { ...docBase, id: "dc_visitor_r1", type: "report", state: "building", title: "Read the library's carbon cards; two cite the same table", authorId: "ag_stranger", buildingId: "bl_townhall", tags: ["visitor"], verdict: "stop", decision: "pending", tokens: 22_000, costUsd: 0.2, provenance: { sourceIds: [], urls: [] }, body: "## What I did\nRead the carbon cards in the library.\n\n## Findings\nTwo cards cite the same GCB table.\n\n## What I need from you\nNothing needed.\n\n_Visitor report from Ada's Claude, Ada's agent; it has no home building._", createdAt: ago(25), updatedAt: ago(25) },
   // Town Hall in-tray: a manager's rollup (covers two decided reports) and a checkpoint report (docs/waterfall.md §3.2)
-  { ...docBase, id: "dc_moss_rollup", type: "report", state: "building", title: "Carbon Cycle Lab rollup: budget headline in, methane dropped", authorId: "ag_moss", buildingId: "bl_carbon", tags: ["rollup"], verdict: "continue", decision: "pending", tokens: 140_000, costUsd: 1.1, provenance: { sourceIds: ["dc_ravi_r1", "dc_otto_r1"], urls: [] }, body: "## Shipped\n- GCB 2025 headline budget in the cabinet (dc_ravi_r1).\n\n## Decided\n- dc_ravi_r1 → continue: Ravi takes the land-use change uncertainty next.\n- dc_otto_r1 → stop: methane is outside the lab's goal.\n\n## Key results\nNo funded grant yet; the ocean-sink proposal is in the Town Hall in-tray.\n\n## Needs from Mitchell\nFund or counter the ocean-sink proposal.", createdAt: ago(40), updatedAt: ago(40) },
+  { ...docBase, id: "dc_moss_rollup", type: "report", state: "building", title: "Carbon Cycle Lab rollup: budget headline in, methane dropped", authorId: "ag_moss", buildingId: "bl_carbon", tags: ["rollup"], verdict: "continue", decision: "pending", tokens: 140_000, costUsd: 1.1, provenance: { sourceIds: ["dc_ravi_r1", "dc_otto_r1"], urls: [] }, body: "Live: 869f76d (since this morning).\n\n## Shipped\n\n**1. The 2025 carbon budget headline is in the cabinet**\n**What it is:** One source card with the Global Carbon Budget 2025 headline numbers (fossil, land-use, sinks) and their ranges, so every later report cites one place (dc_ravi_r1).\n**What you'd see:** Carbon Cycle Lab → filing cabinet, top card: 10.1 ± 0.5 GtC fossil, 1.0 ± 0.7 GtC land-use.\n**Your call:** None.\n\n**2. Methane dropped from the lab's plan**\n**What it is:** Otto's methane thread stops: it is outside the lab's goal and the ocean-sink proposal covers what the goal asks (dc_otto_r1).\n**What you'd see:** Nothing new on the map; Otto is idle until the ocean-sink grant is funded.\n**Your call:** Say whether methane should get its own goal under Trust, or stay dropped.\n\n## Decided\n- dc_ravi_r1 → continue: Ravi takes the land-use change uncertainty next.\n- dc_otto_r1 → stop: methane is outside the lab's goal.\n\n## Key results\nNo funded grant yet; the ocean-sink proposal is in the Town Hall in-tray.\n\n| Key result | Status | Spent / granted |\n|---|---|---|\n| kr_ocean Ocean sink card in the library | not started | 0 / 0 |\n\nSpend today by lane: exploration 12,000 tokens, directed 0.\n\n## Needs from Mitchell\nNothing needed.", createdAt: ago(40), updatedAt: ago(40) },
   { ...docBase, id: "dc_fork1_r", type: "report", state: "building", title: "Ghost render: outline sheet and label subscript", authorId: "ag_keel1", buildingId: "bl_workshop", verdict: "continue", decision: "pending", assignmentId: "as_fork1", sessionId: "se_fork1", tokens: 41_000, costUsd: 0.4, body: "## What I did\nDrew forks as ghosts: alpha 0.6 and a 1-px outline in the building tint.\n\n## Findings\n- The outline is the silhouette grown by one pixel minus the sprite.\n- Plan for the next hop: the in-tray chain badge.\n\n## What I need from you\nNothing needed.", createdAt: ago(20), updatedAt: ago(20) },
   { ...docBase, id: "dc_topic_render", type: "wiki", state: "building", topicOf: "bl_workshop", title: "Map renderer", authorId: "ag_keel1", buildingId: "bl_workshop", body: "Bodies are drawn in renderer.ts; forks are ghosts (alpha 0.6, outline in the building tint).", createdAt: ago(25), updatedAt: ago(25) },
   { ...docBase, id: "dc_keel_cp", type: "report", state: "building", title: "Workshop checkpoint: HUD polish at 100% of its grant", authorId: "ag_keel", buildingId: "bl_workshop", verdict: "continue", decision: "pending", tokens: 60_000, costUsd: 0.5, body: "## What I did\nChecked the HUD polish grant at its 100% checkpoint.\n\n## Findings\n- KR1 (HUD collapses below 700px) is claimed: PR #42.\n- KR2 (no overlap with the meeting panel) is on track.\n\n## What I need from you\nTop the grant up by 500k; KR2 needs one more pass.", createdAt: ago(25), updatedAt: ago(25) },
@@ -134,9 +141,9 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null, grantStep: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
-const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "" };
+const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "", continues: null as string | null, steps: [] as GrantView["steps"] };
 type Kr = NonNullable<GrantView["keyResult"]>;
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
@@ -146,15 +153,27 @@ const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, 
 export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_ocean", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 4_000_000, grantTokens: null,
-    objective: "Settle the ocean-sink data/model gap in the Southern Ocean", stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
+    title: "Southern Ocean sink gap",
+    objective: "Settle the ocean-sink data/model gap in the Southern Ocean", steps: [{ title: "Compare the products", size: "L", description: "Do the work" }, { title: "Compare the models", size: "L", description: "Do the work" }, { title: "Write it up", size: "M", description: "The article" }], stopCondition: "Stop when the gap is explained to within 0.2 GtC/yr, or after 4 sessions without progress.",
     findingsDocIds: ["dc_mei_r1"], ...plan(kr("bl_carbon", 0, "An article with the gap per product, with units and ranges", "Read it in the Carbon Cycle Lab cabinet"), kr("bl_carbon", 1, "A recommendation on which estimate the lab uses", "The master article cites it")),
     history: [{ at: ago(35), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 4_000_000, note: "Mei's run 1 found the gap; two sessions each for products and models." }],
+    // what it is likely to cost, recorded at propose (core grant-estimate.ts)
+    estimate: {
+      askTokens: 4_000_000, sample: 5, buildingSample: 2, medianRatio: 1.21, buildingMedianRatio: 0.95, low: 1_800_000, high: 6_100_000, at: ago(35),
+      similar: [
+        { id: "gr_stress", buildingId: "bl_carbon", objective: "Stress-test the lab's session runner at 10 parallel desks", keyResults: 1, grantTokens: 1_000_000, spentTokens: 1_800_000, outcome: "done" },
+      ],
+      sentence: "ask 4,000,000 · 3 similar grants spent 1,800,000–6,100,000 (median spent/funded 1.21 across 5 closed grants; this building 0.95 across 2)",
+      // the cheap model's range (runtime estimate.ts), saved a moment after the propose
+      model: { low: 1_500_000, high: 4_000_000, note: "Two research questions like gr_stress's single one, each about 1M with its write-up.", modelId: "claude-haiku-5-5", sessionId: "se_estimate", at: ago(35) },
+    },
     createdAt: ago(60), updatedAt: ago(35),
   },
   // a second open proposal from the same lab, for another key result: the in-tray lists both side by side
   {
     ...grantBase, id: "gr_land", buildingId: "bl_carbon", status: "proposed", proposedBy: "ag_moss", askTokens: 1_500_000, grantTokens: null,
-    objective: "Put a number on the land sink's 2025 drop", stopCondition: "Stop when the drop is attributed to within 0.3 GtC/yr, or after 3 sessions.",
+    title: "Land sink 2025 drop",
+    objective: "Put a number on the land sink's 2025 drop", steps: [{ title: "Attribute the drop", size: "M", description: "Do the work" }, { title: "Check it", size: "S", description: "A re-check" }], stopCondition: "Stop when the drop is attributed to within 0.3 GtC/yr, or after 3 sessions.",
     ...plan(kr("bl_carbon", 2, "A note on the 2025 land-sink anomaly with its drivers", "Read it in the Carbon Cycle Lab cabinet")),
     history: [{ at: ago(30), byId: "ag_moss", byKind: "agent", action: "propose", tokens: 1_500_000, note: "Separate from the ocean work; one session per driver." }],
     createdAt: ago(30), updatedAt: ago(30),
@@ -162,9 +181,30 @@ export const grants: GrantView[] = [
   {
     ...grantBase, id: "gr_hud", buildingId: "bl_workshop", status: "checkpoint", proposedBy: "ag_keel", askTokens: 2_000_000, grantTokens: 2_000_000, spentTokens: 2_010_000,
     checkpointsDone: [1], checkpointDocId: "dc_keel_cp", fundedBy: "us_mitchell", fundedAt: ago(600),
+    title: "HUD on narrow screens",
     objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
+    // sized steps and the forecast filed at the last step report: projected past the ceiling (§7.3 gates at step reports)
+    steps: [{ title: "Fold the HUD below 700px", size: "L", description: "The PR" }, { title: "Dock the meeting panel", size: "M", description: "The PR" }, { title: "Check it live", size: "S", description: "At 650px" }],
+    stepStates: [{ assignmentId: "as_hud1", status: "done", reportId: "dc_keel_s1" }, { assignmentId: "as_hud2", status: "done", reportId: "dc_keel_s2" }, null],
+    forecast: { at: ago(26), stepsDone: 2, stepsLeft: { S: 1, M: 0, L: 0 }, spent: 2_010_000, ceiling: 2_000_000, spentOverSize: 3.65, projected: 2_190_000, overCeiling: true, shortfall: 190_000 },
     ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 100%." }],
+    topUpTokens: 400_000, whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.",
+    // what the checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): the server derives it from the grant, its key results and the report
+    evidence: {
+      grantId: "gr_hud", objective: "HUD works on narrow screens", spentTokens: 2_010_000, grantTokens: 2_000_000, topUpTokens: 400_000,
+      whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.", reportId: "dc_keel_cp", shipped: ["The HUD collapses below 700px"],
+      keyResults: [
+        { id: "kr_bl_workshop_0", text: "HUD collapses below 700px", status: "claimed", verdict: "shipped", note: "Live: at 650px the HUD folds into one row (PR #41).", by: "Keel 2" },
+        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "on-track", verdict: "partly", note: "The panel still covers the HUD's last button at 650px.", by: "Keel 3" },
+      ],
+      // the grant's own reports (its forks' sessions), oldest first; `filed`: a fork set a key result (grant C)
+      reports: [
+        { id: "dc_keel_s1", title: "Step 1: the HUD folds below 700px (PR #41)", authorName: "Keel 2", verdict: "continue", at: ago(200) },
+        { id: "dc_keel_s2", title: "Step 2: the meeting panel still overlaps at 650px", authorName: "Keel 3", verdict: "continue", at: ago(40) },
+      ],
+      filed: true,
+    },
     createdAt: ago(700), updatedAt: ago(25),
   },
   // the Workshop is goal-directed: a funded grant beside the checkpoint, and a countered proposal (its board's key results)
@@ -172,17 +212,22 @@ export const grants: GrantView[] = [
     ...grantBase, id: "gr_tour", buildingId: "bl_workshop", status: "funded", proposedBy: "ag_keel", askTokens: 3_000_000, grantTokens: 2_500_000, spentTokens: 600_000,
     // member-funded (fundWith): paid from Mitchell's own Bank input, so the row reads "… by Mitchell from Mitchell's API key"
     fundedBy: "us_mitchell", fundedByName: "Mitchell", fundedWith: "bi_mitchell_key", fundedWithLabel: "Mitchell's API key", fundedAt: ago(300),
-    objective: "A stranger can find the How it works tour from the landing page", stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
+    title: "Landing page links the tour",
+    objective: "A stranger can find the How it works tour from the landing page",
+    // grant B (gr_b5fyqibfx2): its plan's steps and where each stands
+    steps: [{ title: "Link the tour from the landing page", description: "The PR" }, { title: "Check it live as a guest", description: "Open muster.town logged out" }, { title: "Close the grant", description: "Evidence and rollup" }],
+    stepStates: [{ assignmentId: "as_tour1", status: "done", reportId: null }, { assignmentId: "as_tour2", status: "active", reportId: null }, null], stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
     ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
   },
-  // closed early as done by its manager (close_grant): waits in the Town Hall in-tray until a human marks its key result
+  // closed early as done by its manager (close_grant): its key results went to met (town hall mt_v09cn7a8yr decision 2)
   {
     ...grantBase, id: "gr_stress", buildingId: "bl_carbon", status: "closed", outcome: "done", proposedBy: "ag_moss", askTokens: 1_000_000, grantTokens: 1_000_000, spentTokens: 450_000,
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
-    objective: "Stress-test the lab's session runner at 10 parallel desks", stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
-    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "claimed")),
+    title: "Session runner at ten desks",
+    objective: "Stress-test the lab's session runner at 10 parallel desks", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
+    ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "met"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "met")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
       { at: ago(15), byId: "ag_moss", byKind: "agent", action: "close", tokens: 550_000, note: "All 10 desks finished; 0 lost reports (spent 450,000 of 1,000,000; returned 550,000 unspent tokens to the Bank)" },
@@ -191,6 +236,7 @@ export const grants: GrantView[] = [
   },
   {
     ...grantBase, id: "gr_cli", buildingId: "bl_workshop", status: "countered", proposedBy: "ag_keel", askTokens: 1_500_000, grantTokens: null,
+    title: "Digest command prints the in-tray",
     objective: "muster-town digest prints the in-tray", stopCondition: "Stop when the command ships.",
     ...plan(kr("bl_workshop", 2, "`muster-town digest` lists pending reports", "Run it against the live town")),
     history: [{ at: ago(90), byId: "ag_keel", byKind: "agent", action: "propose", tokens: 1_500_000, note: "" }, { at: ago(20), byId: "us_mitchell", byKind: "user", action: "counter", tokens: 800_000, note: "Smaller: 800k." }],
@@ -205,7 +251,7 @@ const KR_OBJECTIVE: Record<string, string> = { kr_bl_workshop_3: "ob_ws_trust", 
  * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
  */
 export const keyResults: Kr[] = [
-  ...grants.flatMap((g) => (g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
+  ...grants.flatMap((g) => (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
   kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
 ].map((k) => ({ ...k, objectiveId: KR_OBJECTIVE[k.id] ?? null }));
 
@@ -249,10 +295,10 @@ export const assignments: Assignment[] = [
 ];
 
 const ahead = (min: number) => new Date(Date.now() + min * 60_000).toISOString();
-const mtBase = { withUserId: null, brings: { mode: "status" as const, text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
+const mtBase = { withUserId: null, focus: null, brings: { mode: "status" as const, text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, startedAt: null, endedAt: null };
 export const meetings: Meeting[] = [
   { ...mtBase, id: "mt_retro1", kind: "retro", buildingId: "bl_carbon", title: "Carbon Cycle retro", scheduledAt: ahead(120), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What worked this week, what to change.", createdAt: ago(60) },
-  { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_wren", attendeeIds: ["ag_moss", "ag_keel", "ag_wren"], agenda: "Which lab should the town open next?", askHumans: true, createdAt: ago(200) },
+  { ...mtBase, id: "mt_town1", kind: "town-hall", buildingId: null, title: "Town hall: next lab", scheduledAt: ahead(60 * 26), phase: "scheduled", facilitatorId: "ag_moss", attendeeIds: ["ag_moss", "ag_keel"], agenda: "Which lab should the town open next?", askHumans: true, createdAt: ago(200) },
   { ...mtBase, id: "mt_ws_standup0", kind: "standup", buildingId: "bl_workshop", title: "Workshop standup", scheduledAt: ago(60 * 20), phase: "done", facilitatorId: "ag_keel", attendeeIds: ["ag_keel", "ag_pike"], agenda: "", createdAt: ago(60 * 20), startedAt: ago(60 * 20), endedAt: ago(60 * 19.6), decisions: [{ text: "Pike: fix the HUD on narrow screens.", assigneeId: "ag_pike", assignmentId: null }],
     // one utterance per attachment kind (docs/meetings.md §8), so the panel's Presented cards show in the mock
     transcript: [
@@ -261,7 +307,7 @@ export const meetings: Meeting[] = [
       { speakerId: "ag_keel", speakerKind: "agent", text: "And what this week cost.", at: ago(60 * 19.7), attachment: { kind: "page", ref: "bank", title: "The Bank" } },
     ] },
   {
-    withUserId: null, brings: { mode: "status", text: "" }, askHumans: false, deck: null, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
+    withUserId: null, focus: null, brings: { mode: "status", text: "" }, askHumans: false, deck: null, id: "mt_standup1", kind: "standup", buildingId: "bl_carbon", title: "Carbon Cycle standup", scheduledAt: ago(4), phase: "collecting", facilitatorId: "ag_moss",
     attendeeIds: ["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid", "ag_moss"], agenda: "What each desk learned this week; what to ask next.",
     summaries: {
       ag_noor: "Airborne fraction steady at 0.44 ± 0.07 since 1959.\n2023 spike explained by El Niño land-sink drop.\nNext: test for a trend with ENSO removed.",
@@ -290,27 +336,120 @@ export const events: Event[] = [
   ev(4, "meeting.created", "ag_moss", "Carbon Cycle standup is collecting summaries"),
   ev(55, "doc.created", "ag_mei", "Mei submitted a report: SOCAT and the ocean sink"),
   ev(3000, "agent.retired", "ag_otto", "Otto was dismissed by Mitchell"),
-  ev(2400, "agent.banned", null, "Wren banned visitor Grab-bot: posting spam requests in the outbox"),
+  ev(2400, "agent.banned", null, "Mitchell banned visitor Grab-bot: posting spam requests in the outbox"),
 ].sort((a, b) => a.ts.localeCompare(b.ts)).map((e, i) => ({ ...e, id: 101 + i }));
 
 export const roles: Role[] = [
   { id: "rl_admin", name: "admin", scope: "town", permissions: [...BUILTIN_ROLES.town.admin], builtin: true },
-  { id: "rl_moderator", name: "moderator", scope: "town", permissions: [...BUILTIN_ROLES.town.moderator], builtin: true },
   { id: "rl_visitor", name: "visitor", scope: "town", permissions: [...BUILTIN_ROLES.town.visitor], builtin: true },
   { id: "rl_carbon_manager", name: "manager", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.manager], builtin: true },
-  { id: "rl_carbon_reviewer", name: "reviewer", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.reviewer], builtin: true },
   { id: "rl_carbon_member", name: "member", scope: "building", buildingId: "bl_carbon", permissions: [...BUILTIN_ROLES.building.member], builtin: true },
   { id: "rl_bl_workshop_manager", name: "manager", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.manager], builtin: true },
-  { id: "rl_bl_workshop_reviewer", name: "reviewer", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.reviewer], builtin: true },
   { id: "rl_bl_workshop_member", name: "member", scope: "building", buildingId: "bl_workshop", permissions: [...BUILTIN_ROLES.building.member], builtin: true },
 ];
 export const memberships: Membership[] = [
   { roleId: "rl_admin", holderKind: "user", holderId: "us_mitchell" },
   { roleId: "rl_carbon_manager", holderKind: "user", holderId: "us_mitchell" },
-  { roleId: "rl_carbon_reviewer", holderKind: "agent", holderId: "ag_moss" },
-  { roleId: "rl_moderator", holderKind: "agent", holderId: "ag_wren" },
+  { roleId: "rl_carbon_manager", holderKind: "agent", holderId: "ag_moss" },
   { roleId: "rl_bl_workshop_manager", holderKind: "user", holderId: "us_mitchell" },
-  { roleId: "rl_bl_workshop_reviewer", holderKind: "agent", holderId: "ag_keel" },
+  { roleId: "rl_bl_workshop_manager", holderKind: "agent", holderId: "ag_keel" },
   { roleId: "rl_bl_workshop_member", holderKind: "agent", holderId: "ag_pike" },
   ...["ag_noor", "ag_tomas", "ag_mei", "ag_ravi", "ag_ingrid"].map((id) => ({ roleId: "rl_carbon_member", holderKind: "agent" as const, holderId: id })),
+];
+
+/** What steps really cost against the table (GET /api/town `stepCalibration`): L runs hot, S has too few steps. */
+export const stepCalibration: StepCalibration = {
+  since: ago(30 * 1440), days: 30, minSample: 5,
+  sizes: { S: { ratio: 0.8, sample: 3 }, M: { ratio: 1.1, sample: 9 }, L: { ratio: 1.6, sample: 12 } },
+  buildings: { bl_workshop: { S: { ratio: null, sample: 0 }, M: { ratio: 1.2, sample: 6 }, L: { ratio: 1.8, sample: 7 } } },
+  lines: ["S: too few steps (3), priced at 1.0", "M: 1.1× over 9 steps", "L: 1.6× over 12 steps"],
+};
+
+const askBase = { decidedBy: null, proposal: null, decidedAt: null, decision: null, retiredBy: null, foldedInto: null, deferredUntil: null as string | null, history: [] as Ask["history"], tags: [] as string[], rank: null as number | null, status: "open" as Ask["status"] };
+/**
+ * The open asks (docs/legible-delegation.md §4): one per type, each on the item it decides (a proposal, a held grant,
+ * a retainer, a captain and an access request, an outbox request) and two with no other channel (a policy, a meeting).
+ * Claims with each check result (✓, ✗, pending); one card filed with style warnings in its history; ranked by the Secretary except two.
+ */
+export const asks: Ask[] = [
+  {
+    ...askBase, id: "ak_hud", type: "money", targetKind: "grant", targetId: "gr_hud", buildingId: "bl_workshop", sourceDocId: "dc_keel_cp", rank: 1,
+    title: "Workshop asks for 190k more tokens to finish the narrow-screen HUD",
+    body: "You funded this at 2M ten hours ago. It has spent 2M, the whole ceiling.\n\nTwo of three steps shipped. The HUD folds below 700px. One small step is left: a live check at 650px.\n\nIf you adjust: set the ceiling to 2.2M, then the grant closes.\nIf you cut: the meeting panel still covers the last HUD button.",
+    branches: [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }], recommendation: "Keel recommends adjust: one small step is left.",
+    claims: [{ text: "PR #41 is merged and live.", check: { kind: "pr", ref: "41" }, result: { ok: true, at: ago(4) } }, { text: "The meeting panel docks under the HUD at 650px.", check: { kind: "manual" } }],
+    sources: [{ docId: "dc_keel_cp", buildingId: "bl_workshop", line: "Top the grant up; KR2 needs one more pass.", at: ago(25) }, { docId: "gr_hud", buildingId: "bl_workshop", line: "Held at its ceiling.", at: ago(25) }],
+    createdAt: ago(25), updatedAt: ago(4),
+  },
+  {
+    ...askBase, id: "ak_ocean", type: "money", targetKind: "grant", targetId: "gr_ocean", buildingId: "bl_carbon", sourceDocId: "gr_ocean", rank: 2,
+    title: "Carbon Cycle Lab asks for 4M tokens to settle the Southern Ocean sink gap",
+    body: "This is a new proposal. You have not decided on it before.\n\nMei's first run found the gap. Nothing is spent yet. It has three steps, and none is done yet.\n\nIf you fund: step 1 starts on the building queue.\nIf you reject: nothing runs, and the tokens stay free.",
+    branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation: "Moss recommends fund: the gap blocks the master article.",
+    claims: [{ text: "The gap is larger than the products' stated error.", check: { kind: "url", ref: "https://example.org/gap.json" }, result: { ok: false, at: ago(12), note: "the URL answered 404" } }],
+    sources: [{ docId: "gr_ocean", buildingId: "bl_carbon", line: "Proposed: settle the ocean-sink gap.", at: ago(35) }],
+    createdAt: ago(35), updatedAt: ago(12),
+  },
+  {
+    ...askBase, id: "ak_land", type: "money", targetKind: "grant", targetId: "gr_land", buildingId: "bl_carbon", sourceDocId: "gr_land", rank: 3, tags: [],
+    title: "Carbon Cycle Lab asks for 1.5M tokens for the land sink's 2025 drop",
+    body: "New proposal (gr_land); it asks 1.5M and attributes the drop, or it stops after three sessions, whichever comes first, and the write-up follows.\n\nIf you fund: step 1 starts.\nIf you reject: nothing runs.",
+    branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation: "",
+    claims: [{ text: "Key result: a note on the 2025 land-sink anomaly with its drivers", check: { kind: "kr", ref: "kr_bl_carbon_2" } }],
+    sources: [{ docId: "gr_land", buildingId: "bl_carbon", line: "Proposed: the land sink's 2025 drop.", at: ago(30) }],
+    history: [{ at: ago(30), action: "lint", by: "ag_moss", note: "warnings: no-ids: names gr_land\nno-semicolons" }],
+    createdAt: ago(30), updatedAt: ago(30),
+  },
+  {
+    ...askBase, id: "ak_weekly", type: "money", targetKind: "retainer", targetId: "sc_weekly", buildingId: "bl_carbon", sourceDocId: "sc_weekly", rank: 4,
+    title: "Approve the retainer for the emissions source cards",
+    body: "You have not decided on it before. Nothing is spent yet.\n\nIf you approve: the job runs every 6 hours to its end date.\nIf you reject: its runs stay held.",
+    branches: [{ label: "Approve", action: "approve" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation: "Moss recommends approve: the cards went stale twice last month.",
+    claims: [], sources: [{ docId: "sc_weekly", buildingId: "bl_carbon", line: "A retainer for the source cards.", at: ago(50) }], createdAt: ago(50), updatedAt: ago(50),
+  },
+  {
+    ...askBase, id: "ak_captain", type: "click", targetKind: "captain", targetId: "cr_octo", buildingId: null, sourceDocId: "cr_octo", rank: 5,
+    title: "Make @octocat captain of \"Trust\"",
+    body: "@octocat reviews finance pages for a living. The Trust goal has no captain below you.\n\nIf you accept: its items route to them.\nIf you decline: they can ask again.",
+    branches: [{ label: "Accept", action: "accept" }, { label: "Decline", action: "decline" }], recommendation: "",
+    claims: [], sources: [{ docId: "cr_octo", buildingId: null, line: "@octocat asks to captain \"Trust\"", at: ago(25) }, { docId: "dc_moss_rollup", buildingId: "bl_carbon", line: "Accept the captain ask so Trust items reach a reviewer.", at: ago(20) }],
+    createdAt: ago(25), updatedAt: ago(20),
+  },
+  {
+    ...askBase, id: "ak_access", type: "click", targetKind: "access", targetId: "ar_octo", buildingId: null, sourceDocId: "ar_octo",
+    title: "Let @octocat in", body: "I'd like to help with the onboarding copy",
+    branches: [{ label: "Let in", action: "grant" }, { label: "Decline", action: "decline" }], recommendation: "",
+    claims: [], sources: [{ docId: "ar_octo", buildingId: null, line: "@octocat asked to join", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
+  },
+  {
+    ...askBase, id: "ak_req", type: "click", targetKind: "request", targetId: "dc_req_ml", buildingId: "bl_carbon", sourceDocId: "dc_req_ml", rank: 6,
+    title: "Photograph a CO2 monitor reading near you",
+    body: "Noor has waited on this since this morning. Take a reading outdoors at noon and note the value in ppm.\n\nIf you claim: it is yours to do and report back.\nIf you decline: Noor drops the comparison.",
+    branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }], recommendation: "",
+    claims: [], sources: [{ docId: "dc_req_ml", buildingId: "bl_carbon", line: "Photograph a CO2 monitor reading near you", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
+  },
+  {
+    ...askBase, id: "ak_policy", type: "policy", targetKind: "rule", targetId: "dc_ledger", buildingId: "bl_townhall", sourceDocId: null, rank: 7,
+    title: "Add a rule to the ledger: re-check steps are size S",
+    body: "You said \"a re-check is never more than S\" in your last 1:1 with the Planner.\n\nThe rule: a step that only re-checks shipped work is size S. Managers then stop asking.\n\nIf you add it: every manager's prompt pins it.\nIf you skip: managers keep sizing re-checks themselves.",
+    branches: [{ label: "Add" }, { label: "Skip" }], recommendation: "The Secretary recommends add: three proposals sized a re-check M this week.",
+    claims: [], sources: [{ docId: "mt_planner", buildingId: "bl_townhall", line: "Your words in the 1:1", at: ago(70) }], createdAt: ago(70), updatedAt: ago(70),
+  },
+  {
+    ...askBase, id: "ak_meet", type: "meeting", targetKind: null, targetId: null, buildingId: "bl_workshop", sourceDocId: "dc_keel_cp", status: "deferred", deferredUntil: "the HUD grant is decided",
+    title: "Keel wants five minutes on the mobile layout",
+    body: "The one question: does the HUD fold into a drawer or a bar on phones?\n\nKeel recommends a bar. If you agree, reply Bar and no meeting is needed.",
+    branches: [{ label: "Bar" }, { label: "Drawer" }, { label: "Meet" }], recommendation: "Keel recommends a bar.",
+    claims: [], sources: [{ docId: "dc_keel_cp", buildingId: "bl_workshop", line: "A meeting on the mobile layout.", at: ago(24) }], createdAt: ago(24), updatedAt: ago(24),
+  },
+];
+
+/** The feed (§8): one notice of each kind, newest first. */
+export const notices: Notice[] = [
+  { id: "nt_slate", kind: "slate", buildingId: "bl_townhall", goalId: null, title: "The money slate", body: "Fund the HUD top-up now: one small step is left. Fund the ocean gap: it blocks the master article. Hold the land drop until the ocean work reports: they share a model run.", picture: null, refs: ["ak_hud", "ak_ocean", "ak_land"], createdAt: ago(10) },
+  { id: "nt_loop", kind: "closed-loop", buildingId: "bl_carbon", goalId: "gl_town", title: "The session-runner stress test closed", body: "You funded this at 1M. It closed at 450k and returned 550k. Ten desks finished a session in parallel with no lost reports.", picture: deckShot, refs: ["gr_stress"], createdAt: ago(15) },
+  { id: "nt_ship", kind: "shipped", buildingId: "bl_workshop", goalId: "gl_town", title: "The HUD folds below 700px", body: "Open the town at 650px wide: the HUD is one row.", picture: deckShot, refs: ["dc_keel_s1"], createdAt: ago(200) },
+  { id: "nt_kr", kind: "verified", buildingId: "bl_workshop", goalId: "gl_town", title: "Verified: the landing page links the tour", body: "Mitchell checked it live at 1280x800.", picture: null, refs: ["kr_bl_workshop_1"], createdAt: ago(290) },
+  { id: "nt_gate", kind: "gate", buildingId: "bl_workshop", goalId: "gl_town", title: "Tour step 1 landed on budget", body: "Spent 140k of an M step.", picture: null, refs: ["gr_tour"], createdAt: ago(310) },
+  { id: "nt_pattern", kind: "pattern", buildingId: "bl_townhall", goalId: null, title: "This week: three proposals sized a re-check M", body: "Carbon and the Workshop each sized a re-check step M. A policy ask proposes S.", picture: null, refs: ["ak_policy"], createdAt: ago(700) },
 ];

@@ -1,12 +1,12 @@
 /** Forks step 2 friction 1 (dc_6tsgcif8r1): a live fork of the manager inherits town.redeploy and the Town Hall board; nothing else. */
 import { describe, expect, it, vi } from "vitest";
 import { canPostTownBoard, createBuilding, createDoc, createResident, forkManager, retireFork, townRoleId, updateBuilding } from "../src/index.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, musterWorld } from "./helpers.ts";
 
 const TOWN_HALL_ID = "town-hall";
 
 function forkLab() {
-  const s = seededWorld();
+  const s = musterWorld();
   const { world, seed } = s;
   const b = createBuilding(world, { name: "Forky", headcount: 3, dailyTokensPerAgent: 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
   const pix = createResident(world, { buildingId: b.id, name: "Pix", sprite: 5 });

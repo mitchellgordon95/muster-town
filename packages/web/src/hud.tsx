@@ -1,17 +1,27 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
+import { goToQueue } from "./panels/DecisionQueue";
+import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { AccessRequestView, AgentStatus, AuthMe } from "@muster-town/schema";
 import { store, useTown, type PanelRef } from "./state";
 import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
-import { dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
+import { cacheMissAlert, dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
+import { decideJoin, letInGoal } from "./panels/letIn";
 import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
+import { firstManagerBuilding, youreInCanLine, youreInDue, youreInLine } from "./youreIn";
+import { canTalkToManager } from "./panels/oneOnOne";
+import { founderStep } from "./founder";
+import { notStarted, notStartedWhy, useWorkingCollective } from "./notStarted";
+import { WATCH_FIRST_EVENT } from "./panels/HowItWorks";
+import "./panels/hiw.css";
 
 /** The Workshop lives under /workshop/ beside the collectives homepage at /; served at / there is nothing above it. */
 const HOMEPAGE = import.meta.env.BASE_URL !== "/" ? "/" : null;
@@ -28,7 +38,14 @@ function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeI
 
 let guestCardCounted = false;
 
-/** An admin's pending join requests, refetched when the Town Hall in-tray count moves (an ask or a decision). */
+/**
+ * A guest's card on a phone (kr_c3c7651d18: the town is what a stranger sees): "compact" on landing (title, the goal on
+ * one line, who is working, Sign in), "strip" after Watch first (title and Sign in on one line), "full" behind "more ▾".
+ * Sign in is on the card in every view: it is the join funnel (gr_fibsfwr4tz).
+ */
+type GuestView = "compact" | "strip" | "full";
+
+/** An admin's pending join requests, refetched when the decision queue count moves (an ask or a decision). */
 function usePendingAccess(admin: boolean, townHallCount: number | undefined): { rows: AccessRequestView[]; reload: () => void } {
   const [rows, setRows] = useState<AccessRequestView[]>([]);
   const [n, setN] = useState(0);
@@ -49,14 +66,28 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   const conn = useTown((s) => s.conn);
   const me = useTown((s) => s.me);
   const events = useTown((s) => s.events);
+  const cacheAlerts = useTown((s) => s.cacheAlerts);
   const health = useTown((s) => s.health);
   const redeployLive = useTown((s) => s.redeployLive);
   const auth = useAuth();
   const access = usePendingAccess(!!me?.isAdmin, buildings.find((b) => b.kind === "town-hall")?.intray);
-  // a guest keeps the card open: it holds Sign in (it is already kept short on a phone, styles.css .hud.guest)
+  // a never-run collective (gr_a6512x0je1): the guest card says so and names one that is working instead
+  const neverRan = notStarted(health);
+  const working = useWorkingCollective(neverRan && (auth.guest || me?.canInteract === false));
+  // a guest keeps the card open: it holds Sign in (on a phone it is compact, then one line after Watch first: GuestView)
   // (null until toggled: sign-in state can settle after the first render)
   const [toggled, setCollapsed] = useState<boolean | null>(null);
-  const collapsed = toggled ?? (PHONE && !auth.guest);
+  const phoneGuest = PHONE && auth.guest;
+  const [guestView, setGuestView] = useState<GuestView>("compact");
+  useEffect(() => {
+    if (!phoneGuest) return;
+    const fold = () => setGuestView("strip");
+    addEventListener(WATCH_FIRST_EVENT, fold);
+    return () => removeEventListener(WATCH_FIRST_EVENT, fold);
+  }, [phoneGuest]);
+  // a phone guest's card never collapses away: its views (compact, strip, full) all keep Sign in
+  const collapsed = phoneGuest ? false : toggled ?? (PHONE && !auth.guest);
+  const view: GuestView | null = phoneGuest ? guestView : null;
   // the join funnel (gr_fibsfwr4tz step 3): count the guest card once per page load, the first time it is on screen
   const cardShown = !!town && !collapsed && (auth.guest || me?.canInteract === false);
   useEffect(() => { if (cardShown && !guestCardCounted) { guestCardCounted = true; api().countGuestCardView().catch(() => {}); } }, [cardShown]);
@@ -71,11 +102,31 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     const out: Notice[] = [];
     // a redeploy in flight (or just finished): everyone sees it, so nobody is surprised by the restart
     // a hosted collective without an API key of its own: its agents are held (docs/hosted-collectives.md, own-key block)
-    if (health?.funding === "none") {
+    // its admin (the founder) sees it as the one next step: the first building is already there, only the key is missing
+    // a guest (signed out, or not let in) can't act on it: their guest card already says "hasn't started" (as_g2nyuydifs)
+    if (health?.funding === "none" && !auth.guest && me?.canInteract !== false) {
       out.push({
         key: "no-key", icon: "bank", tone: "warn", cta: "Bank →",
-        text: <><b>No key yet</b>: add your Anthropic API key at the Bank</>,
+        text: me?.isAdmin
+          ? <><b>Add your API key to start</b>: your agents wait until the Bank has one</>
+          : <><b>No key yet</b>: agents wait until an admin adds an Anthropic API key at the Bank</>,
         go: () => walkOrOpen("bank", { kind: "bank" }),
+      });
+    }
+    // the founder after the key (gr_ngg1z160a8 step 3): their agents are exploring, then their first proposal waits; gone once funded
+    const step = founderStep(health, !!me?.isAdmin, events);
+    if (step?.kind === "exploring") {
+      const who = step.agentId;
+      out.push({
+        key: "founder-exploring", icon: "planning", tone: "ok", cta: who ? "Watch →" : "",
+        text: <><b>Your agents are exploring</b> {town?.goal} (started {timeAgo(step.since)})</>,
+        go: () => { if (who) { mapRenderer()?.teleportTo(who); store.open({ kind: "agent", id: who }); } },
+      });
+    } else if (step?.kind === "proposal") {
+      out.push({
+        key: "founder-proposal", icon: "intray", tone: "warn", cta: "Fund or reject →",
+        text: <><b>Your first proposal is waiting</b>{step.count > 1 ? ` (${step.count} open)` : ""}</>,
+        go: goToQueue,
       });
     }
     // docker down (OrbStack stopped): code desks can't start, so workshop sessions are paused until it's back
@@ -105,6 +156,15 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         go: () => walkOrOpen("bank", { kind: "bank" }),
       });
     }
+    // too many of a purpose's sessions re-wrote their prompt prefix turn after turn today (gr_lwgus14rd2 step 2)
+    const cm = cacheMissAlert(events, Date.now(), cacheAlerts);
+    if (cm) {
+      out.push({
+        key: `cache-miss:${cm.id}`, icon: "planning", tone: "warn", cta: "Bank →",
+        text: <><b>Cache alert</b>: {cm.text.replace(/^Cache miss: /, "")}</>,
+        go: () => walkOrOpen("bank:spending", { kind: "bank", tab: "Spending" }),
+      });
+    }
     // checked against the runtime's live view: a run killed by a restart shows as interrupted, not waiting forever
     const rd = effectiveRedeploy(events, redeployLive);
     if (rd) {
@@ -116,32 +176,34 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       });
     }
     // someone asked to join (gr_fibsfwr4tz step 2): one line each for an admin, so a request never waits unseen behind the badge
+    const goal = access.rows.length ? letInGoal() : null;
     for (const r of access.rows) {
       const who = r.githubLogin ? `@${r.githubLogin}` : r.name;
-      const decide = async (grant: boolean) => {
-        await api().decideAccess(r.id, grant);
-        store.toast(grant ? `${who} is in: they can now talk, message agents and write.` : `Declined ${who}. They can ask again tomorrow.`, "ok");
-        access.reload();
-      };
+      const decide = (grant: boolean, g?: typeof goal) => async () => { await decideJoin(r, grant, g); access.reload(); };
       out.push({
         key: `access:${r.id}`, icon: "intray", tone: "warn", cta: "",
         text: <><b>{who}</b> asked to join ({timeAgo(r.createdAt)})</>, hint: r.message ? `"${r.message}"` : undefined,
-        go: () => walkOrOpen("intray:town-hall", { kind: "intray", id: "town-hall" }),
-        actions: [{ label: "Let in", primary: true, run: () => decide(true) }, { label: "Decline", run: () => decide(false) }],
+        go: goToQueue,
+        actions: [
+          { label: "Let in", primary: true, run: decide(true) },
+          ...(goal ? [{ label: `Let in + direct work under ${goal.short}`, run: decide(true, goal) }] : []),
+          { label: "Decline", run: decide(false) },
+        ],
       });
     }
-    // in-trays I work: buildings without a manager agent, and the Town Hall (rollups, proposals, checkpoints).
+    // in-trays I work: buildings without a manager agent, and the Town Hall's decision queue (at the hydrant).
     // A building whose manager agent works its in-tray doesn't notify humans (town hall 2026-10-24, decision 1d).
     for (const b of buildings) {
       if (!b.intray || !store.can("building.review", b.id)) continue;
       const manager = b.managerAgentId ? agents[b.managerAgentId] : undefined;
-      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && manager.status !== "banned" && manager.status !== "retired") continue;
+      if (b.kind !== "town-hall" && manager && manager.status !== "stopped" && !isGone(manager)) continue;
+      if (b.kind === "town-hall" && step?.kind === "proposal" && b.intray <= step.count) continue;
       out.push({
         key: `intray:${b.id}`, icon: "intray", tone: "warn", cta: "Go →",
         text: b.kind === "town-hall"
-          ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the Town Hall in-tray (rollups, proposals, checkpoints)</>
+          ? <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the decision queue</>
           : <><b>{b.intray}</b> item{b.intray === 1 ? "" : "s"} in the {b.name} in-tray (reports, flags)</>,
-        go: () => walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
+        go: () => b.kind === "town-hall" ? goToQueue() : walkOrOpen(`intray:${b.id}`, { kind: "intray", id: b.id }),
       });
     }
     // meetings happening now
@@ -149,7 +211,7 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
       if (m.phase !== "collecting" && m.phase !== "discussing") continue;
       if (m.kind === "one-on-one") {
         // only the human in it sees their open 1:1
-        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>★ {agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
+        if (m.withUserId && m.withUserId === me?.user.id) out.push({ key: `meeting:${m.id}`, icon: "meeting", tone: "meet", cta: "Open →", text: <>Your 1:1 with <b>{buildings.find((b) => b.id === m.buildingId)?.kind === "town-hall" ? "" : "★ "}{agents[m.facilitatorId ?? ""]?.name ?? "the manager"}</b> is open</>, go: () => store.open({ kind: "meeting", id: m.id }) });
         continue;
       }
       const where = m.buildingId ? buildings.find((b) => b.id === m.buildingId)?.name ?? "" : "Town Hall";
@@ -161,22 +223,26 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
     }
     return out;
     // `me` changes permissions
-  }, [buildings, meetings, me, events, agents, health, redeployLive, access]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [buildings, meetings, me, events, cacheAlerts, agents, health, redeployLive, access, town, auth.guest]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!town) return null;
   return (
-    <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""}`}>
+    <div className={`hud ${collapsed ? "collapsed" : ""} ${auth.guest ? "guest" : ""} ${view ? `g-${view}` : ""}`}>
       <div className="hud-top">
         <div>
-          {HOMEPAGE ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
+          {HOMEPAGE && view !== "strip" && view !== "compact" ? <a className="hud-town" href={HOMEPAGE} title="All collectives">Muster Town</a> : null}
           <h1>{town.name}</h1>
         </div>
+        {view === "strip" ? <SignInButtons onPasteToken={onPasteToken} compact /> : null}
         {collapsed && notices.length ? <span className="notice-dot" title={`${notices.length} notice${notices.length === 1 ? "" : "s"}`}>{notices.length}</span> : null}
         <button className="icon-btn dash-btn" onClick={() => store.open({ kind: "bank" })} title="The Bank: tokens received, used and left, where they came from and went, and hosting in dollars" aria-label="The Bank">$</button>
         {onHelp ? <button className="icon-btn help-btn" onClick={onHelp} title="Operating manual" aria-label="Operating manual">?</button> : null}
         <span className={`conn ${conn}`} title={`Server: ${conn}${isMock ? " (mock)" : ""}`} />
-        <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>
+        {view
+          ? <button className="icon-btn" onClick={() => setGuestView(view === "strip" ? "compact" : "strip")} title={view === "strip" ? "Expand" : "Fold to one line"} aria-label={view === "strip" ? "Expand" : "Fold to one line"}>{view === "strip" ? "▾" : "▴"}</button>
+          : <button className="icon-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? "Expand" : "Collapse"}>{collapsed ? "▾" : "▴"}</button>}
       </div>
-      {collapsed ? null : (
+      {!auth.guest && me ? <YoureIn me={me} collective={town.name} /> : null}
+      {collapsed || view === "strip" ? null : (
         <>
           <div className="goal" title={town.goalNote}><span>Goal</span>{town.goal}</div>
           {auth.guest || me?.canInteract === false ? (
@@ -184,10 +250,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
               <div className="hud-label">Who is here now</div>
               <div className="here-line">
                 {here.working.length ? <><b>{here.working.length} AI agent{here.working.length === 1 ? "" : "s"}</b> working</> : <>No AI agent working right now</>}
-                {here.resting ? <> · {here.resting} resting</> : null}
-                {here.humans ? <> · <b>{here.humans} human{here.humans === 1 ? "" : "s"}</b> around</> : null}
+                {here.resting && view !== "compact" ? <> · {here.resting} resting</> : null}
+                {here.humans && view !== "compact" ? <> · <b>{here.humans} human{here.humans === 1 ? "" : "s"}</b> around</> : null}
+                {view ? <button className="link guest-more" onClick={() => setGuestView(view === "full" ? "compact" : "full")} aria-expanded={view === "full"}>{view === "full" ? "less ▴" : "more ▾"}</button> : null}
               </div>
-              {here.working.length ? (
+              {here.working.length && view !== "compact" ? (
                 <div className="here-list">
                   {here.working.slice(0, 3).map((a) => (
                     <button key={a.id} className="here-row" title={a.activity || `What ${a.name} is doing`} onClick={() => { mapRenderer()?.teleportTo(a.id); store.open({ kind: "agent", id: a.id }); }}>
@@ -198,7 +265,9 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>
+                {view === "compact" ? null : neverRan
+                  ? <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>
+                  : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
                 <SignInButtons onPasteToken={onPasteToken} compact />
               </> : <AskToJoin me={me} />}
             </div>
@@ -235,12 +304,41 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
   );
 }
 
+function localStore(): Storage | null { try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; } }
+
+/**
+ * The one-time "You're in" card (gr_58n37j410s step 2): shown on the first visit after an admin let this person in,
+ * whether that happened while they were away or live (the decision refetches `me`). Two first steps; × hides it for
+ * good in this browser (youreIn.ts). It shows even on a collapsed HUD: a phone starts collapsed for members.
+ */
+function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
+  const buildings = useTown((s) => s.buildings);
+  const agents = useTown((s) => s.agents);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const key = youreInDue(me, localStore());
+  if (!key || dismissed === key) return null;
+  const home = firstManagerBuilding(buildings, canTalkToManager);
+  const manager = home?.managerAgentId ? agents[home.managerAgentId] : undefined;
+  const dismiss = () => { try { localStore()?.setItem(key, new Date().toISOString()); } catch { /* private mode: hidden for this page only */ } setDismissed(key); };
+  return (
+    <div className="paper youre-in" role="status">
+      <button className="youre-in-x" onClick={dismiss} title="Dismiss" aria-label="Dismiss">×</button>
+      <h2>You're in</h2>
+      <p>{youreInLine(me, collective)} {youreInCanLine(!!manager)}</p>
+      <div className="youre-in-steps">
+        {manager ? <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
+        <button className={`btn${manager ? "" : " primary"}`} onClick={() => store.open({ kind: "connect" })}>Connect your agent</button>
+      </div>
+    </div>
+  );
+}
+
 /** A day after a decline, the button comes back (core ASK_AGAIN_MS). */
 const ASK_AGAIN_MS = 24 * 3600_000;
 
 /**
  * Signed in but not let in yet (dc_f0cumcfubk): the guest card's one next step is Ask to join, with an optional line
- * on what they'd like to do. An admin decides in the Town Hall in-tray; the answer shows here as soon as it lands (the
+ * on what they'd like to do. An admin decides in the decision queue; the answer shows here as soon as it lands (the
  * decision event refetches `me`, app.tsx onAccessDecided).
  */
 function AskToJoin({ me }: { me: AuthMe }) {
@@ -306,13 +404,16 @@ export function SayBox({ inputRef, onSend, onCancel }: { inputRef: RefObject<HTM
   );
 }
 
+/** Portalled to <body>: .app is position:fixed (its own stacking context), so a z-index inside it can never
+ *  beat the centred sheets, which portal to <body> too (flag dc_2ya4gawacy; PR #385's z-index alone did not show live). */
 export function Toasts() {
   const toasts = useTown((s) => s.toasts);
-  return (
+  return createPortal(
     <div className="toasts">
       {toasts.map((t) => (
         <div key={t.id} className={`toast ${t.tone} ${t.panel ? "clickable" : ""}`} onClick={() => t.panel && store.open(t.panel)}>{t.text}</div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,5 +1,5 @@
 import { townRoleId, World } from "@muster-town/core";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,6 +51,11 @@ describe("the hub", () => {
     expect(funnel.collectives.map((c: { slug: string }) => c.slug)).toEqual(["workshop", "demo"]);
     expect(funnel.collectives[1].totals.guestCardViews).toBe(1);
     expect((await json(app, "GET", "/demo/api/join-funnel")).body.collectives.map((c: { slug: string }) => c.slug)).toEqual(["demo"]);
+    // engagement (flag dc_r7u6bkaei4): each collective answers for itself only, public, counts only
+    const own = (await json(app, "GET", "/demo/api/engagement"));
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ days: 30, totals: { humans: 0, spoke: 0, flags: 0, asked: 0 }, daily: [] });
+    expect((await json(app, "GET", "/api/engagement")).body.totals).toHaveProperty("decisions");
 
     // tokens are per World: the Workshop admin's token means nothing at /demo
     expect((await json(app, "GET", "/api/me", { headers: admin })).status).toBe(200);
@@ -59,6 +64,11 @@ describe("the hub", () => {
     // the homepage list comes from the hub: Workshop first, then demo; the placeholder only while none exists
     const list = (await json(app, "GET", "/api/collectives")).body.collectives;
     expect(list.map((c: { slug: string; url: string }) => [c.slug, c.url])).toEqual([["workshop", "/workshop/"], ["demo", "/demo/"]]);
+    // gr_a6512x0je1: a fresh hosted collective has never run a session: started false on the list and on its own health
+    expect(list.map((c: { started?: boolean }) => c.started)).toEqual([true, false]);
+    expect((await json(app, "GET", "/demo/api/health")).body.started).toBe(false);
+    expect((await json(app, "GET", "/demo/api/town")).body.health.started).toBe(false);
+    expect((await json(app, "GET", "/api/health")).body.started).toBeUndefined();
     expect((await app.inject("/")).body).toContain('data-preview="/demo/api/town"');
   });
 
@@ -127,5 +137,26 @@ describe("the hub", () => {
     const again = await setup(first.dir);
     expect(again.hub.count).toBe(1);
     expect((await json(again.app, "GET", "/demo/api/town")).body.town.name).toBe("Demo Collective");
+    // the first building is made once, not again on every boot
+    expect(again.hub.world("demo")!.buildings.where("kind = 'lab'")).toHaveLength(1);
+  });
+
+  it("a collective started before the first-building seed gets its building when it is next opened", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hub-"));
+    // as Hollyville: hub row, collective.json and a World seeded with the Town Hall only
+    const old: Hub = new Hub(dir, mountIn(() => old));
+    old.db.prepare("INSERT INTO collectives (slug, name, tagline, goal, ownerGithubId, createdAt, state) VALUES ('holly', 'Holly', '', 'Make money', NULL, ?, 'active')").run(new Date().toISOString());
+    mkdirSync(join(dir, "holly", "data"), { recursive: true });
+    writeFileSync(join(dir, "holly", "collective.json"), JSON.stringify({ name: "Holly", goal: "Make money", buildings: [] }));
+    const w = World.open(join(dir, "holly", "data", "town.db"));
+    w.seedDefaults({ adminName: "admin", collectivePath: join(dir, "holly", "collective.json") });
+    expect(w.buildings.where("kind != 'town-hall'")).toHaveLength(0);
+    w.close();
+    old.db.close();
+    const { app } = await setup(dir);
+    const town = (await json(app, "GET", "/holly/api/town")).body;
+    const lab = town.buildings.find((b: { kind: string }) => b.kind === "lab");
+    expect(lab).toMatchObject({ name: "Workshop", goalId: "gl_town" });
+    expect(town.agents.find((a: { id: string }) => a.id === lab.managerAgentId)).toMatchObject({ kind: "resident", homeBuildingId: lab.id });
   });
 });

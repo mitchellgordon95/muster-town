@@ -17,7 +17,7 @@ function setup() {
   const tree = world.goalTree;
   const goal = tree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
   tree.attach(admin, LAB, goal.id);
-  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
   const kr = world.keyResults.require(g.keyResultId!);
   world.grantDesk.propose(null, g.id);
   world.grantDesk.decide(admin, g.id, { action: "fund" });
@@ -87,7 +87,7 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
   it("proposals carry reorgId; under-review key results are kept, moved or archived by a human", async () => {
     const { world, admin, mei, goal, kr, tree } = setup();
     const other = createBuilding(world, { name: "Other", goalId: goal.id }, null);
-    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: goal.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: goal.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
     const k2 = krOf(other.id, "k2");
     const k3 = krOf(LAB, "k3");
     const c = world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });
@@ -130,7 +130,7 @@ describe("Plan with an agent (docs/goals.md, step 5)", () => {
     // only the Planner at the Town Hall; members without goals.edit can't plan
     // the Town Hall's 1:1 is the Planner's (its manager): the same one; no other Town Hall agent takes one
     expect(world.ops.openOneOnOne(admin, "town-hall").id).toBe(m.id);
-    expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("kind = 'service'")!.id })).toThrow();
+    expect(() => world.ops.openOneOnOne(admin, "town-hall", { agentId: world.agents.first("name = 'Mei'")!.id })).toThrow();
     const stranger = world.ops.ensureAvatar(createUser(world, "Stranger").user.id);
     expect(() => world.reorgs.openPlanner(stranger, goal.id)).toThrow(/Only an admin or a goal's captain/);
     const p = await world.verbs.propose_goal(planner, { action: "add-goal", parentId: goal.id, text: "Sub-goal", why: "drafted with the human" });

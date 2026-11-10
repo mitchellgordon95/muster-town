@@ -3,6 +3,8 @@
 Design note, 2026-10-26 (Keel, as_czxid3dp46; asked by Mitchell in 1:1 mt_pwcpdkmdyc). §4 is the build order; steps 1, 2, 3 and 5 are built (step 4, the Waker refactor, is in progress).
 Code references are to main at 6988a43.
 
+**Since work routing (1:1 mt_lsyqj98z0w, 2026-11-08; design note dc_vxsq9g008a):** work goes to a building, never to a forking manager as a worker. A job that names a forking manager goes on its building queue and a fork runs it (`createAssignment`); a forking manager never runs a work session (the runtime's residents loop skips `isForkingManager`). What it must decide (a human-origin `tell` or @mention, an outbox answer, a grant countered or rejected) is a pending row in its building's in-tray (`intrayRow`, core/src/wakes.ts), read in its team-lead session (T). The Q wakes below that queue an assignment for an idle resident apply to everyone else: a manager with no forks (the Town Hall's Secretary) and non-manager residents.
+
 A **wake** is anything that makes an idle agent spend tokens: it starts a session, or it pushes new input into a session
 that is already running. Today there are four kinds of wake, each wired separately:
 
@@ -21,7 +23,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 
 | Event | Who should wake | Wired today | Gap |
 |---|---|---|---|
-| `assign` (manager, reviewer, human) | assignee | Q (verbs/docs.ts:304 also sends an inbox line) | — |
+| `assign` (manager, human) | assignee | Q (verbs/docs.ts:304 also sends an inbox line) | — |
 | Flag, continued or redirected | assignee | Q (domain.ts:230); the flag itself wakes the manager through T | — |
 | Report decided: continue or redirect | author / assignee | Q | — |
 | Report decided: approve | nobody | — | — |
@@ -29,20 +31,20 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | 1:1 opened, human speaks, 1:1 closed | manager | T (index.ts:261) | — |
 | Meeting created or started (invite) | attendees | M: one summary session each; an inbox `meeting` line | — |
 | @mention in a meeting, by the facilitator or a human | the mentioned attendee | M (reply session, capped) | — |
-| @mention in a doc, `say` or `tell` | mentioned agent | inbox only without a human origin; with one, step 5 rule `mention` queues a directed assignment for an idle resident | — |
-| `tell`, agent → agent | recipient | inbox only without a human origin (the sender gets `idleNote`); with one, step 2 `relayWake` | — |
+| @mention in a doc, `say` or `tell` | mentioned agent | inbox only without a human origin; with one, step 5 rule `mention`: a forking manager → T, a pending in-tray row (`intrayRow`, rule `mention`); another idle resident → Q, a directed assignment | — |
+| `tell`, agent → agent | recipient | inbox only without a human origin (the sender gets `idleNote`); with one, step 2 `relayWake`: a forking manager → T, a pending in-tray row per tell (rule `relay`; the reply carries `intrayRowId`); another idle resident → Q | — |
 | Human message to a resident (removed: 1:1 mt_wql34b8gkl; humans use 1:1s) | resident | I if it is working; else Q (a "Message from X" assignment at the front of the queue) | Refused for residents of a building with a manager (ops.ts:400), on purpose: the manager is the building's conversational surface. Visitors get it queued |
-| `grant.funded` by **fund** | manager | Q: a front-of-queue grant-lane assignment "Grant X funded: assign its first step or take it yourself" with the plan (`Grants.decisionAssignment`, 2026-10-26) | — |
+| `grant.funded` by **fund** | building queue | Q: the grant's step 1 on the building queue, lane grant (`Grants.queueStep`, grant B gr_b5fyqibfx2); each step's non-pivot report queues the next. No manager session | — |
 | `grant.funded` by continue or adjust | manager; held grant work | T: a town-written in-tray row "Grant X continued/adjusted: N tokens" (`managerIntrayRow`, core/src/wakes.ts); held grant-lane work is released by the lane gate on the next tick | — |
-| `grant.countered`, `grant.rejected` | manager | Q: a directed assignment ("Answer the counter on X" with the note / "Grant X rejected: read the note"), plus the inbox `system` line (`notifyManager`) | — |
+| `grant.countered`, `grant.rejected` | manager | T: a pending in-tray row ("Answer the counter on X" with the note and how to answer / "Grant X rejected: read the note"; `intrayRow`, work routing step 2), plus the inbox `system` line (`notifyManager`) | — |
 | cut, or a human closes a grant | manager | T: a town-written in-tray row "Grant X cut" (`managerIntrayRow`), plus the inbox `system` line (`notifyManager`) | — |
-| `grant.checkpoint` (100% spent) | manager | Q: a front-of-queue "Write the checkpoint" assignment | — |
+| `grant.checkpoint` (hold point reached) | nobody (grant C gr_95svkzi4l6: no assignment; the card assembles itself) | — | — |
 | `kr.created` / `kr.updated` / `kr.deleted` by a human | manager | T: a town-written in-tray row "Key result X written/edited/marked S/moved/removed by Mitchell" (`managerIntrayRow`; a goal-tree move says moved, not "marked" with the unchanged status); `syncBlocked` as before. The manager's own KR writes and status marks write none; re-marking the current status with no new note is a no-op (no event) | — |
-| Lab becomes blocked (no KRs, no funded grant) | manager | Q: a "Get human decisions" assignment (grants.ts:110) | — |
+| Lab becomes blocked (no funded grant) | nobody | nothing: `Grants.blocked` returns null (goals keep no key results), and the old "Get human decisions" assignment is gone | — |
 | `waitFor` met (deploy, assignment, decision, pr, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. A `{pr: N}` wait holds until the PR's CI finished (passed or failed) or the PR is merged or closed; a PR that conflicts with its base gets no CI run, so it reads as failed ("merge conflict: CI did not run"): the runtime reads it from GitHub about once a minute (runtime `pr-checks.ts`), so a fork waiting on CI parks on `{pr}`, never on an `{after}` guess (Mitchell, 1:1 mt_3jtclcoxl2). An assignment wait follows the awaited work's park continuations (`chainTip`): a parked report does not release it, only the chain ending done or cancelled. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |
 | Exploration allowance reset (UTC midnight) / daily budget reset | held agents | Q: `laneHold` is re-evaluated on every tick; `resetDaily` and `resumeEligible` set agents back to idle | Nothing is announced, but the work resumes |
-| A human answers `request_human` | requester | step 5 rule `request-answer`: an interrupt if the requester is working, else a pending directed assignment | — |
+| A human answers `request_human` | requester | step 5 rule `request-answer`: a forking manager → T, a pending in-tray row; a retired fork → Q, a directed job on its building queue, chained to the work that asked; else an interrupt if the requester is working, else a pending directed assignment | — |
 | Agent stopped or banned | that agent | `abortWork` (a negative wake) | — |
 
 Two things are missing, and they have the same cause: **an event that a human started does not reach the agent who has
@@ -82,7 +84,9 @@ now (`canStart`, `ManageGate`).
 Assignment and Session. It is stamped and passed on by the town, never claimed by an agent:
 
 1. **Stamped** when a human acts: a human's message, a 1:1 utterance, a decision in a meeting where a human spoke, a
-   human's `assign` / flag / review.
+   human's `assign` / flag / review, and directed work an agent queues citing a human source (`sourceId`: a meeting
+   with a human, a human's tell, a human-written doc, notes of a meeting with a human), stamped at the source's own
+   time so the 24 h cap below still counts from when the human acted.
 2. **Inherited by sessions**: a work session takes its assignment's `origin`. A manage session fed by a 1:1 takes the
    origin of the human's latest line.
 3. **Passed on** by `tell`, `assign` and @mentions: the town copies the acting session's origin with `hops + 1`, so a relay
@@ -131,7 +135,11 @@ become a rule later if it is touched anyway.
    messages, assignments and sessions (JSON columns). Stamped (hops 0): a human's tell (a human's
    avatar's `tell`, via the message id), an assignment a human creates (`createdBy` a user: assign, review, decisions;
    via its meeting or report), work from a human-written doc (a flag; via the doc), a decision in a meeting a human took
-   part in (via the meeting: the 1:1's human, else the last human who spoke). A session takes its assignment's origin,
+   part in (via the meeting: the 1:1's human, else the last human who spoke), and, when none of those applies, a
+   directed assignment's cited human source (`sourceOrigin`, core/src/origin.ts; added 2026-11-08 so a directed fork's
+   tells and @mentions can wake: a meeting → its human at their latest line; a tell → its stamped origin; a human doc →
+   its author at its createdAt; meeting notes → the meeting's). `at` is the source's time, not the queueing time, and
+   the 24 h / 3-hop caps are checked when a tell or @mention is relayed (`relayWake`, `mentionWake`). A session takes its assignment's origin,
    else its meeting's (a 1:1 manage session, a mention reply). `tell`, `assign` and @mentions copy the acting
    session's origin (the agent's latest running session) with `hops + 1`; a continuation inherits the assignment it
    continues. Shown in `agent.told`, `assignment.created`, `session.started` and `agent.mentioned` payloads and in the
@@ -142,10 +150,14 @@ become a rule later if it is touched anyway.
    queue (sourceId = `origin.via`, origin copied). Later tells for the same human and path merge into it while it is
    pending. The description carries `wake:relay:<eventId>:<agentId>`, so a replay is a no-op. A busy recipient, a tell
    with no origin, or one past the caps stays inbox only (`idleNote`). `canStart` stays the gate. No migration. A
-   human's REST tell (the removed `messageAgent`, hop 0) used to do this. Tests: core test/wakes-relay.test.ts.
+   human's REST tell (the removed `messageAgent`, hop 0) used to do this. Since work routing step 2 (2026-11-08), a
+   tell to a forking manager is a pending in-tray row instead (`intrayRow`, rule `relay`, one per tell, whatever its
+   status), never an assignment. Tests: core test/wakes-relay.test.ts.
 3. **Manager wakes on grant and KR events** — done 2026-10-26. Grant decisions as assignments (Mitchell's ask, 1:1
    mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
-   reject → directed). The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
+   reject → directed). Superseded: fund now queues the grant's step 1 on the building queue (`Grants.queueStep`), and
+   since work routing step 2 counter / reject write a pending in-tray row (`intrayRow`, rules `grant-countered` /
+   `grant-rejected`), not an assignment. The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
    `kr.deleted`) write one town-authored in-tray row (`managerIntrayRow`, core/src/wakes.ts; author `system`, shown as
    Town; tag `wake:manager-intray:<eventId>:<buildingId>` so a replay writes nothing), now the Waker's
    `manager-intray-row` rule (step 4); the row's `doc.created` wakes the manager through T like a resident's report, and it acknowledges it with
@@ -181,6 +193,9 @@ become a rule later if it is touched anyway.
      "Mentioned by <author> [for <human>]: …" at the front; repeats for the same human and path merge into it. No
      origin, past the caps, a busy target, or a mention inside a live meeting the target attends (M covers it) stay
      inbox only.
+   Since work routing step 2 (2026-11-08), `request-answer` and `mention` to a forking manager write a pending in-tray
+   row (`intrayRow`) instead of an interrupt or an assignment, and a retired fork's outbox answer is a directed job on
+   its building queue, on the chain of the work that asked.
    Not done: the per-agent subscription table (no use for it yet). The one remaining "gap" in §1, a human messaging a
    resident of a managed building, is refused on purpose.
 

@@ -10,6 +10,11 @@ import { store, useTown } from "../state";
 import { SignInNote } from "../auth/auth";
 import { ADJ, ADJ_HINT, Act, Empty, Field, Loading, MTokensInput, Pill, Section, breakdownTitle, fmtTokens, fromMillions, timeAgo, useLoad } from "./ui";
 
+/** Whether this is a hosted collective (served at /<slug>/; its health says its funding): it runs on API keys only, never a subscription or a plan. */
+export function useHosted(): boolean {
+  return useTown((s) => s.health?.funding) != null || !!API_BASE;
+}
+
 interface Props { bank: Bank; onChange: () => void }
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -132,7 +137,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
   const [model, setModel] = useState("claude-opus-5-5");
   // a hosted collective (served at /<slug>/; its health says its funding) runs on API keys only: no subscription source
   // anywhere in this form (Anthropic's subscription terms; the API refuses one too). The Workshop and self-hosted towns keep it.
-  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
+  const hosted = useHosted();
   const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
   const [goalId, setGoalId] = useState("");
   const streams = useLoad(() => api().bankStreams(), []);
@@ -178,7 +183,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
     <Section title="Donate">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <div className="row2">
-          <Field label="To" hint={bank ? "Shared by every building: the one balance they all draw on." : `Held by ${building?.name ?? "this building"} alone.`}>
+          <Field label="To" hint={bank ? (sub ? "Shared by every building. Subscription tokens expire at each daily renewal; buildings spend them first." : "Shared by every building: credited to the one balance they all draw on.") : `Held by ${building?.name ?? "this building"} alone. ${AUTH_HINT[auth]}`}>
             <select value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="bank">The Bank (every building)</option>
               {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -249,7 +254,6 @@ export function Donate({ onChange }: { onChange: () => void }) {
         ) : null}
         {needsKey && !sub ? <KeyLimitNote /> : null}
         {warning ? <div className="foot-note warn" role="status">⚠ {warning}</div> : null}
-        <div className="foot-note">{bank ? (sub ? "Subscription tokens expire at each daily renewal; buildings spend them first." : "Credited to the Bank's balance; every building draws on it.") : AUTH_HINT[auth]}</div>
         <div className="actions"><Act tone="primary" disabled={!ready} run={submit}>{bank ? "Donate to the Bank" : `Fund ${building?.name ?? "building"}`}</Act></div>
       </form>
     </Section>
@@ -260,10 +264,11 @@ export function Donate({ onChange }: { onChange: () => void }) {
  * One building's allocations: how each is paid for, allocated / spent / left; an admin can retire one. Adding one is
  * the Donate form above with the building picked under "To"; `rev` bumps when it donates, so the rows refetch.
  */
-export function BuildingFunding({ rev }: { rev: number }) {
+export function BuildingFunding({ rev, buildingId: fixed }: { rev: number; buildingId?: string }) {
   const me = useTown((s) => s.me);
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
-  const [buildingId, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const [picked, setBuildingId] = useState(buildings[0]?.id ?? "");
+  const buildingId = fixed ?? picked;
   const [showRetired, setShowRetired] = useState(false);
   const rows = useLoad(() => (buildingId ? api().allocations(buildingId) : Promise.resolve([])), [buildingId, rev]);
   const admin = !!me?.isAdmin;
@@ -274,7 +279,7 @@ export function BuildingFunding({ rev }: { rev: number }) {
   const shown = showRetired ? all : live;
   const left = live.reduce((s, a) => s + a.remainingTokens, 0);
   return (
-    <Section title="Building funding" right={
+    <Section title="Building funding" right={fixed ? undefined :
       <select className="funding-building" value={buildingId} onChange={(e) => setBuildingId(e.target.value)} aria-label="Building">
         {buildings.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
       </select>
@@ -316,25 +321,43 @@ export function BuildingFunding({ rev }: { rev: number }) {
   );
 }
 
-/** What funds the town. The owner of an input, or an admin, can cancel it (past credits stay in the Bank). */
-export function BankInputs({ bank, onChange }: Props) {
-  const me = useTown((s) => s.me);
-  const inputs = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
+/**
+ * "Funding the town now" (gr_567tikzitl step 2, kr_00lym2zmif): under the Donate form, what pays for the town today: every
+ * active Bank input (what it can still pay and when a session last drew on it) and the tokens donated straight to buildings.
+ * Cancelled inputs and the dated credits are on the Inputs tab.
+ */
+export function FundingNow({ bank, rev }: { bank: Bank | null; rev?: number }) {
+  const streams = useLoad(() => api().bankStreams(), [rev]);
+  if (!bank) return <Section title="Funding the town now"><Loading /></Section>;
+  const byInput = new Map((streams.data?.streams ?? []).map((x) => [x.inputId, x]));
+  const inputs = bank.inputs.filter((i) => !i.cancelledAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const held = bank.buildings.filter((b) => b.heldTokens > 0).sort((a, b) => b.heldTokens - a.heldTokens);
   return (
-    <Section title="Bank inputs" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
-      {!inputs.length ? <Empty>No inputs yet.</Empty> : (
-        <table className="table">
-          <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>{ADJ}</th><th>Credited</th><th /></tr></thead>
+    <Section title="Funding the town now" right={bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}>
+      {!inputs.length && !held.length ? <Empty>Nothing funds the town yet. Be the first.</Empty> : (
+        <table className="table funding-now">
+          <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>Size</th><th title="What it can still pay, in adjusted tokens">Left</th><th>Last draw</th></tr></thead>
           <tbody>
-            {inputs.map((i) => (
-              <tr key={i.id} className={i.cancelledAt ? "muted" : undefined}>
-                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}</td>
-                <td>{i.userName}</td>
-                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div className="muted">{creditsLeftLine(i)}</div> : null}</td>
-                <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
-                <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
-                  ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>
-                  : null}</td>
+            {inputs.map((i) => {
+              const x = byInput.get(i.id);
+              const left = x?.balance ?? i.balanceTokens;
+              return (
+                <tr key={i.id}>
+                  <td>{i.label} <Pill tone={i.source === "subscription" ? "ok" : "warn"}>{i.source === "subscription" ? "subscription" : "API key"}</Pill></td>
+                  <td>{i.userName}</td>
+                  <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}</td>
+                  <td>{left === undefined ? "–" : fmtTokens(left)}</td>
+                  <td>{x?.goalId ? (x.lastDrawAt ? timeAgo(x.lastDrawAt) : "never") : <span title="General draws are pooled, not named per input">pooled</span>}</td>
+                </tr>
+              );
+            })}
+            {held.map((b) => (
+              <tr key={b.buildingId}>
+                <td>Donated to {b.name} <Pill>building</Pill></td>
+                <td>–</td>
+                <td>–</td>
+                <td>{fmtTokens(b.heldTokens)}</td>
+                <td>–</td>
               </tr>
             ))}
           </tbody>
@@ -343,6 +366,104 @@ export function BankInputs({ bank, onChange }: Props) {
     </Section>
   );
 }
+
+/** The Donate tab's prose for the sidebar: where a donation goes, how a key is kept, what the table under the form lists. */
+export function DonateAbout() {
+  return (
+    <>
+      <p className="muted">
+        Donate to the Bank to fund every building: your tokens join the one balance they all draw on (or, with an earmark, only work
+        under that goal). Donate to one building to fund it alone. A key or a subscription token is stored server-side and never shown again;
+        you or an admin can cancel an input on the Inputs tab any time (past credits stay in the Bank).
+      </p>
+      <p className="muted">
+        Funding the town now lists every active input, with what it can still pay ({ADJ}) and when a session last drew on it
+        (general draws are pooled, so only an earmark or a grant&apos;s own input shows a time), then the tokens given straight to
+        buildings and not yet spent. Cancelled inputs and each input&apos;s dated credits are on the Inputs tab.
+      </p>
+    </>
+  );
+}
+
+/**
+ * "Show 3 cancelled" / "Hide cancelled": the button beside a Bank list's title that reveals its cancelled (or retired) rows
+ * (gr_567tikzitl step 3, kr_y7derda40x: every list shows active rows only by default). Nothing when there are none.
+ */
+export function HiddenToggle({ count, shown, onToggle, word = "cancelled" }: { count: number; shown: boolean; onToggle: () => void; word?: string }) {
+  if (!count) return null;
+  return <button type="button" className="btn sm bank-toggle" aria-expanded={shown} onClick={onToggle}>{shown ? `Hide ${word}` : `Show ${count} ${word}`}</button>;
+}
+
+/**
+ * A table row the reader can pick (click, Enter or Space): picking it again clears it. Its details go to the sheet's
+ * sidebar ("Selected row"). A click on a button inside the row (Cancel, Try now) does not pick it.
+ */
+export function pickRow(id: string, selected: string | null | undefined, onSelect: ((id: string | null) => void) | undefined) {
+  if (!onSelect) return {};
+  const on = selected === id;
+  const pick = () => onSelect(on ? null : id);
+  return {
+    className: on ? "bank-pick on" : "bank-pick", tabIndex: 0, "aria-selected": on,
+    onClick: (e: { target: EventTarget }) => { if (!(e.target as HTMLElement).closest?.("button, a, input")) pick(); },
+    onKeyDown: (e: { key: string; target: EventTarget; currentTarget: EventTarget; preventDefault: () => void }) => {
+      if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); pick(); }
+    },
+  };
+}
+
+/** What funds the town: the active inputs, the cancelled ones behind "Show N cancelled". The owner of an input, or an admin, can cancel it (past credits stay in the Bank). A row picks the input for the sidebar's "Selected row" (its dated credits). */
+export function BankInputs({ bank, onChange, selected, onSelect }: Props & { selected?: string | null; onSelect?: (id: string | null) => void }) {
+  const me = useTown((s) => s.me);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const all = [...bank.inputs].sort((a, b) => Number(!!a.cancelledAt) - Number(!!b.cancelledAt) || b.createdAt.localeCompare(a.createdAt));
+  const cancelled = all.filter((i) => i.cancelledAt).length;
+  const inputs = showCancelled ? all : all.filter((i) => !i.cancelledAt);
+  return (
+    <Section title="Bank inputs" right={<span className="bank-section-right">
+      <HiddenToggle count={cancelled} shown={showCancelled} onToggle={() => setShowCancelled((x) => !x)} />
+      {bank.dailyInflowTokens ? <Pill tone="ok">+{fmtTokens(bank.dailyInflowTokens)}/day</Pill> : null}
+    </span>}>
+      {!inputs.length ? <Empty>{cancelled ? "No active inputs." : "No inputs yet."}</Empty> : (
+        <table className="table">
+          <thead><tr><th>Input</th><th>From</th><th title={ADJ_HINT}>{ADJ}</th><th>Credited</th><th /></tr></thead>
+          <tbody>
+            {inputs.map((i) => {
+              const pick = pickRow(i.id, selected, onSelect);
+              return (
+              <tr key={i.id} {...pick} className={[pick.className, i.cancelledAt ? "muted" : ""].filter(Boolean).join(" ") || undefined}>
+                <td>{i.label} {i.source === "subscription" ? <Pill tone="warn">expires daily</Pill> : null}
+                  {(i.limits ?? []).filter((l) => l.inForce).map((l) => (
+                    <div key={l.id} title={l.reason} style={{ color: "#c0392b" }}>
+                      {l.text.slice(i.label.length + 2)}
+                      {!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
+                        ? <> <Act small run={async () => { await api().clearBankLimit(l.id); store.toast(`${i.label}: the next session may try it`, "ok"); onChange(); }}>Try now</Act></>
+                        : null}
+                    </div>
+                  ))}</td>
+                <td>{i.userName}</td>
+                <td>{fmtTokens(i.tokens)} {i.recurrence === "once" ? "once" : `/ ${PER[i.recurrence]}`}{creditsLeftLine(i) ? <div><small className="muted">{creditsLeftLine(i)}</small></div> : null}</td>
+                <td title={breakdownTitle(i.creditedCounts)}>{fmtTokens(i.creditedTokens)}{i.cancelledAt ? <> · cancelled {timeAgo(i.cancelledAt)}</> : null}</td>
+                <td>{!i.cancelledAt && me && (me.isAdmin || me.user.id === i.userId)
+                  ? <Act small tone="bad" run={async () => { await api().cancelBankInput(i.id); store.toast(`Cancelled ${i.label}`, "ok"); onChange(); }}>Cancel</Act>
+                  : null}</td>
+              </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </Section>
+  );
+}
+
+/** The Bank inputs' prose for the sidebar: on a hosted collective (its health says its funding) the key from Start is one 1,000,000-token input (server hub.ts STARTER_KEY_TOKENS). */
+export function BankInputsAbout() {
+  const hosted = useTown((s) => s.health?.funding) != null || !!API_BASE;
+  return hosted ? <p className="muted">{HOSTED_CAP_LINE}</p> : null;
+}
+
+/** Shown on a hosted Bank: new work stops when the inputs are spent; 1:1s, Ask about and summaries still run on the key. */
+const HOSTED_CAP_LINE = "Work on your key stops at 1,000,000 tokens (about $20) until you add more here; talking to your agents still uses it.";
 
 const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> = {
   "below-one-session": "below one session",
@@ -356,10 +477,12 @@ const IDLE: Record<NonNullable<BankStreams["streams"][number]["idle"]>, string> 
  */
 export function BankStreamsSection({ rev }: { rev?: number }) {
   const r = useLoad(() => api().bankStreams(), [rev]);
+  const [showCancelled, setShowCancelled] = useState(false);
   const d = r.data;
-  const rows = d?.streams.filter((x) => x.goalId || !x.cancelledAt) ?? [];
+  const cancelled = d?.streams.filter((x) => x.cancelledAt && x.goalId).length ?? 0;
+  const rows = d?.streams.filter((x) => !x.cancelledAt || (showCancelled && x.goalId)) ?? [];
   return (
-    <Section title="Streams" right={d ? <Pill title={d.sampleSessions ? `p90 of ${d.sampleSessions} work sessions in the last 7 days` : "default: too few sessions in the last 7 days"}>1 session ≈ {fmtTokens(d.expectedSessionTokens)}</Pill> : null}>
+    <Section title="Streams" right={d ? <span className="bank-section-right"><HiddenToggle count={cancelled} shown={showCancelled} onToggle={() => setShowCancelled((x) => !x)} /><Pill title={d.sampleSessions ? `p90 of ${d.sampleSessions} work sessions in the last 7 days` : "default: too few sessions in the last 7 days"}>1 session ≈ {fmtTokens(d.expectedSessionTokens)}</Pill></span> : null}>
       {r.loading && !d ? <Loading /> : !rows.length ? <Empty>No streams yet.</Empty> : (
         <table className="table">
           <thead><tr><th>Stream</th><th>For</th><th title={ADJ_HINT}>Left</th><th>Last draw</th></tr></thead>

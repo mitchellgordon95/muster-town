@@ -1,8 +1,8 @@
-import { Doc, QUEUE_ORDER, type Agent, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type WaitFor } from "@muster-town/schema";
+import { isGone, Doc, QUEUE_ORDER, type Agent, type Ask, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
-import { humanOrigin, meetingOrigin } from "./origin.ts";
+import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
 import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
@@ -10,6 +10,9 @@ import type { BlockedBuilding } from "./grants.ts";
 import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
+import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
+import { withAsks } from "./rollup-asks.ts";
+import { rankedAsks } from "./asks.ts";
 
 /** Doc as shown in lists (board, search). */
 export interface DocSummary {
@@ -52,12 +55,15 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; queue?: AssignmentQueue; model?: string | null; reservationId?: string | null }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; model?: string | null; reservationId?: string | null }): Assignment {
   let agent = world.agents.require(a.agentId, "agent");
-  let queue: AssignmentQueue = a.queue ?? "agent";
-  // a fork lives for one session: work made for it (a park continuation, a review follow-up) goes on the building queue,
-  // held by the manager until the next fork takes it
-  if (agent.forkOf) { agent = world.agents.require(agent.forkOf, "agent"); queue = "building"; }
+  // work routing (1:1 mt_lsyqj98z0w): work goes to a building, never to a forking manager as a worker. Callers don't
+  // pick a queue: a fork's work (a park continuation, a review follow-up) and work naming a forking manager go on the
+  // building queue, held by the manager until a fork takes it. Everyone else keeps it on its own queue: a manager whose
+  // building has no forks (the Town Hall's Secretary), a visitor (an offer). What a forking manager itself must
+  // decide (a tell, a mention, an outbox answer, a grant countered or rejected) is an in-tray row (wakes.ts), never a job.
+  if (agent.forkOf) agent = world.agents.require(agent.forkOf, "agent");
+  const queue: AssignmentQueue = a.agentId !== agent.id || isForkingManager(world, agent) ? "building" : "agent";
   const buildingId = a.buildingId ?? agent.homeBuildingId ?? agent.buildingId;
   if (!buildingId) throw new AppError("bad_request", `${agent.name} has no building to work in.`);
   const fromReport = a.fromReportId ? world.docs.get(a.fromReportId) : undefined;
@@ -69,7 +75,9 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
   const origin = a.origin !== undefined ? a.origin
     : a.createdBy.kind === "user" ? humanOrigin(a.createdBy.id, a.fromMeetingId ?? a.fromReportId ?? null)
     : fromReport?.authorKind === "user" ? humanOrigin(fromReport.authorId, fromReport.id)
-    : (meeting && meetingOrigin(meeting)) ?? from?.origin ?? null;
+    : (meeting && meetingOrigin(meeting)) ?? from?.origin
+    // directed work traces to the human source it cites (meeting, tell, human doc, notes), at the source's own time
+    ?? (lane.lane === "directed" && lane.sourceId ? sourceOrigin(world, lane.sourceId) : null);
   const ts = nowIso();
   const id = newId("as");
   const assignment = world.assignments.upsert({
@@ -79,7 +87,7 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     fromAssignmentId: a.fromAssignmentId ?? null, position: a.front ? frontPosition(world, agent.id) : Date.now(), createdAt: ts, updatedAt: ts,
     waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin, reservationId: a.reservationId ?? null,
     // the chain is the first assignment's id: a retry, a park continuation and a review follow-up continue `from`'s
-    chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null,
+    chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null, grantStep: null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
@@ -173,10 +181,15 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
   let assignment: Assignment | null = null;
   if (!author || decision === "approve") return { doc, assignment };
+  // grant B: the next plan step this report queued by itself (submit_report) waits on the review: stop and redirect cancel it
+  if (decision === "stop" || decision === "redirect") {
+    for (const a of world.assignments.where("fromReportId = ? AND status = 'pending' AND grantStep IS NOT NULL AND parked IS NULL", [docId])) setAssignmentStatus(world, a.id, "cancelled");
+  }
   if (decision === "stop") {
     for (const a of world.assignments.where("agentId = ? AND status IN ('pending','active')", [author.id])) setAssignmentStatus(world, a.id, "cancelled");
     if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });
-    world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
+    // a gone author stays gone: stop would be the first step of a revive (docs/invariants/agent-lifecycle.md)
+    if (!isGone(author)) world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
     return { doc, assignment };
   }
   // P2: a parked report (its author queued its own continuation with `resumeWhen`). Approve leaves it parked (it
@@ -203,6 +216,7 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
       ...(proposal ? [`For context, your report proposed:\n\n${proposal.text}`] : []),
     ].join("\n\n");
   }
+  // a manager's own report continued or redirected: createAssignment makes the next step a fork's (building queue)
   assignment = createAssignment(world, { agentId: author.id, title, description, createdBy: decider, fromReportId: report.id, waitFor: opts.waitFor, lane: opts.lane });
   if (author.status === "stopped") world.setStatus(author.id, "idle");
   return { doc, assignment };
@@ -219,7 +233,8 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
   const building = world.buildings.require(buildingId, "building");
   if (building.kind === "town-hall") throw new AppError("bad_request", "Plant the flag in a building, not the Town Hall: it has no manager to delegate it.");
   if (actor.kind !== "human") throw new AppError("forbidden", "Only a human plants a flag; as an agent, give the work with `assign`.");
-  world.permissions.require(actor, "building.assign", buildingId);
+  // a captain of the building's goal (or one above) plants there too (gr_zsm1piyqyx); outside their subtree still 403
+  if (!world.goalTree.captainsBuilding(actor, buildingId)) world.permissions.require(actor, "building.assign", buildingId);
   const body = text.trim();
   if (!body) throw new AppError("bad_request", "A flag needs a note: what you want done.");
   const holder = world.holderOf(actor);
@@ -264,19 +279,19 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
   // an agent (the manager) walks to a flag standing on the map and picks it up before deciding it; a human decides from the in-tray
   if (decider.kind === "agent" && flag.flagPos && !flag.pickedUpAt) throw new AppError("bad_request", `Pick the flag up first: it stands on the map at (${flag.flagPos.x}, ${flag.flagPos.y}). \`go\` to ${flagPlaceId(flag.id)}, read it, then decide it.`);
   let assignee: Agent | undefined;
-  let queue: "building" | undefined;
   if (decision !== "approve") {
     const building = world.buildings.get(flag.buildingId ?? "");
     const manager = managerAgentOf(world, building);
     if (!opts.assigneeId) {
+      const visitor = visitorManagerRefusal(world, building);
+      if (visitor) throw visitor;
       if (!manager) throw new AppError("bad_request", `${building?.name ?? "The building"} has no manager agent to fork: approve the flag, or name a visitor of the building (assigneeId).`);
       assignee = manager;
-      queue = "building";
     } else {
       assignee = world.agents.require(opts.assigneeId, "agent");
       const home = assignee.homeBuildingId ?? assignee.buildingId;
-      if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name the manager itself or a visitor of the building.`);
-      if (assignee.status === "retired" || assignee.status === "banned") throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
+      if (assignee.kind === "human" || home !== flag.buildingId || (assignee.id !== manager?.id && assignee.kind !== "visitor")) throw new AppError("bad_request", `${assignee.name} can't take the flag: leave assigneeId out to queue it to ${building?.name ?? "the building"} (a fork of the manager runs it), or name a visitor of the building (naming the manager queues it to the building too).`);
+      if (isGone(assignee)) throw new AppError("bad_request", `${assignee.name} is ${assignee.status} and can't take the flag.`);
     }
   }
   const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
@@ -287,8 +302,9 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
   const description = decision === "continue"
     ? `${by} planted a flag in your building (${flag.id}):\n\n${flag.body}${note ? `\n\nYour manager's note: ${note}` : ""}`
     : `Your manager ${world.nameOf(decider.id)} gave you ${by}'s flag (${flag.id}):\n\n${note}\n\nThe flag said:\n\n${flag.body}`;
-  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED, ...(queue ? { queue } : {}) });
-  if (!queue) sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
+  // the manager named (or not) → its building queue when it forks (createAssignment); a visitor gets an offer and a message
+  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED });
+  if (assignment.queue === "agent") sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
   if (assignee.status === "stopped") world.setStatus(assignee.id, "idle");
   return { doc, assignment };
 }
@@ -302,7 +318,68 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
   if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
   const a = world.agents.get(building.managerAgentId);
-  return a && a.kind !== "human" && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired" ? a : undefined;
+  // a visitor manager (it adopted the goal, `adoptGoal`) manages only while online: offline, the building is unmanaged
+  return a && a.kind !== "human" && a.status !== "stopped" && !isGone(a) && !(a.kind === "visitor" && a.status === "offline") ? a : undefined;
+}
+
+/**
+ * The manager the town can fork and run sessions for: `managerAgentOf` when it is a resident. A visitor manager runs
+ * its own sessions (Claude Code over MCP), so the town never forks it nor starts a session as it, and the building's
+ * queue is held (1:1 mt_26vin80bpm; docs/invariants/agent-lifecycle.md invariant 10).
+ */
+export function forkableManagerOf(world: World, building: Building | undefined): Agent | undefined {
+  const m = managerAgentOf(world, building);
+  return m?.kind === "resident" ? m : undefined;
+}
+
+/**
+ * Whether the agent is the forkable manager of its home building: work naming it goes on that building's queue
+ * (createAssignment), what it must decide is an in-tray row (wakes.ts), and no work session ever starts as it.
+ */
+export function isForkingManager(world: World, agent: Agent): boolean {
+  if (agent.forkOf) return false;
+  return forkableManagerOf(world, world.buildings.get(agent.homeBuildingId ?? agent.buildingId ?? ""))?.id === agent.id;
+}
+
+/**
+ * Boot repair (work routing step 2, idempotent): a pending row on a forking manager's own queue (left from before
+ * work went to buildings: a grant answer, a park, a relayed tell) moves to its building's queue, where a fork runs it.
+ * One system event (payload.queueRepair) per moved row. Returns the ids it moved.
+ */
+export function moveManagerRowsToBuildingQueue(world: World): string[] {
+  const moved: string[] = [];
+  for (const a of world.assignments.where("status = 'pending' AND queue = 'agent'", [])) {
+    const agent = world.agents.get(a.agentId);
+    if (!agent || !isForkingManager(world, agent)) continue;
+    world.assignments.upsert({ ...a, queue: "building", updatedAt: nowIso() });
+    world.events.append({ type: "system", agentId: agent.id, buildingId: a.buildingId, text: `"${a.title}" moved from ${agent.name}'s own queue to ${world.buildings.get(a.buildingId)?.name ?? a.buildingId}'s queue: work goes to the building, a fork runs it`, payload: { queueRepair: true, assignmentId: a.id, from: "agent", to: "building" } });
+    moved.push(a.id);
+  }
+  return moved;
+}
+
+/**
+ * Where work a decider gives an agent goes (a meeting decision names its line by it): a forking manager's is on its
+ * building's queue (createAssignment routes it), so a fork runs it and the manager's own session stays on the in-tray
+ * (1:1 mt_peubjyoo0k). Null for anyone else (a visitor, a non-forking manager, a fork).
+ */
+export function decisionQueue(world: World, agentId: string): { queue: "building"; building: Building; manager: Agent } | null {
+  const agent = world.agents.get(agentId);
+  if (!agent || !isForkingManager(world, agent)) return null;
+  const building = world.buildings.require(agent.homeBuildingId ?? agent.buildingId ?? "", "building");
+  return { queue: "building", building, manager: agent };
+}
+
+/** "Town Workshop queue (a fork of Pix)": how a decision line names building-queue work. */
+export function queueLabel(world: World, buildingId: string, managerId: string): string {
+  return `${world.buildings.get(buildingId)?.name ?? buildingId} queue (a fork of ${world.nameOf(managerId)})`;
+}
+
+/** The refusal for building-queue work in a visitor-managed building; null when its manager is not a visitor. */
+export function visitorManagerRefusal(world: World, building: Building | undefined): AppError | null {
+  const m = building?.managerAgentId ? world.agents.get(building.managerAgentId) : undefined;
+  if (!building || m?.kind !== "visitor" || isGone(m)) return null;
+  return new AppError("conflict", `${building.name}'s manager ${m.name} is a visitor: the town can't fork a visitor, so nothing goes on its building queue. Offer the work to ${m.name} by id (agentId ${m.id}) instead.`);
 }
 
 /** Who works this building's in-tray right now. */
@@ -343,20 +420,36 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
 
 /**
  * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
- * grants, and grants the manager closed as done (`close_grant`) whose key result is still claimed: the human marks it met
- * or missed, and the row leaves.
+ * grants. A grant closed as done is not one: its key results are met on close (town hall mt_v09cn7a8yr decision 2).
  */
 export function grantsAwaitingDecision(world: World): GrantView[] {
   return world.grants.where(
-    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")}) OR (status = 'closed' AND outcome = 'done' AND EXISTS (SELECT 1 FROM key_results k WHERE k.grantId = grants.id AND k.status = 'claimed'))`,
+    `status IN (${GRANT_INTRAY_STATUSES.map((s) => `'${s}'`).join(", ")})`,
     [], "ORDER BY updatedAt, rowid",
-  ).map((g) => world.grantDesk.view(g));
+  ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, and blocked buildings (not counted in the badge). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; blocked: BlockedBuilding[] } {
+/** How long a stopped grant stays on the Town Hall in-tray and review deck after it closes (gr_8i952perny): 3 days. */
+const STOPPED_SHOWN_MS = 3 * 24 * 3_600_000;
+
+/**
+ * Grants a human stopped (`Grants.stop`, gr_8i952perny), newest first: every one still `stopping`, and those closed as
+ * stopped in the last 3 days. Nothing to decide (the stop was the decision), so they are not counted in the badge; the
+ * in-tray and the review deck show who stopped it, why, and what was spent and returned. Withdrawn proposals are not stops.
+ */
+function stoppedGrants(world: World, now = Date.now()): GrantView[] {
+  const since = new Date(now - STOPPED_SHOWN_MS).toISOString();
+  return world.grants.where("status = 'stopping' OR (status = 'closed' AND outcome = 'stopped' AND closedAt >= ?)", [since], "ORDER BY updatedAt DESC, rowid DESC")
+    .filter((g) => g.history.some((h) => h.action === "stop"))
+    .map((g) => world.grantDesk.view(g));
+}
+
+/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), blocked: world.grantDesk.blockedBuildings() };
+  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts);
+  // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
@@ -365,7 +458,7 @@ const openGoalProposals = (world: World) => world.goalProposals.count("status = 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
 export function intrayCount(world: World, buildingId: string): number {
   const b = world.buildings.get(buildingId);
-  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) : 0);
+  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world) : 0);
 }
 
 /**
@@ -381,7 +474,7 @@ export function intrayCounts(world: World): Map<string, number> {
   for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
     if (isTownHallItem(world, d)) { if (th) bump(th.id); } else if (d.buildingId !== th?.id) bump(d.buildingId!);
   }
-  if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world); i > 0; i--) bump(th.id);
+  if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world); i > 0; i--) bump(th.id);
   return counts;
 }
 

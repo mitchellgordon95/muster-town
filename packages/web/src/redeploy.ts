@@ -115,3 +115,20 @@ export function fundingAlert(events: Event[], now = Date.now()): Event | null {
   }
   return null;
 }
+
+/**
+ * The latest `alert: cache-miss` of the last day (gr_lwgus14rd2 step 2: the share of a purpose's sessions that bust
+ * their prompt prefix), or null. `dayAlerts` are the ones read from the server (store `cacheAlerts`): the client keeps
+ * only its latest events, so an alert raised hours ago is no longer among `events`.
+ */
+export function cacheMissAlert(events: Event[], now = Date.now(), dayAlerts: Event[] = []): Event | null {
+  let latest: Event | null = null;
+  for (const e of [...dayAlerts, ...events]) {
+    if (e.type !== "system" || (e.payload as { alert?: unknown }).alert !== "cache-miss") continue;
+    // only the prefix-busting alert (PR #364, 5dc50c70) counts: the old cache-write-share alert (payload `reasons`, no
+    // `busting`) was a false alarm on every healthy day, and its events from before the deploy stay in the log
+    if (typeof (e.payload as { busting?: unknown }).busting !== "number") continue;
+    if (!latest || e.id > latest.id) latest = e;
+  }
+  return latest && now - Date.parse(latest.ts) < 24 * 3600_000 ? latest : null;
+}

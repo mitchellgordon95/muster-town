@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankFountain, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawHydrant, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -100,7 +100,7 @@ export class World {
   /** The town's decor and the square's fountain stand outside every building. */
   private outdoors(x: number, y: number): boolean {
     const k = this.at(x, y);
-    return k === TILE.LAMP || k === TILE.FLOWERS || k === TILE.BENCH || k === TILE.FOUNTAIN;
+    return k === TILE.LAMP || k === TILE.FLOWERS || k === TILE.BENCH || k === TILE.FOUNTAIN || k === TILE.BULLETIN;
   }
   private nextTo(x: number, y: number, k: number): boolean {
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => this.at(x + dx, y + dy) === k);
@@ -156,6 +156,9 @@ export class World {
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
           case TILE.GOAL_CHART: g.drawImage(tl.wallFace, px, py); drawGoalChart(g, px, py); break;
+          case TILE.STATS: drawStats(g, px, py); break;
+          case TILE.HELP: drawHelpSign(g, px, py); break;
+          case TILE.HYDRANT: drawHydrant(g, px, py); break;
           case TILE.BANK_MAP: drawBankMap(g, px, py); break;
           case TILE.SIGNPOST: drawSignpost(g, px, py); break;
           case TILE.FOUNTAIN: {
@@ -167,10 +170,11 @@ export class World {
           }
           case TILE.TREE: drawTree(g, px, py, (x * 7 + y * 3) % 5 === 0); break;
           case TILE.LAMP: drawLamp(g, px, py); break;
+          case TILE.BULLETIN: drawBulletin(g, px, py); break;
           case TILE.FLOWERS: drawFlowers(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BANK_SPENDING: drawSpendingBoard(g, px, py); break;
           case TILE.BANK_SERVER: drawBankServer(g, px, py); break;
-          case TILE.BANK_FOUNTAIN: drawBankFountain(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
+          case TILE.BANK_CHEST: drawBankChest(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BANK_LEDGER: drawBankLedger(g, px, py, { l: this.at(x - 1, y) === k, r: this.at(x + 1, y) === k }); break;
           case TILE.BENCH: drawBench(g, px, py, { l: this.at(x - 1, y) === TILE.BENCH, r: this.at(x + 1, y) === TILE.BENCH }); break;
           case TILE.TABLE: drawTable(g, px, py, {

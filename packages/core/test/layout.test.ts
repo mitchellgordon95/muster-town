@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BANK_FIXTURES, BANK_LOT, TILE, bankTabOf } from "@muster-town/schema";
+import { BANK_FIXTURES, BANK_LOT, BANK_TABS, TILE, bankTabOf } from "@muster-town/schema";
 import { World, createBuilding, createResident, updateBuilding, findPath, isWalkable, MAX_HEADCOUNT } from "../src/index.ts";
 import { freshWorld, seededWorld, tickUntil } from "./helpers.ts";
 
@@ -37,7 +37,16 @@ describe("layout", () => {
       for (const c of st.cells) expect(at(c.x, c.y)).toBe(st.tile);
       expect(findPath(grid, world.layout.requirePlace("plaza").pos, p.pos), st.name).not.toBeNull();
     }
-    expect(bankTabOf("bank")).toBe("Overview");
+    expect(bankTabOf("bank")).toBe("Balance");
+    expect(bankTabOf("bank:free")).toBe("Balance"); // the retired fountain: old events and deep links name it
+    // gr_567tikzitl step 2: Donate first, the chest where the fountain stood, no Free tokens tab, tile 23 never reused
+    expect([...BANK_TABS]).toEqual(["Donate", "Balance", "Inputs", "Spending", "Hosting"]);
+    for (const st of BANK_FIXTURES.stations) expect(BANK_TABS as readonly string[]).toContain(st.tab);
+    const chest = BANK_FIXTURES.stations.find((st) => st.slug === "donate")!;
+    expect(chest).toMatchObject({ tab: "Donate", name: "Chest", tile: TILE.BANK_CHEST, cells: [{ x: 2, y: 5 }, { x: 3, y: 5 }], stand: { x: 2, y: 6 } });
+    expect(bankTabOf("bank:donate")).toBe("Donate");
+    expect(Object.values(TILE)).not.toContain(23);
+    expect(grid.tiles).not.toContain(23);
     // outside, not in any building
     expect(world.layout.buildingAt(bank.pos)).toBeNull();
   });
@@ -210,7 +219,7 @@ describe("pathfinding and movement", () => {
 });
 
 describe("a desk per resident", () => {
-  it("a full lab grows by a desk for a new resident (re-lotting when it no longer fits); visitors still wait on the bench", () => {
+  it("a full lab grows by a desk for a new resident (re-lotting when it no longer fits); a visitor gets a desk beyond the headcount", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Small", headcount: 1 }, seed.admin.id);
     const ids = ["A", "B", "C", "D"].map((name) => createResident(world, { buildingId: b.id, name, title: "t", direction: "d" }).id);
@@ -221,7 +230,11 @@ describe("a desk per resident", () => {
     const all = world.buildings.all();
     for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) expect(overlap(all[i].lot!, all[j].lot!)).toBe(false);
     const { agent } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: b.id });
-    expect(world.layout.deskOf(agent.id)).toBeUndefined();
+    const desk = world.layout.deskOf(agent.id)!;
+    expect(new Set([...tiles, `${desk.pos.x},${desk.pos.y}`]).size).toBe(5);
+    expect(world.buildings.require(b.id).headcount).toBe(4);
+    const after = world.buildings.all();
+    for (let i = 0; i < after.length; i++) for (let j = i + 1; j < after.length; j++) expect(overlap(after[i].lot!, after[j].lot!)).toBe(false);
   });
 
   it("on reopen, a resident left without a desk gets its own and steps off the desk it shared", () => {

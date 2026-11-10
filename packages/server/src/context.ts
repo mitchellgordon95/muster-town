@@ -1,10 +1,11 @@
 import { AppError, townRoleId, type World } from "@muster-town/core";
-import type { Agent, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
+import type { Agent, Building, DeskActivityInput, RedeployResult, Session, TokenCounts, User } from "@muster-town/schema";
 import type { FastifyRequest } from "fastify";
 import type { ZodTypeAny, z } from "zod";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import type { Hub } from "./hub.ts";
+import type { CapacityProbe } from "./capacity.ts";
 import type { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
 
@@ -23,6 +24,8 @@ export interface RuntimeHooks {
   deskSeen?(agentId: string, sessionId: string): void;
   /** An agent was dismissed (core already retired it): abort its session, `docker rm -f` its desk (volume kept unless purge). */
   onAgentRetired?(agentId: string, opts?: { purge?: boolean }): Promise<unknown> | unknown;
+  /** A building was made with no name typed: name it with one cheap-model call (flag dc_42c9cjbzls); resolves with it as it ends up. */
+  nameBuilding?(buildingId: string): Promise<Building>;
   /** A meeting moved to `discussing` via REST: run the facilitator. */
   onMeetingStart?(meetingId: string): Promise<unknown> | unknown;
   /** v1.3: pull main, reinstall, rebuild, restart (exit 75) in the background. A request while one runs joins it (`{ queued: true }`). */
@@ -38,7 +41,7 @@ export interface RuntimeHooks {
 }
 
 /** One runtime tick's timings (runtime `TickTiming`): total ms of its synchronous phases, the slowest phase, each phase's ms. */
-export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number> }
+export interface TickStat { at: string; ms: number; phase: string | null; phaseMs: number; phases: Record<string, number>; sub?: Record<string, number> }
 
 /** Who made the request. */
 export type Auth =
@@ -66,6 +69,8 @@ declare module "fastify" {
     exportDir: string | null;
     /** `GET /api/health`: refresh period of its database-backed figures (0 = per request) */
     healthRefreshMs: number;
+    /** GET /api/health `capacity` (capacity.ts; root app only, null in a hosted collective's app) */
+    capacity: CapacityProbe | null;
   }
   interface FastifyRequest {
     auth: Auth | null;
@@ -159,8 +164,12 @@ export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/
   "POST /api/collectives",
   // the self-hosted towns directory (design dc_d6chojzl2a): no account, no approval
   "POST /api/directory/register", "POST /api/directory/verify",
-  // the join funnel's guest-card view count (gr_fibsfwr4tz step 3): it is the card a visitor sees
-  "POST /api/join-funnel/view"]);
+  // the join funnel's guest-card view count (gr_fibsfwr4tz step 3): it is the card a visitor sees; the homepage's visitor count (gr_zoo2cf2zpp)
+  "POST /api/join-funnel/view", "POST /api/join-funnel/home",
+  // marking a bulletin board note read (flag dc_04q4h8s229) is reading, not taking part
+  "POST /api/bulletin/:id/read",
+  // the self-service role reset (dc_ia2hybtuax): putting yourself back to a visitor is never taking part
+  "POST /api/me/reset"]);
 export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";
 
 export function adminToken(world: World): string | null {

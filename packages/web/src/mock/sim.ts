@@ -92,7 +92,7 @@ export class Sim {
     const reports = [...this.docs.values()].filter((d) => (d.type === "report" || d.type === "flag") && d.decision === "pending"
       && (hall ? d.type === "report" && !!d.buildingId && managerOf(d.buildingId) === d.authorId : d.buildingId === buildingId && managerOf(d.buildingId) !== d.authorId))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint" || awaitingMark(g)) : [];
+    const grants = hall ? [...this.grants.values()].filter((g) => g.status === "proposed" || g.status === "countered" || g.status === "checkpoint") : [];
     const blocked = hall ? this.buildings.filter((b) => b.kind !== "town-hall").flatMap((b) => { const r = this.grantBoard(b.id).blocked; return r ? [{ buildingId: b.id, name: b.name, reason: r, since: b.blockedAt ?? null }] : []; }) : [];
     return { reports, chains: this.reportChains(reports), grants, blocked };
   }
@@ -202,7 +202,10 @@ export class Sim {
     if (moved && i.objectiveId && [...this.keyResults.values()].filter((x) => x.objectiveId === i.objectiveId).length >= 4) throw new Error("That objective already has 4 key results (at most 4).");
     const next: KeyResult = { ...k, ...words, ...(moved && { objectiveId: i.objectiveId ?? null }), ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
-    for (const g of this.grants.values()) if (g.keyResultId === id) g.keyResult = { ...next };
+    for (const g of this.grants.values()) {
+      if (g.keyResultId === id) g.keyResult = { ...next };
+      if (g.keyResults.some((x) => x.id === id)) g.keyResults = g.keyResults.map((x) => (x.id === id ? { ...next } : x));
+    }
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);
     return next;
   }
@@ -241,7 +244,7 @@ export class Sim {
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
-  /** POST /api/grants/:id/close, as core's Grants.close (outcome "done": closeDone, the key result to claimed). */
+  /** POST /api/grants/:id/close, as core's Grants.close (outcome "done": closeDone, the key results to met). */
   closeGrant(id: string, i: CloseGrantInput): GrantView {
     const g = this.grants.get(id);
     if (!g) throw new Error("grant not found");
@@ -250,8 +253,22 @@ export class Sim {
     const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
     Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
-    if (i.outcome === "done" && g.keyResultId) this.updateKeyResult(g.keyResultId, { status: "claimed", note });
+    if (i.outcome === "done") for (const k of g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
     this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
+    this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
+    return g;
+  }
+  /** POST /api/grants/:id/stop, as core's Grants.stop with no fork running: it closes as stopped at once, its key results missed. */
+  stopGrant(id: string, reason: string): GrantView {
+    const g = this.grants.get(id);
+    if (!g) throw new Error("grant not found");
+    if (g.status !== "funded" && g.status !== "checkpoint") throw new Error(`This grant is ${g.status}.`);
+    const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
+    g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "stop", tokens: null, note: reason });
+    for (const k of g.keyResults) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "missed", note: `Grant stopped: ${reason}` });
+    Object.assign(g, { status: "closed", outcome: "stopped", closedAt: now(), updatedAt: now() });
+    g.history.push({ at: now(), byId: "system", byKind: "agent", action: "close", tokens: unspent, note: `Stopped: ${reason}` });
+    this.event("grant.closed", null, `Stopped: ${g.objective}: ${reason}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
   }
@@ -278,7 +295,6 @@ export class Sim {
   home(a: Agent) {
     const pl = this.layout.places;
     const at = (id: string) => pl.find((p) => p.id === id)?.pos;
-    if (a.kind === "service") return { ...(at("library") ?? { x: 2, y: 2 }) };
     if (a.kind === "human") return { ...(at("plaza") ?? { x: 2, y: 2 }) };
     return { ...(at(`desk:${a.id}`) ?? (a.kind === "visitor" ? at("visitor-bench") : undefined) ?? at(`door:${a.homeBuildingId}`) ?? { x: 2, y: 2 }) };
   }
@@ -358,7 +374,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, reservationId: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, reservationId: null, grantStep: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;
@@ -501,7 +517,7 @@ export class Sim {
   createBuilding(name: string, goal = "", headcount = 6, goalId = "gl_town"): Building {
     const b: Building = { ...clone(F.buildings[1]), id: newId("bl"), name, goal, goalId, description: "", headcount, meetings: [], rules: "", codeAccess: !!F.town.workspace, lot: undefined, createdAt: now(), createdBy: "us_mitchell" };
     this.buildings.push(b);
-    for (const r of ["manager", "reviewer", "member"] as const)
+    for (const r of ["manager", "member"] as const)
       this.roles.push({ id: `rl_${b.id}_${r}`, name: r, scope: "building", buildingId: b.id, permissions: [...BUILTIN_ROLES.building[r]], builtin: true });
     this.memberships.push({ roleId: `rl_${b.id}_manager`, holderKind: "user", holderId: "us_mitchell" });
     this.emit({ type: "building", building: { ...b, intray: 0 } });
@@ -522,7 +538,3 @@ export class Sim {
   }
 }
 
-/** Closed early as done by the manager (close_grant) and its key result still claimed: a human marks it met or missed. */
-function awaitingMark(g: GrantView): boolean {
-  return g.status === "closed" && g.outcome === "done" && g.keyResult?.status === "claimed";
-}

@@ -5,20 +5,36 @@
  */
 import { useSyncExternalStore } from "react";
 import { mapFlagOf, ServerMessage } from "@muster-town/schema";
-import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, Schedule, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
+import type { Agent, Assignment, AuthMe, BlockedAssignment, Doc, ScheduleView, Event, MapFlag, Meeting, Permission, Place, SnapshotBuilding, Town, TownHealth } from "@muster-town/schema";
 import type { Bank, Grid, Snapshot } from "./api";
 import { redeployStatus, type RedeployLiveAt } from "./redeploy";
 import { redirectPanel } from "./panels/room";
+import { founderStale } from "./founder";
+import { knownNames } from "./names";
 
 /**
  * Every panel is a place: walk up and press E. `intray`/`board`/`cabinet` take a building id; the Town Hall places
  * the old `#/finance` opens it too; its `tab` is the thing in its room you used, BANK_FIXTURES). `admin` is the old name for `planning`.
  * the old `#/finance` opens it too). `admin` is the old name for `planning`.
  * `grant`, `assignment` and `session` are the panels without a place: a grant or proposal (`gr_…`), an assignment card (`as_…`)
- * and a session (`se_…`), reached from any link to its id.
+ * and a session (`se_…`), reached from any link to its id. `queue` is the decision queue at the Town Hall hydrant (a sheet
+ * over the map, DecisionQueue.tsx); a link to the Town Hall's old in-tray opens it.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "queue";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
+/**
+ * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant
+ * or an agent in a centred sheet over the map and over whatever side panel is open; closing it leaves that panel where it was.
+ */
+export interface SheetRef { kind: "doc" | "grant" | "agent"; id: string; tab?: string }
+/** The sheet a panel ref names: a doc in the library (`docId`) and a grant are content, so they open as a sheet, not a side panel. */
+export function sheetOf(p: PanelRef | null): SheetRef | null {
+  if (p?.kind === "library" && p.docId) return { kind: "doc", id: p.docId };
+  if (p?.kind === "grant" && p.id) return { kind: "grant", id: p.id };
+  return null;
+}
+/** A phone: a sheet is full screen there, so a side panel opened from it would sit hidden under it. */
+const isPhone = () => typeof window !== "undefined" && !!window.matchMedia?.("(max-width: 760px)").matches;
 interface Toast { id: number; text: string; tone: "info" | "ok" | "bad"; panel?: PanelRef }
 
 interface TownState {
@@ -33,16 +49,25 @@ interface TownState {
   flags: MapFlag[];
   /** outbox requests nobody has claimed yet: the snapshot's count, then kept by `outbox` frames (the map's outbox badge) */
   outbox: number;
+  /** bulletin board notes the signed-in human hasn't opened (flag dc_04q4h8s229): from GET /api/bulletin, refetched on bulletin `doc` frames; 0 for guests (the map's red badge on the board) */
+  bulletinUnread: number;
   grid: Grid | null;
   gridVersion: number;
   meetings: Record<string, Meeting>;
   events: Event[];
+  /** the last day's `alert: cache-miss` events, read from the server (GET /api/events?alert=cache-miss&from=): the HUD's "Cache alert" stays up after the alert scrolls out of `events` */
+  cacheAlerts: Event[];
   docs: Record<string, Doc>;
   assignments: Record<string, Assignment>;
   panel: PanelRef | null;
+  /** the link sheet over the map and the panel (SheetRef); null when none */
+  sheet: SheetRef | null;
   toasts: Toast[];
   /** bumps whenever a doc/assignment/meeting arrives so panels can refetch lists */
   rev: number;
+  /** bumps only when the Outbox's lists can have changed: an `outbox` frame, a request or human-report `doc` frame, a snapshot,
+   * or the panel's own move on a request (OutboxPanel keys its loads on it, not on `rev`, so a busy town doesn't cancel its fetch) */
+  outboxRev: number;
   /** `GET /api/bank`, shown on the Bank's sign; null until the first fetch */
   bank: Bank | null;
   /** the snapshot's `health` (docker up?); live changes arrive as `alert` system events */
@@ -52,15 +77,15 @@ interface TownState {
   /** `GET /api/blocked`: per agent, its queued assignments that can't start and why (queue rows, the map's blocked badges and red lines) */
   blocked: Record<string, BlockedAssignment[]>;
   /** `GET /api/scheduled`: every building's active schedules, soonest run first (the map's schedule boards) */
-  scheduled: Schedule[];
+  scheduled: ScheduleView[];
 }
 
 const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], docs: {}, assignments: {}, panel: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
+    meetings: {}, events: [], cacheAlerts: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -111,8 +136,11 @@ class Store {
         return;
       }
       case "event": return this.applyEvent(m.event);
-      case "doc": return this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
-      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1 });
+      case "doc":
+        this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), ...this.outboxWith([m.doc]), rev: s.rev + 1 });
+        if (m.doc.type === "bulletin") this.onBulletinChanged?.();
+        return;
+      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1, outboxRev: s.outboxRev + 1 });
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
         this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
@@ -145,9 +173,13 @@ class Store {
   onAssignmentChanged?: () => void;
   /** refetch `me`: an admin decided this person's request to join (set at boot) */
   onAccessDecided?: () => void;
+  /** a hosted collective: refetch `health.funding` / `health.founder` (a key added, an exploration, a proposal or funding; set at boot) */
+  onFounderChanged?: () => void;
+  /** refetch `bulletinUnread`: a note was pinned or taken down (set at boot) */
+  onBulletinChanged?: () => void;
 
   /** Names of agents that left the snapshot (dismissed, banned) so docs keep a readable author. */
-  readonly names = new Map<string, string>();
+  readonly names = knownNames;
   private dropAgent(id: string) {
     if (!this.state.agents[id]) return;
     this.names.set(id, this.state.agents[id].name);
@@ -171,7 +203,7 @@ class Store {
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
       town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], outbox: m.outbox ?? 0, grid: m.grid, meetings, health: m.health ?? this.state.health,
-      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
+      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1,
     });
   }
 
@@ -197,6 +229,7 @@ class Store {
     if (e.type.startsWith("grant.") || e.type === "building.blocked") this.onAssignmentChanged?.();
     if (e.type === "system" && e.payload.redeploy) this.onRedeployEvent?.();
     if (isMyAccessDecision(e, s.me?.user.id)) this.onAccessDecided?.();
+    if (s.health?.funding && founderStale(e)) this.onFounderChanged?.();
     this.toastRedeploy();
     // a message addressed to the human's avatar
     const me = this.avatarId;
@@ -232,13 +265,17 @@ class Store {
     if (!list.length) return;
     const docs = { ...this.state.docs };
     for (const d of list) docs[d.id] = d;
-    this.set({ docs, ...this.flagsWith(list) });
+    this.set({ docs, ...this.flagsWith(list), ...this.outboxWith(list) });
   }
-  /** A doc was deleted (a moderator removed an outbox request): forget it and let lists refetch. */
+  /** A doc was deleted (an admin removed an outbox request): forget it and let lists refetch. */
   dropDoc(id: string) {
     const docs = { ...this.state.docs };
     delete docs[id];
-    this.set({ docs, rev: this.state.rev + 1 });
+    this.set({ docs, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1 });
+  }
+  /** `outboxRev` bumped when one of these docs is a request or a human report (the Outbox's two lists) */
+  private outboxWith(list: Doc[]): Partial<TownState> {
+    return list.some((d) => d.type === "request" || d.type === "human-report") ? { outboxRev: this.state.outboxRev + 1 } : {};
   }
   /** `flags` after these docs changed: a flag doc stands on the map while it is pending and not picked up. */
   private flagsWith(list: Doc[]): Partial<TownState> {
@@ -257,7 +294,15 @@ class Store {
   putMeeting(m: Meeting) { this.set({ meetings: { ...this.state.meetings, [m.id]: m } }); }
 
   /** Always a fresh ref, so re-opening a panel that's already open (e.g. E twice on one target) counts as a new open (app.tsx openSeq). */
-  open(panel: PanelRef | null) { const p = redirectPanel(panel); this.set({ panel: p ? { ...p } : null }); }
+  open(panel: PanelRef | null) {
+    const p = redirectPanel(panel, this.state.buildings.find((b) => b.kind === "town-hall")?.id);
+    const sheet = sheetOf(p);
+    if (sheet) return this.openSheet(sheet);
+    // on a phone the sheet covers the panel: a side panel opened from it (a building, a 1:1) replaces it
+    this.set(p && this.state.sheet && isPhone() ? { panel: { ...p }, sheet: null } : { panel: p ? { ...p } : null });
+  }
+  /** Open a doc, grant or agent in the link sheet (over the side panel, which stays); null closes it. */
+  openSheet(sheet: SheetRef | null) { this.set({ sheet: sheet ? { ...sheet } : null }); }
   /** Walk the avatar to a place (animated when a path exists, else teleport), then open `panel`. Set by the map. */
   walkTo: (placeId: string, panel?: PanelRef) => boolean = () => false;
   toast(text: string, tone: Toast["tone"] = "info", panel?: PanelRef) {
@@ -266,14 +311,36 @@ class Store {
     setTimeout(() => this.set({ toasts: this.state.toasts.filter((x) => x.id !== t.id) }), 6000);
   }
 
-  /** Discord-style check against the roles in AuthMe. */
+  /**
+   * Discord-style check against the roles in AuthMe, plus captain steering rights (gr_zsm1piyqyx): in a building under a
+   * goal I captain (`me.captainOf`), review (decide its rollups and reports) and facilitate (1:1s as staff, meetings).
+   */
   can(perm: Permission, buildingId?: string | null): boolean {
     const me = this.state.me;
     if (!me) return false;
+    // the server knows what the roles don't: nobody redeploys a hosted collective's host, admins included
+    if (perm === "town.redeploy" && me.canRedeploy !== undefined) return me.canRedeploy;
     if (me.isAdmin) return true;
+    if (CAPTAIN_PERMS.has(perm) && this.captains(buildingId)) return true;
     return me.roles.some((r) => r.permissions.includes(perm) && (r.scope === "town" || (!!buildingId && r.buildingId === buildingId)));
   }
+
+  /** I captain the goal this building is attached to, or one above it (server `Goals.captainsBuilding`). */
+  captains(buildingId?: string | null): boolean {
+    return !!buildingId && !!this.state.me?.captainOf?.includes(buildingId);
+  }
+
+  /** May plant a flag in this building: `building.assign` there, or its captain (core plantFlag). */
+  canFlag(buildingId?: string | null): boolean {
+    return this.can("building.assign", buildingId) || this.captains(buildingId);
+  }
 }
+
+/**
+ * What a captain gets in a building under their goal (server: intray canDecide, review, start/end meeting, canDirect).
+ * Not building.assign: a captain plants flags (`canFlag`) but doesn't cancel queued work or stop agents there.
+ */
+const CAPTAIN_PERMS: ReadonlySet<Permission> = new Set<Permission>(["building.review", "meeting.facilitate"]);
 
 export const store = new Store();
 
@@ -286,9 +353,11 @@ export function isMyAccessDecision(e: Event, userId: string | undefined): boolea
   return !!userId && e.type === "system" && !!e.payload.accessRequestId && e.payload.userId === userId && typeof e.payload.granted === "boolean";
 }
 
-/** The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same state). */
+/**
+ * The toast for a change in `me` after a decision, or null when nothing changed (a stale event, a refetch of the same
+ * state). Being let in has no toast: the HUD's one-time "You're in" card says it, live or on the next visit (youreIn.ts).
+ */
 export function accessDecisionToast(before: AuthMe | null, after: AuthMe): { text: string; tone: "ok" | "info" } | null {
-  if (before?.canInteract === false && after.canInteract) return { text: "You're in: an admin let you join. You can walk, talk and connect your agent now.", tone: "ok" };
   if (before?.accessRequest?.status === "pending" && after.accessRequest?.status === "declined") return { text: "Your request to join was declined this time. You can ask again tomorrow.", tone: "info" };
   return null;
 }
@@ -305,5 +374,5 @@ export function isManager(a: Pick<Agent, "id" | "homeBuildingId">, buildings: Sn
   return !!a.homeBuildingId && buildings.some((b) => b.id === a.homeBuildingId && b.managerAgentId === a.id);
 }
 
-/** The label next to an agent's name: service agents keep theirs ("Librarian"); a building's manager reads "Manager"; other residents have none. */
-export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (a.kind === "service" ? a.title : isManager(a) ? "Manager" : "");
+/** The label next to an agent's name: a building's manager reads "Manager"; other residents have none. */
+export const roleOf = (a: Pick<Agent, "id" | "kind" | "title" | "homeBuildingId">): string => (isManager(a) ? "Manager" : "");

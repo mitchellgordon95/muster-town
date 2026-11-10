@@ -1,28 +1,36 @@
 import {
-  BOARD_TYPES, parseRollup, ROLLUP_MAX_NEEDS, ROLLUP_NEEDS_RULE, rollupNeedsCount, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields,
+  BOARD_TYPES, askLineFor, askStructure, askWarnings, parseRollup, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
-  applyDecision, canSeeDoc, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, requirePendingReport, sendMessage,
+  applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
   setAssignmentStatus, summarizeDoc, updateDoc,
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
-import { isCheckpointAssignment } from "../lanes.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
 import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
 import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
+import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
-import { ftsQuery } from "../text.ts";
+import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
+import { fileForecast } from "../grant-forecast.ts";
 import { linkPostmortem } from "../postmortems.ts";
+import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
+import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
+import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
 import type { VerbIn } from "./types.ts";
 import { guessedTimesWarning } from "../time.ts";
+import { dictionaryPairs } from "../dictionary.ts";
 
-const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes"]);
+const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-report", "meeting-notes", "bulletin", "policy", "dictionary"]);
+/** Docs only humans change (the policy ledger through its "Add this rule?" ask, the dictionary through the admin paths): no agent writes or updates them, even their author. */
+const HUMAN_ONLY_TYPES = new Set<Doc["type"]>(["policy", "dictionary"]);
+const HUMAN_ONLY_NOTE = "The policy ledger and the town dictionary are changed by humans only (a rule is added when a human decides \"Add this rule to the ledger?\"). File a policy ask instead.";
 
 export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
@@ -144,8 +152,11 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
     return { ...d, author: world.nameOf(d.authorId), sources, files,
       ...(files.length ? { filesNote: "Read one with `read` {id, file}. On a desk you can save them under ~/skills/<name>/ and run the scripts." } : {}) };
   }
-  const revisions = d.topicOf ? revisionsOf(world, d.id).map((r) => ({ ...r, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
-  return { ...d, author: world.nameOf(d.authorId), sources, ...(revisions ? { revisions } : {}) };
+  // A topic page's revisions are listed without their bodies: a page rewritten often carries hundreds of thousands
+  // of characters of old text, which made `read` too big for a session. GET /api/docs/:id still returns the bodies.
+  const revisions = d.topicOf ? revisionsOf(world, d.id).map(({ body, ...r }) => ({ ...r, chars: body.length, author: world.nameOf(r.authorId), replacedByName: world.nameOf(r.replacedBy) })) : undefined;
+  return { ...d, author: world.nameOf(d.authorId), sources,
+    ...(revisions ? { revisions, ...(revisions.length ? { revisionsNote: "Old bodies are not shown here; GET /api/docs/<id> returns them." } : {}) } : {}) };
 }
 
 /** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
@@ -173,7 +184,8 @@ export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {
-  if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : "the dedicated flow"} for ${input.type} docs.`);
+  if (HUMAN_ONLY_TYPES.has(input.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
+  if (WRITE_FORBIDDEN_TYPES.has(input.type)) throw badRequest(`Use ${input.type === "report" ? "submit_report" : input.type === "request" ? "request_human" : input.type === "bulletin" ? "the bulletin board in the square (humans post there)" : "the dedicated flow"} for ${input.type} docs.`);
   const holder = world.holderOf(me);
   if (input.buildingId && input.type !== "fyi") throw badRequest("`buildingId` is only for FYIs (type \"fyi\"): it picks the board to post to, e.g. \"town-hall\" for a town-wide FYI.");
   if (input.buildingId) world.buildings.require(input.buildingId, "building");
@@ -207,6 +219,7 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
+    if (HUMAN_ONLY_TYPES.has(cur.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
     if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
@@ -269,17 +282,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY (purpose = 'work') DESC, startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
-  // goal-directed budgets: the rollup of a checkpoint assignment is the grant's checkpoint report (a grant may have no reports yet)
-  const checkpointGrantId = input.rollup && current && isCheckpointAssignment(current) ? current.grantId : null;
   // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
-  const closedGrants = input.rollup && isManager && session && !checkpointGrantId
+  const closedGrants = input.rollup && isManager && session
     ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
       .filter((g) => g.history.at(-1)?.byId === me.id)
     : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
   if (input.rollup) {
     if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !checkpointGrantId && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
+    if (!sourceIds.length && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
     for (const id of sourceIds) {
       const d = world.docs.get(id);
       if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
@@ -287,17 +298,39 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   // the rollup format (1:1 mt_vcn0e66r1t): the four headings are required; a Shipped item without its labels is only warned
   const format = input.rollup ? parseRollup(input.body) : null;
-  if (format?.missingSections.length) throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from Mitchell. Missing: ${format.missingSections.map((s) => `## ${s}`).join(", ")}.`);
+  if (format?.missingSections.length) {
+    const captain = world.captainName();
+    throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from ${captain}. Missing: ${format.missingSections.map((s) => `## ${s === "Needs from Mitchell" ? `Needs from ${captain}` : s}`).join(", ")}.`);
+  }
   const formatWarnings = [...(format ? rollupWarnings(format) : []), ...(timeWarn(input.body).warnings ?? [])];
+  // asks as a table (docs/legible-delegation.md §4): a rollup's typed `asks` list is checked against its prose (every id
+  // its Needs and real "Your call" lines name is a target in the list); without the list the prose is read as before
+  if (input.asks && !input.rollup) throw badRequest("`asks` goes with a rollup (rollup: true) only.");
+  const typedAsks = format && input.asks ? checkRollupAsks(world, input.body, input.asks) : null;
+  // adoption: a rollup that asks something in prose only is tagged "untyped-asks" and told how to file the list next time
+  const untyped = !!format && !typedAsks && (rollupAsks(format).length > 0 || rollupNeedsIdsAll(input.body, format).length > 0);
+  const untypedNote = untyped ? " Next rollup, also file what you ask the humans as `asks` (type, targetId, title, body, branches, recommendation): this time the town read your Needs and \"Your call\" lines from the prose." : "";
   // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
   // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
   if (format) {
-    // a checkpoint or close rollup asks about its own grant: that is what the rollup is for
-    const own = new Set([checkpointGrantId, ...closedGrants.map((g) => g.id)]);
+    // a close rollup asks about its own grant: that is what the rollup is for; a typed ask on an item folds into its own ask
+    const own = new Set([...closedGrants.map((g) => g.id), ...(typedAsks ?? []).flatMap((a) => a.targetId ? [a.targetId] : [])]);
     const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
-    if (dup.length) throw badRequest(`Needs from Mitchell names what already waits for him elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${ROLLUP_NEEDS_RULE}`);
+    if (dup.length) {
+      const captain = world.captainName();
+      throw badRequest(`Needs from ${captain} names what already waits for ${captain === "Mitchell" ? "him" : captain} elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${rollupNeedsRule(captain)}`);
+    }
     const needs = rollupNeedsCount(input.body);
     if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
+  }
+  // grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence and the top-up line with its
+  // report, for its own grant only; the held grant's checkpoint card assembles from them (no manager checkpoint session)
+  const krEvidence = input.keyResults ?? [];
+  const lane = session?.lane ?? current?.lane;
+  const laneGrantId = session?.grantId ?? current?.grantId;
+  const evidenceGrant = krEvidence.length || input.topUp ? world.grantDesk.checkReportEvidence(lane, laneGrantId, krEvidence) : null;
+  if (!evidenceGrant && lane === "grant" && laneGrantId && !input.rollup) {
+    formatWarnings.push(`a grant-lane report with no keyResults or topUp: if your work moved a key result of ${laneGrantId}, file it with keyResults [{id, status, evidence}] next time (the checkpoint card shows what the forks filed)`);
   }
   const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
@@ -308,6 +341,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
+  // 1:1 mt_ewxnhs90cq decision 5: a typed ask missing structure (two branches, a recommendation, its type's hard
+  // contract fields) is refused; style rules are filed as warnings in the ask's history and named in the answer
+  if (typedAsks?.length) refuseMissingStructure("rollup", typedAsks.flatMap((a, i) => askStructure(a.type, { ...a, targetKind: a.targetKind ?? null }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
+  const styleWarnings = (typedAsks ?? []).flatMap((a, i) => askWarnings(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] ${p}`));
+  const styleNote = styleWarnings.length ? ` Your typed asks are filed with ${styleWarnings.length} style warning(s), kept in each ask's history; next time: ${styleWarnings.join("; ").slice(0, 1500)}.` : "";
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
   const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
   const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
@@ -316,13 +354,24 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(checkpointGrantId ? ["checkpoint"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
+      tags: [...(input.rollup ? ["rollup"] : []), ...(untyped ? ["untyped-asks"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
-    if (checkpointGrantId) {
-      const g = world.grants.get(checkpointGrantId);
-      if (g) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
-    }
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
+    // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
+    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
+    // its grant's report and stays.
+    // With a typed list, the same holds by target: every ask folded into an ask already open (and no Shipped items).
+    const rowIds = format && !closedGrants.length && !typedAsks ? waitingRowIds(world) : null;
+    let asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
+    let folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
+    const filedAsks = typedAsks ? fileRollupAsks(world, me, doc, typedAsks) : [];
+    if (format && typedAsks && !closedGrants.length && !format.items.length && filedAsks.length && filedAsks.every((f) => f.folded)) {
+      asked = [...new Set(filedAsks.map((f) => f.ask.targetId!))];
+      folded = foldRollup(world, doc, asked);
+    } else if (format && !typedAsks) asksFromRollupProse(world, folded ?? doc);
+    // legible delegation step 5: shipped notices, the closed loop of a grant it closes, archived when it asks nothing of its own
+    const archived = format ? settleRollup(world, folded ?? doc, closedGrants) : false;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -336,27 +385,41 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       const what = describeWait(world, resumeWhen);
       const title = (input.next?.trim() || `Resume: ${current.title}`).slice(0, 160);
       const next = createAssignment(world, {
+        // routed like any job (createAssignment): a fork's continuation goes on the building queue; a non-forking
+        // manager's (the Secretary, a lab resident) stays its own. A forking manager never runs a work session, so never parks one.
         agentId: me.id, buildingId: current.buildingId, title, waitFor: resumeWhen, parked: parks, front: true,
         createdBy: { kind: "system", id: "system" }, fromAssignmentId: current.id, fromReportId: doc.id,
         description: `You parked this work in your report "${doc.title}" (${doc.id}) until ${what}; that has happened, so it resumed by itself.${input.next ? `\n\nWhat you said you'd do: ${input.next.trim()}` : ""}\n\nThe original assignment (${current.id}): ${current.title}\n\n${current.description}`,
       });
+      // a parked step stays the same step of its grant's plan: its continuation's report queues the next one
+      if (current.grantStep != null) world.assignments.patch(next.id, { grantStep: current.grantStep });
       parked = { assignmentId: next.id, waitingOn: what };
     }
+    // grant B (gr_b5fyqibfx2): a plan step's report queues the grant's next step by itself (not on a pivot verdict, not
+    // when the step was cancelled under it); the manager's review stop / redirect of this report cancels it while it waits
+    const nextStep = !resumeWhen && current && world.assignments.get(current.id)?.status === "done"
+      ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
+    // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
+    const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
+    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
+    const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = "pending";
+    const decision: Doc["decision"] = folded || archived ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
-    const where = townHall ? "the Town Hall in-tray (the humans decide on it)"
+    const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
+      : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
+      : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
-        note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
+      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
+        note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), note: `Report submitted to ${where}.${formatNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
@@ -391,7 +454,7 @@ const laneOf = (i: LaneFields): LaneFields | undefined =>
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   const doc = requirePendingReport(world, input.docId);
-  if (!world.permissions.can(me, "building.review", doc.buildingId)) throw forbidden("building.review");
+  if (!world.permissions.can(me, "building.review", doc.buildingId) && !world.goalTree.captainsBuilding(me, doc.buildingId)) throw forbidden("building.review");
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
   // a rollup waits for the humans
   if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
@@ -399,27 +462,67 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
-  return { docId: doc.id, decision: input.decision, assignmentId: res.assignment?.id ?? null };
+  const a = res.assignment;
+  return { docId: doc.id, decision: input.decision, assignmentId: a?.id ?? null, ...(a?.queue === "building" ? { queue: "building" as const, to: queueLabel(world, a.buildingId, a.agentId) } : {}) };
 }
 
+/** The request ids a request's text says it replaces: every dc_… in a sentence with "replaces" or "supersedes". */
+function replacedRequestIds(text: string): string[] {
+  const ids = new Set<string>();
+  for (const m of text.matchAll(/\b(?:replaces|supersedes)\b([^.\n]*)/gi)) for (const id of m[1]!.matchAll(/\bdc_[a-z0-9]+\b/g)) ids.add(id[0]);
+  return [...ids];
+}
+
+/**
+ * `request_human`: an open outbox request at once. One that replaces an older open request (`replaces`, or "replaces
+ * dc_…" in the body; 1:1 mt_pr3347g2w2 decision 7) withdraws the old one with a note pointing here, if the caller may
+ * withdraw it (its author, or its building's manager or fork); an explicit `replaces` that can't be withdrawn refuses.
+ */
 export async function request_human(world: World, me: Agent, input: VerbIn<"request_human">) {
   const bid = homeOf(me);
   if (!world.permissions.can(me, "doc.request_human", bid)) throw forbidden("doc.request_human");
   const holder = world.holderOf(me);
+  if (input.replaces) {
+    const old = world.docs.get(input.replaces);
+    if (!old || old.type !== "request") throw badRequest(`${input.replaces} is not an outbox request.`);
+    if (old.requestStatus !== "open") throw badRequest(`${input.replaces} is ${old.requestStatus}, not open: only an open request is replaced.`);
+    if (!world.ops.canWithdrawRequest(me, old)) throw forbidden("building.manage", `${input.replaces} is not yours (nor your building's) to replace.`);
+  }
   const doc = createDoc(world, {
     type: "request", state: "building", title: input.title, body: input.body, location: input.location,
     requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
+    ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
-  return { id: doc.id, requestStatus: doc.requestStatus, note: "It is in the town outbox now; a human decides whether to do it and reports back." };
+  askForRequest(world, doc);
+  const withdrew: string[] = [];
+  for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
+    const old = world.docs.get(id);
+    if (!old || old.type !== "request" || old.requestStatus !== "open" || old.id === doc.id || !world.ops.canWithdrawRequest(me, old)) continue;
+    world.ops.requestAction(me, id, "withdraw", `Replaced by ${doc.id} ("${oneLine(doc.title, 80)}").`);
+    withdrew.push(id);
+  }
+  if (withdrew.length && !doc.requestReplaces) updateDoc(world, doc.id, { requestReplaces: withdrew[0] });
+  return { id: doc.id, requestStatus: doc.requestStatus, ...(withdrew.length ? { withdrew } : {}), note: `It is in the town outbox now; a human decides whether to do it and reports back.${withdrew.length ? ` Withdrew ${withdrew.join(", ")} (replaced by this one).` : ""}` };
+}
+
+/** `withdraw_request` (1:1 mt_pr3347g2w2 decision 7): the author (or its building's manager or fork) takes an open request back with a note. */
+export async function withdraw_request(world: World, me: Agent, input: VerbIn<"withdraw_request">) {
+  const d = world.docs.get(input.docId);
+  if (!d || d.type !== "request") throw badRequest(`${input.docId} is not an outbox request.`);
+  const { request } = world.ops.requestAction(me, input.docId, "withdraw", input.note);
+  return { id: input.docId, requestStatus: request?.requestStatus, note: "Withdrawn: it left the outbox (listed under Declined or withdrawn, your note on it). File a new request_human if something else is needed." };
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   // a timed job is a building schedule (Mitchell, 1:1 mt_w7z9k1z112): nothing is pinned to an agent before it fires
   if (input.waitFor && "after" in input.waitFor) throw badRequest("A timed job goes on the building's schedule: use `schedule` (title, description, runsAt, optional repeat); whoever is around when it fires takes it.");
-  // manager forks: no agentId = the building queue; the manager holds it until a fork takes it. agentId = a named agent (the manager taking work itself)
+  // no agentId = the building queue; the manager holds it until a fork takes it. agentId = the manager itself (also the
+  // building queue when it forks: createAssignment) or a visitor (an offer)
   const building = input.agentId ? null : world.buildings.get(homeOf(me) ?? "");
   if (!input.agentId) {
     if (!building) throw badRequest("Name the agentId to assign.");
+    const visitor = visitorManagerRefusal(world, building);
+    if (visitor) throw visitor;
     if (!managerAgentOf(world, building)) throw badRequest(`${building.name} has no manager agent to fork; name the agentId.`);
   } else if (input.model) throw badRequest("`model` is for building-queue work (leave agentId out); a named agent runs on its own model.");
   const target = building ? managerAgentOf(world, building)! : world.agents.require(input.agentId!, "agent");
@@ -427,16 +530,17 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   if (!world.permissions.can(me, "building.assign", bid)) throw forbidden("building.assign");
   // one named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1): an agent names only itself
   // (the manager taking the work) or a visitor; everything else is building-queue work
-  if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for taking the work yourself (${me.id}) or offering it to a visitor.`);
+  if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for offering it to a visitor (your own id, ${me.id}, queues it to the building too).`);
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const model = building ? checkForkModel(building, input.model) : null;
   const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;
   // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment
   const a = createAssignment(world, { agentId: target.id, title: input.title, description: input.description, createdBy: world.holderOf(me), waitFor,
-    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { queue: "building" as const, model } : {}) });
+    lane: laneOf(input), ...(me.kind === "human" ? {} : { origin: actOrigin(world, me, null) }), ...(building ? { model } : {}) });
   if (pages) world.assignments.patch(a.id, { pages });
-  if (!building) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
-  return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(building ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
+  const queued = a.queue === "building";
+  if (!queued) sendMessage(world, { kind: "system", fromId: me.id, fromKind: "system", toId: target.id, body: `New assignment from ${me.name}: ${input.title}${waitFor ? ` (starts after ${describeWait(world, waitFor)})` : ""}` });
+  return { assignmentId: a.id, lane: a.lane, ...(pages ? { pages } : {}), ...(queued ? { queue: "building" as const, ...(model ? { model } : {}) } : {}), ...(a.heldReason ? { held: a.heldReason } : {}), ...(waitFor ? { waitingOn: describeWait(world, waitFor) } : {}) };
 }
 
 /** `schedule`: a timed job on my building (Mitchell, 1:1 mt_w7z9k1z112); whoever is around when it fires takes the work. */
@@ -451,13 +555,21 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
     const { lane, grantId, gap, sourceId, ...edit } = rest;
     if (lane || grantId || gap || sourceId) throw badRequest("A schedule keeps its lane: `cancel` it with scheduleId and schedule it again in the new lane.");
     const e = editSchedule(world, me, sc.id, { ...edit, ...(paused !== undefined ? { paused } : {}) });
-    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs };
+    return { scheduleId: e.id, nextRunAt: e.nextRunAt, repeat: describeRepeat(e), ...(e.endsAt ? { endsAt: e.endsAt } : {}), paused: e.paused, runs: e.runs, ...retainerOut(world, e) };
   }
   if (paused !== undefined) throw badRequest("paused goes with scheduleId (pause or resume an existing schedule).");
   if (!rest.title || rest.description === undefined) throw badRequest("A new schedule needs a title and a description (or give scheduleId to edit one).");
   const s = createSchedule(world, bid, world.holderOf(me), { ...rest, repeat: rest.repeat ?? undefined }, me.kind === "human" ? null : actOrigin(world, me, null));
-  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane,
+  return { scheduleId: s.id, nextRunAt: s.nextRunAt, repeat: describeRepeat(s), ...(s.endsAt ? { endsAt: s.endsAt } : {}), lane: s.lane, ...retainerOut(world, s),
     note: "On your building's schedule: when it fires, a normal assignment goes to the building queue (a fork of you runs it); a run is skipped while the last one is still queued or running. `schedule` with scheduleId edits or pauses it; `cancel` with scheduleId deletes it." };
+}
+
+/** A schedule's retainer as `schedule` answers: per run, runs left, the ask, drawn and its state (nothing for a schedule without one). */
+function retainerOut(world: World, s: Schedule) {
+  if (s.lane !== "retainer") return {};
+  const v = scheduleView(world, s);
+  const state = v.retainer === "asked" ? "asked: waits on a human in the Town Hall in-tray; its runs are held until approved" : v.retainer === "countered" ? `countered: ${v.retainerNote ?? ""} Answer by editing tokensPerRun and/or repeat` : v.retainer;
+  return { retainer: { tokensPerRun: v.tokensPerRun, runsLeft: v.runsLeft, askTokens: v.askTokens, drawnTokens: v.drawnTokens, approvedTokens: v.retainerTokens, state } };
 }
 
 /**

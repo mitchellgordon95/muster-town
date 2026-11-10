@@ -52,7 +52,9 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       // v1.4 visitor bench right of the door corridor; visitors wait on the row above it (stands = the two seats)
       { key: "bench", label: "Visitor bench", at: { x: 10, y: 9 }, cells: row(2, TILE.BENCH), stands: [{ x: 0, y: -1 }, { x: 1, y: -1 }] },
       { key: "planning", label: "Planning desk", at: { x: 12, y: 9 }, cells: row(2, TILE.DESK), stands: [{ x: 0, y: -1 }] },
-      { key: "intray", label: "Town Hall in-tray", at: { x: 14, y: 9 }, cells: one(TILE.MANAGER_DESK), stands: [{ x: 0, y: -1 }] },
+      // the hydrant (docs/legible-delegation.md §3): the stream of asks and notices pours from it; it opens the decision
+      // queue, one item at a time (the Town Hall in-tray is gone), and the Secretary rests beside it
+      { key: "hydrant", label: "Hydrant", at: { x: 15, y: 9 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: -1 }] },
       { key: "schedule", label: "Schedule board", at: { x: 15, y: 6 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
       // the Town Hall board on the back wall: town-wide FYIs (Mitchell's flag dc_ym8fjxqjiv)
       { key: "board", label: "Town Hall board", at: { x: 8, y: 0 }, cells: one(TILE.BOARD), stands: [{ x: 0, y: 1 }], wall: true },
@@ -61,8 +63,12 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       { key: "library", label: "Library shelves", at: { x: 2, y: 2 }, cells: row(5, TILE.SHELF), stands: [{ x: 2, y: 1 }] },
       // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
       { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },
-      { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(4, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
+      // the outbox counter, two tiles since the user stats stand took its right half (1:1 mt_ec2b7x80rg decision 2)
+      { key: "outbox", label: "Outbox counter", at: { x: 2, y: 6 }, cells: row(2, TILE.COUNTER), stands: [{ x: 1, y: 1 }] },
+      { key: "stats", label: "User stats stand", at: { x: 5, y: 6 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
       { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
+      // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+      { key: "help", label: "Help sign", at: { x: 6, y: 9 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
       { key: "plant:0", label: "Plant", at: { x: 1, y: 1 }, cells: one(TILE.PLANT), stands: [] },
       { key: "plant:1", label: "Plant", at: { x: bw - 2, y: 1 }, cells: one(TILE.PLANT), stands: [] },
     ];
@@ -86,6 +92,8 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
     { key: "cabinet", label: "Filing cabinet", at: { x: bw - 2, y: cy }, cells: one(TILE.CABINET), stands: [{ x: -1, y: 0 }] },
     { key: "meeting", label: "Meeting table", at: { x: bw - 5, y: yMeet }, cells: row(3, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
     { key: "plant", label: "Plant", at: { x: 1, y: yMeet }, cells: one(TILE.PLANT), stands: [] },
+    // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
+    { key: "help", label: "Help sign", at: { x: Math.floor(bw / 2) - 2, y: bh - 2 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
   ];
 }
 

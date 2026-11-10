@@ -25,7 +25,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     const th = world.buildings.first("kind = 'town-hall'")!;
     const before = intrayCount(world, th.id);
     const r = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: world.goalTree.attachmentOf(LAB), text: "Deck shows sessions", why: "funders asked" });
-    const g = world.grantDesk.create(null, LAB, { keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+    const g = world.grantDesk.create(null, LAB, { keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     world.grantDesk.propose(null, g.id);
     expect(townHallIntray(world).goalProposals.map((p) => p.id)).toEqual([r.proposal.id]);
     expect(intrayCount(world, th.id)).toBe(before + 2);
@@ -44,7 +44,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
   it("move and retire slides say what happens in the card's words; a retire names the buildings and key results that move", async () => {
     const { world, mei, admin, tree, labGoal, otherGoal } = setup();
     const sib = tree.create(admin, { parentId: "gl_trust", text: "Anyone can check the ledger" });
-    world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "Grant pages show sessions", howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 });
+    world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "Grant pages show sessions", howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
     const mv = await world.verbs.propose_goal(mei, { action: "move", targetId: labGoal.id, parentId: otherGoal.id, why: "fits better" });
     const rt = await world.verbs.propose_goal(mei, { action: "retire", targetId: labGoal.id, parentId: sib.id, why: "done" });
     const text = (id: string) => reviewDeck(world).slides.find((s) => s.itemId === id)!.text;
@@ -64,7 +64,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     const lena = createUser(world, "Lena").user;
     const lenaAv = world.ops.ensureAvatar(lena.id);
     tree.update(admin, labGoal.id, { ownerId: lena.id });
-    const plan = { objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 };
+    const plan = { objective: "o", approach: "a", steps: [{ size: "M" as const, title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 };
     const gLab = world.grantDesk.create(null, LAB, { ...plan, goalId: labGoal.id, keyResults: [{ text: "lab kr", howToCheck: "h", due }] });
     const gOther = world.grantDesk.create(null, other.id, { ...plan, goalId: otherGoal.id, keyResults: [{ text: "other kr", howToCheck: "h", due }] });
     world.grantDesk.propose(null, gLab.id);
@@ -138,6 +138,21 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     expect(sub.series).toHaveLength(5);
   });
 
+  it("visitors at desks under the goal are counted, their spend is not: online visitors homed in the subtree's buildings only", () => {
+    const base = inputs([s("mgr", {})]);
+    const r = goalSpend("gl_a", { ...base, agents: [
+      ...base.agents,
+      { id: "ag_v1", buildingId: "b1", homeBuildingId: "b1", kind: "visitor", status: "idle" },
+      { id: "ag_v2", buildingId: "town-hall", homeBuildingId: "b1", kind: "visitor", status: "offline" }, // offline: no desk
+      { id: "ag_v3", buildingId: "b3", homeBuildingId: "b3", kind: "visitor", status: "working" }, // b3 → gl_b: elsewhere
+      { id: "ag_v4", buildingId: "b1", homeBuildingId: "b1", kind: "visitor", status: "retired" }, // gone
+      { id: "ag_r", buildingId: "b1", homeBuildingId: "b1", kind: "resident", status: "idle" },
+    ] }, 7, now);
+    expect(r.visitors).toBe(1);
+    expect(r.sessions).toBe(1); // the visitor's own sessions never reach the table: nothing is booked or guessed for it
+    expect(goalSpend("gl_a", base, 7, now).visitors).toBe(0);
+  });
+
   it("the funder filter (step 8): weights keep only what one funder paid, scaled", () => {
     const one = adjustedOfUsage("claude-opus-4-5", { output: 1000 });
     const r = goalSpend("gl_a", { ...inputs([s("a", {}), s("b", {}), s("c", {})]), weights: new Map([["a", 1], ["b", 0.25]]) }, 7, now);
@@ -147,7 +162,7 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
 
   it("over the world: reads sessions, writes nothing to the Bank", () => {
     const { world, admin, labGoal, mei } = setup();
-    const g = world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 100000 });
+    const g = world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 100000 });
     const kr = world.keyResults.require(g.keyResultId!);
     world.grantDesk.propose(null, g.id);
     world.grantDesk.decide(admin, g.id, { action: "fund" });

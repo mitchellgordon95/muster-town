@@ -12,6 +12,48 @@ describe("furniture", () => {
     expect(validateLayout("town-hall", TOWN_HALL_SIZE, piecesFor("town-hall", 3, TOWN_HALL_SIZE))).toEqual([]);
   });
 
+  it("the Town Hall's user stats stand sits beside a two-tile outbox counter; nothing else moved, every spot reachable (1:1 mt_ec2b7x80rg)", () => {
+    const pieces = piecesFor("town-hall", 3, TOWN_HALL_SIZE), by = new Map(pieces.map((p) => [p.key, p]));
+    expect(by.get("outbox")!.cells).toHaveLength(2);
+    expect(by.get("stats")).toMatchObject({ at: { x: 5, y: 6 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: 0, y: 1 }] });
+    expect(by.has("intray")).toBe(false);
+    const { world } = seededWorld();
+    const door = world.layout.door("town-hall")!;
+    for (const id of ["stats", "outbox", "hydrant:town-hall", "mod-station", "planning-desk", "visitor-bench", "library", "meeting-room:town-hall"]) {
+      const p = world.layout.requirePlace(id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), id).toBe(true);
+      expect(findPath(world.layout.grid, door, p.pos), id).not.toBeNull();
+    }
+    const stats = world.layout.requirePlace("stats");
+    expect(stats.kind).toBe("stats");
+    expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
+  });
+
+  it("the Town Hall's hydrant stands right of the planning desk, used from a reachable tile; the Town Hall has no in-tray place (docs/legible-delegation.md §3)", () => {
+    const { world } = seededWorld();
+    const p = world.layout.requirePlace("hydrant:town-hall");
+    expect(p).toMatchObject({ kind: "hydrant", buildingId: "town-hall" });
+    expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
+    expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
+    expect(at(world, p.pos.x, p.pos.y + 1)).toBe(TILE.HYDRANT);
+    expect(at(world, p.pos.x - 1, p.pos.y + 1)).toBe(TILE.FLOOR);
+    expect(world.layout.place("intray:town-hall")).toBeFalsy();
+    expect(world.layout.places.filter((x) => x.buildingId === "town-hall" && x.kind === "intray")).toEqual([]);
+  });
+
+  it("every building has a \"?\" help sign beside its door, read from a reachable tile (flag dc_8dwch9z5pi)", () => {
+    const { world } = seededWorld();
+    for (const b of world.buildings.all()) {
+      const p = world.layout.requirePlace(`help:${b.id}`);
+      expect(p.kind).toBe("help");
+      expect(p.buildingId).toBe(b.id);
+      expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), b.id).toBe(true);
+      expect(findPath(world.layout.grid, world.layout.door(b.id)!, p.pos), b.id).not.toBeNull();
+      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => at(world, p.pos.x + dx, p.pos.y + dy) === TILE.HELP);
+      expect(near, b.id).toBe(true);
+    }
+  });
+
   it("rejects pieces on the door, overlapping, off the floor, or walling off a stand tile", () => {
     const lot = labSize(6), pieces = piecesFor("lab", 6, lot), v = (f: Parameters<typeof validateLayout>[3]) => validateLayout("lab", lot, pieces, f);
     const door = Math.floor(lot.w / 2), desk0 = pieces.find((p) => p.key === "desk:0")!.at;

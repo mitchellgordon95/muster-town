@@ -1,7 +1,9 @@
-import { CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
-import { applyDecision, createAssignment, createDoc, managerAgentOf, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { grantName, isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { countMemberAct } from "./access.ts";
+import { canDirect } from "./direct.ts";
+import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
-import { buildingRoleId, townRoleId } from "./permissions.ts";
+import { buildingRoleId, type Holder } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
 import { presentedReviewDeck } from "./review-deck.ts";
 import { oneLine } from "./text.ts";
@@ -16,33 +18,30 @@ type CreateMeeting = (typeof CreateMeetingInput)["_input"];
 
 /**
  * Residents of a building, stopped ones included (a standup is where they get reactivated with a new task); for
- * town-hall meetings, agents holding manager/reviewer anywhere plus town moderators.
+ * town-hall meetings, the agents holding a lab's manager role.
  */
 export function defaultAttendees(world: World, buildingId: string | null): string[] {
   if (buildingId && buildingId !== TOWN_HALL_ID) {
-    return world.agents.where("homeBuildingId = ? AND kind = 'resident' AND status NOT IN ('banned','retired') AND forkOf IS NULL", [buildingId], "ORDER BY createdAt").map((a) => a.id);
+    return world.agents.where(`homeBuildingId = ? AND kind = 'resident' AND ${NOT_GONE} AND forkOf IS NULL`, [buildingId], "ORDER BY createdAt").map((a) => a.id);
   }
   const ids = new Set<string>();
   for (const b of world.buildings.where("kind = 'lab'")) {
-    for (const r of ["manager", "reviewer"] as const) for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, r))) ids.add(id);
+    for (const id of world.permissions.agentsWithRole(buildingRoleId(b.id, "manager"))) ids.add(id);
   }
-  for (const id of world.permissions.agentsWithRole(townRoleId("moderator"))) ids.add(id);
-  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && s !== "banned" && s !== "retired"; });
+  return [...ids].filter((id) => { const s = world.agents.get(id)?.status; return !!s && !isGone(s); });
 }
 
 /**
- * The building's manager (set explicitly in its settings), else its reviewer agent, else the first resident by join
+ * The building's manager (set explicitly in its settings), else the first resident by join
  * order. Town hall: the first active manager among the invitees (buildings in creation order), else the first active
  * invitee (docs/meetings.md §3.4). Never the first *invitee* by default: the UI's picker sends invitees sorted by
  * name, which made the facilitator whoever sorted first.
  */
 export function defaultFacilitator(world: World, buildingId: string | null, attendees: string[]): string | null {
-  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && s !== "banned" && s !== "retired"; };
+  const active = (id: string | null | undefined): id is string => { const s = id ? world.agents.get(id)?.status : undefined; return !!s && s !== "stopped" && !isGone(s); };
   if (buildingId && buildingId !== TOWN_HALL_ID) {
     const manager = world.buildings.get(buildingId)?.managerAgentId;
     if (active(manager)) return manager;
-    const rev = world.permissions.agentsWithRole(buildingRoleId(buildingId, "reviewer")).find(active);
-    if (rev) return rev;
     const first = defaultAttendees(world, buildingId).find((id) => active(id) && attendees.includes(id));
     if (first) return first;
   } else {
@@ -60,7 +59,18 @@ export function previousMeeting(world: World, m: Pick<Meeting, "id" | "buildingI
     : world.meetings.first("phase = 'done' AND buildingId IS NULL AND id != ?", [m.id], "ORDER BY endedAt DESC, rowid DESC");
 }
 
-export interface DecisionOutcome { n: number; text: string; assigneeId: string | null; outcome: string }
+/** Who a decision went to: the agent, or "<building> queue (a fork of <manager>)" when it went on a building's queue. */
+export function decisionTarget(world: World, d: { assigneeId?: string | null; queueBuildingId?: string }): string {
+  if (!d.assigneeId) return "";
+  return d.queueBuildingId ? queueLabel(world, d.queueBuildingId, d.assigneeId) : world.nameOf(d.assigneeId);
+}
+
+/** The decision's assignee is the agent on its assignment, or that agent's manager when a fork took it off the queue. */
+function sameAssignee(world: World, assigneeId: string | null | undefined, agentId: string): boolean {
+  return !!assigneeId && (assigneeId === agentId || world.agents.get(agentId)?.forkOf === assigneeId);
+}
+
+export interface DecisionOutcome { n: number; text: string; assigneeId: string | null; queueBuildingId?: string; outcome: string }
 
 /**
  * A meeting's decisions (superseded ones dropped; `agentId` keeps only those assigned to that agent) with what became
@@ -74,23 +84,24 @@ export function decisionOutcomes(world: World, m: Meeting, agentId?: string): De
     const a = d.assignmentId ? world.assignments.get(d.assignmentId) : undefined;
     const report = a?.reportId ? world.docs.get(a.reportId) : undefined;
     const outcome = !a ? "no assignment" : a.status !== "done" ? a.status : `done${report ? `: "${oneLine(report.title, 100)}" (verdict ${report.verdict ?? "?"}, decision ${report.decision ?? "pending"})` : ""}`;
-    out.push({ n: i + 1, text: d.text, assigneeId: d.assigneeId ?? null, outcome });
+    out.push({ n: i + 1, text: d.text, assigneeId: d.assigneeId ?? null, ...(d.queueBuildingId ? { queueBuildingId: d.queueBuildingId } : {}), outcome });
   });
   return out;
 }
 
-/** Create a meeting. `actor` undefined = system (scheduler); otherwise needs meeting.facilitate or building.review. */
+/** Create a meeting. `actor` undefined = system (scheduler); otherwise, in a lab, `canDirect` there (staff, a captain over its goal, or "direct work under" it); at the Town Hall, meeting.facilitate or building.review. */
 export function createMeeting(world: World, input: CreateMeeting, actor?: Agent): Meeting {
   const inp = CreateMeetingInput.parse(input);
   const bid = inp.buildingId && inp.buildingId !== TOWN_HALL_ID ? inp.buildingId : null;
   const b = bid ? world.buildings.require(bid, "building") : null;
-  if (actor && !world.permissions.can(actor, "meeting.facilitate", bid ?? TOWN_HALL_ID) && !world.permissions.can(actor, "building.review", bid ?? TOWN_HALL_ID)) throw forbidden("meeting.facilitate");
+  // a lab: the building's staff, a captain over its goal, or a member who may direct work under it (direct.ts)
+  if (actor && !(bid ? canDirect(world, actor, bid) : world.permissions.can(actor, "meeting.facilitate", TOWN_HALL_ID) || world.permissions.can(actor, "building.review", TOWN_HALL_ID))) throw forbidden("meeting.facilitate", directRefusal(world, bid));
   const attendeeIds = inp.attendeeIds ? [...new Set(inp.attendeeIds)] : defaultAttendees(world, bid);
   for (const id of inp.attendeeIds ?? []) {
     const a = world.agents.get(id);
     if (!a) throw notFound("agent", id);
     if (a.kind !== "resident" && a.kind !== "visitor") throw badRequest(`Can't invite ${a.name}: only resident and visitor agents attend meetings (${a.kind}).`);
-    if (a.status === "banned" || a.status === "retired") throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
+    if (isGone(a)) throw badRequest(`Can't invite ${a.name}: they are ${a.status}.`);
   }
   const brings = inp.brings ?? { mode: "status" as const, text: "" };
   if (brings.mode === "custom" && !brings.text.trim()) throw badRequest("Say what attendees should bring (custom), or pick status update or nothing.");
@@ -130,7 +141,7 @@ function inviteAsk(m: Meeting): string {
 }
 
 /** An agent a human can hold a 1:1 with: a resident (or manager) still working in the town. */
-const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && a.status !== "banned" && a.status !== "retired";
+const talkable = (a: Agent | undefined): boolean => !!a && a.kind === "resident" && !a.forkOf && a.status !== "stopped" && !isGone(a);
 
 /**
  * Who answers a 1:1 about `authorId`'s work: the author itself if it is a working resident; a fork's parent (the
@@ -147,6 +158,13 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
   return mgr ? { agent: mgr, via: author.forkOf ? "fork" : "gone" } : null;
 }
 
+/** Why a human may not hold a 1:1 or meeting in a lab: they don't direct work under its goal. */
+function directRefusal(world: World, buildingId: string | null): string {
+  const b = buildingId ? world.buildings.get(buildingId) : undefined;
+  if (!b) return "Only the Town Hall's staff call a meeting there.";
+  return `You can't direct work in ${b.name} yet: 1:1s and meetings there need "direct work under" its goal ("${oneLine(world.goalTree.purposeOf(b), 100)}") or a goal above it. An admin or that goal's captain grants it.`;
+}
+
 /**
  * A 1:1 (docs/waterfall.md §3.4): a human opens a meeting with one agent of the building, its manager by default or
  * `opts.agentId` (a doc's "Talk to <author>"; a fork or a gone author resolves through `oneOnOneTarget`). Created
@@ -154,17 +172,21 @@ function oneOnOneTarget(world: World, authorId: string): { agent: Agent; via: "f
  * `in-meeting` (its host session answers, runtime/src/manage.ts). With `opts.docId` (any doc) or `opts.grantId` (a
  * grant's "Talk to <manager>": its proposer, resolved the same way, else the building's manager) the human's first
  * line presents it, so the agent's prompt carries its id (and a grant's key result). Returns the human's open 1:1
- * with that agent if any (presenting the subject there if it isn't yet). Needs meeting.facilitate or building.review
- * on the building.
+ * with that agent if any (presenting the subject there if it isn't yet). Needs `canDirect` on the
+ * building (its staff, a captain over its goal, or a member granted "direct work under" it: gr_cuobjlny6r, Mitchell
+ * mt_hlizi9wxxc); no permission, no 1:1. At the Town Hall, `canPlan`.
  */
 export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
-  // the Town Hall's manager is the Planner, its one agent to talk to ("Plan with an agent", docs/goals.md)
+  // the Town Hall's agents to talk to: the Planner, its manager ("Plan with an agent", docs/goals.md), and the Secretary
+  // (the in-tray, gr_kdlogzzo5s); the same people may open either
   const townHall = b.id === TOWN_HALL_ID || b.kind === "town-hall";
-  if (townHall && opts.agentId && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner, its manager: plan with it from the Goal tree.");
-  if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !world.permissions.can(human, "meeting.facilitate", b.id) && !world.permissions.can(human, "building.review", b.id)) throw forbidden("meeting.facilitate");
+  const secretary = townHall && opts.agentId ? world.secretary.agent() : undefined;
+  const toSecretary = !!secretary && world.secretary.isSecretary(world.agents.get(opts.agentId!) ?? null);
+  if (townHall && opts.agentId && !toSecretary && !world.reorgs.isPlanner(world.agents.get(opts.agentId) ?? null)) throw badRequest("At the Town Hall you talk to the Planner (plan with it from the Goal tree) or the Secretary (the in-tray).");
+  if (townHall ? !world.reorgs.canPlan(human, opts.goalId) : !canDirect(world, human, b.id)) throw forbidden("meeting.facilitate", townHall ? undefined : directRefusal(world, b.id));
   // the Planner itself (created, or resumed if stopped, by ensurePlanner), never "has no manager agent"
-  if (townHall) opts = { ...opts, agentId: world.reorgs.ensurePlanner().id };
+  if (townHall) opts = { ...opts, agentId: toSecretary ? secretary!.id : world.reorgs.ensurePlanner().id };
   const h = world.holderOf(human);
   if (h.kind !== "user") throw badRequest("Only humans open a 1:1.");
   const doc = opts.docId ? world.docs.get(opts.docId) : undefined;
@@ -198,7 +220,7 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
       if (m.transcript.some((u) => u.attachment?.ref === `grant:${grant.id}`)) return m;
       const kr = grant.keyResultId ? world.keyResults.get(grant.keyResultId) : undefined;
       const what = grant.status === "proposed" || grant.status === "countered" || grant.status === "draft" ? "proposal" : "grant";
-      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${oneLine(grant.objective, 120)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
+      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${grantName(grant)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
     }
     if (!doc || m.transcript.some((u) => u.attachment?.kind === "doc" && u.attachment.ref === doc.id)) return m;
     const by = doc.authorId === target.id ? "your" : `${world.nameOf(doc.authorId)}'s`;
@@ -274,7 +296,7 @@ function resolveAttachment(world: World, attach: string): MeetingAttachment {
   if (/^gr_/.test(ref)) {
     const g = world.grants.get(ref);
     if (!g) throw notFound("Grant", ref);
-    return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${g.objective}` };
+    return { kind: "page", ref: `grant:${ref}`, title: `Grant: ${grantName(g)}` };
   }
   if (/^gp_/.test(ref)) {
     const p = world.goalProposals.get(ref);
@@ -316,6 +338,8 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });
   if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
+  // a let-in member's first 1:1 line counts once in the join funnel (gr_58n37j410s step 3); other meetings don't
+  if (m.kind === "one-on-one" && h.kind === "user") countMemberAct(world, h.id);
   notifyMentions(world, actor, text, { where: `meeting "${m.title}"`, meetingId: m.id, buildingId: m.buildingId });
   return updated;
 }
@@ -512,7 +536,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
     if (old.supersededBy || replaced.has(n)) throw new AppError("conflict", `Decision ${n} was already superseded${old.supersededBy ? ` by decision ${old.supersededBy}` : ""}; supersede the newer one.`);
     replaced.add(n);
     const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
-    if (prev?.status === "active" && d.assigneeId !== prev.agentId) {
+    if (prev?.status === "active" && !sameAssignee(world, d.assigneeId, prev.agentId)) {
       throw new AppError("conflict", `${world.nameOf(prev.agentId)} is already working on "${prev.title}"; amend it for the same assignee, or stop them first.`);
     }
   }
@@ -527,25 +551,29 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
       old.supersededBy = num;
       const prev = old.assignmentId ? world.assignments.get(old.assignmentId) : undefined;
       if (prev && (prev.status === "pending" || prev.status === "active")) {
-        if (d.assigneeId === prev.agentId) {
+        if (sameAssignee(world, d.assigneeId, prev.agentId)) {
           world.assignments.upsert({ ...prev, title, ...(prev.status === "pending" ? { waitFor: d.waitFor ? validateWait(world, d.waitFor) : null } : {}), description: `${d.text}\n\nDecided in meeting "${m.title}" (amended; replaces: ${old.text.split("\n")[0].slice(0, 160)}).`, updatedAt: nowIso() });
           if (prev.status === "active") sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: prev.agentId, body: `Your current assignment was amended in meeting "${m.title}": ${d.text}` });
-          out = { ...d, assignmentId: prev.id };
+          out = { ...d, assignmentId: prev.id, ...(old.queueBuildingId ? { queueBuildingId: old.queueBuildingId } : {}) };
         } else {
           setAssignmentStatus(world, prev.id, "cancelled");
         }
       }
     }
     if (out.assigneeId && !out.assignmentId) {
+      // a decision naming a manager whose building forks goes on that building's queue: a fork runs it (1:1 mt_peubjyoo0k)
+      const toQueue = decisionQueue(world, out.assigneeId);
       // A meeting decision that assigns an agent acknowledges (approve) its pending reports as superseded, so the
-      // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports.
-      for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
+      // invariant "every report gets a decision" holds and the in-tray doesn't hold stale reports. Work for a fork
+      // supersedes none of the manager's own reports: those stay for its in-tray.
+      if (!toQueue) for (const pending of world.docs.where("authorId = ? AND type = 'report' AND decision = 'pending'", [out.assigneeId], "ORDER BY createdAt")) {
         applyDecision(world, pending.id, "approve", `Superseded by a decision in meeting "${m.title}": ${d.text.split("\n")[0].slice(0, 160)}`, by);
       }
       const a = createAssignment(world, { agentId: out.assigneeId, title, description: `${d.text}\n\nDecided in meeting "${m.title}".`, createdBy: by, fromMeetingId: m.id, waitFor: d.waitFor ? validateWait(world, d.waitFor) : null,
         lane: { lane: d.lane, grantId: d.grantId, gap: d.gap, sourceId: d.sourceId } });
-      if (world.agents.get(out.assigneeId)?.status === "stopped") world.setStatus(out.assigneeId, "idle", `${world.nameOf(out.assigneeId)} was resumed by a decision in "${m.title}"`);
-      out = { ...out, assignmentId: a.id };
+      const assigneeId = out.assigneeId;
+      if (world.agents.get(assigneeId)?.status === "stopped") world.setStatus(assigneeId, "idle", `${world.nameOf(assigneeId)} was resumed by a decision in "${m.title}"`);
+      out = { ...out, assignmentId: a.id, ...(toQueue ? { queueBuildingId: toQueue.building.id } : {}) };
     }
     all.push(out);
     made.push(out);
@@ -557,7 +585,7 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
   if (late && m.notesDocId) {
     // the notes were written at close; append what came in during the grace window so nothing is lost
     const notes = world.docs.get(m.notesDocId);
-    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${world.agents.get(d.assigneeId)?.name ?? d.assigneeId})` : ""}`).join("\n")}\n` });
+    if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${decisionTarget(world, d)})` : ""}`).join("\n")}\n` });
   }
   return updated;
 }
@@ -580,7 +608,7 @@ export function endMeeting(world: World, actor: Agent | null, meetingId: string,
     "", "## Agenda", "", m.agenda || "(none)",
     "", "## Summaries", "", ...(Object.entries(m.summaries).map(([id, s]) => `**${name(id)}:** ${s}`)), Object.keys(m.summaries).length ? "" : "(none)",
     "## Discussion", "", ...m.transcript.map((u) => `- **${name(u.speakerId)}:** ${u.text}${u.attachment ? ` (presented: ${attachmentLine(u.attachment)})` : ""}`), m.transcript.length ? "" : "(none)",
-    "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${name(d.assigneeId)}` : ""}`), m.decisions.length ? "" : "(none)",
+    "## Decisions", "", ...m.decisions.map((d, i) => `${i + 1}. ${d.supersededBy ? `~~${d.text}~~ (superseded by ${d.supersededBy})` : d.text}${d.assigneeId ? ` → ${decisionTarget(world, d)}` : ""}`), m.decisions.length ? "" : "(none)",
     ...(closing ? ["## Closing", "", closing] : []),
   ].join("\n");
   const authorAgent = actor ?? (m.facilitatorId ? world.agents.get(m.facilitatorId) ?? null : null);

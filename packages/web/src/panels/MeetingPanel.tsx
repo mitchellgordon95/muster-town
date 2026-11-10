@@ -8,11 +8,13 @@ import { Act, Empty, Pill, Section, clock, nameOf, timeAgo, useLoad } from "./ui
 import { portraitUrl } from "../map/sprites";
 import { buildingMeetings, phaseTone, roomMeetings } from "./room";
 import { CallMeetingForm } from "./CallMeetingForm";
+import { meetingSubtitle } from "./meetingSubtitle";
 import { endMeetingConfirm } from "./endMeeting";
 import { SignInNote } from "../auth/auth";
 import { DocText, Markdown, docIdsIn } from "./Markdown";
 import { docUrl, grantUrl } from "../route";
 import type { PanelRef } from "../state";
+import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MeetingSlide } from "./MeetingSlide";
 import { GoalProposalItem } from "./GoalTreePanel";
@@ -89,9 +91,11 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
   const media = useMediaPaste(setText);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);
+  // the whole transcript shows, opened at its latest line (Mitchell, mt_pr3347g2w2 decision 8: no "Show N earlier messages" fold)
   const buildings = useTown((s) => s.buildings);
   const room = buildings.find((b) => (m.buildingId ? b.id === m.buildingId : b.kind === "town-hall"));
   const bName = m.buildingId ? room?.name : "Town Hall";
+  const hallMeeting = room?.kind === "town-hall";
   const oneOnOne = m.kind === "one-on-one";
   // a 1:1: the human who opened it ends it; only they and the manager speak
   const canRun = oneOnOne ? !!me && me.user.id === m.withUserId : store.can("meeting.facilitate", m.buildingId) || store.can("building.manage", m.buildingId);
@@ -114,7 +118,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
     try { store.putMeeting(await api().sayMeeting(m.id, t)); } catch (e) { setText(t); store.toast((e as Error).message, "bad"); }
   };
   return (
-    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ★ ${nameOf(m.facilitatorId)}` : `${m.kind} · ${bName ?? ""} · facilitated by ${nameOf(m.facilitatorId)}`}>
+    <PanelShell icon={<Glyph kind="meeting" />} title={<>{m.title} <Pill tone={phaseTone(m.phase)}>{m.phase}</Pill></>} subtitle={oneOnOne ? `1:1 · ${bName ?? ""} · ${nameOf(m.withUserId)} and ${hallMeeting ? "" : "★ "}${nameOf(m.facilitatorId)}` : meetingSubtitle(m.kind, bName, nameOf(m.facilitatorId))}>
       {oneOnOne ? null : (
         <ol className="phases">
           {PHASES.map((p, i) => <li key={p} className={p === m.phase ? "on" : PHASES.indexOf(m.phase) > i ? "past" : ""}>{p}</li>)}
@@ -167,6 +171,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         <form className="chatbar" onSubmit={(e) => { e.preventDefault(); void say(); }}>
           <textarea {...media.props} rows={2} value={text} disabled={!discussing} placeholder={discussing ? (oneOnOne ? `Say something to ${nameOf(m.facilitatorId)}…` : "Say something to the meeting…") : "Chat opens when the discussion starts…"} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void say(); } }} />
+          <AttachButton media={media} disabled={!discussing} />
           <button className="btn primary" disabled={!discussing || !text.trim() || media.uploading > 0}>Say</button>
           {canRun ? <Act tone="bad" run={async () => { const ask = endMeetingConfirm(m); if (ask && !confirm(ask)) return; store.putMeeting(await api().endMeeting(m.id)); }}>{oneOnOne ? "End 1:1" : "End meeting"}</Act> : null}
           <DraftDocs text={text} />
@@ -178,7 +183,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
         {!m.decisions.length ? <Empty>{m.phase === "done" ? "No decisions recorded." : oneOnOne ? `${nameOf(m.facilitatorId)} records the work you agree on here.` : "The facilitator records decisions at the end."}</Empty> : (
           <ol className="decisions">
             {m.decisions.map((d, i) => (
-              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {nameOf(d.assigneeId)}</button></> : null}</li>
+              <li key={i} className={d.supersededBy ? "superseded" : undefined} title={d.supersededBy ? `Superseded by decision ${d.supersededBy}` : undefined}>{d.supersedes ? <span className="muted">(replaces {d.supersedes}) </span> : null}<DocText text={d.text} newTab={open} />{d.assigneeId ? <> <button className="link" onClick={() => store.open({ kind: "agent", id: d.assigneeId!, tab: "Assignments" })}>→ {d.queueBuildingId ? `${buildings.find((b) => b.id === d.queueBuildingId)?.name ?? d.queueBuildingId} queue (a fork of ${nameOf(d.assigneeId)})` : nameOf(d.assigneeId)}</button></> : null}</li>
             ))}
           </ol>
         )}

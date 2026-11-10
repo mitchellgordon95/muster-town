@@ -72,6 +72,8 @@ export interface TreeLayout {
   paving?: Lot[];
   /** trees, lamps, benches and flower beds (TILE ids), each one tile */
   decor?: { at: Tile; tile: number }[];
+  /** the humans' bulletin board in the town square (place `bulletin:town`; its stand is the tile below); other shapes leave it to layout.ts */
+  bulletin?: Tile;
   w: number;
   h: number;
 }

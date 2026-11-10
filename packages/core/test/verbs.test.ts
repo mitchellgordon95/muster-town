@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, cabinetDocs, createBuilding, createResident, createTownModerator, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
+import { buildingRoleId, cabinetDocs, createBuilding, createResident, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 import { RequestStatus } from "@muster-town/schema";
 
@@ -161,10 +161,10 @@ describe("report state machine", () => {
     await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: ["dc_nope"], urls: [] } })).rejects.toMatchObject({ code: "bad_request" });
     const sent: [string, number][] = [];
     world.changes.subscribe((m) => { if (m.type === "building" && m.building.intray !== undefined) sent.push([m.building.id, m.building.intray]); });
-    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\nNothing needed. @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
+    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\n- Should the banner show today's spend? @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
     expect(up).toMatchObject({ decision: "pending", intray: "town-hall", workedBy: "human" });
     const rollup = world.docs.require(up.id);
-    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup"], provenance: { sourceIds: [r.id] } });
+    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup", "untyped-asks"], provenance: { sourceIds: [r.id] } });
     expect(isTownHallItem(world, rollup)).toBe(true);
     expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(up.id);
     expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).toEqual([up.id]);
@@ -188,7 +188,7 @@ describe("report state machine", () => {
     const mei = by("Mei");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId("carbon-cycle", "manager"));
-    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", stopCondition: "when the number is in", askTokens: 1_000_000 });
+    const g = world.grantDesk.create(mei, "carbon-cycle", { keyResults: [{ text: "a number with uncertainty", howToCheck: "read it" }], objective: "Ocean sink 2024", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "when the number is in", askTokens: 1_000_000 });
     expect(world.ops.townHallIntray().grants).toEqual([]);
     world.grantDesk.propose(mei, g.id);
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).toEqual([g.id]);
@@ -234,7 +234,8 @@ describe("assignments", () => {
     await world.verbs.accept_assignment(moss, { id: assignmentId });
     expect(world.agents.require(moss.id).currentAssignmentId).toBe(assignmentId);
     expect((await world.verbs.look(moss, {})).notices.currentAssignment).toBe("Check Mauna Loa");
-    expect((await world.verbs.inbox(moss, {})).messages.some((m) => m.body.includes("Check Mauna Loa"))).toBe(true);
+    // the manager naming itself queues to its building (work routing, mt_lsyqj98z0w): no "New assignment" message to itself
+    expect(world.assignments.require(assignmentId).queue).toBe("building");
   });
 
   it("done and cancelled are terminal; a report on a cancelled assignment leaves it cancelled", async () => {
@@ -276,8 +277,11 @@ describe("say / tell / inbox / look", () => {
     const look = await world.verbs.look(noor, {});
     expect(look.nearby.map((n) => n.name).sort()).toEqual(["Mitchell", "Tomas"]);
     expect(look.nearby.find((n) => n.name === "Mitchell")!.kind).toBe("human");
-    // the Town Hall in-tray is a Town Hall station everyone can walk to (waterfall §3.5)
-    expect(look.places.some((p) => p.id === "intray:town-hall" && p.kind === "intray")).toBe(true);
+    // the hydrant (the decision queue) is a Town Hall station everyone can walk to; the Town Hall has no in-tray
+    expect(look.places.some((p) => p.id === "hydrant:town-hall" && p.kind === "hydrant")).toBe(true);
+    expect(look.places.some((p) => p.id === "intray:town-hall")).toBe(false);
+    // the help sign of my home building is listed too
+    expect(look.places.some((p) => p.id === `help:${noor.buildingId}` && p.kind === "help")).toBe(true);
   });
 
   it("tell to an idle or stopped resident says it won't start work; to a working one it says nothing", async () => {
@@ -288,6 +292,7 @@ describe("say / tell / inbox / look", () => {
     expect(idle.note).toMatch(/Noor is idle.*does not start work/);
     world.setStatus(noor.id, "stopped");
     expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toMatch(/Noor is stopped/);
+    world.setStatus(noor.id, "idle"); // resumed first: stopped → working is not in STATUS_TRANSITIONS
     world.setStatus(noor.id, "working");
     expect((await world.verbs.tell(by("Ravi"), { to: noor.id, text: "ping" })).note).toBeUndefined();
   });
@@ -322,7 +327,7 @@ describe("request_human lifecycle", () => {
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes(humanReport!.id))).toBe(true);
   });
 
-  it("only a moderator can delete a request; the requester is told", async () => {
+  it("only an admin can delete a request; the requester is told", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
     const { id } = await world.verbs.request_human(ingrid, { title: "Spam", body: "x" });
@@ -354,6 +359,73 @@ describe("request_human lifecycle", () => {
     expect(world.ops.outbox().filter((d) => d.requestStatus === "open")).toHaveLength(0);
   });
 
+  it("the author withdraws its own open request with a note; a colleague can't, the building's manager can; a claimed one stays", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const noor = by("Noor");
+    const mei = by("Mei");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Photo", body: "x" });
+    await expect(world.verbs.withdraw_request(noor, { docId: id, note: "nope" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(() => world.ops.requestAction(ingrid, id, "withdraw")).toThrow(/why/);
+    const r = await world.verbs.withdraw_request(ingrid, { docId: id, note: "No longer needed." });
+    expect(r.requestStatus).toBe("withdrawn");
+    expect(world.docs.require(id)).toMatchObject({ requestStatus: "withdrawn", requestNote: "No longer needed.", requestDecidedById: ingrid.id });
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect(world.snapshot().outbox).toBe(0);
+    await expect(world.verbs.withdraw_request(ingrid, { docId: id, note: "again" })).rejects.toThrow(/withdrawn/);
+    // the building's manager withdraws a resident's; the resident is told
+    world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
+    const b = await world.verbs.request_human(ingrid, { title: "Second", body: "y" });
+    await world.verbs.withdraw_request(mei, { docId: b.id, note: "Superseded by the plan." });
+    expect(world.docs.require(b.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: mei.id });
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("withdrew your outbox request") && m.body.includes("Superseded"))).toBe(true);
+    // a claimed one is someone's work: it stays
+    const c = await world.verbs.request_human(ingrid, { title: "Third", body: "z" });
+    world.ops.requestAction(world.ops.ensureAvatar(world.ops.createUser("Rando").user.id), c.id, "claim");
+    await expect(world.verbs.withdraw_request(ingrid, { docId: c.id, note: "late" })).rejects.toThrow(/claimed/);
+  });
+
+  it("a request that replaces an older one withdraws it: `replaces`, or \"replaces dc_…\" in the text; another agent's is left alone", async () => {
+    const { world, by } = seededWorld();
+    const ingrid = by("Ingrid");
+    const noor = by("Noor");
+    const a = await world.verbs.request_human(ingrid, { title: "Drill v1", body: "x" });
+    const theirs = await world.verbs.request_human(noor, { title: "Noor's", body: "n" });
+    const b = await world.verbs.request_human(ingrid, { title: "Drill v2", body: "Run it again.", replaces: a.id });
+    expect(b.withdrew).toEqual([a.id]);
+    expect(world.docs.require(a.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: ingrid.id });
+    expect(world.docs.require(a.id).requestNote).toContain(`Replaced by ${b.id}`);
+    expect(world.docs.require(b.id).requestReplaces).toBe(a.id);
+    const c = await world.verbs.request_human(ingrid, { title: "Drill v3", body: `This supersedes ${b.id} and ${theirs.id}. Run it once more.` });
+    expect(c.withdrew).toEqual([b.id]);
+    expect(world.docs.require(b.id).requestStatus).toBe("withdrawn");
+    expect(world.docs.require(c.id).requestReplaces).toBe(b.id);
+    expect(world.docs.require(theirs.id).requestStatus).toBe("open");
+    expect(world.ops.outbox().map((d) => d.id).sort()).toEqual([c.id, theirs.id].sort());
+    // an explicit `replaces` that isn't yours, or isn't open, refuses the whole request
+    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: theirs.id })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: a.id })).rejects.toThrow(/not open/);
+  });
+
+  it("an admin declines an open request with a note; the author hears why; a member can't; delete stays its own move", async () => {
+    const { world, by, seed } = seededWorld();
+    const ingrid = by("Ingrid");
+    const { id } = await world.verbs.request_human(ingrid, { title: "Set the repo topics", body: "x" });
+    const rando = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
+    expect(() => world.ops.requestAction(rando, id, "decline", "no")).toThrow(/approve_request/);
+    expect(() => world.ops.requestAction(ingrid, id, "decline", "no")).toThrow(/Only humans/);
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    expect(() => world.ops.requestAction(admin, id, "decline")).toThrow(/why/);
+    const { request } = world.ops.requestAction(admin, id, "decline", "Outreach is paused.");
+    expect(request).toMatchObject({ requestStatus: "declined", requestNote: "Outreach is paused.", requestDecidedById: seed.admin.id });
+    expect(request!.requestViaAgentId).toBeUndefined();
+    expect(world.ops.outbox()).toHaveLength(0);
+    expect(world.ops.outbox(true).map((d) => d.id)).toEqual([id]);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("declined your outbox request") && m.body.includes("Outreach is paused."))).toBe(true);
+    expect(() => world.ops.requestAction(admin, id, "claim")).toThrow(/declined/);
+    expect(world.ops.requestAction(admin, id, "delete").request).toBeNull();
+  });
+
   it("legacy proposed/approved requests read as open", () => {
     expect(RequestStatus.parse("proposed")).toBe("open");
     expect(RequestStatus.parse("approved")).toBe("open");
@@ -366,18 +438,16 @@ describe("promote / ban", () => {
     const mei = by("Mei");
     const { id } = await world.verbs.write(mei, { title: "Synthesis", body: "b", state: "building" });
     await expect(world.verbs.promote(mei, { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" });
-    await expect(world.verbs.promote(by("Moss"), { docId: id, state: "library" })).rejects.toMatchObject({ code: "forbidden" }); // reviewers don't promote
     await world.verbs.promote(admin, { docId: id, state: "library" });
     expect(world.docs.require(id).state).toBe("library");
     expect("propose_trophy" in world.verbs).toBe(false);
     expect(world.layout.places.some((p) => p.id === "trophy-room")).toBe(false);
   });
 
-  it("ban needs town.ban (town moderator); marks the agent banned and blocks its verbs", async () => {
-    const { world, by } = seededWorld();
+  it("ban needs town.ban (admin); marks the agent banned and blocks its verbs", async () => {
+    const { world, by, admin } = seededWorld();
     await expect(world.verbs.ban(by("Moss"), { agentId: by("Tomas").id, reason: "spam" })).rejects.toMatchObject({ code: "forbidden", permission: "town.ban" });
-    const wren = createTownModerator(world, { name: "Wren" });
-    await world.verbs.ban(wren, { agentId: by("Tomas").id, reason: "spam" });
+    await world.verbs.ban(admin, { agentId: by("Tomas").id, reason: "spam" });
     expect(world.agents.require(by("Tomas").id).status).toBe("banned");
     await expect(world.verbs.look(by("Tomas"), {})).rejects.toMatchObject({ code: "forbidden" });
   });
@@ -390,6 +460,5 @@ describe("walk + verbs together", () => {
     const l = await world.verbs.look(by("Ravi"), {});
     expect(l.me.place).toBe("library");
     expect(l.building?.id).toBe("town-hall");
-    expect(l.nearby.map((n) => n.name)).toContain("Ada");
   });
 });

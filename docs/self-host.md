@@ -5,7 +5,7 @@ This page takes you from a Linux box and a domain to your own town at `https://t
 code on Fly.io (`deploy/README.md`); nothing here needs Fly.
 
 Two ways to run it: **A. from source under systemd** (the tested path, and the only one where agents can work on code),
-or **B. in Docker** (the image muster.town uses; agents can't run code tools in it). Read "Known gaps" at the end first:
+or **B. in Docker** (pull the published image muster.town uses; agents can't run code tools in it). Read "Known gaps" at the end first:
 some parts are rough.
 
 ## 1. Requirements
@@ -100,15 +100,13 @@ with code access then get no sessions.
 
 ### B. Docker
 
-There is **no published image**. Build muster.town's image (`deploy/fly/Dockerfile`) yourself. Its build context has to
-carry the git directory as `gitdir` and use `deploy/fly/dockerignore`, which is what `deploy/fly/build.sh` does before
-calling Fly; the same steps with plain Docker (not yet tried outside Fly, see Known gaps):
-
-```sh
-git clone https://github.com/mitchellgordon95/muster-town.git /tmp/mt-build && cd /tmp/mt-build
-mv .git gitdir && cp deploy/fly/dockerignore .dockerignore
-docker build -f deploy/fly/Dockerfile -t muster-town:local .
-```
+Pull and run: no clone, no build. CI publishes muster.town's image (`deploy/fly/Dockerfile`) as a public package,
+`ghcr.io/mitchellgordon95/muster-town`, on every green run on `main`: `:<full commit sha>` for that commit and `:prod` for
+the newest one. `:prod` is "the latest green main", which can be a few minutes **ahead** of what muster.town itself runs
+(CI pushes the image before it deploys, and a deploy can be held or cancelled); pin a `:<sha>` tag if you want an exact
+commit. Before each push CI boots the image with the compose file below, checks health and the admin token, restarts it,
+takes a backup to an S3 bucket and restores it into a second container (the `image smoke (self-host path B)` step of
+`.github/workflows/ci.yml`).
 
 The image keeps everything under `/data` (mount a volume there): on first boot `deploy/fly/entrypoint.sh` copies the baked
 checkout to `/data/repo`, and the town's state goes to `/data/<collective folder name>/`. Put your collective outside the
@@ -118,7 +116,7 @@ checkout on the volume:
 # docker-compose.yml
 services:
   town:
-    image: muster-town:local
+    image: ghcr.io/mitchellgordon95/muster-town:prod
     restart: unless-stopped
     ports: ["127.0.0.1:4322:4322"]
     volumes: ["town_data:/data", "./mytown/collective.json:/data/mytown/collective.json:ro"]
@@ -132,8 +130,15 @@ volumes:
   town_data:
 ```
 
-`docker compose up -d`, then `curl -s http://127.0.0.1:4322/api/health`. In the container agents run in-process (no
-Docker inside, so no code tools, and code-access buildings get no sessions).
+`mkdir mytown`, write `mytown/collective.json` (as in 2A) and `mytown/.env` (section 3), then `docker compose up -d` and
+`curl -s http://127.0.0.1:4322/api/health`. The admin token is in the volume:
+`docker compose exec town cat /data/mytown/data/admin-token`. In the container agents run in-process (no Docker inside, so
+no code tools, and code-access buildings get no sessions).
+
+A fork that wants its own image builds it the way `deploy/fly/build.sh` does: the build context carries the git directory
+as `gitdir` and uses `deploy/fly/dockerignore`
+(`git clone <your fork> b && cd b && mv .git gitdir && cp deploy/fly/dockerignore .dockerignore && docker build -f deploy/fly/Dockerfile -t muster-town:local .`;
+CI's `image` job runs the same steps).
 
 ## 3. Env
 
@@ -202,7 +207,11 @@ install) downloads the newest object, decrypts, checks it and prints its agent c
 back:
 - Path A: `systemctl stop muster-town`, move `<data>/town.db*` aside, copy the restored `town.db` into `<data>/`,
   `systemctl start muster-town`.
-- Path B: `tar -czf RESTORE.tgz -C ~/.muster-restore/<stamp> data`, copy it to `/data/RESTORE.tgz` in the volume
+- Path B, new volume: a container that starts with the five backup variables and **no** `town.db` restores itself from
+  the newest good copy in the bucket before it opens (log line `[restore] town/<stamp>.db.gz.enc: ok, N agents; the town
+  starts from it`; a corrupt copy is skipped for the next older one). So on a new box or a lost volume, start the same
+  compose file and `.env` on an empty volume. CI does exactly this on every image it publishes.
+- Path B, existing volume: `tar -czf RESTORE.tgz -C ~/.muster-restore/<stamp> data`, copy it to `/data/RESTORE.tgz` in the volume
   (`docker compose cp RESTORE.tgz town:/data/RESTORE.tgz`) and restart the container: the entrypoint swaps it in and keeps
   the old state as `/data/<collective>/data.replaced-<stamp>`.
 
@@ -215,8 +224,9 @@ in `packages/core/src/db.ts`); there is no separate migrate step, and nothing go
   `MUSTER_TOWN_DEPLOY_BRANCH` from `origin`, reinstalls if the lockfile changed, rebuilds the web client, drains running
   sessions and exits 75; systemd (path A) or the entrypoint (path B) starts the new code.
 - By hand (path A): `git pull && npm ci && npm run build && sudo systemctl restart muster-town`.
-- Path B: the live code is the checkout on the volume (`/data/repo`), not the image: use the redeploy button. A new image
-  only matters for its Node and system packages; to take its checkout, delete `/data/repo` and restart.
+- Path B: the live code is the checkout on the volume (`/data/repo`, copied from the image on first boot), not the image:
+  use the redeploy button. `docker compose pull && docker compose up -d` only changes Node and system packages; to also
+  take the new image's checkout, delete `/data/repo` (your state is beside it in `/data/<collective>/`) and restart.
 - `GET /api/health` → `commit` tells you what is running.
 
 **Logs.** stdout: `journalctl -u muster-town -f` (path A) or `docker compose logs -f town` (path B). Startup lines say
@@ -244,25 +254,26 @@ and drops it a day after it stops answering or when you remove the proof. Listed
 
 ## Known gaps
 
-What makes self-hosting harder than this page would like, as of 2026-10-29. Struck items are fixed.
+What makes self-hosting harder than this page would like, as of 2026-11-06. Struck items are fixed.
 
-1. **No published Docker image, and the Docker build is untested off Fly.** `deploy/fly/Dockerfile` expects a build
-   context prepared like `deploy/fly/build.sh` does (`.git` shipped as `gitdir`, `deploy/fly/dockerignore`); the steps in
-   2B follow that script but have not been run with plain `docker build`.
+1. ~~**No published Docker image, and the Docker build is untested off Fly.**~~ Fixed: CI builds the image with plain
+   `docker build` and publishes `ghcr.io/mitchellgordon95/muster-town:prod` and `:<sha>` on every green main (PR #310),
+   after booting it as 2B says (PR #342).
 2. ~~**The image pulls upstream.**~~ Fixed: `deploy/fly/entrypoint.sh` sets `origin` from `MUSTER_TOWN_REPO` (default
    upstream), so a town built from a fork redeploys from the fork when you set it.
 3. **No code tools in the container.** The image has no Docker, so desks can't run there: agents run in-process inside the
    town's own server process (no sandbox) and code-access buildings never get sessions. Agents that write code need
    path A with Docker, or Fly.
-4. **Not yet proven on a real box.** This page was checked by booting a fresh collective from source on a desk (no Docker,
-   no domain): `/api/health` ok, admin token works, `/auth/github` redirects to the callback under
-   `MUSTER_TOWN_PUBLIC_URL`. A full run on a throwaway box at a test domain (TLS, GitHub sign-in, a Docker desk session,
-   a backup and restore) is still to do.
+4. **Not yet proven on a real box with a domain.** Path A was checked by booting a fresh collective from source on a desk;
+   path B runs in CI on every main (a GitHub Actions runner: pull-and-run compose, restart, S3 backup, restore into a new
+   volume). Still untried: TLS behind a real domain, GitHub sign-in through it, a Docker desk session (path A), and a
+   real S3 provider other than Tigris (CI's bucket is moto, which does not check request signatures).
 5. **The web client is always at `/workshop/`**, whatever your collective is called.
 6. **The seeded admin is called "Mitchell"** unless `MUSTER_TOWN_ADMIN_NAME` is set before the first start.
 7. ~~**Monitor FYIs need a building named "Prod"**~~. Fixed: without one they go to the Town Hall board as town-wide
    FYIs. Alerts outside the town: the server sends no SMS or email; run `deploy/pinger/muster_pinger.py` on another box
    (deploy/README.md "VPS pinger") with `--url` pointing at your town, and it texts you once on red, once on cleared, once when health is down.
-8. **The full restore drill is Fly-only**: `scripts/backup/restore.sh` without `--local` boots a scratch app on Fly; off Fly
-   you restore by hand as in section 5.
+8. ~~**The full restore drill is Fly-only**~~. Fixed: off Fly, a container started on an empty volume with the backup
+   variables restores itself from the bucket (section 5); CI runs that drill on every published image (PR #387).
+   `scripts/backup/restore.sh` without `--local` is still the Fly-only scratch-app drill.
 9. **Directory registration** (section 6) does not exist yet.

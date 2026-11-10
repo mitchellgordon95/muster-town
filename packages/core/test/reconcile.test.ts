@@ -57,7 +57,7 @@ describe("daily funding reconciliation (post-mortem 2026-10-30: unexplained api-
     const bid = world.agents.require(old.agentId).homeBuildingId!;
     for (const a of world.allocations.where("buildingId = ?", [bid])) world.budget.retire(a.id);
     expect(world.budget.fundingFor(bid).auth).toBe("subscription");
-    const s = world.ops.startSession(old.agentId, { purpose: "work", model: "m", funding: "subscription" });
+    const s = world.ops.startSession(old.agentId, { purpose: "work", model: "m", funding: "subscription", credentialInputId: world.bank.subscriptionInput()!.id });
     world.ops.endSession(s.id, { status: "error", error: LIMIT_MSG });
     const f = world.budget.fundingFor(bid);
     expect(f).toMatchObject({ auth: "api-key", credential: { kind: "api-key", inputId: key.id } });

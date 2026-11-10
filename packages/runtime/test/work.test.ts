@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
-import { callVerb, deferred, init, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
+import { callVerb, deferred, init, managerless, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
+import { cutFlaggedSessions } from "../src/work.ts";
 
 const REPORT = { title: "Mauna Loa growth rate", verdict: "continue", body: "## Summary\nGrowth 2.4 ± 0.1 ppm/yr.\n\n## Proposal for next session\nHow does the 13C record attribute the rise?\nBecause attribution matters." };
 
@@ -42,11 +43,16 @@ describe("work session", () => {
 
     // options: MCP over http with the agent's bearer token, tool allow/deny lists, model, turns
     const opts = sdk.sessions[0].options;
-    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: `Bearer ${world.tokens.getOrCreate("agent", noor.id)}` } });
+    expect(opts.mcpServers?.town).toMatchObject({ type: "http", url: "http://127.0.0.1:4321/mcp", headers: { Authorization: expect.stringMatching(/^Bearer at_/) } });
+    // the session's own token, revoked when it ended (docs/secrets.md "Login tokens")
+    const bearerTok = (opts.mcpServers!.town as { headers: Record<string, string> }).headers.Authorization.slice("Bearer ".length);
+    expect(world.tokens.resolve(bearerTok)).toBeUndefined();
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM tokens WHERE sessionId = ?").get(session.id)).toEqual({ n: 0 });
     expect(opts.allowedTools).toEqual(expect.arrayContaining(["mcp__town__look", "mcp__town__submit_report", "WebSearch", "WebFetch"]));
     expect(opts.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"]));
     expect(opts.maxTurns).toBe(lab.maxTurnsPerSession);
-    expect(opts.model).toBe(lab.model);
+    expect(opts.model).toBe("claude-fable-5-1"); // a resident's own session runs on its own model (new residents: Fable), not the lab's
+    expect(noor.model).toBe("claude-fable-5-1");
     expect(opts.permissionMode).toBeUndefined();
     // house allocation has no key of its own: the Bank's subscription token, and nothing from the host env (post-mortem 2026-10-30)
     expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(TEST_TOKEN);
@@ -198,6 +204,7 @@ describe("work session", () => {
 describe("waiting assignments", () => {
   test("the tick unblocks a met wait and the scheduler starts it; the runtime fills world.host for deploy waits", async () => {
     const { world, runtime, by } = setup(happyWork);
+    managerless(world);
     const noor = by("Noor");
     expect(world.host.startedAt).toBe("2026-10-19T10:00:00.000Z");
     expect(typeof world.host.isLive).toBe("function");
@@ -214,7 +221,7 @@ describe("waiting assignments", () => {
 });
 
 describe("agent memory", () => {
-  test("a work session's system prompt carries the wiki and log, its prompt the recent-work block, and the session is logged", async () => {
+  test("a work session's first message carries the wiki and log (live: docs/prompt-caching.md) and the recent-work block; the session is logged", async () => {
     const { world, runtime, sdk, by } = setup(happyWork);
     const noor = by("Noor");
     await world.verbs.write(noor.id, { type: "wiki", title: "Dashboard", body: "Waiting on Mitchell: 0.44 or the 2024 value.", state: "draft" });
@@ -222,15 +229,43 @@ describe("agent memory", () => {
     const asg = world.ops.createWork(null, noor.id, { title: "Reply to Mitchell", description: "Which number did you pick?" });
     await runtime.runWorkSession(noor.id, asg.id);
     const system = JSON.stringify(sdk.sessions[0].options.systemPrompt);
-    expect(system).toContain("## What you know (your wiki)");
-    expect(system).toContain("### Dashboard (dc_");
-    expect(system).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
+    expect(system).not.toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
     expect(system).toContain("Your memory between sessions is your wiki and your log");
+    const first = sdk.sessions[0].received[0];
+    expect(first).toMatch(/^Clock: it is /);
+    expect(first).toContain("## What you know (your wiki)");
+    expect(first).toContain("### Dashboard (dc_");
+    expect(first).toContain("Waiting on Mitchell: 0.44 or the 2024 value.");
     const log = world.docs.first("authorId = ? AND type = 'log'", [noor.id]);
     expect(log?.body).toMatch(/^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC Assignment "Reply to Mitchell" \(as_[\w-]+\): done, report "/);
     const prompt = sdk.sessions[0].received[0];
     expect(prompt).toContain("## Your recent work");
     expect(prompt).toMatch(/- note "Dashboard number" \(dc_[\w-]+, just now\): Use the 10-year mean 0\.44 ± 0\.03\./);
     expect(prompt).toContain("`read` the documents above that are relevant");
+  });
+});
+
+describe("the circuit breaker's cut", () => {
+  test("ends a flagged session only while it is still its agent's live session, after the drain's kill grace", () => {
+    vi.useFakeTimers();
+    try {
+      const kills: string[] = [];
+      const live = (agentId: string, sessionId: string) => ({
+        kind: "desk" as const, agentId, sessionId, purpose: "work" as const, input: { close: () => undefined }, q: null,
+        reportSubmitted: false, stopped: false, child: { kill: () => { kills.push(sessionId); } },
+      });
+      const ctx = { live: new Map([["ag_a", live("ag_a", "se_new")], ["ag_b", live("ag_b", "se_b")]]) };
+      // ag_a's flagged session already ended and a newer one runs: left alone; ag_c has nothing live
+      const cut = cutFlaggedSessions(ctx as never, [{ agentId: "ag_a", sessionId: "se_old" }, { agentId: "ag_b", sessionId: "se_b" }, { agentId: "ag_c", sessionId: "se_c" }], 10_000);
+      expect(cut).toEqual(["ag_b"]);
+      expect(ctx.live.get("ag_a")!.stopped).toBe(false);
+      expect(ctx.live.get("ag_b")!.stopped).toBe(true);
+      // the child is killed only after the grace, never at once
+      expect(kills).toEqual([]);
+      vi.advanceTimersByTime(10_000);
+      expect(kills).toEqual(["se_b"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

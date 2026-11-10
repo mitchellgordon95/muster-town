@@ -3,14 +3,15 @@
  * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
-import { World } from "@muster-town/core";
+import { markBoot } from "./capacity.ts";
+import { World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app.ts";
-import { BackupJob } from "./backup/index.ts";
+import { BackupJob, backupSources } from "./backup/index.ts";
 import { restoreOnFirstBoot } from "./backup/restore.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
@@ -59,16 +60,34 @@ async function main() {
     manualPath: join(REPO_ROOT, "docs", "manual.md"),
   });
   console.log(seed.created ? `[server] seeded collective "${collectiveCfg.name ?? "?"}" in ${DATA_DIR}` : `[server] opened collective "${collectiveCfg.name ?? "?"}" from ${DATA_DIR}`);
+  // the Town Hall's Secretary, its daily ranking and weekly pattern schedules (docs/legible-delegation.md §6) and the policy
+  // ledger: made once; each schedule asks for its retainer in the in-tray
+  try {
+    const sec = world.secretary.ensure();
+    const sched = world.secretary.ensureRankSchedule();
+    const weekly = world.secretary.ensurePatternSchedule();
+    world.secretary.ensurePolicyLedger();
+    // legible delegation steps 9-10: the town dictionary and the Planner's weekly calibration run (asks its retainer once)
+    ensureDictionary(world);
+    ensureCalibrationSchedule(world);
+    if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, ranking schedule ${sched.id} (retainer ${sched.retainer})` : ""}${weekly ? `, pattern schedule ${weekly.id} (retainer ${weekly.retainer})` : ""}`);
+  } catch (e) { console.warn(`[server] Secretary not set up: ${(e as Error).message}`); }
   const desksOverride = desksFromEnv(townEnv("DESKS"));
   if (desksOverride) {
     world.town.setDesks({ ...world.town.desks(), ...desksOverride });
     console.log(`[server] desk settings from MUSTER_TOWN_DESKS: ${Object.keys(desksOverride).join(", ")}`);
   }
   world.start(10);
+  // one marker per start, before buildApp reads the last day's: GET /api/health capacity.restarts24h (capacity.ts)
+  markBoot(world);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
-  const backup = new BackupJob({ db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF });
+  // each run also copies the hosted collectives' databases and uploads every town's new transcripts (backupSources)
+  const backup = new BackupJob({
+    db: world.db, dir: resolve(DATA_DIR, "..", "backups"), restoreOnly: RUNTIME_OFF,
+    sources: () => backupSources(DATA_DIR, HOSTED_DIR), transcriptDays: () => world.desksConfig().transcriptDays ?? 90,
+  });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
   const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
@@ -103,22 +122,28 @@ async function main() {
     const app = await buildApp({
       world: w, dev: DEV, runtime: null, prefix: `/${row.slug}`, exportDir: join(dir, "export"),
       auth: { ...auth, admins: [], hosted: { slug: row.slug, ownerGithubId: row.ownerGithubId } },
-      retire: (): unknown => hub.retire(row.slug), healthRefreshMs: HEALTH_REFRESH_MS,
+      retire: (): unknown => hub.retire(row.slug), rename: (i) => hub.rename(row.slug, i), healthRefreshMs: HEALTH_REFRESH_MS,
     });
     // retire and shutdown close the app before its World: stop the runtime first
     app.addHook("onClose", async () => { hostedTicks.remove(row.slug); await (app.runtime?.close?.() ?? app.runtime?.stop?.()); });
+    w.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
     await startHosted(app, w, row.slug, dir);
     return app;
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
   const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
+  world.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
   // the token itself never goes to stdout (it would land in journald): seedDefaults wrote it to <data>/admin-token (0600)
   console.log(`[server] admin (${seed.admin.name}) token: in ${join(DATA_DIR, "admin-token")}`);
   console.log(world.secrets.keyConfigured() ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
+  if (world.secrets.keyConfigured()) {
+    const enc = world.secrets.encryptBankSecrets();
+    console.log(`[secrets] encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
+  } else console.log("[secrets] no MUSTER_TOWN_DATA_KEY: Bank input secrets and donor keys stay in plaintext");
   console.log(auth.githubClientId ? `[server] GitHub login on (callback ${auth.publicUrl}/auth/github/callback; ${auth.admins.length} admin login(s))` : "[server] GitHub login off (no GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET); guests are read-only");
   console.log(`[server] MCP endpoint: ${url}/mcp (agent tokens only)`);
   backup.start();

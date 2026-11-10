@@ -24,6 +24,8 @@ export interface WakeCtx {
   meetingMention(meetingId: string, toId: string, byId: string, byKind: string): Promise<unknown>;
   /** offer the building's in-tray and open 1:1s to its manager (start or feed its manage session) */
   wakeManagers(buildingId: string): void;
+  /** the cheap model's cost estimate for a just-proposed grant (estimate.ts) */
+  estimateGrant(grantId: string): Promise<unknown>;
   /** stop an agent's live work */
   abort(agentId: string): void;
 }
@@ -72,6 +74,10 @@ export const WAKE_RULES: WakeRule[] = [
   { name: "manager-intray-row", who: "manager", kind: "T", replay: true,
     match: (e) => e.type === "grant.funded" || e.type === "grant.closed" || e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted",
     run: (w, e) => { managerIntrayRow(w.world, e); } },
+  // a grant was proposed: the cheap model estimates its cost (advisory; a restart that misses it leaves the history range)
+  { name: "grant-estimate", who: "agent", kind: "T", replay: false,
+    match: (e) => e.type === "grant.proposed" && !!pl(e).grantId,
+    run: (w, e) => w.estimateGrant(String(pl(e).grantId)) },
   { name: "stop", who: "agent", kind: "stop", replay: false, sync: true,
     match: (e) => (e.type === "agent.status" && (pl(e).status === "stopped" || pl(e).status === "banned")) || e.type === "agent.banned",
     run: (w, e) => { if (e.agentId) w.abort(e.agentId); } },

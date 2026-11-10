@@ -3,7 +3,7 @@
  * brief, streams activity, polls control (interrupts + stop), and reports the end of its work session.
  */
 import { AppError, TRANSCRIPT_MAX_UPLOAD, composeWorkBrief } from "@muster-town/core";
-import { DeskActivityInput, DeskControlAckInput, DeskSessionEndInput, type Agent, type DeskControl, type Session } from "@muster-town/schema";
+import { isGone, DeskActivityInput, DeskControlAckInput, DeskSessionEndInput, type Agent, type DeskControl, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { parse, requireAuth } from "../context.ts";
@@ -57,7 +57,7 @@ export async function deskRoutes(app: FastifyInstance) {
     const s = ownSession(agent, session, false);
     if (s.status === "running") app.runtime?.deskSeen?.(agent.id, s.id);
     const now = world.agents.require(agent.id, "agent");
-    const stop = s.status !== "running" || now.status === "stopped" || now.status === "banned" || now.status === "retired";
+    const stop = s.status !== "running" || now.status === "stopped" || isGone(now);
     return { interrupts: world.ops.pendingInterrupts(agent.id, s.id).map((i) => ({ id: i.id, text: i.text, from: i.from, now: i.now })), stop };
   });
 

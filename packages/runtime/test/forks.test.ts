@@ -62,6 +62,21 @@ describe("manager forks: spawn and retire", () => {
     expect(world.sessions.count("agentId = ? AND purpose = 'work'", [mei.id])).toBe(0);
   });
 
+  test("work routing step 2: a row left on the forking manager's own queue never starts a session as the manager", async () => {
+    const { world, runtime, mei, queue } = forkSetup(async function* (s) {
+      yield init();
+      yield* callVerb(s, "submit_report", REPORT);
+      yield result(100, 0.01);
+    }, { spare: 0 });
+    // no free desk: nothing can fork; a pre-step-2 leftover on Mei's own queue must still not run as Mei
+    const a = await queue("Leftover");
+    world.assignments.patch(a, { queue: "agent" });
+    world.setStatus(mei.id, "idle", "idle");
+    await pass(runtime);
+    expect(world.sessions.count("agentId = ? AND purpose = 'work'", [mei.id])).toBe(0);
+    expect(world.assignments.require(a).status).toBe("pending");
+  });
+
   test("forks stop at the free desks; the rest waits on the building queue and runs once a desk frees up", async () => {
     const { world, runtime, lab, queue } = forkSetup(async function* (s) {
       yield init();
@@ -211,7 +226,7 @@ describe("manager forks: stop_fork (agent teams step 4)", () => {
     for (let i = 0; i < 50 && !forkId; i++) await new Promise((r) => setTimeout(r, 10));
     // only someone with building.assign on the fork's building; not the fork itself
     const other = world.agents.where("kind = 'resident' AND status != 'retired' AND id NOT IN (?, ?)", [mei.id, forkId])[0]!;
-    await expect(world.verbs.stop_fork(other.id, { forkId })).rejects.toThrow(/manager or a reviewer/);
+    await expect(world.verbs.stop_fork(other.id, { forkId })).rejects.toThrow(/Only the manager/);
     await expect(world.verbs.stop_fork(forkId, { forkId })).rejects.toThrow(/stop yourself/);
     const r = await world.verbs.stop_fork(mei.id, { assignmentId: a, reason: "Mitchell changed plans" });
     expect(r.forkId).toBe(forkId);

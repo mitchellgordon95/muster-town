@@ -45,7 +45,15 @@ or a message: a flag (planting it, and the decide note), a human report in the o
 chat and the message box to an agent (`panels/mediaPaste.ts`). It uploads through the same `POST /api/media` with the
 browser session cookie (same limits and magic-byte checks; uploader = the human's avatar; a visitor not yet let in
 gets 403), an `![Uploading …]()` placeholder holds the spot, and the returned markdown replaces it. Send is disabled
-while an upload is in flight.
+while an upload is in flight. Each of those boxes also has an **Attach** button (`panels/AttachButton.tsx`, `media.pick()`):
+a file picker with the same types and 8 MiB limit, for humans who don't know they can paste (1:1 mt_z1b38bwg98).
+
+**Agents see the pictures humans put in meetings.** A conversation session (a 1:1, or an agent answering a meeting
+line) has no desk to fetch `/api/media`, so the runtime sends a human line's images with it as image blocks
+(`runtime/src/meetingImages.ts`): every `/api/media/mf_…` link in the line plus a presented screenshot, raster images
+only, at most 3.7 MiB each (the API's 5 MB per image, after base64) and the last 4 per message. A 1:1's opening message
+carries the pictures of the human's lines so far. Videos and oversized images are named in a note so the agent says
+it can't see them instead of guessing.
 
 In-tray rows and filing-cabinet (and board) rows show a 68×44 thumbnail of the first town-hosted image in the body,
 or ▶ when it's a video, with +n for the rest (`panels/MediaThumb.tsx`).

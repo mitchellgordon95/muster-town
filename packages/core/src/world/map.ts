@@ -1,9 +1,9 @@
-import { TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
+import { NOT_GONE, TILE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import type { DB } from "../db.ts";
 import { AppError, notFound } from "../errors.ts";
 import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
-import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, type DeskSlot, type Grid } from "./layout.ts";
+import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_ID, TOWN_HALL_RESTS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
 import type { Side } from "./road.ts";
 import type { Plaza } from "./tree.ts";
@@ -23,6 +23,8 @@ export class WorldMap {
   plazas: Plaza[] = [];
   /** called after a rebuild that moved places or lots, so bodies follow (set by the World) */
   follow: ((before: Before, moved: Moved[]) => void) | null = null;
+  /** called before a full lab grows by a desk (`claimDesk` with `grow`); throws to refuse it (set by the World: the subtree desk totals) */
+  beforeGrow: ((buildingId: string, headcount: number) => void) | null = null;
   /** increments on every rebuild (lets the server know to resend the grid) */
   version = 0;
   private byId = new Map<string, Place>();
@@ -71,8 +73,11 @@ export class WorldMap {
       if (!occupancy.has(r.buildingId)) occupancy.set(r.buildingId, new Map());
       occupancy.get(r.buildingId)!.set(r.n, r.agentId);
     }
-    const names = new Map(this.repos.agents.all().map((a) => [a.id, a.name]));
-    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout);
+    const agents = this.repos.agents.all();
+    const names = new Map(agents.map((a) => [a.id, a.name]));
+    // the Planner and the Secretary rest by the goal tree and the hydrant (the decision queue) (flag dc_r7u6bkaei4)
+    const rests = new Map(agents.filter((a) => a.homeBuildingId === TOWN_HALL_ID && a.kind === "resident" && !a.forkOf && a.title && TOWN_HALL_RESTS[a.title]).map((a) => [a.id, TOWN_HALL_RESTS[a.title!]]));
+    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests);
   }
 
   /**
@@ -141,23 +146,39 @@ export class WorldMap {
 
   /**
    * Give the agent the lowest free desk in the building (or desk `prefer` when it is free), never a taken one; rebuilds
-   * the layout. With `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT) instead of refusing.
+   * the layout. The headcount caps the fork-slot desks only (`deskCount`): visitor desks don't count against it. With
+   * `grow`, a full lab grows its headcount by a desk (up to MAX_HEADCOUNT and the desk totals on its goal path, `beforeGrow`) instead of refusing. With `visitor`, the desk
+   * is one beyond the headcount (the lowest free desk number at or above it) and the headcount is not changed: a
+   * visitor adds a desk to the building while seated and never takes a fork slot (docs/invariants/agent-lifecycle.md, "Visitor desks").
    */
-  claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean; prefer?: number | null } = {}): Place {
+  claimDesk(buildingId: string, agentId: string, opts: { grow?: boolean; prefer?: number | null; visitor?: boolean } = {}): Place {
     const existing = this.deskOf(agentId);
     if (existing) return existing;
     const b = this.repos.buildings.require(buildingId, "building");
     const taken = new Set((this.db.prepare("SELECT n FROM desks WHERE buildingId = ?").all(buildingId) as { n: number }[]).map((r) => r.n));
-    // Town Hall's desks are the mod-station seats
-    const capacity = b.kind === "town-hall" ? MOD_SEATS : b.headcount;
-    // `prefer` (a fork's chain desk) wins when it is free and within the headcount; else the lowest free desk
+    if (opts.visitor) {
+      if (b.kind !== "lab") throw new AppError("conflict", `${b.name} has no desks for visitors.`);
+      let n = b.headcount;
+      while (taken.has(n)) n++;
+      if (n >= MAX_HEADCOUNT) throw new AppError("conflict", `${b.name} has no room for another desk (at most ${MAX_HEADCOUNT}).`);
+      this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);
+      this.rebuild();
+      return this.deskOf(agentId)!;
+    }
+    // Town Hall's desks are the mod-station seats; a lab's are its headcount plus the visitor desks seated now
+    const capacity = b.kind === "town-hall" ? MOD_SEATS : b.headcount + this.visitorDeskCount(buildingId);
+    const used = b.kind === "town-hall" ? taken.size : this.deskCount(buildingId);
+    const cap = b.kind === "town-hall" ? MOD_SEATS : b.headcount;
+    // `prefer` (a fork's chain desk) wins when it is free and within the capacity; else the lowest free desk
     let n = opts.prefer != null && opts.prefer >= 0 && opts.prefer < capacity && !taken.has(opts.prefer) ? opts.prefer : 0;
     while (taken.has(n)) n++;
-    if (n >= capacity) {
+    if (used >= cap) {
       if (!opts.grow || b.kind === "town-hall" || n >= MAX_HEADCOUNT) {
-        throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${capacity}).`);
+        throw new AppError("conflict", `${b.name} has no free desk (${b.kind === "town-hall" ? "mod station seats" : "headcount"} ${cap}).`);
       }
-      this.repos.buildings.upsert({ ...b, headcount: n + 1 });
+      // the subtree desk totals hold here too (gr_yu6qw3j9x5): a named resident joining a full lab is a raise
+      this.beforeGrow?.(b.id, used + 1);
+      this.repos.buildings.upsert({ ...b, headcount: used + 1 });
     }
     this.db.prepare("INSERT INTO desks (buildingId, n, agentId) VALUES (?, ?, ?)").run(buildingId, n, agentId);
     this.rebuild();
@@ -170,7 +191,7 @@ export class WorldMap {
   repairDesks(): { agentId: string; place: Place }[] {
     const seated = new Set((this.db.prepare("SELECT agentId FROM desks").all() as { agentId: string }[]).map((r) => r.agentId));
     const out: { agentId: string; place: Place }[] = [];
-    for (const a of this.repos.agents.where("kind = 'resident' AND status NOT IN ('retired','banned') AND homeBuildingId IS NOT NULL AND forkOf IS NULL", [], "ORDER BY createdAt, id")) {
+    for (const a of this.repos.agents.where(`kind = 'resident' AND ${NOT_GONE} AND homeBuildingId IS NOT NULL AND forkOf IS NULL`, [], "ORDER BY createdAt, id")) {
       if (seated.has(a.id)) continue;
       const b = this.repos.buildings.get(a.homeBuildingId!);
       if (!b) continue;
@@ -182,8 +203,13 @@ export class WorldMap {
     this.db.prepare("DELETE FROM desks WHERE agentId = ?").run(agentId);
     this.rebuild();
   }
+  /** Desks in use that count against the headcount (fork slots and named residents); visitor desks are left out. */
   deskCount(buildingId: string): number {
-    return (this.db.prepare("SELECT COUNT(*) AS n FROM desks WHERE buildingId = ?").get(buildingId) as { n: number }).n;
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM desks WHERE buildingId = ? AND agentId NOT IN (SELECT id FROM agents WHERE kind = 'visitor')").get(buildingId) as { n: number }).n;
+  }
+  /** Desks visitors hold in the building now: beyond the headcount, never a fork slot. */
+  visitorDeskCount(buildingId: string): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM desks WHERE buildingId = ? AND agentId IN (SELECT id FROM agents WHERE kind = 'visitor')").get(buildingId) as { n: number }).n;
   }
 
   /** Seats around a meeting-room's table (empty for other places). */

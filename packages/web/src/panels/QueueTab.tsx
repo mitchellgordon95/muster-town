@@ -44,8 +44,10 @@ export function Lane({ lane }: { lane: QueueLane }) {
       <div className="queue-cols">
         {COLUMNS.map((c) => (
           <div key={c.id} className={`queue-col ${c.id === "running" && lane.running.length >= lane.desks ? "full" : ""}`}>
-            <div className="queue-col-head">{columnHeader(lane, c.id)}</div>
-            {c.id === "done" ? <DoneCards cards={lane.done} /> : lane[c.id].map((x) => <Card key={x.id} c={x} />)}
+            {/* Done folds to its header (gr_zak30564zh step 4): the first screen keeps what is waiting and running */}
+            {c.id === "done" ? (
+              <details className="queue-done-fold"><summary className="queue-col-head">{columnHeader(lane, c.id)}</summary><DoneCards cards={lane.done} /></details>
+            ) : <><div className="queue-col-head">{columnHeader(lane, c.id)}</div>{lane[c.id].map((x) => <Card key={x.id} c={x} />)}</>}
           </div>
         ))}
       </div>

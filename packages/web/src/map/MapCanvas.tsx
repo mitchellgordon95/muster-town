@@ -48,13 +48,16 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         return;
       }
       if (typing() || e.metaKey || e.ctrlKey || e.altKey) return;
+      // a building's tour: Esc leaves it; walking away leaves it too (and walks)
+      if (r.tour && k === "escape") { r.tour.leave(); e.preventDefault(); e.stopImmediatePropagation(); return; }
+      if (r.tour && MOVE_KEYS.has(k)) r.tour.leave();
       // the Bank's town map: Esc or E puts the camera back (walking away does too)
       if (r.flow && (k === "escape" || k === "e")) { r.closeFlow(); e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (MOVE_KEYS.has(k)) { r.keyDown(k); e.preventDefault(); }
       else if (k === "e" && !e.repeat) { const t = r.currentTarget; if (t) { r.interact(t); e.preventDefault(); } }
       else if (k === "tab" && r.cycleTarget(e.shiftKey ? -1 : 1)) e.preventDefault();
-      else if (k === "-" || k === "_") r.zoom = Math.max(2, r.zoom - 1);
-      else if (k === "=" || k === "+") r.zoom = Math.min(5, r.zoom + 1);
+      else if (k === "-" || k === "_") { r.zoom = Math.max(2, r.zoom - 1); r.userZoom = true; }
+      else if (k === "=" || k === "+") { r.zoom = Math.min(5, r.zoom + 1); r.userZoom = true; }
     };
     const up = (e: KeyboardEvent) => r.keyUp(e.key.toLowerCase());
     const blur = () => r.clearKeys();
@@ -116,6 +119,14 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           ref.current!.style.cursor = drag.current ? "grabbing" : layoutEdit.pieceAt(t.x, t.y) ? "grab" : "default";
           return;
         }
+        if (r.tour) {
+          // a tour: only its hotspots answer the mouse; hovering one shows its tooltip and lights its legend row
+          const spot = r.tourSpotAt(p.x, p.y);
+          // (not on touch: a tap's synthetic mousemove would light the spot and make the tap itself walk)
+          if (!COARSE && spot !== r.tour.hot) r.tour.setHot(spot);
+          ref.current!.style.cursor = spot ? "pointer" : "default";
+          return;
+        }
         r.hoverBlock = r.blockAt(p.x, p.y);
         const id = r.hoverBlock ? null : r.hit(p.x, p.y);
         r.hoverId = id;
@@ -124,6 +135,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
       }}
       onMouseLeave={() => {
+        if (current?.tour && !COARSE) current.tour.setHot(null);
         if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; }
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
@@ -131,10 +143,20 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         (document.activeElement as HTMLElement | null)?.blur();
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
+        const pt = (e.nativeEvent as PointerEvent).pointerType;
+        if (r.tour) {
+          // a tour: a hotspot walks there and opens it (on touch the first tap shows its tooltip, a second walks);
+          // the shadowed town outside the building ends the tour; the building's floor does nothing
+          const spot = r.tourSpotAt(p.x, p.y);
+          if (spot && (pt ? pt !== "mouse" : COARSE) && r.tour.hot !== spot) r.tour.setHot(spot);
+          else if (spot) r.tour.go(spot);
+          else if (!r.inTourLot(p.x, p.y)) r.tour.leave();
+          else r.tour.setHot(null);
+          return;
+        }
         // a red "blocked N" badge opens that agent's queue, where each row says why; a schedule board opens its building's Schedule
         const blocked = r.blockAt(p.x, p.y);
         // on touch there is no hover: the first tap on a badge shows its reasons card, a second tap opens the queue
-        const pt = (e.nativeEvent as PointerEvent).pointerType;
         if (blocked && (pt ? pt !== "mouse" : COARSE) && r.tapTip !== blocked) { r.tapTip = r.hoverBlock = blocked; return; }
         r.tapTip = null;
         if (blocked?.startsWith("sched:")) { store.open({ kind: "building", id: blocked.slice(6), tab: "Schedule" }); return; }

@@ -1,0 +1,51 @@
+import { describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
+import type { GrantView } from "@muster-town/schema";
+import * as intrayList from "../src/panels/intrayList";
+import { CompactLine, grantPillText, reportPill } from "../src/panels/intrayList";
+
+const LONG = "Workshop rollup 42 (checkpoint, stop a funded grant): a human can stop a funded grant and the town winds it down, live on 97a9570";
+
+describe("the in-tray as a list (Mitchell's flag dc_2hllscunfx)", () => {
+  it("one line per item: the title (full in the tooltip), one pill, a time-ago; no cards, no Needs line", () => {
+    const pill = reportPill({ type: "report", tags: ["rollup"], verdict: "continue" });
+    const html = renderToStaticMarkup(<CompactLine lead={<b>Workshop</b>} title={LONG} at={new Date().toISOString()} pill={pill} onOpen={() => {}} />);
+    expect(html.match(/<button/g)).toHaveLength(1);
+    expect(html).toContain(`title="${LONG}"`);
+    expect(html).toContain('class="intray-line-title"');
+    expect(html.match(/class="pill/g)).toHaveLength(1);
+    expect(html).toContain(">rollup<");
+    expect(html).toContain("just now");
+    for (const s of ["intray-cards", "Needs:", "covers", "chain "]) expect(html).not.toContain(s);
+  });
+
+  it("clicking the line opens the item", () => {
+    const onOpen = vi.fn();
+    const el = CompactLine({ title: "A report", at: null, onOpen }) as ReactElement<{ onClick: () => void }>;
+    el.props.onClick();
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it("the line whose item is open in the sheet (or was last) stays marked in the list (gr_4csjpgh346 step 2)", () => {
+    const on = renderToStaticMarkup(<CompactLine title="A report" at={null} selected onOpen={() => {}} />);
+    expect(on).toContain('class="doc-row intray-line on"');
+    expect(on).toContain('aria-current="true"');
+    const off = renderToStaticMarkup(<CompactLine title="A report" at={null} onOpen={() => {}} />);
+    expect(off).not.toContain(" on\"");
+    expect(off).not.toContain("aria-current");
+  });
+
+  it("the pill: a flag, a verdict, a grant's status with its money", () => {
+    expect(renderToStaticMarkup(<>{reportPill({ type: "flag", tags: [], verdict: null })}</>)).toContain("⚑ flag");
+    expect(renderToStaticMarkup(<>{reportPill({ type: "report", tags: [], verdict: "stop" })}</>)).toContain(">stop<");
+    const g = { status: "checkpoint", outcome: null, askTokens: 500_000, grantTokens: 500_000, spentTokens: 537_665 } as unknown as GrantView;
+    expect(grantPillText(g)).toMatch(/^53\dk \/ 500k$/);
+    expect(grantPillText({ ...g, status: "proposed" } as GrantView)).toBe("asks 500k");
+    expect(grantPillText(g, true)).toMatch(/^stopped · /);
+  });
+
+  it("the list is the only view: no List / Cards toggle (1:1 mt_i50xwu4z2t)", () => {
+    for (const k of ["IntrayModeToggle", "readIntrayMode", "saveIntrayMode"]) expect(k in intrayList).toBe(false);
+  });
+});

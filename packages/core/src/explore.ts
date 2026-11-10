@@ -7,10 +7,11 @@
  * exploration assignment on the building queue. The reservation is a claim on free tokens; its sessions' spend shrinks
  * it, and it closes (unspent returns) once its assignment is no longer pending or active.
  */
+import { isGone } from "@muster-town/schema";
 import type { Assignment, BankReservation, Building } from "@muster-town/schema";
-import { buildingQueue, createAssignment, managerAgentOf } from "./domain.ts";
+import { buildingQueue, createAssignment, forkableManagerOf } from "./domain.ts";
 import { sessionView } from "./bank.ts";
-import { exploreCapAt, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
+import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
@@ -39,8 +40,8 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   const goalId = world.goalTree.attachmentOf(b);
   const rule = exploreRuleAt(world.goals, goalId);
   if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
-  const manager = managerAgentOf(world, b);
-  if (!manager || manager.status === "banned" || manager.status === "retired") return "no manager to fork";
+  const manager = forkableManagerOf(world, b);
+  if (!manager || isGone(manager)) return "no manager to fork";
   if (world.budget.remaining(b.id) <= 0) return "the building's budget is spent";
   if (freeDesks(world, b) <= 0) return "no free desk";
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";
@@ -50,8 +51,10 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id])) return "a proposal of this building is open and undecided";
   const f = free.get(goalId)?.freeTokens ?? 0;
   if (f < rule.chunkTokens) return `free tokens under the goal (${f.toLocaleString("en-US")}) are less than one chunk (${rule.chunkTokens.toLocaleString("en-US")})`;
-  const cap = exploreCapAt(world.goals, goalId);
-  if (cap && exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > cap.tokensPerDay) return `the exploration cap set on goal ${cap.goalId} would be passed today`;
+  // every cap on the path holds (the smallest binds, but a looser one above may already be used up by other subtrees)
+  for (const cap of exploreCapsOnPath(world.goals, goalId)) {
+    if (exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > cap.tokensPerDay) return `the exploration cap set on goal ${cap.goalId} would be passed today`;
+  }
   return null;
 }
 
@@ -60,14 +63,14 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
   const goalId = world.goalTree.attachmentOf(b);
   const goal = world.goals.get(goalId);
   const rule = exploreRuleAt(world.goals, goalId);
-  const manager = managerAgentOf(world, b)!;
+  const manager = forkableManagerOf(world, b)!;
   const goalText = truncate(goal?.text ?? b.name, 200);
   return world.transaction(() => {
     const r = world.bankReservations.upsert({ id: newId("rs"), goalId, buildingId: b.id, assignmentId: null, tokens: rule.chunkTokens, openedAt: now.toISOString(), closedAt: null, spentTokens: null });
     const a = createAssignment(world, {
-      agentId: manager.id, buildingId: b.id, queue: "building", createdBy: { kind: "system", id: r.id },
+      agentId: manager.id, buildingId: b.id, createdBy: { kind: "system", id: r.id },
       title: `Explore under "${truncate(goal?.text ?? b.name, 70)}"`,
-      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, objective, approach, stopCondition, askTokens, 2-4 keyResults with howToCheck and due), or, if nothing is worth a grant, a short report on why. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
+      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, title (3-8 words), objective, approach, stopCondition, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, each sized S, M or L, funding queues step 1; the ask is the sum of the sizes), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your plan to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
       lane: { lane: "exploration", gap: `Explore under: ${goalText}`.slice(0, 300) }, reservationId: r.id,
     });
     world.bankReservations.upsert({ ...r, assignmentId: a.id });
@@ -113,23 +116,38 @@ function watchExplorers(world: World): void {
     if (a?.status !== "active") continue;
     markStarted(world, r, a);
     const spent = assignmentSpent(world, a.id);
-    if (spent >= EXPLORE_CEILING_SHARE * r.tokens && !world.db.prepare("SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.exploreCeiling') = ? LIMIT 1").get(r.id)) {
-      interruptNow(world, a.agentId, `You have used ${spent.toLocaleString("en-US")} of the ${r.tokens.toLocaleString("en-US")} tokens reserved for this exploration. Don't start anything new: file your grant proposal now (\`propose_grant\`), or if nothing is worth a grant say why, then \`submit_report\`.`, "The explore tick");
-      world.events.append({ type: "system", agentId: a.agentId, buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} reached ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of its exploration chunk and was asked to file`, payload: { exploreCeiling: r.id, assignmentId: a.id, spentTokens: spent, tokens: r.tokens } });
+    if (spent >= EXPLORE_CEILING_SHARE * r.tokens) {
+      askToFileOnce(world, "exploreCeiling", r.id, a.agentId, `You have used ${spent.toLocaleString("en-US")} of the ${r.tokens.toLocaleString("en-US")} tokens reserved for this exploration. Don't start anything new: file your grant proposal now (\`propose_grant\`), or if nothing is worth a grant say why, then \`submit_report\`.`, "The explore tick",
+        { buildingId: r.buildingId, text: `${world.nameOf(a.agentId)} reached ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of its exploration chunk and was asked to file`, payload: { assignmentId: a.id, spentTokens: spent, tokens: r.tokens } });
     }
   }
 }
 
+/**
+ * Interrupt a running agent once with a wrap-up ask, keyed by a `system` event whose payload carries `key` = `id` (the
+ * explorer's 90%-of-chunk ask, the session circuit breaker's 90% one). False when that event already exists.
+ */
+export function askToFileOnce(world: World, key: string, id: string, agentId: string, ask: string, from: string, event: { buildingId: string | null; text: string; payload: Record<string, unknown> }): boolean {
+  if (world.db.prepare(`SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.${key}') = ? LIMIT 1`).get(id)) return false;
+  interruptNow(world, agentId, ask, from);
+  world.events.append({ type: "system", agentId, buildingId: event.buildingId, text: event.text, payload: { [key]: id, ...event.payload } });
+  return true;
+}
+
+/** Times one named step of a tick (ms, summed per name): the runtime passes one so health `load.tick` can split a phase. */
+export type SubTimer = <T>(name: string, fn: () => T) => T;
+const untimed: SubTimer = (_name, fn) => fn();
+
 /** The runtime tick's explore step: close finished reservations, watch running explorers, then start at most one explorer per building. */
-export function exploreTick(world: World, now = new Date()): { started: Assignment[]; closed: BankReservation[] } {
-  const closed = closeReservations(world, now);
-  watchExplorers(world);
+export function exploreTick(world: World, now = new Date(), time: SubTimer = untimed): { started: Assignment[]; closed: BankReservation[] } {
+  const closed = time("explore.close", () => closeReservations(world, now));
+  time("explore.watch", () => watchExplorers(world));
   const started: Assignment[] = [];
-  let free = freeTokensAll(world, now);
+  let free = time("explore.freeTokensAll", () => freeTokensAll(world, now));
   for (const b of world.buildings.all()) {
-    if (exploreBlock(world, b, now, free) !== null) continue;
-    started.push(startExplorer(world, b, now));
-    free = freeTokensAll(world, now); // the new reservation claims its chunk
+    if (time("explore.block", () => exploreBlock(world, b, now, free)) !== null) continue;
+    started.push(time("explore.start", () => startExplorer(world, b, now)));
+    free = time("explore.freeTokensAll", () => freeTokensAll(world, now)); // the new reservation claims its chunk
   }
   return { started, closed };
 }

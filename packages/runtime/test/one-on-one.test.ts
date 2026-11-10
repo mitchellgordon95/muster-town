@@ -54,6 +54,35 @@ describe("the manager's 1:1", () => {
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
+  test("the human's line carries the item open on their screen, read live when the line arrives; none, no block", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      expect(s.received[0]).not.toContain("## Open on");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Hi." });
+      yield result(100, 0.01);
+      const said = await s.next();
+      expect(said).toMatch(/^## Open on .+'s screen\n/);
+      expect(said).toMatch(/Doc dc_\w+: \w+ ".+" by /);
+      expect(said).toContain("said in the 1:1");
+      expect(said).toContain("what's this about?");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "It's the report." });
+      yield result(200, 0.02);
+      expect(await s.next()).toContain("is over");
+      yield result(250, 0.03);
+    });
+    const { world, runtime, lab, admin } = env;
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    await until(() => world.meetings.require(m.id).transcript.length === 1);
+    const doc = world.docs.first("buildingId = ? AND state != 'draft'", [lab.id])!;
+    world.ops.meetingFocus(admin, m.id, { kind: "doc", id: doc.id });
+    world.ops.meetingSay(admin, m.id, "what's this about?");
+    await until(() => world.meetings.require(m.id).transcript.length === 3);
+    expect(world.meetings.require(m.id).transcript.at(-1)!.text).toBe("It's the report.");
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+  });
+
   test("Plan with an agent: the Planner answers its Town Hall 1:1 with the tree brief in its prompt and proposes for no building", async () => {
     const env = await managed(async function* (s) {
       yield init();
@@ -121,6 +150,40 @@ describe("the manager's 1:1", () => {
     await runtime.whenIdle();
     expect(world.meetings.require(m.id).phase).toBe("done");
     expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done" });
+  });
+
+  test("a Bank limit that holds the reply is said in the 1:1, once; clearing it (Try now) lets the manager answer", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Here now." });
+      yield result(100, 0.01);
+      await s.next();
+      yield result(50, 0.01);
+    });
+    const { world, runtime, sdk, by, lab, admin, seed } = env;
+    const mei = by("Mei");
+    const lim = world.bank.availability.limit({ inputId: world.bank.subscriptionInput()!.id, scope: "*", kind: "window", until: new Date(Date.now() + 4 * 3_600_000).toISOString(), reason: "rate_limit_event seven_day_overage_included rejected" });
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    world.ops.meetingSay(admin, m.id, "hello?");
+    await runtime.tickOnce();
+    const notices = () => world.meetings.require(m.id).transcript.filter((u) => u.speakerKind === "system");
+    expect(sdk.sessions).toHaveLength(0);
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0].text).toContain("Mei can't reply yet: Test subscription: limited, resets ");
+    expect(notices()[0].text).toContain(`"Try now" on that input at the Bank`);
+    // a second line under the same hold is not told again
+    world.ops.meetingSay(admin, m.id, "helloooo");
+    await runtime.tickOnce();
+    expect(notices()).toHaveLength(1);
+    expect(sdk.sessions).toHaveLength(0);
+
+    world.bank.clearLimit(seed.admin.id, lim.id);
+    await runtime.tickOnce();
+    await until(() => world.meetings.require(m.id).transcript.some((u) => u.speakerId === mei.id));
+    expect(notices()).toHaveLength(1);
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
   });
 
   test("an agent in a work session answers its 1:1 beside it, hands the human's request to the work by telling itself, and the work goes on", async () => {

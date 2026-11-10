@@ -4,7 +4,9 @@
 // (run as `node --experimental-strip-types --no-warnings restore-helper.mjs ...`; restore.sh does). No SDK, no sqlite3 CLI: the
 // checks use node:sqlite (node >= 22.5) and fall back to a `sqlite3` binary when it is missing.
 //
-//   list                         every town/<date>[T<HH>].db.gz.enc key in the bucket, oldest first (env: BUCKET_NAME, AWS_*)
+//   list [prefix]                every town/<date>[T<HH>].db.gz.enc key in the bucket, oldest first (env: BUCKET_NAME, AWS_*);
+//                                with a prefix (hosted/hub/, hosted/<slug>/, transcripts/<town>/) every key under it
+//   decrypt-raw <blob> <out>     decrypt only (a transcript object: the file is <sessionId>.jsonl.br, brotli as the town keeps it)
 //   get <key> <out>              download one object (env: BUCKET_NAME, AWS_*)
 //   decrypt <blob> <out.db>      decrypt (MUSTER_TOWN_BACKUP_KEY) and gunzip a downloaded object into a database file
 //   check <db>                   JSON: {integrity, agents, newestDocAt, docs, bytes} from the copy (read-only)
@@ -69,7 +71,8 @@ async function check(path) {
 
 switch (cmd) {
   case "list": {
-    const keys = (await s3().list("town/")).filter((k) => /^town\/\d{4}-\d{2}-\d{2}(T\d{2})?\.db\.gz\.enc$/.test(k));
+    const [prefix] = args;
+    const keys = prefix ? await s3().list(prefix) : (await s3().list("town/")).filter((k) => /^town\/\d{4}-\d{2}-\d{2}(T\d{2})?\.db\.gz\.enc$/.test(k));
     for (const k of keys) console.log(k);
     break;
   }
@@ -89,6 +92,13 @@ switch (cmd) {
     console.log(`${blob}: ${statSync(blob).size} bytes encrypted -> ${plain.byteLength} bytes of database at ${out}`);
     break;
   }
+  case "decrypt-raw": {
+    const [blob, out] = args;
+    if (!blob || !out) { console.error("usage: decrypt-raw <blob> <out>"); process.exit(2); }
+    writeFileSync(out, decryptBackup(key(), readFileSync(blob)));
+    console.log(`${blob} -> ${out} (${statSync(out).size} bytes)`);
+    break;
+  }
   case "check": {
     const [db] = args;
     if (!db) { console.error("usage: check <db>"); process.exit(2); }
@@ -105,6 +115,6 @@ switch (cmd) {
     break;
   }
   default:
-    console.error("usage: restore-helper.mjs list | get <key> <out> | decrypt <blob> <out.db> | check <db> | seal <db> <out.enc>");
+    console.error("usage: restore-helper.mjs list [prefix] | decrypt-raw <blob> <out> | get <key> <out> | decrypt <blob> <out.db> | check <db> | seal <db> <out.enc>");
     process.exit(2);
 }

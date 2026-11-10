@@ -55,10 +55,29 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      (post-mortem 2026-10-31 item 8).
    - **Host actions.** No redeployer: a hosted admin's redeploy is refused (403), and the desk image, desk recreation
      and the GitHub/Fly tokens are never read.
-   - **First building.** A new collective has no buildings (`buildings: []`): its admin opens Planning → **New building**
-     (it moves in with its manager at one of its desks; forks of the manager do the work), adds the key at the Bank
-     (Donate, To: The Bank, **API key**), and adds a key result in the building's **Goals** tab. Exploration then
-     starts by itself on the free tokens under the building's goal; a grant or a directed assignment works too.
+   - **No repo, no deploy/PR machinery** (1:1 mt_1vs893enaw, findings dc_ogpz8cgzow). Core `World.repoMode()` is `none`
+     (no `Town.workspace`: every hosted collective), `own` (a repo that is not the one the server runs from; runtime sets
+     `host.repoUrl` from its checkout's origin) or `muster` (muster.town's own). `none`: nobody holds `town.redeploy` in a
+     hosted World (admins included, so Planning → System has no "Pull main & redeploy"; `/api/me.canRedeploy`), MCP lists
+     no `redeploy` tool, `{deploy}` and `{pr}` waits are refused and left out of the prompts and tool texts (schema
+     `verbToolFor`), the manager's in-tray has no "Live:" line and rolls up when reports were decided, and the web hides the
+     Live-build row and the code-access rows. `own`: `{pr}` waits and code access stay; `{deploy}` waits and the redeploy
+     line go, and only admins and the deployer role redeploy. `muster`: unchanged.
+   - **First building.** Done 2026-11-01 (gr_5ltmbf3a2f, kr_god7otzibq): `hub.open` (`ensureFirstBuilding`, hub.ts)
+     gives a World with no building besides the Town Hall one goal-directed building, **Workshop**, on the root goal
+     (the founder's), made as Planning → New building makes one: its manager (forks do the work) at one of its desks,
+     code access off (the collective defaults). It runs on create and on every open, so a collective started before it
+     (Hollyville) gets its building at the next boot; buildings are never deleted, so it never comes back once made.
+     Without a key the founder's HUD shows one next step, **Add your API key to start** (`health.funding` = `none`),
+     to the Bank (Donate, To: The Bank, **API key**); with a key the explore tick starts work on the free tokens under
+     the root goal (a grant proposal in the Town Hall decision queue). More goals go under the root (Town Hall → **Goal tree**),
+     more buildings through Planning → **New building**. Tests: `packages/server/test/hub-start.test.ts`, `packages/server/test/hub.test.ts`.
+     With a key, the first tick explores (kr_f722z9ut50): a Start key credits 1,000,000 tokens, less the 500,000
+     operating reserve leaves 500,000 free under the root, so the tick reserves one 100,000-token chunk, the Workshop's
+     manager-resident runs on the founder's key input (`funding` api-key, `credentialInputId` = that input) and its grant
+     proposal routes to the founder (the root's captain) in the Town Hall decision queue. A key added later at the Bank starts it on
+     the next tick. A key credit of 600,000 tokens or less leaves less than one chunk free: nothing explores (the Queue tab says
+     why). Test: `packages/server/test/hub-explore.test.ts`.
    Tests: `packages/runtime/test/hosted.test.ts`.
 
 ## Step 3: Start a collective, and the own-key requirement
@@ -98,6 +117,9 @@ What the server enforces (step 1 and 3, with tests):
   not offered in a hosted collective: only `api-key` and `donor-key` inputs.
 - `GET /<slug>/api/health` and the Bank page show "funded by API key" or "no key" for the collective, never the host's
   funding.
+- The Bank's Hosting tab shows only the collective's own desks: the server is run by muster.town, so
+  `/<slug>/api/finance/fly` returns `townPaidBy: "host"` and `townUsd` 0, over a window that starts on the collective's
+  creation day (its first event).
 
 **Hosted collectives run on Anthropic API keys only (Mitchell, 1:1 mt_p3ge56kg03, 2026-10-31).** Anthropic's terms
 reserve Claude subscription (OAuth) credentials for the subscriber's own use of Claude Code; a service that runs agents

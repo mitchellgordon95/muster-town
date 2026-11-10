@@ -47,6 +47,15 @@ export function creditBank(world: World, tokens = 10_000_000): void {
     .run(`bc_test_${Math.random().toString(36).slice(2)}`, inp.id, tokens, tokens, new Date().toISOString(), "2099-01-01T00:00:00.000Z");
 }
 
+/**
+ * A proposal pinned to ask exactly `askTokens`: the town prices an ask from its steps' sizes (docs/legible-delegation.md
+ * §7.3), so a fixture about free tokens, the overdraft walk or a card's numbers sets the stored ask by hand.
+ */
+export function askAt<G extends { id: string }>(world: World, g: G, askTokens: number): G {
+  world.grants.patch(g.id, { askTokens });
+  return { ...g, askTokens };
+}
+
 /** `shape`: draw the map in that shape instead of a new town's ("fountain"), for tests about one shape's geometry. */
 export function seededWorld(shape?: MapLayout) {
   const f = freshWorld();
@@ -57,6 +66,16 @@ export function seededWorld(shape?: MapLayout) {
   f.world.town.set({ operatingReserveTokens: 0 });
   const by = (name: string) => f.world.agents.first("name = ?", [name])!;
   return { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };
+}
+
+/**
+ * A seeded world that works on this server's own repo (`repoMode` muster: a workspace, no host repo URL to tell it apart),
+ * like muster.town's Workshop: deploy and PR waits, the Live line and managers' redeploy. A plain seeded world has no repo.
+ */
+export function musterWorld(shape?: MapLayout) {
+  const s = seededWorld(shape);
+  s.world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main" } });
+  return s;
 }
 
 /** Tick until the promise settles (bounded). */
@@ -92,9 +111,13 @@ export function undoTokenCounters(db: import("better-sqlite3").Database): void {
 
 /**
  * Undo migration 037's columns (the raw totals it made generated; the stored adjusted `tokens` / `spentTokens` stay as
- * plain columns) so 037 runs again on next open. Its one-time size conversion runs again too.
+ * plain columns) so 037 runs again on next open. Its one-time size conversion runs again too. Migration 089 (an index
+ * on bank_debits.tokens) is undone with it.
  */
 export function undoAdjustedTokens(db: import("better-sqlite3").Database): void {
+  // 037 drops bank_debits.tokens, which migration 089's index covers: drop the index and let 089 run again after 037
+  db.exec("DROP INDEX IF EXISTS bank_debits_credit");
+  db.prepare("DELETE FROM schema_version WHERE version = 89").run();
   const cols = (t: string) => (db.prepare(`PRAGMA table_xinfo("${t}")`).all() as { name: string }[]).map((r) => r.name);
   for (const t of ["usage", "bank_debits", "bank_credits"]) if (cols(t).includes("rawTokens")) db.exec(`ALTER TABLE ${t} DROP COLUMN rawTokens`);
   if (cols("allocations").includes("spentRawTokens")) db.exec("ALTER TABLE allocations DROP COLUMN spentRawTokens");

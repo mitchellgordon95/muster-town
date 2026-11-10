@@ -137,3 +137,20 @@ describe("rule mention", () => {
     expect(busy.wakes()).toHaveLength(0);
   });
 });
+
+describe("a claim's note (Mitchell, relay dc_fyox7jmhdh)", () => {
+  it("claiming with a note keeps the words on the request, tells the author and names them in the event; a bare claim tells the author too", async () => {
+    const s = seededWorld();
+    const ingrid = s.by("Ingrid");
+    const { id } = await s.world.verbs.request_human(ingrid, { title: "Make a repo", body: "Create one for us." });
+    const { id: id2 } = await s.world.verbs.request_human(ingrid, { title: "Make another", body: "Another." });
+    const avatar = s.world.ops.ensureAvatar(s.world.ops.createUser("Rando").user.id);
+    const { request } = s.world.ops.requestAction(avatar, id, "claim", "  use Wright's VPS ");
+    expect(request).toMatchObject({ requestStatus: "claimed", requestNote: "use Wright's VPS" });
+    expect(s.world.events.list({ types: ["doc.updated"], limit: 1000 }).at(-1)!.text).toContain("use Wright's VPS");
+    s.world.ops.requestAction(avatar, id2, "claim");
+    const heard = s.world.messages.where("toId = ?", [ingrid.id], "ORDER BY createdAt, rowid").map((m) => m.body);
+    expect(heard).toContain(`Rando claimed your outbox request "Make a repo" (${id}): use Wright's VPS`);
+    expect(heard).toContain(`Rando claimed your outbox request "Make another" (${id2}).`);
+  });
+});

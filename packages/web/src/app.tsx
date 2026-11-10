@@ -18,13 +18,17 @@ import { ConnectAgentPanel } from "./panels/ConnectAgent";
 import { BuildingPanel } from "./panels/BuildingPanel";
 import { LibraryPanel } from "./panels/LibraryPanel";
 import { OutboxPanel } from "./panels/OutboxPanel";
+import { StatsPanel } from "./panels/StatsPanel";
+import { HelpSignCard } from "./panels/HelpSign";
 import { MeetingPanel } from "./panels/MeetingPanel";
 import { PlanningPanel } from "./panels/PlanningPanel";
-import { BoardPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
+import { BoardPanel, BulletinPanel, CabinetPanel, IntrayPanel, ModStationPanel, PlantFlag, SchedulePanel } from "./panels/Places";
 import { flagTargets } from "./panels/flag";
 import { GoalTreePanel } from "./panels/GoalTreePanel";
-import { BankPanel } from "./panels/BankPanel";
+import { BankSheet } from "./panels/BankSheet";
+import { DecisionQueue } from "./panels/DecisionQueue";
 import { GrantPanel } from "./panels/GrantPanel";
+import { LinkSheet } from "./panels/LinkSheet";
 import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
@@ -84,6 +88,7 @@ async function boot(): Promise<Phase> {
   connect(token);
   store.onLayoutChanged = () => { a.town().then((s) => store.applySnapshot(s), () => undefined); };
   a.events({ limit: 300 }).then((ev) => store.mergeEvents(ev), () => undefined);
+  loadCacheAlerts();
   // the Bank's sign: refetch on bank events and spends (at most every 5 s), and each minute as daily tokens expire
   let bankTimer: ReturnType<typeof setTimeout> | null = null;
   const loadBank = () => { a.bank().then((bank) => store.set({ bank }), () => undefined); };
@@ -96,6 +101,18 @@ async function boot(): Promise<Phase> {
     }, () => undefined);
   };
   store.onRedeployEvent = loadRedeployLive;
+  // a hosted collective: a key added, an exploration started, a proposal filed or funded moves the founder's HUD notice
+  // (health figures are recomputed every 5 s on the server, so wait a little longer than that before refetching)
+  let founderTimer: ReturnType<typeof setTimeout> | null = null;
+  store.onFounderChanged = () => {
+    founderTimer ??= setTimeout(() => {
+      founderTimer = null;
+      a.health().then(({ funding, founder }) => {
+        const h = store.state.health;
+        if (h && funding) store.set({ health: { ...h, funding, ...(founder ? { founder } : {}) } });
+      }, () => undefined);
+    }, 6000);
+  };
   loadRedeployLive();
   loadBank();
   setInterval(loadBank, 60_000);
@@ -116,6 +133,15 @@ async function boot(): Promise<Phase> {
   };
   loadBlocked();
   setInterval(loadBlocked, 30_000);
+  // the bulletin board's unread count for a signed-in human (flag dc_04q4h8s229): on connect, when a note is pinned or taken down, and when `me` changes
+  const loadBulletinUnread = () => {
+    if (!store.state.me) { if (store.state.bulletinUnread) store.set({ bulletinUnread: 0 }); return; }
+    a.bulletinBoard(200).then((b) => store.set({ bulletinUnread: b.unread ?? 0 }), () => undefined);
+  };
+  store.onBulletinChanged = loadBulletinUnread;
+  let bulletinFor = store.state.me?.user.id;
+  store.subscribe(() => { const id = store.state.me?.user.id; if (id !== bulletinFor) { bulletinFor = id; loadBulletinUnread(); } });
+  loadBulletinUnread();
   return { k: "ready" };
 }
 
@@ -126,7 +152,7 @@ function connect(token: string | null, attempt = 0) {
   socket = api().connect({
     onOpen: () => {
       opened = true; if (token) socket?.send({ type: "auth", token }); store.set({ conn: "open" });
-      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); checkBuild(); store.onAssignmentChanged?.(); }
+      if (wasOpen) { api().events({ limit: 100 }).then((ev) => store.mergeEvents(ev), () => undefined); loadCacheAlerts(); checkBuild(); store.onAssignmentChanged?.(); }
       wasOpen = true;
     },
     onMessage: (m) => store.receive(m),
@@ -143,6 +169,12 @@ function connect(token: string | null, attempt = 0) {
  * came from, the tab is stale and would keep showing old UI (and old bugs) until someone reloads by hand. Reload it,
  * unless a person is mid-sentence in a text box: then tell them and leave the text alone.
  */
+/** The last day's cache-miss alerts from the server (gr_lwgus14rd2 step 2): kept apart from `events`, which holds only the latest few hundred. */
+function loadCacheAlerts() {
+  const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+  api().events({ alert: "cache-miss", from, limit: 50 }).then((cacheAlerts) => store.set({ cacheAlerts }), () => undefined);
+}
+
 function checkBuild() {
   api().health().then(({ commit }) => {
     if (!commit || !loadedCommit || commit === loadedCommit) return;
@@ -181,31 +213,37 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "agent": return <AgentPanel key={panel.id} id={panel.id!} tab={panel.tab} />;
     case "building": return <BuildingPanel key={panel.tab ? `${panel.id}:${panel.tab}:${openSeq(panel)}` : `${panel.id}:`} id={panel.id!} tab={panel.tab} />;
     case "connect": return <ConnectAgentPanel />;
-    case "library": return <LibraryPanel docId={panel.docId} />;
+    case "library": return <LibraryPanel />;
     case "outbox": return <OutboxPanel />;
+    case "stats": return <StatsPanel />;
     case "meeting": return <MeetingPanel key={panel.id} id={panel.id} />;
     case "intray": return <IntrayPanel key={panel.id} buildingId={panel.id!} />;
     case "board": return <BoardPanel key={panel.id} buildingId={panel.id!} />;
+    case "bulletin": return <BulletinPanel />;
     case "cabinet": return <CabinetPanel key={panel.id} buildingId={panel.id!} />;
     case "admin":
     case "planning": return <PlanningPanel tab={panel.tab} />;
     // the Bank's tabs are things in its room (BANK_FIXTURES.stations); a tab deep-link re-lands per open
-    case "bank": return <BankPanel key={panel.tab ? `${panel.tab}:${openSeq(panel)}` : ""} tab={panel.tab} />;
+    case "bank": return null; // a sheet over the map like the goal editor (App, BankSheet)
     case "goals": return null; // a sheet over the map that stays open beside the side panel (App)
     case "grant": return <GrantPanel key={panel.id} id={panel.id!} />;
     case "assignment": return <AssignmentPanel key={panel.id} id={panel.id!} />;
     case "session": return <SessionPanel key={panel.id} id={panel.id!} />;
     case "schedule": return <SchedulePanel />;
     case "mod": return <ModStationPanel />;
+    case "queue": return null; // the decision queue: a sheet over the map, the Secretary's 1:1 beside it (App)
     case "manual": return null; // a paper sheet over the town, not a side panel (App)
+    case "help": return null; // a building's help sign: a paper card over the town (App)
   }
 }
 
 export function App() {
   const [phase, setPhase] = useState<Phase>({ k: "booting" });
   const open = useTown((s) => s.panel);
+  const linkSheet = useTown((s) => s.sheet);
   // the manual is a paper sheet over the town; the side panel and the map's inset ignore it
   const manual = open?.kind === "manual" ? open : null;
+  const helpSign = open?.kind === "help" && open.id ? open.id : null;
   // the goal tree editor is a sheet over the map too; it stays open while a link from it fills the side panel
   // (a grant, a building, the Planner's 1:1) and closes when its own panel ref is closed or with its ×
   const [goals, setGoals] = useState<PanelRef | null>(null);
@@ -216,7 +254,25 @@ export function App() {
     prevOpen.current = open;
   }, [open]);
   const closeGoals = useCallback(() => { setGoals(null); if (store.state.panel?.kind === "goals") store.open(null); }, []);
-  const panel = manual || open?.kind === "goals" ? null : open;
+  // the Bank is a sheet over the map too (gr_567tikzitl step 1); every opener still opens PanelRef kind "bank" with its tab
+  const [bankSheet, setBankSheet] = useState<PanelRef | null>(null);
+  const prevBank = useRef(open);
+  useEffect(() => {
+    if (open?.kind === "bank") setBankSheet(open);
+    else if (!open && prevBank.current?.kind === "bank") setBankSheet(null);
+    prevBank.current = open;
+  }, [open]);
+  const closeBank = useCallback(() => { setBankSheet(null); if (store.state.panel?.kind === "bank") store.open(null); }, []);
+  // the decision queue at the hydrant is a sheet over the map too; the Secretary's 1:1 opens in the side panel beside it
+  const [queue, setQueue] = useState(false);
+  const prevQueue = useRef(open);
+  useEffect(() => {
+    if (open?.kind === "queue") setQueue(true);
+    else if (!open && prevQueue.current?.kind === "queue") setQueue(false);
+    prevQueue.current = open;
+  }, [open]);
+  const closeQueue = useCallback(() => { setQueue(false); if (store.state.panel?.kind === "queue") store.open(null); }, []);
+  const panel = manual || helpSign || open?.kind === "goals" || open?.kind === "bank" || open?.kind === "queue" ? null : open;
   // town planning: the selected building's side bar (goals, budget, stats) takes the panel's place
   const plan = useTownPlan();
   const planSel = plan?.selected ?? null;
@@ -230,7 +286,7 @@ export function App() {
   const [flagHere, setFlagHere] = useState<string | null | undefined>(undefined);
   useTown((s) => s.me);
   // human-only: a guest has no roles, and agents don't use the web client
-  const canAssign = (id: string) => store.can("building.assign", id);
+  const canAssign = (id: string) => store.canFlag(id);
   const canFlag = flagTargets(buildings, canAssign).length > 0;
   const [pw, setPw] = usePanelWidth();
   // first visit in this browser: explain the town once it has loaded; the HUD's "?" reopens it.
@@ -294,10 +350,16 @@ export function App() {
       {planSide ? <aside className="panel plan-side" style={{ width: pw }} aria-label="Selected building"><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`plan:${planSide}`}><PlanSideBar id={planSide} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
       <PlanToolbar inset={inset ? pw : 0} />
-      <Toasts />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
+      {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
+      {queue && ready ? <PanelBoundary key="queue"><DecisionQueue onClose={closeQueue} /></PanelBoundary> : null}
+      {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
+      {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
+      {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
+      {/* toasts last, over every sheet and overlay (z-index 50 in styles.css) */}
+      <Toasts />
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}
     </div>
   );

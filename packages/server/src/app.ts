@@ -1,4 +1,5 @@
-import { AppError, canInteract, countFunnel, isAppError, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { CapacityProbe } from "./capacity.ts";
+import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -11,7 +12,7 @@ import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from 
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, renderHome, renderRetired } from "./home.ts";
-import { CreateCollectiveInput, type Hub } from "./hub.ts";
+import { CreateCollectiveInput, RenameCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import { LoadMonitor } from "./load.ts";
@@ -22,6 +23,7 @@ import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { goalRoutes } from "./routes/goals.ts";
+import { askRoutes } from "./routes/asks.ts";
 import { grantRoutes } from "./routes/grants.ts";
 import { mediaRoutes } from "./routes/media.ts";
 import { secretRoutes } from "./routes/secrets.ts";
@@ -60,6 +62,8 @@ export interface BuildAppOptions {
   directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
   retire?: (() => unknown) | null;
+  /** a hosted collective's app: rename it, slug untouched (main.ts passes the hub's); `PATCH /<slug>/api/collective`, its admins */
+  rename?: ((input: RenameCollectiveInput) => { name: string }) | null;
   /** recompute `GET /api/health`'s database-backed figures this often and serve the cached copy (main.ts: 5000); 0 = per request (tests) */
   healthRefreshMs?: number;
   /** MUSTER_TOWN_RUNTIME=off (throwaway.ts): a drill town; `GET /api/health` says `throwaway: true` */
@@ -85,6 +89,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
   app.decorate("healthRefreshMs", opts.healthRefreshMs ?? 0);
+  // GET /api/health `capacity` (gr_n0p3ast5pp step 3): the root app only, hosted collectives share the process
+  app.decorate("capacity", !opts.prefix ? new CapacityProbe(opts.world, { ws: () => load.snapshot().wsClients, tick: () => app.runtime?.tickStats?.().last }) : null);
   app.decorateRequest("auth", null);
   const authSettings = defaultAuthSettings(opts.auth);
   const prefix = opts.prefix ?? "";
@@ -172,6 +178,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     await c.register(agentRoutes);
     await c.register(docRoutes);
     await c.register(grantRoutes);
+    await c.register(askRoutes);
     await c.register(goalRoutes);
     await c.register(mediaRoutes);
     await c.register(skillRoutes);
@@ -189,18 +196,51 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return { retired: true, url: "/" };
     });
   }
+  if (prefix && opts.rename) {
+    const rename = opts.rename;
+    app.patch(`${prefix}/api/collective`, async (req) => {
+      const user = requireUser(req);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this collective can rename it.");
+      const row = rename(parse(RenameCollectiveInput, req.body));
+      return { collective: { name: row.name, slug: prefix.slice(1), url: `${prefix}/` } };
+    });
+  }
   if (prefix) await app.register(routes, { prefix });
   else await routes(app);
+  // an ask's `api` claim check reads the town's own API in-process, signed out (core ask-checks.ts), never over the network
+  opts.world.host.apiGet = async (path) => {
+    const r = await app.inject({ method: "GET", url: `${prefix}${path}` });
+    let body: unknown = r.body;
+    try { body = r.json(); } catch { /* not JSON: the raw text */ }
+    return { status: r.statusCode, body };
+  };
 
-  // The join funnel (grant gr_fibsfwr4tz step 3): public counts only, never who. The guest card pings `view` once per load;
-  // the root's GET also lists every hosted collective, so their strangers are rows too.
-  app.post(`${prefix}/api/join-funnel/view`, async () => { countFunnel(opts.world, "guestCardViews"); return { counted: true }; });
+  // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load
+  // (with the browser's random id: `guestVisitors` counts it once per UTC day; gr_zoo2cf2zpp); the homepage pings `home` the same way (the root only).
+  // Our own headless checks and scripts never count. The root's GET also lists every hosted collective, so their strangers are rows too.
+  const visitorOf = (body: unknown) => typeof body === "object" && body && typeof (body as { visitor?: unknown }).visitor === "string" ? (body as { visitor: string }).visitor : null;
+  app.post(`${prefix}/api/join-funnel/view`, async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    countFunnel(opts.world, "guestCardViews");
+    const v = visitorOf(req.body);
+    return { counted: true, visitor: v ? countVisitor(opts.world, "guestVisitors", v) : false };
+  });
+  if (!prefix) app.post("/api/join-funnel/home", async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    const v = visitorOf(req.body);
+    return { counted: !!v && countVisitor(opts.world, "homeViews", v) };
+  });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
     const all = [own, ...hosted];
-    return { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    const funnel = { ...sumFunnels(all.map((c) => c.world)), collectives: all.map((c) => ({ slug: c.slug, ...joinFunnel(c.world) })) };
+    // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
+    return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
+
+  // community engagement in this collective only (flag dc_r7u6bkaei4): what its signed-in humans did here, counts only
+  app.get(`${prefix}/api/engagement`, async () => engagement(opts.world));
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
@@ -212,7 +252,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (!prefix) {
     // the root is the collectives homepage. It takes no parameters, so a query (old `/?guest`, `/?as=`) still goes to the
     // client; old `/#/doc|grant/…` links are forwarded by the page's inline script (the server never sees the fragment)
-    const list = () => collectives(opts.world, opts.hub?.list("active") ?? [], opts.collective);
+    const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
       return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));
@@ -232,6 +272,23 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       }
       const row = await opts.hub.create(parse(CreateCollectiveInput, req.body), owner);
       return reply.code(201).send({ collective: { ...row, url: `/${row.slug}/` } });
+    });
+    // the root's admins rename any hosted collective (its own admins do it at PATCH /<slug>/api/collective); the slug stays
+    app.patch<{ Params: { slug: string } }>("/api/collectives/:slug", async (req) => {
+      const user = requireUser(req);
+      if (!opts.hub) throw new AppError("internal", "This server hosts no other collectives (no hub).", 503);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this town can rename another collective.");
+      const row = opts.hub.rename(req.params.slug, parse(RenameCollectiveInput, req.body));
+      return { collective: { ...row, url: `/${row.slug}/` } };
+    });
+    // A Workshop admin retires any hosted collective (Mitchell's flag dc_hz1nz88pkt: a test one someone else owns); the
+    // same retire as its own admins' (hub row kept as 'retired', slug never reused, its dir and data stay on disk)
+    app.post<{ Params: { slug: string } }>("/api/collectives/:slug/retire", async (req) => {
+      const user = requireUser(req);
+      opts.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of the Workshop can retire another collective.");
+      if (!opts.hub) throw new AppError("not_found", "This server hosts no other collectives (no hub).");
+      const row = opts.hub.retire(req.params.slug);
+      return { collective: row };
     });
     // read per request, like the client: a pull shows without a restart
     app.get("/skill.md", async (_req, reply) => {

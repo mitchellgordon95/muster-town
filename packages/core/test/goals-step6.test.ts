@@ -15,7 +15,7 @@ function setup() {
   const tree = world.goalTree;
   const goal = tree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
   tree.attach(admin, LAB, goal.id);
-  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", stopCondition: "s", askTokens: 1000 });
+  const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
   const kr = world.keyResults.require(g.keyResultId!);
   world.grantDesk.propose(null, g.id);
   world.grantDesk.decide(admin, g.id, { action: "fund" });
@@ -32,7 +32,7 @@ describe("Postmortems on missed key results (docs/goals.md, step 6)", () => {
     expect(note.body).toContain("The Bank refactor ate the quarter");
     const [pm, ...more] = world.assignments.where("sourceId = ?", [note.id]);
     expect(more).toEqual([]);
-    expect(pm).toMatchObject({ buildingId: LAB, lane: "directed", queue: "building", agentId: mei.id, status: "pending" });
+    expect(pm).toMatchObject({ buildingId: LAB, lane: "directed", agentId: mei.id, status: "pending" });
     expect(pm.title).toContain(`Postmortem on ${kr.id}`);
     // undone and missed again: never a second postmortem
     world.grantDesk.updateKeyResult(admin, kr.id, { status: "not-started" });
@@ -52,7 +52,7 @@ describe("Postmortems on missed key results (docs/goals.md, step 6)", () => {
 
   it("a key result archived as missed in a reorg gets one too; met gets none", () => {
     const { world, admin, goal, kr } = setup();
-    const k2 = world.keyResults.require(world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "k2", howToCheck: "h", due }], objective: "o", stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const k2 = world.keyResults.require(world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "k2", howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
     world.grantDesk.updateKeyResult(admin, k2.id, { status: "met" });
     expect(postmortemNote(world, k2.id)).toBeUndefined();
     world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });
@@ -65,11 +65,11 @@ describe("Kanban: the queue as a board (docs/goals.md, step 6)", () => {
   it("Queued / Held / Running / Done per building; a goal rolls up its subtree's buildings", () => {
     const { world, admin, mei, goal } = setup();
     const by = { kind: "user" as const, id: admin.id };
-    const q = createAssignment(world, { agentId: mei.id, queue: "building", buildingId: LAB, title: "queued one", description: "d", createdBy: by });
-    const h = createAssignment(world, { agentId: mei.id, queue: "building", buildingId: LAB, title: "held one", description: "d", createdBy: by, waitFor: { deploy: "next" } });
-    const r = createAssignment(world, { agentId: mei.id, queue: "building", buildingId: LAB, title: "running one", description: "d", createdBy: by });
+    const q = createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "queued one", description: "d", createdBy: by });
+    const h = createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "held one", description: "d", createdBy: by, waitFor: { deploy: "next" } });
+    const r = createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "running one", description: "d", createdBy: by });
     world.assignments.upsert({ ...r, status: "active" });
-    const d = createAssignment(world, { agentId: mei.id, queue: "building", buildingId: LAB, title: "done one", description: "d", createdBy: by });
+    const d = createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "done one", description: "d", createdBy: by });
     world.assignments.upsert({ ...d, status: "done", updatedAt: new Date().toISOString() });
     const [lane] = buildingBoard(world, LAB).lanes;
     expect(lane.desks).toBe(world.buildings.require(LAB).headcount);

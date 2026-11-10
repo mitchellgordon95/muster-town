@@ -42,9 +42,10 @@ describe("topic pages", () => {
     const { world, b, pix, ann, write, agent } = lab();
     const { id } = await write(pix.id, { title: "Wakes", body: "one", topicOf: b.id });
     await write(pix.id, { title: "Wakes", body: "two", topicOf: b.id });
-    const read = await world.verbs.read(agent(ann.id), { id }) as { body: string; revisions?: { body: string }[] };
+    const read = await world.verbs.read(agent(ann.id), { id }) as { body: string; revisions?: { body?: string; chars: number }[] };
     expect(read.body).toBe("two");
-    expect(read.revisions?.map((r) => r.body)).toEqual(["one"]);
+    // listed without bodies (a long-lived page's old text made `read` too big); GET /api/docs/:id has them
+    expect(read.revisions?.map((r) => [r.body, r.chars])).toEqual([[undefined, 3]]);
     await expect(write(ann.id, { title: "Wakes", body: "mine", topicOf: b.id })).rejects.toThrow(/manager and its forks/);
     await expect(write(ann.id, { title: "Wakes", body: "mine", id })).rejects.toThrow(/manager and its forks/);
     await expect(write(pix.id, { title: "X", body: "y", topicOf: "workshop" })).rejects.toThrow(/your building id/);
