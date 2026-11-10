@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { EngagementView as Engagement, JoinFunnelView } from "../src/api";
 import { byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, MembersTable, StatsView, waitLabel } from "../src/panels/StatsPanel";
 
-const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 };
 const one = (slug: string, daily: ({ day: string } & typeof zero)[], medianDecisionMs: number | null) => {
   const totals = Object.fromEntries(COLUMNS.map((c) => [c.key, daily.reduce((n, d) => n + d[c.key], 0)])) as typeof zero;
   return { slug, days: 30, from: "2026-10-03", to: "2026-11-01", daily, totals, decisions: medianDecisionMs == null ? 0 : 1, medianDecisionMs };

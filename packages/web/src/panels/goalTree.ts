@@ -138,3 +138,6 @@ export function retireMoves(plan: Pick<ReturnType<typeof retirePlan>, "openKrs" 
     krs: plan.openKrs.map((k) => `Key result "${k.text}" moves under ${dest}`),
   };
 }
+
+/** The three doors' "Captain a goal" (gr_y9bpvx197c): the goal tree opens at the root's first active goal, where Ask to captain shows. */
+export const CAPTAIN_DOOR = "captain";

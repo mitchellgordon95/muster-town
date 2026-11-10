@@ -22,11 +22,13 @@ type Node = { id: string; ownerId: string | null; children: Node[] };
 const find = (n: Node, id: string): Node | undefined => n.id === id ? n : n.children.map((c) => find(c, id)).find(Boolean);
 
 describe("captain requests over HTTP", () => {
-  it("guest 401, visitor 403; a member asks → in-tray row for the root's captain → accept → GET /api/goals has ownerId", async () => {
+  it("guest 401, a visitor (never let in) may ask (gr_y9bpvx197c); a member asks → in-tray row for the root's captain → accept → GET /api/goals has ownerId", async () => {
     const { app, auth, ana, vic, goal, th } = await setup();
     const url = `/api/goals/${goal.id}/captain-requests`;
     expect((await json(app, "POST", url, { body: {} })).status).toBe(401);
-    expect((await json(app, "POST", url, { headers: vic.headers, body: {} })).status).toBe(403);
+    const vicAsk = await json(app, "POST", url, { headers: vic.headers, body: {} });
+    expect(vicAsk.status).toBe(201);
+    expect((await json(app, "POST", `/api/captain-requests/${vicAsk.body.captainRequest.id}/decide`, { headers: auth, body: { action: "decline" } })).status).toBe(200);
 
     const asked = await json(app, "POST", url, { headers: ana.headers, body: { note: "I run this work" } });
     expect(asked.status).toBe(201);

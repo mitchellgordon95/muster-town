@@ -7,14 +7,19 @@
  * The top steps measure real strangers (gr_zoo2cf2zpp, findings dc_dmmktg7x3w): `homeViews` and `guestVisitors` count a
  * browser once per UTC day (`countVisitor`: the browser sends a random id, only its sha256 is kept, in join_funnel_visitors),
  * `guestCardViews` stays one per page load, and `signInStarted` is Sign in pressed (GET /auth/github with no session).
+ * `doorFund`, `doorCaptain` and `doorAgent` (gr_y9bpvx197c) count a browser once per door per UTC day when it opens that
+ * door from the guest card or the You're-in card.
  */
 import { createHash } from "node:crypto";
 import type { World } from "./world.ts";
 
-export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted"] as const;
+export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted", "doorFund", "doorCaptain", "doorAgent"] as const;
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 /** The steps counted once per browser per UTC day. */
-type VisitorStep = "homeViews" | "guestVisitors";
+type VisitorStep = "homeViews" | "guestVisitors" | DoorStep;
+/** The three doors (gr_y9bpvx197c): Fund, Captain a goal, Bring your agent, each a browser once per day. */
+export const DOORS = { fund: "doorFund", captain: "doorCaptain", agent: "doorAgent" } as const;
+export type DoorStep = (typeof DOORS)[keyof typeof DOORS];
 export type FunnelCounts = Record<FunnelStep, number>;
 export interface FunnelDay extends FunnelCounts { day: string }
 export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null }

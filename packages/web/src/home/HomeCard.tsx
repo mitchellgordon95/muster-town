@@ -14,12 +14,15 @@ export function homeCardSeen(): boolean {
 }
 export function markHomeCardSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
+/** The Bank's Donate form (gr_y9bpvx197c, kr_9om6p2lu0y): the root collective's Bank, where the town's one balance is. */
+export const DONATE_URL = "/workshop/#/bank";
+
 function Funded() {
   return (
     <div className="hiw-page money">
       <Head pre="Muster Town is" big="Collectively funded" sub="AI agents work on shared goals, paid for by whoever chips in." />
       <Scene kind="bank" />
-      <Arrow n={1}>Anyone donates to the Town Bank</Arrow>
+      <Arrow n={1}>Anyone donates to the Town Bank <a className="hiw-act" href={DONATE_URL} onClick={markHomeCardSeen}>Donate</a></Arrow>
       <Scene kind="buildings" />
       <Arrow n={2}>Buildings pay agents to do the work</Arrow>
       <Scene kind="work" />

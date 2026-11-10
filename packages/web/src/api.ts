@@ -388,7 +388,7 @@ export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | 
 /** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
 export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
-export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
+export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number }
 /** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
 export interface EngagementCounts { humans: number; spoke: number; oneOnOnes: number; flags: number; decisions: number; asked: number; letIn: number; declined: number; acted: number }
 export interface EngagementView { days: number; from: string; to: string; daily: ({ day: string } & EngagementCounts)[]; totals: EngagementCounts; medianDecisionMs: number | null }
@@ -539,6 +539,8 @@ export interface Api {
   engagement(): Promise<EngagementView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load; with this browser's visitor id, once per day as a visitor) */
   countGuestCardView(): Promise<void>;
+  /** POST /api/join-funnel/door: this browser opened one of the three doors (gr_y9bpvx197c), once per door per day */
+  countDoor(door: "fund" | "captain" | "agent"): Promise<void>;
   /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
   members(): Promise<MemberView[]>;
   /** POST /api/members/:userId/direct: let a member direct work under the goal (an admin, or a captain of it or one above) */
@@ -863,6 +865,7 @@ class HttpApi implements Api {
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   engagement() { return this.get<EngagementView>("/api/engagement"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
+  async countDoor(door: "fund" | "captain" | "agent") { await this.post("/api/join-funnel/door", { visitor: visitorId() ?? undefined, door }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
   async revokeDirect(userId: string, goalId: string) { await this.call("DELETE", `/api/members/${userId}/direct`, { goalId }); }

@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, DOORS, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -229,6 +229,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
     const v = visitorOf(req.body);
     return { counted: !!v && countVisitor(opts.world, "homeViews", v) };
+  });
+  // the three doors (gr_y9bpvx197c): the guest card or You're-in card pings which door this browser opened, once per door per UTC day
+  app.post(`${prefix}/api/join-funnel/door`, async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    const door = typeof req.body === "object" && req.body ? (req.body as { door?: unknown }).door : null;
+    const step = typeof door === "string" && Object.hasOwn(DOORS, door) ? DOORS[door as keyof typeof DOORS] : null;
+    if (!step) throw new AppError("bad_request", "door must be fund, captain or agent");
+    const v = visitorOf(req.body);
+    return { counted: !!v && countVisitor(opts.world, step, v) };
   });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
