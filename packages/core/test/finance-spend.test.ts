@@ -65,7 +65,62 @@ describe("financeSpend (GET /api/finance/spend)", () => {
 
     const lab = f.rows[1];
     expect(lab.children).toEqual([expect.objectContaining({ kind: "no-grant", tokens: 430, sessions: 3 })]);
-    expect(lab.children![0].children!.map((c) => [c.id, c.tokens, c.sessions])).toEqual([["a4", 430, 2], ["a5", 0, 1]]);
+    // no lane recorded on the sessions: one "Before lanes" row under the bucket (gr_utygatbi85)
+    expect(lab.children![0].children!.map((c) => [c.kind, c.id, c.tokens])).toEqual([["lane", "before", 430]]);
+    expect(lab.children![0].children![0].children!.map((c) => [c.id, c.tokens, c.sessions])).toEqual([["a4", 430, 2], ["a5", 0, 1]]);
+    expect(f.noGrantCheck).toMatchObject({ ok: true, diff: 0 });
+    expect(f.noGrant).toMatchObject({ tokens: 480, sessions: 4, byLane: { before: { tokens: 480, sessions: 4, assignments: 3 }, directed: { tokens: 0 } } });
+  });
+
+  it("splits 'Not under a grant' by lane; directed rows name source and asker, exploration rows the proposal they ended in (gr_utygatbi85)", () => {
+    const at = (h: number, m = 0) => `2026-10-28T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+    const w = (agentId: string, assignmentId: string, output: number, lane: "directed" | "exploration" | "retainer" | "grant" | null, start: number, purpose: "work" | "review" = "work") =>
+      ({ ...s(agentId, assignmentId, output), lane, purpose, startedAt: at(start), endedAt: at(start, 30) });
+    const inp: SpendInputs = {
+      sessions: [
+        w("ag_f1", "d1", 100, "directed", 1), w("ag_f1", "d2", 40, "directed", 2), w("ag_f1", "d3", 10, "directed", 2),
+        w("ag_f2", "e1", 80, "exploration", 3), w("ag_f2", "e2", 60, "exploration", 5), w("ag_f3", "e3", 20, "exploration", 6),
+        w("ag_f1", "r1", 7, "retainer", 7), w("ag_f1", "m1", 5, "directed", 8, "review"), w("ag_f1", "o1", 3, null, 0),
+      ],
+      assignments: [
+        { id: "d1", buildingId: "bank", grantId: null, title: "asked in a 1:1", sourceId: "mt_one", origin: null, createdBy: "ag_nell", createdByKind: "agent" },
+        { id: "d2", buildingId: "bank", grantId: null, title: "made by a human", sourceId: null, origin: null, createdBy: "us_mitch", createdByKind: "user" },
+        { id: "d3", buildingId: "bank", grantId: null, title: "unknown", sourceId: null, origin: null, createdBy: "ag_nell", createdByKind: "agent" },
+        { id: "e1", buildingId: "bank", grantId: null, title: "explore 1" },
+        { id: "e2", buildingId: "bank", grantId: null, title: "explore 2", reportId: "dc_rep2" },
+        { id: "e3", buildingId: "bank", grantId: null, title: "explore 3" },
+        { id: "r1", buildingId: "bank", grantId: null, title: "nightly" },
+        { id: "m1", buildingId: "bank", grantId: null, title: "review" },
+        { id: "o1", buildingId: "bank", grantId: null, title: "old" },
+      ],
+      agents: [{ id: "ag_f1", buildingId: "bank" }, { id: "ag_f2", buildingId: "bank" }, { id: "ag_f3", buildingId: "bank" }],
+      buildings: [{ id: "bank", name: "Bank" }],
+      grants: [
+        // filed inside e1's session by its fork: funded, then closed
+        { id: "gr_a", objective: "A plan", title: "Plan A", proposedBy: "ag_f2", createdAt: at(3, 20), fundedAt: at(4), status: "closed", outcome: "done" },
+        // filed by e2's fork long after its session, but citing its report: rejected
+        { id: "gr_b", objective: "B plan", proposedBy: "ag_nell", createdAt: at(9), status: "rejected", findingsDocIds: ["dc_rep2"] },
+        // e3's fork filed nothing; a grant by another agent in the window does not count
+        { id: "gr_c", objective: "C plan", proposedBy: "ag_f1", createdAt: at(6, 10), status: "proposed" },
+      ],
+      users: [{ id: "us_mitch", name: "Mitchell" }, { id: "us_ann", name: "Ann" }],
+      sourceAskers: new Map([["mt_one", "us_ann"]]),
+      convertedAt: null,
+    };
+    const f = financeSpend(inp, 325, T0);
+    const ng = f.rows[0].children!.find((c) => c.kind === "no-grant")!;
+    expect(ng.tokens).toBe(325);
+    expect(ng.children!.map((c) => [c.lane, c.tokens, c.sessions])).toEqual([["exploration", 160, 3], ["directed", 150, 3], ["retainer", 7, 1], ["manager", 5, 1], ["before", 3, 1]]);
+    const kid = (lane: string, id: string) => ng.children!.find((c) => c.lane === lane)!.children!.find((c) => c.id === id)!;
+    expect(kid("directed", "d1").source).toEqual({ id: "mt_one", kind: "meeting", askedById: "us_ann", askedBy: "Ann" });
+    expect(kid("directed", "d2").source).toEqual({ id: null, kind: null, askedById: "us_mitch", askedBy: "Mitchell" });
+    expect(kid("directed", "d3").source).toEqual({ id: null, kind: null, askedById: null, askedBy: null });
+    expect(kid("exploration", "e1").proposal).toEqual({ id: "gr_a", title: "Plan A", state: "funded" });
+    expect(kid("exploration", "e2").proposal).toMatchObject({ id: "gr_b", state: "rejected" });
+    expect(kid("exploration", "e3").proposal).toBeNull();
+    expect(f.noGrant.exploration).toEqual({ assignments: 3, proposals: 2, funded: 1, rejected: 1, withdrawn: 0, open: 0 });
+    expect(f.noGrant.directed).toEqual({ assignments: 3, withSource: 1, withAsker: 2 });
+    expect(f.noGrantCheck).toMatchObject({ ok: true, diff: 0 });
   });
 
   it("session spend beyond used gets a negative 'not funded' row, so the rows still sum to used", () => {

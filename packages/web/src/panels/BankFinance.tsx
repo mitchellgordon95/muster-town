@@ -16,7 +16,7 @@ import { useState } from "react";
 import { api, type Bank, type Finance, type FinanceCash, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
-import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, Section, fmtTokens, useLoad } from "./ui";
 import { HiddenToggle, creditsLeftLine, pickRow } from "./BankFunding";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
@@ -111,6 +111,35 @@ export function grantsSentence(sp: FinanceSpend): string | null {
 }
 
 /** The grants check in words: done + cut + still open vs the grant rows (`grantsCheck`); null when the server sent none. */
+/**
+ * The Spending tab's sentence on the non-grant half (gr_utygatbi85, kr_k76nyweby5): "Of N adj. tokens not under a
+ * grant: X asked for by humans, Y exploration (E runs, P became proposals, F funded), R retainers, M managers' assigned
+ * work, B before lanes." Lanes with nothing are left out; null when the server sends no `noGrant` or it is empty.
+ */
+export function noGrantLine(sp: FinanceSpend): string | null {
+  const ng = sp.noGrant;
+  if (!ng || !ng.tokens) return null;
+  const t = (l: keyof typeof ng.byLane) => fmtTokens(ng.byLane[l].tokens);
+  const e = ng.exploration;
+  const parts = [
+    ng.byLane.directed.tokens ? `${t("directed")} asked for by humans` : null,
+    ng.byLane.exploration.tokens ? `${t("exploration")} exploration (${n(e.assignments)} run${e.assignments === 1 ? "" : "s"}, ${n(e.proposals)} became proposals, ${n(e.funded)} funded)` : null,
+    ng.byLane.retainer.tokens ? `${t("retainer")} retainers` : null,
+    ng.byLane.manager.tokens ? `${t("manager")} managers' assigned work` : null,
+    ng.byLane.before.tokens ? `${t("before")} from before lanes` : null,
+  ].filter(Boolean);
+  return `Of ${fmtTokens(ng.tokens)} ${ADJ} not under a grant: ${parts.join(", ")}.`;
+}
+
+/** The ✓ line under it: the lane rows add up to the "Not under a grant" rows. */
+export function noGrantCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
+  const ng = sp.noGrant, c = sp.noGrantCheck;
+  if (!ng || !c) return null;
+  return c.ok
+    ? { ok: true, text: `The server checked that the lane rows add up to the "Not under a grant" rows, ${n(ng.tokens)} tokens.` }
+    : { ok: false, text: `Does not add up (off by ${n(c.diff)}): the lane rows come to ${n(ng.tokens + c.diff)}, the "Not under a grant" rows to ${n(ng.tokens)}.` };
+}
+
 export function grantsCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
   const g = sp.grants, c = sp.grantsCheck;
   if (!g || !c) return null;
@@ -198,10 +227,12 @@ export function SpendingAbout({ sp }: { sp: FinanceSpend }) {
   const notes = spendNotes(sp);
   const kinds = new Set(sp.rows.map((r) => r.kind));
   const grants = grantsSentence(sp);
+  const noGrant = noGrantLine(sp);
   return (
     <>
       <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Click a building for its grants, a grant for its assignments; the breadcrumb above the table goes back. The clicked row&apos;s detail shows here. &ldquo;By goal&rdquo; switches to spend by goal.</p>
       {grants ? <p className="spend-grants muted">{grants}</p> : null}
+      {noGrant ? <p className="spend-no-grant muted">{noGrant} Open a building&apos;s &ldquo;Not under a grant&rdquo; row for its lanes: directed work names who asked, exploration the proposal it ended in.</p> : null}
       {(["unattributed", "weight-mismatch", "not-funded"] as const).filter((k) => kinds.has(k) && notes[k]).map((k) => (
         <div key={k} className="bank-note"><b>{NOTE_TITLE[k]}</b>{typeof notes[k] === "string" ? <p className="muted">{notes[k]}</p> : notes[k]}</div>
       ))}
