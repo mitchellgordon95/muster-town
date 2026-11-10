@@ -9,7 +9,7 @@ import { z } from "zod";
  */
 const DAY_MS = 24 * 3600_000;
 const MIN_MS = 60_000;
-export const UPTIME_DAYS = 30;
+const UPTIME_DAYS = 30;
 /** probes older than this are dropped on ingest and pruned */
 const KEEP_DAYS = 35;
 /** a run of failed minutes this long or longer is an outage */
@@ -28,10 +28,10 @@ export const ProbeBatch = z.object({
 });
 export type ProbeBatch = z.infer<typeof ProbeBatch>;
 
-export interface UptimeDay { date: string; up: number; down: number; unknown: number; pct: number | null }
-export interface Outage { from: string; to: string; minutes: number }
-export interface RestartGap { from: string; to: string; seconds: number; kind: "redeploy" | "unclean" }
-export interface UptimeSummary {
+interface UptimeDay { date: string; up: number; down: number; unknown: number; pct: number | null }
+interface Outage { from: string; to: string; minutes: number }
+interface RestartGap { from: string; to: string; seconds: number; kind: "redeploy" | "unclean" }
+interface UptimeSummary {
   at: string;
   days: number;
   /** up / (up + down) over the window, one decimal; null before any probe */
