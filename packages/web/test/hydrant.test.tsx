@@ -33,18 +33,17 @@ describe("the Town Hall hydrant", () => {
     expect(hydrantCounts(null)).toEqual({ asks: 0, noticesToday: 0, rankedAt: null });
   });
 
-  it("the stream: a dot per ask and notice, at most a dozen, none under reduced motion or without a target", () => {
-    const from = { x: 0, y: 0 }, to = { ask: { x: 32, y: 0 }, notice: { x: -64, y: 0 } };
-    const few = streamParticles(from, to, { asks: 2, noticesToday: 3 }, 1000, false);
-    expect(few.filter((d) => d.kind === "ask")).toHaveLength(2);
-    expect(few.filter((d) => d.kind === "notice")).toHaveLength(3);
-    expect(streamParticles(from, to, { asks: 40, noticesToday: 40 }, 1000, false)).toHaveLength(MAX_PARTICLES);
-    expect(streamParticles(from, to, { asks: 40, noticesToday: 0 }, 1000, false)).toHaveLength(MAX_PARTICLES);
-    expect(streamParticles(from, to, { asks: 2, noticesToday: 3 }, 1000, true)).toEqual([]);
-    expect(streamParticles(from, { ask: null, notice: null }, { asks: 2, noticesToday: 3 }, 1000, false)).toEqual([]);
+  it("the stream: one dot per ask, no notice stream, at most a dozen, none under reduced motion or without a target", () => {
+    const from = { x: 0, y: 0 }, to = { x: 32, y: 0 };
+    const few = streamParticles(from, to, { asks: 2 }, 1000, false);
+    expect(few).toHaveLength(2);
+    expect(streamParticles(from, to, { asks: 0 }, 1000, false)).toEqual([]);
+    expect(streamParticles(from, to, { asks: 40 }, 1000, false)).toHaveLength(MAX_PARTICLES);
+    expect(streamParticles(from, to, { asks: 2 }, 1000, true)).toEqual([]);
+    expect(streamParticles(from, null, { asks: 2 }, 1000, false)).toEqual([]);
     for (const d of few) {
-      expect(d.x).toBeGreaterThanOrEqual(-64);
+      expect(d.x).toBeGreaterThanOrEqual(0);
       expect(d.x).toBeLessThanOrEqual(32);
     }
-  });
+});
 });
