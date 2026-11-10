@@ -1083,6 +1083,8 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-note { width: 100%; max-width: 420px; resize: vertical; font: inherit; }
 .ask-note-toggle { align-self: center; }
 .ask-form { display: grid; gap: 6px; margin-top: 6px; max-width: 420px; }
+.ask-form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.ask-form-row input[type="date"] { min-height: 30px; }
 .ask-sources { margin-top: 6px; font-size: var(--fs-sm); }
 .ask-sources ul { margin: 4px 0 0; padding-left: 18px; }
 .ask-record { display: inline-block; margin-top: 6px; font-size: var(--fs-sm); }

@@ -24,11 +24,13 @@ export function deltaOf(body: string): { delta: string; rest: string } {
  * What a branch button does, by the ask's target (§11 B): a grant decides through POST /api/grants/:id/decide, a retainer
  * through its retainer decide, a captain or access request through its own decide, an outbox request through claim or
  * decline; anything else (policy, meeting, a question in words) records the label through POST /api/asks/:id/decide.
- * `form`: the button opens a field first (tokens for adjust, a note for counter).
+ * `form`: the button opens a field first (tokens for adjust, tokens and a note for a grant's counter, tokens per run, an end
+ * date and a note for a retainer's counter, a note for a request).
  */
 export type BranchCall =
   | { kind: "grant"; action: "fund" | "counter" | "reject" | "adjust" | "cut"; form?: "tokens" | "counter" }
-  | { kind: "retainer"; action: "approve" | "counter" | "reject"; form?: "note" }
+  /** a retainer's Counter opens the grant counter's shape: tokens per run, an optional end date, a note (any one of them) */
+  | { kind: "retainer"; action: "approve" | "counter" | "reject"; form?: "retainer" }
   | { kind: "captain"; action: "accept" | "decline" }
   | { kind: "access"; grant: boolean }
   /** an outbox request: Claim opens an optional note (the author hears it), Decline a required one (the server refuses a bare decline) */
@@ -61,7 +63,7 @@ export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["
       break;
     case "retainer":
       if (v === "approve" || v === "fund") return { kind: "retainer", action: "approve" };
-      if (v === "counter") return { kind: "retainer", action: "counter", form: "note" };
+      if (v === "counter") return { kind: "retainer", action: "counter", form: "retainer" };
       if (v === "reject") return { kind: "retainer", action: "reject" };
       break;
     case "captain":
@@ -125,3 +127,16 @@ export function slateLine(free: { freeTokens: number; openAsksTokens: number } |
 
 /** The newest slate notice, whose text heads the funding view. */
 export const latestSlate = (notices: Notice[] | undefined) => (notices ?? []).filter((n) => n.kind === "slate").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+
+/**
+ * A retainer counter's body (core retainers.ts): the per-run amount only when it differs from the asked one, the end
+ * date (a YYYY-MM-DD day, its last second UTC) when given; null when nothing would change (the server refuses that).
+ */
+export function retainerCounter(perRunText: string, untilDay: string, note: string, askedPerRun?: number): { tokensPerRun?: number; until?: string } | null {
+  const t = perRunText.replace(/[,_\s]/g, "");
+  const n = t === "" ? NaN : Math.round(Number(t) * 1e6);
+  const tokensPerRun = Number.isFinite(n) && n > 0 && n !== askedPerRun ? n : undefined;
+  const until = /^\d{4}-\d{2}-\d{2}$/.test(untilDay) ? new Date(`${untilDay}T23:59:59Z`).toISOString() : undefined;
+  if (!tokensPerRun && !until && !note.trim()) return null;
+  return { ...(tokensPerRun ? { tokensPerRun } : {}), ...(until ? { until } : {}) };
+}

@@ -12,7 +12,7 @@
  * changes (debounced), and cleared when the queue closes; its turn input shows it with each of the human's lines.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { grantName, type DigestRunView, type GrantView, type IntrayRoute, type MeetingFocusKind } from "@muster-town/schema";
+import { grantName, type DigestRunView, type GrantView, type IntrayRoute, type MeetingFocusKind, type ScheduleView } from "@muster-town/schema";
 import { api, type Intray } from "../api";
 import { store, useTown } from "../state";
 import { AskCard } from "./AskCard";
@@ -205,7 +205,7 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
         <div className="queue-pos muted">{at === 0 ? "Front of the queue" : `${at + 1} of ${items.length}`}{items.length > 1 ? " · J / K to peek" : ""}</div>
         {record && cur.kind === "ask"
           ? <RecordView id={record} data={data} allGrants={allGrants} routes={routes} onOpen={(id) => openRecord(id, data, setRecord)} onBack={() => setRecord(null)} onDecided={() => decided(cur.id)} onReload={onReload} />
-          : <ItemView item={cur} grants={allGrants} routes={routes} onDecided={() => decided(cur.id)} onReload={onReload} onOpenRecord={(id) => openRecord(id, data, setRecord)} />}
+          : <ItemView item={cur} grants={allGrants} retainers={data?.retainers} routes={routes} onDecided={() => decided(cur.id)} onReload={onReload} onOpenRecord={(id) => openRecord(id, data, setRecord)} />}
         <button className="link queue-look" onClick={() => setMode("list")}>Look at the queue{items.length > 1 ? ` (${items.length})` : ""}</button>
       </div>
     );
@@ -263,10 +263,10 @@ function openRecord(id: string, data: Intray | null, set: (id: string | null) =>
 }
 
 /** The item on screen, with its decision buttons. */
-function ItemView({ item: x, grants, routes, onDecided, onReload, onOpenRecord }: { item: QueueItem; grants: GrantView[]; routes: Record<string, IntrayRoute>; onDecided: () => void; onReload: () => void; onOpenRecord: (id: string) => void }) {
+function ItemView({ item: x, grants, retainers = [], routes, onDecided, onReload, onOpenRecord }: { item: QueueItem; grants: GrantView[]; retainers?: ScheduleView[]; routes: Record<string, IntrayRoute>; onDecided: () => void; onReload: () => void; onOpenRecord: (id: string) => void }) {
   if (x.kind === "ask") {
     const a = x.ask;
-    return <AskCard key={a.id} ask={a} grant={a.targetKind === "grant" ? grants.find((g) => g.id === a.targetId) : undefined} canDecide={routes[a.targetId ?? ""]?.canDecide} onDecided={onDecided} onOpenRecord={onOpenRecord} />;
+    return <AskCard key={a.id} ask={a} grant={a.targetKind === "grant" ? grants.find((g) => g.id === a.targetId) : undefined} retainer={a.targetKind === "retainer" ? retainers.find((r) => r.id === a.targetId) : undefined} canDecide={routes[a.targetId ?? ""]?.canDecide} onDecided={onDecided} onOpenRecord={onOpenRecord} />;
   }
   return (
     <div className="queue-item" key={x.id}>

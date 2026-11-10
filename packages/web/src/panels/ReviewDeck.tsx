@@ -46,7 +46,7 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   // an ask with no item slide of its own (a policy, a meeting, a request, an access ask): its branches as the buttons
   if (slide.kind === "ask") {
     const a = asks.find((x) => x.id === (slide.askId ?? slide.itemId));
-    return a ? <div className="review-decide"><AskButtons ask={a} grant={grants.find((g) => g.id === a.targetId)} onDecided={onDecided} deckSlide={n} /></div> : <div className="review-decide muted">Already decided.</div>;
+    return a ? <div className="review-decide"><AskButtons ask={a} grant={grants.find((g) => g.id === a.targetId)} retainer={retainers.find((r) => r.id === a.targetId)} onDecided={onDecided} deckSlide={n} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
