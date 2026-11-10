@@ -27,7 +27,7 @@ export function meetingOrigin(m: Meeting): Origin | null {
  * via the message); a human-authored doc → its author, via the doc; notes of a meeting with a human → that meeting's.
  * Null for anything else.
  */
-export function sourceOrigin(world: World, sourceId: string): Origin | null {
+export function sourceOrigin(world: Pick<World, "meetings" | "messages" | "agents" | "docs">, sourceId: string): Origin | null {
   const meeting = world.meetings.get(sourceId);
   if (meeting) return meetingOrigin(meeting);
   const msg = world.messages.get(sourceId);
