@@ -77,10 +77,13 @@ export class Reorgs {
     });
   }
 
-  /** Name the Planner the Town Hall's manager unless it already is. */
+  /** Name the Planner the Town Hall's manager unless it already is, or a live Secretary is (1:1 mt_db6itzy2br: the Secretary manages the Town Hall). */
   private seatAsManager(planner: Agent): void {
     const th = this.world.buildings.get(TOWN_HALL_ID);
-    if (th && th.managerAgentId !== planner.id) this.world.buildings.upsert({ ...th, managerAgentId: planner.id });
+    if (!th || th.managerAgentId === planner.id) return;
+    const cur = th.managerAgentId ? this.world.agents.get(th.managerAgentId) : undefined;
+    if (cur && this.world.secretary.isSecretary(cur)) return;
+    this.world.buildings.upsert({ ...th, managerAgentId: planner.id });
   }
 
   /** Can the Planner start a session now? The Town Hall draws from the general balance like any building (`Budget.canStart`). */

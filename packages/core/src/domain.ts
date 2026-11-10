@@ -312,8 +312,9 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
 /**
  * The building's manager agent, if it can work: the resident set as `managerAgentId` unless it is stopped, banned or
  * retired. A building with one has its in-tray worked by the manager; otherwise humans holding `building.review` do
- * (town hall 2026-10-24, decision 1a: no review-policy setting). Never the Town Hall's: its manager is the Planner
- * (`Reorgs.ensurePlanner`), which only answers 1:1s and facilitates reorgs; the Town Hall in-tray is the humans'.
+ * (town hall 2026-10-24, decision 1a: no review-policy setting). Never the Town Hall's: its manager (the Secretary,
+ * `Secretary.ensure`; the Planner where no Secretary lives) has no forks and works no in-tray: the Town Hall in-tray is
+ * the humans'. The Secretary's assign names itself (its own queue) and its schedules name it as takerId.
  */
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
   if (!building?.managerAgentId || building.kind === "town-hall") return undefined;
