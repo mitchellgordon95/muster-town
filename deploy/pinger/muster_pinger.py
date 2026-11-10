@@ -12,6 +12,12 @@ Secrets come from an env file (default ~/.miniclaw/muster-pinger.env), with the 
 ALERT_TWILIO_SID ALERT_TWILIO_AUTH ALERT_TWILIO_FROM ALERT_SMS_TO ALERT_EMAIL_TO ALERT_SMTP_USER ALERT_SMTP_PASS
 State (failure streak, last alert times) is a JSON file (default ~/.miniclaw/muster-pinger.json).
 
+Public uptime (grant gr_rcj8nkbkbt): every probe ({at, ok, ms}) is kept in the state file's `probes` list. When the probe
+answers ok and MUSTER_PINGER_TOKEN (a town token holding `town.uptime`, role `prober`) is set, the unsent probes are POSTed
+to <town>/api/uptime/probes in one batch and dropped once the town took them; so the failed minutes of an outage land
+when the town is back. The buffer keeps at most 7 days of probes (the oldest go first). The town ignores a minute it
+already has, so a resend after a lost answer is harmless.
+
   muster_pinger.py [--url URL] [--env FILE] [--state FILE] [--dry-run]
 
 --dry-run prints each message instead of sending it (state is still written, so a repeat run behaves like the timer).
@@ -37,6 +43,8 @@ CHANNEL_ENV = {"sms": ENV_NAMES[:4], "email": ["ALERT_EMAIL_TO", "ALERT_SMTP_USE
 FAILS_FOR_RED = 3
 REALERT_S = 6 * 3600
 TIMEOUT_S = 10
+BUFFER_MAX = 7 * 1440
+TOKEN_ENV = "MUSTER_PINGER_TOKEN"
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -50,14 +58,15 @@ def load_env(path: Path) -> dict[str, str]:
             k, v = line.split("=", 1)
             k = k.strip().removeprefix("export ").strip()
             env[k] = v.strip().strip("'\"")
-    for k in ENV_NAMES:
+    for k in [*ENV_NAMES, TOKEN_ENV]:
         if not env.get(k) and os.environ.get(k):
             env[k] = os.environ[k]
     return env
 
 
 def probe(url: str) -> tuple[bool, str, dict | None]:
-    """(ok, why, health body or None)."""
+    """(ok, why, health body or None); the response time in ms rides along in the body as `_ms` when it answered."""
+    t0 = time.monotonic()
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers={"user-agent": "muster-pinger"}), timeout=TIMEOUT_S) as r:
             body = r.read()
@@ -71,9 +80,42 @@ def probe(url: str) -> tuple[bool, str, dict | None]:
         h = json.loads(body)
     except ValueError:
         return False, "health is not JSON", None
+    if not isinstance(h, dict):
+        return False, "health is not an object", None
+    h["_ms"] = round((time.monotonic() - t0) * 1000)
     if h.get("ok") is not True:
         return False, "health ok is not true", h
     return True, "ok", h
+
+
+def probes_url(url: str) -> str:
+    """The town's probe endpoint next to its health URL: https://muster.town/api/health -> https://muster.town/api/uptime/probes."""
+    base = url.split("/api/health", 1)[0].rstrip("/")
+    return f"{base}/api/uptime/probes"
+
+
+def post_probes(url: str, token: str, probes: list[dict]) -> None:
+    """POST one batch; raises on any failure (the batch then stays buffered)."""
+    data = json.dumps({"source": "pinger", "probes": probes}).encode()
+    req = urllib.request.Request(probes_url(url), data=data, method="POST",
+                                 headers={"content-type": "application/json", "authorization": f"Bearer {token}", "user-agent": "muster-pinger"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        if r.status >= 300:
+            raise RuntimeError(f"HTTP {r.status}")
+
+
+def flush(buffer: list[dict], ok: bool, token: str, url: str, poster=post_probes) -> list[dict]:
+    """Send the buffered probes when the town answers; returns what is still unsent. Failures keep them for the next run."""
+    if not ok or not token or not buffer:
+        return buffer
+    sent = 0
+    try:
+        while sent < len(buffer):
+            poster(url, token, buffer[sent:sent + 2000])
+            sent += len(buffer[sent:sent + 2000])
+    except Exception as e:  # 401/403 (token), network: keep them; the stderr line is in journalctl
+        print(f"muster-pinger: probes not posted ({len(buffer) - sent} buffered): {type(e).__name__}: {e}"[:300], file=sys.stderr)
+    return buffer[sent:]
 
 
 class Sender:
@@ -121,7 +163,7 @@ class Sender:
             s.send_message(msg)
 
 
-def run(url: str, state_path: Path, sender: Sender, now: float, result: tuple[bool, str, dict | None]) -> dict:
+def run(url: str, state_path: Path, sender: Sender, now: float, result: tuple[bool, str, dict | None], token: str = "", poster=post_probes) -> dict:
     """One probe's worth of state change and messages. Returns the new state (also written to state_path)."""
     try:
         st = json.loads(state_path.read_text())
@@ -133,6 +175,10 @@ def run(url: str, state_path: Path, sender: Sender, now: float, result: tuple[bo
     forwarded: dict[str, float] = st.get("forwarded", {})
     ok, why, health = result
     stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+    buffer: list[dict] = list(st.get("probes", []))
+    ms = (health or {}).get("_ms")
+    buffer.append({"at": stamp, "ok": ok, "ms": ms if ok and isinstance(ms, int) else None})
+    buffer = flush(buffer[-BUFFER_MAX:], ok, token, url, poster)
 
     if ok:
         if red_since:
@@ -171,7 +217,7 @@ def run(url: str, state_path: Path, sender: Sender, now: float, result: tuple[bo
                             f"{url} has been failing for about {mins} min. Last: {why}\nAt {stamp}.")
                 last_alert = now
 
-    new = {"fails": fails, "redSince": red_since, "lastAlertAt": last_alert, "forwarded": forwarded, "lastProbeAt": stamp, "lastResult": why}
+    new = {"fails": fails, "redSince": red_since, "lastAlertAt": last_alert, "forwarded": forwarded, "lastProbeAt": stamp, "lastResult": why, "probes": buffer}
     state_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = state_path.with_suffix(".tmp")
     tmp.write_text(json.dumps(new))
@@ -187,9 +233,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--state", type=Path, default=home / "muster-pinger.json")
     ap.add_argument("--dry-run", action="store_true", help="print messages instead of sending them")
     a = ap.parse_args(argv)
-    sender = Sender(load_env(a.env), a.dry_run)
-    st = run(a.url, a.state, sender, time.time(), probe(a.url))
-    print(f"muster-pinger: {st['lastResult']} (fails {st['fails']})")
+    env = load_env(a.env)
+    sender = Sender(env, a.dry_run)
+    # a dry run posts nothing: its probes stay buffered and the first real run sends them
+    st = run(a.url, a.state, sender, time.time(), probe(a.url), token="" if a.dry_run else env.get(TOKEN_ENV, "").strip())
+    print(f"muster-pinger: {st['lastResult']} (fails {st['fails']}, {len(st['probes'])} probes unsent)")
     return 0
 
 
