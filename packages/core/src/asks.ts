@@ -15,7 +15,7 @@ import {
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { queueClaimChecks, urlOfHowToCheck } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
-import { managerAgentOf } from "./domain.ts";
+import { managerAgentOf, sendMessage } from "./domain.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
@@ -167,13 +167,23 @@ function requireDecider(world: World, actor: Agent | null, a: Ask): string {
   return holderOf(actor).id;
 }
 
-/** A human answers a live ask (`decision`: the branch label or their words). Decides nothing else: a target keeps its own verb. */
-export function decideAsk(world: World, actor: Agent | null, id: string, decision: string): Ask {
+/** A branch label and the human's optional note as the decision's words: "Decline. I edited the token instead." */
+export function decisionWords(label: string, note?: string | null): string {
+  const l = label.trim(), n = (note ?? "").trim();
+  return !n ? l : `${l}${/[.!?:]$/.test(l) ? "" : "."} ${n}`;
+}
+
+/**
+ * A human answers a live ask (`decision`: the branch label or their words; `note`: their optional words beside the
+ * label, kept as "<label>. <note>"). Decides nothing else: a target keeps its own verb. The ask's building manager
+ * hears the decision, note included, in their inbox.
+ */
+export function decideAsk(world: World, actor: Agent | null, id: string, decision: string, note?: string | null): Ask {
   const a = world.asks.require(id, "ask");
   const by = requireDecider(world, actor, a);
   if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `This ask is already ${a.status}.`);
-  const said = decision.trim();
-  if (!said) throw badRequest("Say what you decided (decision).");
+  if (!decision.trim()) throw badRequest("Say what you decided (decision).");
+  const said = decisionWords(decision, note);
   // step 9: adopting the Planner's table change is an admin's (it is PUT /api/town/defaults' change)
   requireRuleDecider(world, actor!, a, said);
   const at = nowIso();
@@ -183,6 +193,9 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   onAskDecided(world, next);
   // step 9: a rule ask carrying the Planner's table change, decided "Adopt", applies it (planner.ts)
   onRuleAskDecided(world, actor!, next);
+  // the building that filed it hears the human's words (the event alone reaches no one's inbox)
+  const manager = managerAgentOf(world, a.buildingId ? world.buildings.get(a.buildingId) : undefined);
+  if (manager) sendMessage(world, { kind: "system", fromId: by, fromKind: "user", toId: manager.id, body: `${world.nameOf(by)} decided your ask "${oneLine(a.title, 120)}" (${a.id}): ${said.slice(0, 2000)}` });
   // asks deferred behind this ask (or behind its target) are open again
   reopenDeferred(world, [a.id, a.targetId], `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`);
   return next;

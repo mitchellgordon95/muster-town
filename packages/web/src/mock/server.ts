@@ -362,8 +362,9 @@ export class MockApi implements Api {
     for (const a of this.askRows) if (a.targetId === targetId && (a.status === "open" || a.status === "deferred")) Object.assign(a, { status: "retired", retiredBy: reason, updatedAt: now(), history: [...a.history, { at: now(), action: "retire", by: "system", note: reason }] });
   }
   async getAsk(id: string) { await wait(40); return clone(this.need(this.askRows.find((a) => a.id === id), "ask")); }
-  async decideAsk(id: string, decision: string) {
+  async decideAsk(id: string, label: string, note?: string) {
     await wait(60);
+    const decision = note?.trim() ? `${label}. ${note.trim()}` : label;
     const a = this.need(this.askRows.find((x) => x.id === id), "ask");
     if (a.status !== "open" && a.status !== "deferred") throw new ApiError(`This ask is ${a.status}.`, "conflict", 409);
     Object.assign(a, { status: "decided", decision, decidedBy: "us_mitchell", decidedAt: now(), updatedAt: now(), history: [...a.history, { at: now(), action: "decide", by: "us_mitchell", note: decision }] });

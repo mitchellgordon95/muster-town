@@ -44,6 +44,7 @@ export function AskButtons({ ask, grant, onDecided, deckSlide }: { ask: AskView;
   const ceiling = grant ? (grant.grantTokens ?? grant.askTokens) + (grant.forecast?.shortfall ?? 0) : 0;
   const [tokens, setTokens] = useState(grant ? toMillions(form?.call.kind === "grant" && form.call.action === "counter" ? grant.askTokens : ceiling) : "");
   const [note, setNote] = useState("");
+  const [noting, setNoting] = useState(false);
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
   const id = ask.targetId ?? "";
@@ -60,10 +61,10 @@ export function AskButtons({ ask, grant, onDecided, deckSlide }: { ask: AskView;
       case "captain": await api().decideCaptain(id, c.action, note || undefined); break;
       case "access": await api().decideAccess(id, c.grant); break;
       case "request": await api().request(id, c.action, note || undefined); break;
-      case "ask": await api().decideAsk(ask.id, c.decision); break;
+      case "ask": await api().decideAsk(ask.id, c.decision, note); break;
       case "none": return;
     }
-    store.toast(doneLine(c, label), "ok");
+    store.toast(c.kind === "ask" && note.trim() ? `Decided: ${label}, with your note.` : doneLine(c, label), "ok");
     setForm(null);
     onDecided();
   };
@@ -71,12 +72,18 @@ export function AskButtons({ ask, grant, onDecided, deckSlide }: { ask: AskView;
   if (!branches.length) return null;
   const tone = (i: number, c: BranchCall) => (c.kind === "grant" && (c.action === "reject" || c.action === "cut")) || (c.kind === "retainer" && c.action === "reject") ? "bad" : i === 0 ? "primary" : undefined;
   const needsForm = (c: BranchCall) => "form" in c && !!c.form;
+  // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
+  const plain = branches.some(({ c }) => c.kind === "ask");
   return (
     <div className="ask-decide">
+      {plain && noting ? (
+        <Field label="Note"><textarea className="ask-note" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional: what you did instead, or why" aria-label="Note" autoFocus /></Field>
+      ) : null}
       <div className="actions ask-branches">
         {branches.map(({ b, c }, i) => needsForm(c)
           ? <button key={b.label} className={`btn sm${form?.label === b.label ? " on" : ""}`} onClick={() => { setForm(form?.label === b.label ? null : { label: b.label, call: c }); if (grant) setTokens(toMillions(c.kind === "grant" && c.action === "counter" ? grant.askTokens : ceiling)); }}>{b.label}…</button>
           : <Act key={b.label} small tone={tone(i, c)} run={run(c, b.label)}>{b.label}</Act>)}
+        {plain && !noting && !form ? <button className="link ask-note-toggle" onClick={() => setNoting(true)}>Add a note</button> : null}
       </div>
       {form ? (
         <div className="ask-form">
