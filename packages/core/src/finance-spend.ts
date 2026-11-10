@@ -28,8 +28,8 @@ export type SpendKind = "building" | "grant" | "no-grant" | "lane" | "assignment
  * migration 025). The assignment's lane is not used: assignments from before lanes were back-filled `directed`.
  */
 export type NoGrantLane = "directed" | "exploration" | "retainer" | "manager" | "before";
-export const NO_GRANT_LANES: readonly NoGrantLane[] = ["directed", "exploration", "retainer", "manager", "before"];
-export const NO_GRANT_LANE_NAME: Record<NoGrantLane, string> = {
+const NO_GRANT_LANES: readonly NoGrantLane[] = ["directed", "exploration", "retainer", "manager", "before"];
+const NO_GRANT_LANE_NAME: Record<NoGrantLane, string> = {
   directed: "Asked for by a human (directed)",
   exploration: "Exploration: a building looking for its next grant",
   retainer: "Retainers: a schedule's runs",
@@ -429,17 +429,17 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   };
 }
 
-export const NO_GRANT_IDENTITY = "Σ lane rows = Σ \"Not under a grant\" rows (every building)";
+const NO_GRANT_IDENTITY = "Σ lane rows = Σ \"Not under a grant\" rows (every building)";
 
 /** A no-grant session's lane row (NoGrantLane): its own lane, a non-work purpose = manager, no lane = before lanes. */
-export function noGrantLane(s: Partial<Pick<Session, "purpose" | "lane">>): NoGrantLane {
+function noGrantLane(s: Partial<Pick<Session, "purpose" | "lane">>): NoGrantLane {
   if (s.purpose && s.purpose !== "work") return "manager";
   if (s.lane === "directed" || s.lane === "exploration" || s.lane === "retainer") return s.lane;
   return s.lane === "grant" ? "manager" : "before";
 }
 
 /** A proposal's state on an exploration row: funded once funded (closed ones too), else withdrawn, rejected or open. */
-export function proposalState(g: Partial<Pick<Grant, "status" | "fundedAt" | "history">>): SpendProposal["state"] {
+function proposalState(g: Partial<Pick<Grant, "status" | "fundedAt" | "history">>): SpendProposal["state"] {
   if (g.fundedAt || g.status === "funded" || g.status === "checkpoint" || g.status === "stopping") return "funded";
   if (g.history?.some((h) => h.action === "withdraw")) return "withdrawn";
   if (g.status === "rejected" || g.status === "closed") return "rejected";
@@ -499,7 +499,7 @@ function annotateNoGrant(root: Acc, inp: SpendInputs, now: Date) {
 }
 
 /** FinanceSpend.noGrant from the finished rows, and Σ lane rows − Σ no-grant rows (0 when the lane rows close). */
-export function spendNoGrant(rows: SpendNode[]): { noGrant: SpendNoGrant; diff: number } {
+function spendNoGrant(rows: SpendNode[]): { noGrant: SpendNoGrant; diff: number } {
   const byLane = Object.fromEntries(NO_GRANT_LANES.map((l) => [l, { tokens: 0, sessions: 0, usd: 0, assignments: 0 }])) as SpendNoGrant["byLane"];
   const out: SpendNoGrant = { tokens: 0, sessions: 0, usd: 0, byLane, exploration: { assignments: 0, proposals: 0, funded: 0, rejected: 0, withdrawn: 0, open: 0 }, directed: { assignments: 0, withSource: 0, withAsker: 0 } };
   let laneSum = 0;
