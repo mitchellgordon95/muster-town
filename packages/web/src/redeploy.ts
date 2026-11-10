@@ -80,6 +80,19 @@ export function redeployLine(s: RedeployStatus, name: (id: string) => string, wa
   }
 }
 
+/** One line of the HUD card per deployed change, linked to its commit when the run knows the repo. */
+interface RedeployChangeLink { sha: string; subject: string; href?: string }
+
+/**
+ * The changes the run deploys, newest first, as the card's lines (1:1 mt_db6itzy2br). None for a failed or interrupted
+ * run: there the steps ("Log →") are what to look at.
+ */
+export function redeployChanges(s: RedeployStatus): RedeployChangeLink[] {
+  if (s.state === "failed" || s.state === "aborted" || !s.changes?.length) return [];
+  const base = s.repoUrl && /^https:\/\//.test(s.repoUrl) ? s.repoUrl : undefined;
+  return s.changes.map((c) => ({ sha: c.sha, subject: c.subject, ...(base && /^[0-9a-f]{4,40}$/i.test(c.sha) ? { href: `${base}/commit/${c.sha}` } : {}) }));
+}
+
 /** The tone of the HUD notice. */
 export function redeployTone(s: RedeployStatus): "ok" | "bad" | "warn" {
   return s.state === "done" ? "ok" : s.state === "failed" ? "bad" : "warn";

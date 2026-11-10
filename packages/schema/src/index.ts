@@ -1214,6 +1214,15 @@ export const MeetingAttachment = z.object({
   url: z.string().optional(),
 });
 export type MeetingAttachment = z.infer<typeof MeetingAttachment>;
+/** One tool call an agent made while drafting a line (docs/meetings.md): the readable one-liner, never the raw input. */
+export const MeetingToolCall = z.object({
+  /** describeTool's one-liner, e.g. "Reading \"Bank fees\"" */
+  what: z.string(),
+  /** the result's first line, kept for town tools and for errors (secret-looking runs hidden); absent when unknown */
+  result: z.string().optional(),
+  isError: z.boolean().optional(),
+});
+export type MeetingToolCall = z.infer<typeof MeetingToolCall>;
 export const MeetingUtterance = z.object({
   /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
   speakerId: Id,
@@ -1221,6 +1230,8 @@ export const MeetingUtterance = z.object({
   text: z.string(),
   at: Iso,
   attachment: MeetingAttachment.optional(),
+  /** an agent's line: the tool calls it made since its previous line in this meeting, oldest first (at most 30) */
+  tools: z.array(MeetingToolCall).optional(),
 });
 export const Meeting = z.object({
   id: Id,
@@ -2865,7 +2876,19 @@ export interface RedeployRun {
   blocked: string[];
   /** the commit being restarted into (`restarting`) or now live (`done`) */
   head?: string;
+  /**
+   * What the run deploys, newest first: the deploy branch's own commits (`git log --first-parent`, at most
+   * REDEPLOY_CHANGES_MAX) pulled before and after the drain, a merged PR shown by its title. Carried through the
+   * done-file, so the restarted server's `done` event lists them too.
+   */
+  changes?: RedeployChange[];
+  /** https base of the repo the changes are in (`<repo>/commit/<sha>` opens one), credentials stripped; absent when unknown */
+  repoUrl?: string;
 }
+/** One deployed change on a redeploy run: its short sha and one-line subject. */
+export interface RedeployChange { sha: string; subject: string }
+/** At most this many changes are listed on a run (the count, `commits`, stays exact). */
+export const REDEPLOY_CHANGES_MAX = 50;
 
 /** `GET /api/admin/redeploy`: the runtime's live view of a redeploy (the HUD checks the event-derived banner against it). */
 export const RedeployLive = z.object({

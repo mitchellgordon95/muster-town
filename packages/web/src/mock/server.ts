@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -412,6 +412,22 @@ export class MockApi implements Api {
     ];
     const totals = Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, daily.reduce((n, r) => n + r[k], 0)])) as typeof zero;
     return { days: 30, from: day(29), to: day(0), daily, totals: { ...totals, humans: 4 }, medianDecisionMs: 3 * 3_600_000 };
+  }
+  async healthStats(): Promise<TownHealthView> {
+    await wait();
+    const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+    const line = (paper: number, hit: number, overrun: number): HealthLineView => ({
+      sessions: 40, tokens: 900_000, paperworkTokens: Math.round(900_000 * paper), paperworkShare: paper, cacheRead: Math.round(9e6 * hit), cacheWrite: Math.round(9e6 * (1 - hit)),
+      hitRatio: hit, medianCacheWrite: 61_000, overrunTokens: overrun, reports: 20, perReport: 45_000,
+      byLane: { grant: { tokens: 500_000, reports: 10, perReport: 50_000 }, directed: { tokens: 250_000, reports: 6, perReport: 41_667 }, manager: { tokens: 150_000, reports: 4, perReport: 37_500 } },
+    });
+    const days = Array.from({ length: 14 }, (_, i) => ({ day: day(13 - i), ...line(0.1 + (i % 4) * 0.03, 0.62 + (i % 5) * 0.05, i === 11 ? 30_000 : 0) }));
+    const weeks = [3, 2, 1, 0].map((w) => ({ week: day(w * 7 + 3), ...line(0.13, 0.72, w === 0 ? 30_000 : 0) }));
+    return {
+      from: day(27), to: new Date().toISOString(), thresholds: { paperworkMax: 0.15, hitMin: 0.7 }, days, weeks, last24h: line(0.18, 0.66, 30_000),
+      notCounted: { sessions: 3, tokens: 12_000 },
+      definitions: { paperwork: "Kickoff, checkpoint and manager-wake tokens ÷ (grant lane + those).", hitRatio: "Cache reads ÷ (reads + writes).", medianCacheWrite: "The median session's cache writes.", overrun: "Tokens past a grant's 100% hold.", perReport: "A lane's tokens ÷ its reports." },
+    };
   }
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {
@@ -832,9 +848,30 @@ export class MockApi implements Api {
     const m = this.need(this.sim.meetings.get(id), "meeting");
     m.transcript.push({ speakerId: "us_mitchell", speakerKind: "user", text, at: now() });
     this.sim.putMeeting(m);
-    if (m.phase === "discussing") this.utter(id, m.facilitatorId ?? "ag_moss", `Thanks Mitchell, noted: "${text.slice(0, 60)}". I'll fold that into the decisions.`, 1800);
+    if (m.phase === "discussing" && m.kind === "one-on-one" && m.facilitatorId) this.draftWithTools(m, m.facilitatorId, text);
+    else if (m.phase === "discussing") this.utter(id, m.facilitatorId ?? "ag_moss", `Thanks Mitchell, noted: "${text.slice(0, 60)}". I'll fold that into the decisions.`, 1800);
     return clone(m);
   }
+  /** A 1:1 reply the way the live town drafts one: five reads and a grep stream in as tool calls, then the line carries them. */
+  private draftWithTools(m: Meeting, agentId: string, text: string) {
+    const calls = [
+      { what: "Reading \"Bank fees: what a donor pays\"", result: "# Bank fees: what a donor pays" },
+      { what: "Reading MeetingPanel.tsx" }, { what: "Reading meetings.ts" }, { what: "Reading describe.ts" },
+      { what: "Reading \"UI / UX goal and key results\"", result: "Goal: \"Make Muster Town beautiful and intuitive\"." },
+      { what: "Searching code for \"agent.tool\"", result: "Command failed: grep exited 2", isError: true },
+    ];
+    this.drafting.set(m.id, agentId);
+    calls.forEach((c, i) => setTimeout(() => this.sim.event("agent.tool", agentId, c.what, { tool: i === 0 || i === 4 ? "mcp__town__read" : i === 5 ? "Grep" : "Read" }, m.buildingId), 700 * (i + 1)));
+    setTimeout(() => {
+      this.drafting.delete(m.id);
+      const cur = this.sim.meetings.get(m.id);
+      if (!cur || cur.phase !== "discussing") return;
+      cur.transcript.push({ speakerId: agentId, speakerKind: "agent", text: `I read the fee doc and the meeting panel. On "${text.slice(0, 60)}": yes, I'll queue it.`, at: now(), tools: calls });
+      this.sim.putMeeting(cur);
+      this.sim.event("meeting.utterance", agentId, cur.transcript.at(-1)!.text, { meetingId: m.id }, m.buildingId);
+    }, 700 * (calls.length + 2));
+  }
+  private drafting = new Map<string, string>();
   async presentMeeting(id: string, docId: string | null, slide = 1) {
     await wait(40);
     const m = this.need(this.sim.meetings.get(id), "meeting");
@@ -855,7 +892,11 @@ export class MockApi implements Api {
     this.sim.putMeeting(m);
     return clone(m);
   }
-  async meetingDrafting(_id: string) { await wait(20); return []; }
+  async meetingDrafting(id: string) {
+    await wait(20);
+    const a = this.drafting.get(id);
+    return a ? [{ id: a, name: this.sim.agents.get(a)?.name ?? a }] : [];
+  }
   async endMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");
