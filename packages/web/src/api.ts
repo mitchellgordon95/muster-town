@@ -161,8 +161,8 @@ export interface FinanceCash {
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
-  kind: "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
-  /** null for the synthetic rows */
+  kind: "building" | "grant" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+  /** null for the synthetic rows (a lane row's id is its lane) */
   id: string | null;
   /** a grant row's name is its short title (first clause, at most 60 characters) */
   name: string;
@@ -180,7 +180,22 @@ export interface SpendNode {
   outcome?: string | null;
   outcomeGroup?: "done" | "cut" | "open";
   krCounts?: { met: number; missed: number; claimed: number; open: number };
+  /** lane rows under "Not under a grant" (gr_utygatbi85): which lane */
+  lane?: NoGrantLane;
+  /** directed assignment rows: the human source (meeting, doc or tell) and who asked; nulls = not recorded */
+  source?: { id: string | null; kind: "meeting" | "doc" | "tell" | null; askedById: string | null; askedBy: string | null };
+  /** exploration assignment rows: the proposal its fork filed, or null = no proposal */
+  proposal?: { id: string; title: string; state: "funded" | "rejected" | "withdrawn" | "open" } | null;
   children?: SpendNode[];
+}
+/** The lane rows under a building's "Not under a grant" row. */
+export type NoGrantLane = "directed" | "exploration" | "retainer" | "manager" | "before";
+/** `noGrant` of `GET /api/finance/spend`: every building's "Not under a grant" row summed and split by lane. */
+export interface SpendNoGrant {
+  tokens: number; sessions: number; usd: number;
+  byLane: Record<NoGrantLane, { tokens: number; sessions: number; usd: number; assignments: number }>;
+  exploration: { assignments: number; proposals: number; funded: number; rejected: number; withdrawn: number; open: number };
+  directed: { assignments: number; withSource: number; withAsker: number };
 }
 /** The token kinds of a lane × kind table, in column order. */
 export type TokenKind = "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h";
@@ -241,6 +256,10 @@ export interface FinanceSpend {
   grants?: { count: number; funded: number; spent: number; byOutcome: Record<"done" | "cut" | "open", { count: number; tokens: number }>; overFunding: { count: number; tokens: number }; estimates?: { closed: number; inside: number; unit: string; badRanges: string[] } };
   /** byOutcome's tokens vs Σ the grant rows' tokens */
   grantsCheck?: { ok: boolean; diff: number; identity: string };
+  /** the non-grant half by lane (optional here: an older server sends none) */
+  noGrant?: SpendNoGrant;
+  /** Σ lane rows vs Σ "Not under a grant" rows */
+  noGrantCheck?: { ok: boolean; diff: number; identity: string };
   at: string;
   /** the window's lane × token-kind table (optional here: an older server sends none) */
   byLaneKind?: SpendByLaneKind;

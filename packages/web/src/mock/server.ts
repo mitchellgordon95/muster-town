@@ -1008,7 +1008,7 @@ export class MockApi implements Api {
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), noGrant: toyNoGrant(), noGrantCheck: { ok: true, diff: 0, identity: "Σ lane rows = Σ \"Not under a grant\" rows (every building)" }, at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -1295,3 +1295,14 @@ export class MockApi implements Api {
   }
 }
 ;
+
+/** The toy town's non-grant half (gr_utygatbi85): empty, every toy session is under a grant. */
+function toyNoGrant(): NonNullable<FinanceSpend["noGrant"]> {
+  const zero = { tokens: 0, sessions: 0, usd: 0, assignments: 0 };
+  return {
+    tokens: 0, sessions: 0, usd: 0,
+    byLane: { directed: { ...zero }, exploration: { ...zero }, retainer: { ...zero }, manager: { ...zero }, before: { ...zero } },
+    exploration: { assignments: 0, proposals: 0, funded: 0, rejected: 0, withdrawn: 0, open: 0 },
+    directed: { assignments: 0, withSource: 0, withAsker: 0 },
+  };
+}
