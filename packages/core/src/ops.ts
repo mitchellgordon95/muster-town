@@ -533,7 +533,9 @@ export class Ops {
       case "claim":
         if (h.kind !== "user") throw badRequest("Only humans can claim requests.");
         need(["open"]);
-        patch = { requestStatus: "claimed", claimedByUserId: h.id };
+        patch = { requestStatus: "claimed", claimedByUserId: h.id, ...(body?.trim() ? { requestNote: body.trim() } : {}), ...viaFields };
+        // the author hears who took it on, with the human's words when they gave some ("use Wright's VPS")
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)}${viaText} claimed your outbox request "${doc.title}" (${doc.id})${body?.trim() ? `: ${body.trim()}` : "."}` });
         break;
       case "done":
         if (h.kind !== "user") throw badRequest("Only humans can complete requests.");
@@ -549,7 +551,7 @@ export class Ops {
         break;
     }
     const request = updateDoc(this.world, doc.id, patch);
-    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "claim" && action !== "done" ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
+    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "done" && (action !== "claim" || !!body?.trim()) ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
     // the request's ask (docs/legible-delegation.md §4) retires when a human claims or declines it, or it is withdrawn
     retireAsks(this.world, "request", doc.id, updated.text);
     // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)

@@ -125,6 +125,18 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(world.asks.require(ask.id).history.map((h) => h.action)).toEqual(["create", "lint", "defer", "decide"]); // the town wrote this card from the request: vetted and flagged
   }, 30_000);
 
+  it("a click ask's note rides with its label as the decision's words, and the building's manager hears them", async () => {
+    const { world, admin, noor } = await setup();
+    const req = await world.verbs.request_human(noor, { title: "Create the repo for the bot", body: "One repo.", kind: "other" });
+    const ask = asksFor(world, { kind: "request", id: req.id })[0]!;
+    const managerId = world.buildings.get(ask.buildingId!)!.managerAgentId ?? "";
+    expect(managerId).not.toBe("");
+    const decided = decideAsk(world, admin, ask.id, "Decline", "  I edited the token instead of creating a repo. ");
+    expect(decided.decision).toBe("Decline. I edited the token instead of creating a repo.");
+    const heard = world.messages.where("toId = ?", [managerId as string], "ORDER BY createdAt, rowid").map((m) => m.body);
+    expect(heard.at(-1)).toContain(`"Create the repo for the bot" (${ask.id}): Decline. I edited the token instead of creating a repo.`);
+  }, 30_000);
+
   it("a deferred ask opens again when the ask or the target it waits behind is decided or retired", async () => {
     const { world, admin, noor, propose } = await setup();
     const asked = async (title: string) => {

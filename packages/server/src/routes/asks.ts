@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
 
-const DecideBody = z.object({ decision: z.string().trim().min(1).max(2000) });
+const DecideBody = z.object({ decision: z.string().trim().min(1).max(2000), note: z.string().trim().max(2000).optional() });
 const DeferBody = z.object({ until: z.string().trim().min(1).max(400) });
 
 /**
@@ -26,9 +26,10 @@ export async function askRoutes(app: FastifyInstance) {
     return { ask };
   });
 
-  app.post<{ Params: Params }>("/api/asks/:id/decide", async (req) => ({
-    ask: decideAsk(world, actorOf(world, req), req.params.id, parse(DecideBody, req.body).decision),
-  }));
+  app.post<{ Params: Params }>("/api/asks/:id/decide", async (req) => {
+    const body = parse(DecideBody, req.body);
+    return { ask: decideAsk(world, actorOf(world, req), req.params.id, body.decision, body.note) };
+  });
 
   app.post<{ Params: Params }>("/api/asks/:id/defer", async (req) => ({
     ask: deferAsk(world, actorOf(world, req), req.params.id, parse(DeferBody, req.body).until),
