@@ -21,6 +21,8 @@ import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
+import { uptimeRoutes } from "./routes/uptime.ts";
+import { Uptime } from "./uptime.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { goalRoutes } from "./routes/goals.ts";
 import { askRoutes } from "./routes/asks.ts";
@@ -302,6 +304,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
+    // public uptime from outside probes (gr_rcj8nkbkbt): every root town; empty until a pinger posts
+    await app.register(uptimeRoutes(new Uptime(opts.world)));
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
   if (opts.monitor) { const c = opts.monitor.counters; app.addHook("onResponse", async (_req, reply) => { c.response(reply.statusCode); }); }

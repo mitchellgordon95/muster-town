@@ -44,6 +44,8 @@ jobs:
       # web CSS stays on one type scale and one palette (packages/web/src/type.css): no font size off var(--fs-*), no colour
       # literal outside the palette's :root block (grant gr_kvmwutmybu); prints file:line for each stray
       - run: npm run check:css
+      # the VPS pinger's own tests (stdlib unittest; its probe buffer for the public uptime, grant gr_rcj8nkbkbt)
+      - run: python3 -m unittest discover -s deploy/pinger
       - run: npm run build --workspace packages/web
 
   promote:

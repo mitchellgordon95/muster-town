@@ -261,6 +261,7 @@ export const Permission = z.enum([
   "meeting.attend",
   "town.interact",           // act in the town at all (move, talk, message, write): members; signed-in visitors only read
   "goals.edit",              // edit the town goal tree anywhere (admins); a goal's owner holds it within their subtree (docs/goals.md)
+  "town.uptime",             // post outside uptime probes (POST /api/uptime/probes): the pinger's token, role `prober`
 ]);
 export type Permission = z.infer<typeof Permission>;
 
@@ -286,6 +287,8 @@ export const BUILTIN_ROLES = {
     deployer: ["town.redeploy", "town.interact"] as Permission[],
     /** let in by an admin (an access request granted): may move, talk, message agents and write */
     member: ["town.interact", "meeting.attend", "doc.request_human"] as Permission[],
+    /** the outside pinger (gr_rcj8nkbkbt): may post uptime probes and nothing else */
+    prober: ["town.uptime"] as Permission[],
   },
   building: {
     manager: [
