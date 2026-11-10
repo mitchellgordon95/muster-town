@@ -16,7 +16,7 @@ import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { AskCard } from "../src/panels/AskCard";
 import { askedIds, mineAsks } from "../src/panels/queueOrder";
-import { branchCall, claimMark, deltaOf, expectedSpend, openAskCount, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
+import { branchCall, claimMark, deltaOf, expectedSpend, openAskCount, retainerCounter, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
 import { FundingView } from "../src/panels/FundingView";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { NoticesFeed, pictureSrc } from "../src/panels/NoticesPanel";
@@ -96,6 +96,7 @@ describe("the ask card", () => {
     expect(branchCall({ targetKind: "grant" }, { label: "Continue" })).toEqual({ kind: "none" });
     expect(branchCall({ targetKind: "grant" }, { label: "Counter" })).toEqual({ kind: "grant", action: "counter", form: "counter" });
     expect(branchCall({ targetKind: "retainer" }, { label: "Approve" })).toEqual({ kind: "retainer", action: "approve" });
+    expect(branchCall({ targetKind: "retainer" }, { label: "Counter" })).toEqual({ kind: "retainer", action: "counter", form: "retainer" });
     expect(branchCall({ targetKind: "captain" }, { label: "Accept" })).toEqual({ kind: "captain", action: "accept" });
     expect(branchCall({ targetKind: "access" }, { label: "Let in", action: "grant" })).toEqual({ kind: "access", grant: true });
     expect(branchCall({ targetKind: "request" }, { label: "Decline" })).toEqual({ kind: "request", action: "decline", form: "note" });
@@ -170,6 +171,33 @@ describe("the ask card", () => {
     await act(async () => claimAct().click());
     await flush();
     expect(req).toHaveBeenCalledWith("dc_req_ml", "claim", "use Wright's VPS");
+  });
+
+  it("a retainer's Counter takes tokens per run, an end date and a note, like a grant's counter", async () => {
+    signIn();
+    const decide = vi.spyOn(api(), "decideRetainer").mockResolvedValue(null as never);
+    const el = await mount(<AskCard ask={ask("ak_weekly")} retainer={{ tokensPerRun: 40_000, endsAt: "2026-12-01T00:00:00.000Z" }} onDecided={() => undefined} />);
+    await act(async () => button(el, "Counter…").click());
+    const perRun = el.querySelector("input[aria-label='Tokens per run']") as HTMLInputElement;
+    const counterAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Counter") as HTMLButtonElement;
+    // starts at the asked amount: nothing changed yet, so Counter waits (the server refuses an empty counter)
+    expect(perRun.value).toBe("0.04");
+    expect(counterAct().disabled).toBe(true);
+    await act(async () => typeInto(perRun, "0.025"));
+    await act(async () => typeInto(el.querySelector("input[aria-label='End date']") as HTMLInputElement, "2026-11-20"));
+    await act(async () => typeInto(el.querySelector("input[aria-label='Note']") as HTMLInputElement, "half the runs"));
+    expect(counterAct().disabled).toBe(false);
+    await act(async () => counterAct().click());
+    await flush();
+    expect(decide).toHaveBeenCalledWith("sc_weekly", expect.objectContaining({ action: "counter", note: "half the runs", tokensPerRun: 25_000, until: "2026-11-20T23:59:59.000Z" }));
+  });
+
+  it("a retainer counter's body: only what changes", () => {
+    expect(retainerCounter("0.04", "", "", 40_000)).toBeNull();
+    expect(retainerCounter("0.04", "", "why", 40_000)).toEqual({});
+    expect(retainerCounter("0.05", "", "", 40_000)).toEqual({ tokensPerRun: 50_000 });
+    expect(retainerCounter("", "2026-12-24", "", 40_000)).toEqual({ until: "2026-12-24T23:59:59.000Z" });
+    expect(retainerCounter("abc", "", "", 40_000)).toBeNull();
   });
 
   it("the ask order, records and helpers", () => {
