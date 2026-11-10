@@ -51,6 +51,33 @@ describe("asks read from rollup prose, and the boot repair", () => {
     expect(asks().map((a) => a.title)).toEqual([proseAskTitle(ONE_ON_ONE), proseAskTitle(OPTIONAL), proseAskTitle(REPO)]);
   }, 30_000);
 
+  it("a twin the Secretary deferred behind its twin folds, never the one it waits behind; a deferral behind a folded twin follows the fold", async () => {
+    const { world, r, asks } = await filed();
+    const [a, b, c] = asks();
+    const twinOf = (x: typeof a) => {
+      const t = createAsk(world, { type: "click", targetKind: null, targetId: null, buildingId: LAB, sourceDocId: r.id, by: "ag_x", title: x!.title, line: x!.sources[0]?.line, body: x!.body, branches: x!.branches }).ask;
+      return world.asks.upsert({ ...t, status: "deferred", deferredUntil: x!.id });
+    };
+    setRank(world, a!.id, 1);
+    const ta = twinOf(a);
+    world.asks.upsert({ ...world.asks.require(c!.id), status: "deferred", deferredUntil: a!.id });
+    expect(foldTwinProseAsks(world)).toBe(1);
+    expect(world.asks.require(ta.id)).toMatchObject({ status: "folded", foldedInto: a!.id });
+    expect(world.asks.require(a!.id)).toMatchObject({ status: "open", rank: 1 });
+    expect(world.asks.require(c!.id)).toMatchObject({ status: "deferred", deferredUntil: a!.id });
+
+    // as live after c4952482's boot: the original folded into the twin deferred behind it, another ask behind the original
+    const tb = twinOf(b);
+    world.asks.upsert({ ...world.asks.require(b!.id), status: "folded", foldedInto: tb.id });
+    world.asks.upsert({ ...world.asks.require(c!.id), deferredUntil: `${b!.id} lands` });
+    expect(foldTwinProseAsks(world)).toBe(2);
+    const kept = world.asks.require(tb.id);
+    expect(kept).toMatchObject({ status: "open", deferredUntil: null });
+    expect(kept.history.at(-1)).toMatchObject({ action: "reopen", by: "system" });
+    expect(world.asks.require(c!.id)).toMatchObject({ status: "deferred", deferredUntil: `${tb.id} lands` });
+    expect(foldTwinProseAsks(world)).toBe(0);
+  }, 30_000);
+
   it("the repair retitles a live clipped prose ask from its source line, keeps body, rank, sources and status, leaves a manager's ask alone, and the backfill files no twin", async () => {
     const { world, r, asks, mei } = await filed();
     const [a, b, c] = asks();
