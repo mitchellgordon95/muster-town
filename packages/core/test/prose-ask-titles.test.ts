@@ -6,7 +6,7 @@
 import { proseAskTitle } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId } from "../src/index.ts";
-import { asksFor, backfillAsks, createAsk, retitleProseAsks, retypeProseAsks, setRank } from "../src/asks.ts";
+import { asksFor, backfillAsks, createAsk, foldTwinProseAsks, retitleProseAsks, retypeProseAsks, setRank } from "../src/asks.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -126,5 +126,35 @@ describe("a prose call that only mentions a grant is a click, not a money ask on
     expect(retypeProseAsks(world)).toBe(0);
     backfillAsks(world);
     expect(world.asks.where("sourceDocId = ?", [r.id])).toHaveLength(3);
+  }, 30_000);
+  it("at boot the backfill runs before the retype and still files no twin of a mis-typed line; the twins an older boot made fold into one", async () => {
+    const { world, r, g, kr, repo, krLine } = await rolled();
+    const old = (line: string) => {
+      const a = createAsk(world, { type: "money", targetKind: null, targetId: null, buildingId: LAB, sourceDocId: r.id, by: "ag_x", title: proseAskTitle(line), line, body: `From the rollup "${r.title}".`, branches: [{ label: "Yes" }, { label: "No" }] }).ask;
+      return world.asks.upsert({ ...a, targetKind: "grant", targetId: g.id });
+    };
+    const a = old(repo), b = old(krLine);
+    // the boot order (world.ts): backfill, then retype; dca8e0e9 made ak_mpfdm8kjj5 and ak_3nakbll1su here
+    backfillAsks(world);
+    expect(retypeProseAsks(world)).toBe(2);
+    const live = () => world.asks.where("sourceDocId = ? AND status IN ('open', 'deferred')", [r.id], "ORDER BY createdAt, rowid");
+    expect(live().filter((x) => x.title === a.title)).toHaveLength(1);
+    expect(live().filter((x) => x.title === b.title)).toHaveLength(1);
+    expect(foldTwinProseAsks(world)).toBe(0);
+
+    // twins as live after dca8e0e9: the old one retyped untargeted, a new click on the key result
+    world.asks.upsert({ ...world.asks.require(b.id), targetKind: null, targetId: null });
+    const twin = createAsk(world, { type: "click", targetKind: "keyResult", targetId: kr.id, buildingId: LAB, sourceDocId: r.id, by: "ag_x", title: proseAskTitle(krLine), line: krLine, body: `From the rollup "${r.title}".`, branches: [{ label: "Done" }, { label: "Decline" }] }).ask;
+    const repoTwin = createAsk(world, { type: "click", targetKind: null, targetId: null, buildingId: LAB, sourceDocId: r.id, by: "ag_x", title: proseAskTitle(repo), line: repo, body: `From the rollup "${r.title}".`, branches: [{ label: "Done" }, { label: "Decline" }] }).ask;
+    expect(foldTwinProseAsks(world)).toBe(2);
+    // the one with a target stays; else the oldest
+    expect(world.asks.require(b.id)).toMatchObject({ status: "folded", foldedInto: twin.id });
+    expect(world.asks.require(twin.id).status).toBe("open");
+    expect(world.asks.require(repoTwin.id)).toMatchObject({ status: "folded", foldedInto: a.id });
+    expect(world.asks.require(a.id).status).toBe("open");
+    expect(foldTwinProseAsks(world)).toBe(0);
+    backfillAsks(world);
+    // the repo line and the key result line (the gate call folds into the proposal's own ask on the grant)
+    expect(live().map((x) => x.id).sort()).toEqual([a.id, twin.id].sort());
   }, 30_000);
 });

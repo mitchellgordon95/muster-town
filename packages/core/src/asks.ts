@@ -443,9 +443,10 @@ export function asksFromRollupProse(world: World, d: Doc): void {
     // idempotent: this rollup already filed this line (on its target, or untargeted with the same line or title: a title
     // written by an older rule, since repaired by `retitleProseAsks`, still counts)
     const line = oneLine(c.call, 400);
-    const filed = targetId && targetKind
-      ? asksFor(world, { kind: targetKind, id: targetId }).some((a) => a.sources.some((s) => s.docId === d.id))
-      : world.asks.exists("targetId IS NULL AND sourceDocId = ? AND (title = ? OR EXISTS (SELECT 1 FROM json_each(sources) WHERE json_extract(value, '$.line') IN (?, ?)))", [d.id, title, line, withoutEllipsis(line)]);
+    // whatever its target or type now: a line filed under an older shape (a money ask on the grant it named, retyped by
+    // `retypeProseAsks` after this runs at boot) is still filed, so no twin is made
+    const filed = (targetId && targetKind && asksFor(world, { kind: targetKind, id: targetId }).some((a) => a.sources.some((s) => s.docId === d.id)))
+      || world.asks.exists("sourceDocId = ? AND (title = ? OR EXISTS (SELECT 1 FROM json_each(sources) WHERE json_extract(value, '$.docId') = ? AND json_extract(value, '$.line') IN (?, ?)))", [d.id, title, d.id, line, withoutEllipsis(line)]);
     if (filed) continue;
     createAsk(world, {
       type, targetKind, targetId, buildingId: d.buildingId, sourceDocId: d.id, by: d.authorId, title, line: c.call,
@@ -660,6 +661,40 @@ export function retypeProseAsks(world: World): number {
         history: [...a.history, { at, action: "retyped", by: "system", note: was.slice(0, 500) }, ...v.lint],
       });
       n++;
+    }
+  });
+  return n;
+}
+
+/**
+ * Boot repair: live asks read from one rollup's prose for one line (same source rollup, same title or source line) are
+ * twins: older boots filed the line again when its first ask's title or target had changed (2026-11-09: six pairs from
+ * a 04:47 boot; ak_964oxnm14w and ak_4nc6kwr1wt twinned by the boot that retyped them). One stays (the one with a
+ * target, else a deferred one, else a ranked one, else the oldest); each other folds into it (status "folded",
+ * `foldedInto`, a "fold" history entry). Idempotent. Returns how many it folded.
+ */
+export function foldTwinProseAsks(world: World): number {
+  let n = 0;
+  world.transaction(() => {
+    const lineOf = (a: Ask) => withoutEllipsis(a.sources.find((s) => s.docId === a.sourceDocId)?.line ?? "");
+    const byRollup = new Map<string, Ask[][]>();
+    for (const a of world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid")) {
+      if (!isProseAsk(world, a)) continue;
+      const groups = byRollup.get(a.sourceDocId!) ?? [];
+      byRollup.set(a.sourceDocId!, groups);
+      const twin = groups.find((g) => g.some((b) => b.title === a.title || (!!lineOf(a) && lineOf(b) === lineOf(a))));
+      if (twin) twin.push(a); else groups.push([a]);
+    }
+    for (const g of [...byRollup.values()].flat()) {
+      if (g.length < 2) continue;
+      const keep = g.find((a) => a.targetId) ?? g.find((a) => a.status === "deferred") ?? g.find((a) => a.rank != null) ?? g[0]!;
+      const at = nowIso();
+      for (const a of g) {
+        if (a.id === keep.id) continue;
+        world.asks.upsert({ ...a, status: "folded", foldedInto: keep.id, updatedAt: at, history: [...a.history, { at, action: "fold", by: "system", note: `twin of ${keep.id}: the same rollup line` }] });
+        world.events.append({ type: "ask.folded", buildingId: a.buildingId, text: `Folded twin "${oneLine(a.title, 80)}" into ${keep.id}`, payload: { askId: a.id, foldedInto: keep.id, sourceDocId: a.sourceDocId } });
+        n++;
+      }
     }
   });
   return n;
