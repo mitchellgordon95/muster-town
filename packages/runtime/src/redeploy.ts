@@ -160,7 +160,7 @@ export function drainNudgeOneOnOne(): string {
 }
 
 /** `git log` format for a run's changes: short sha, subject, body; fields split by \x1f, records by \x1e. */
-export const CHANGES_FORMAT = "--format=%h%x1f%s%x1f%b%x1e";
+const CHANGES_FORMAT = "--format=%h%x1f%s%x1f%b%x1e";
 
 /** `git log --first-parent` output in CHANGES_FORMAT → changes (newest first). A GitHub merge commit ("Merge pull request #N from …") shows its PR title (the body's first line) and (#N). */
 export function parseChanges(out: string): RedeployChange[] {

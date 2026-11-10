@@ -81,7 +81,7 @@ export function redeployLine(s: RedeployStatus, name: (id: string) => string, wa
 }
 
 /** One line of the HUD card per deployed change, linked to its commit when the run knows the repo. */
-export interface RedeployChangeLink { sha: string; subject: string; href?: string }
+interface RedeployChangeLink { sha: string; subject: string; href?: string }
 
 /**
  * The changes the run deploys, newest first, as the card's lines (1:1 mt_db6itzy2br). None for a failed or interrupted
