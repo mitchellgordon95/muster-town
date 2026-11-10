@@ -418,10 +418,10 @@ export class MockApi implements Api {
     await wait();
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
     const to = day(0), from = day(29);
-    const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 };
     const workshop = [
       { ...zero, day: day(6), homeViews: 5, guestCardViews: 9, guestVisitors: 4, signInStarted: 2, signIns: 1 },
-      { ...zero, day: day(2), homeViews: 7, guestCardViews: 14, guestVisitors: 6, signInStarted: 1, signIns: 1, asked: 1, letIn: 1 },
+      { ...zero, day: day(2), homeViews: 7, guestCardViews: 14, guestVisitors: 6, signInStarted: 1, signIns: 1, asked: 1, letIn: 1, doorFund: 1, doorCaptain: 1, doorAgent: 2 },
       { ...zero, day: day(0), homeViews: 3, guestCardViews: this.guestCardViews - 23, guestVisitors: 2, asked: 1 },
     ];
     const hosted = [{ ...zero, day: day(2), guestCardViews: 4, guestVisitors: 2, signInStarted: 1, signIns: 1, asked: 1, declined: 1 }];
@@ -433,6 +433,7 @@ export class MockApi implements Api {
     return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives };
   }
   async countGuestCardView() { this.guestCardViews++; }
+  async countDoor(_door: "fund" | "captain" | "agent") { /* the mock keeps no door counts */ }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async building(id: string) { await wait(); return clone(this.need(this.sim.buildings.find((x) => x.id === id), "building")); }
