@@ -832,9 +832,30 @@ export class MockApi implements Api {
     const m = this.need(this.sim.meetings.get(id), "meeting");
     m.transcript.push({ speakerId: "us_mitchell", speakerKind: "user", text, at: now() });
     this.sim.putMeeting(m);
-    if (m.phase === "discussing") this.utter(id, m.facilitatorId ?? "ag_moss", `Thanks Mitchell, noted: "${text.slice(0, 60)}". I'll fold that into the decisions.`, 1800);
+    if (m.phase === "discussing" && m.kind === "one-on-one" && m.facilitatorId) this.draftWithTools(m, m.facilitatorId, text);
+    else if (m.phase === "discussing") this.utter(id, m.facilitatorId ?? "ag_moss", `Thanks Mitchell, noted: "${text.slice(0, 60)}". I'll fold that into the decisions.`, 1800);
     return clone(m);
   }
+  /** A 1:1 reply the way the live town drafts one: five reads and a grep stream in as tool calls, then the line carries them. */
+  private draftWithTools(m: Meeting, agentId: string, text: string) {
+    const calls = [
+      { what: "Reading \"Bank fees: what a donor pays\"", result: "# Bank fees: what a donor pays" },
+      { what: "Reading MeetingPanel.tsx" }, { what: "Reading meetings.ts" }, { what: "Reading describe.ts" },
+      { what: "Reading \"UI / UX goal and key results\"", result: "Goal: \"Make Muster Town beautiful and intuitive\"." },
+      { what: "Searching code for \"agent.tool\"", result: "Command failed: grep exited 2", isError: true },
+    ];
+    this.drafting.set(m.id, agentId);
+    calls.forEach((c, i) => setTimeout(() => this.sim.event("agent.tool", agentId, c.what, { tool: i === 0 || i === 4 ? "mcp__town__read" : i === 5 ? "Grep" : "Read" }, m.buildingId), 700 * (i + 1)));
+    setTimeout(() => {
+      this.drafting.delete(m.id);
+      const cur = this.sim.meetings.get(m.id);
+      if (!cur || cur.phase !== "discussing") return;
+      cur.transcript.push({ speakerId: agentId, speakerKind: "agent", text: `I read the fee doc and the meeting panel. On "${text.slice(0, 60)}": yes, I'll queue it.`, at: now(), tools: calls });
+      this.sim.putMeeting(cur);
+      this.sim.event("meeting.utterance", agentId, cur.transcript.at(-1)!.text, { meetingId: m.id }, m.buildingId);
+    }, 700 * (calls.length + 2));
+  }
+  private drafting = new Map<string, string>();
   async presentMeeting(id: string, docId: string | null, slide = 1) {
     await wait(40);
     const m = this.need(this.sim.meetings.get(id), "meeting");
@@ -855,7 +876,11 @@ export class MockApi implements Api {
     this.sim.putMeeting(m);
     return clone(m);
   }
-  async meetingDrafting(_id: string) { await wait(20); return []; }
+  async meetingDrafting(id: string) {
+    await wait(20);
+    const a = this.drafting.get(id);
+    return a ? [{ id: a, name: this.sim.agents.get(a)?.name ?? a }] : [];
+  }
   async endMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");

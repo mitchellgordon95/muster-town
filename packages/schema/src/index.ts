@@ -1211,6 +1211,15 @@ export const MeetingAttachment = z.object({
   url: z.string().optional(),
 });
 export type MeetingAttachment = z.infer<typeof MeetingAttachment>;
+/** One tool call an agent made while drafting a line (docs/meetings.md): the readable one-liner, never the raw input. */
+export const MeetingToolCall = z.object({
+  /** describeTool's one-liner, e.g. "Reading \"Bank fees\"" */
+  what: z.string(),
+  /** the result's first line, kept for town tools and for errors (secret-looking runs hidden); absent when unknown */
+  result: z.string().optional(),
+  isError: z.boolean().optional(),
+});
+export type MeetingToolCall = z.infer<typeof MeetingToolCall>;
 export const MeetingUtterance = z.object({
   /** `system` for a line the town posts itself (speakerId "system"), e.g. a reply waiting on a redeploy */
   speakerId: Id,
@@ -1218,6 +1227,8 @@ export const MeetingUtterance = z.object({
   text: z.string(),
   at: Iso,
   attachment: MeetingAttachment.optional(),
+  /** an agent's line: the tool calls it made since its previous line in this meeting, oldest first (at most 30) */
+  tools: z.array(MeetingToolCall).optional(),
 });
 export const Meeting = z.object({
   id: Id,

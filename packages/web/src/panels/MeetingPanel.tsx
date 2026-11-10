@@ -1,6 +1,6 @@
 /** Meeting: phase, attendees + summaries, live transcript, say box, decisions. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Meeting, MeetingAttachment, SnapshotBuilding } from "@muster-town/schema";
+import type { Meeting, MeetingAttachment, MeetingToolCall, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
@@ -156,6 +156,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
               return (
                 <div key={i} className={`utt ${u.speakerKind} ${isMe ? "me" : ""}`}>
                   <div className="utt-head"><b>{u.speakerKind === "system" ? "Town" : u.speakerKind === "user" ? (isMe ? "You" : nameOf(u.speakerId)) : nameOf(u.speakerId)}</b><time>{clock(u.at)}</time></div>
+                  {u.tools?.length ? <ToolCalls calls={u.tools} /> : null}
                   <Markdown text={u.text} className="bubble" breaks newTab={open} />
                   {u.attachment ? <Presented a={u.attachment} newTab={open} /> : null}
                 </div>
@@ -165,6 +166,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
           </div>
         )}
         {writing.length ? <div className="utt-writing muted">{writingLine(writing.map((w) => w.name))}</div> : null}
+        {writing.map((w) => <LiveToolCalls key={w.id} m={m} agentId={w.id} name={w.name} />)}
       </Section>
       {open && !me ? <SignInNote to="speak in the meeting" /> : null}
       {open && me && (!oneOnOne || canRun) ? (
@@ -209,6 +211,40 @@ function useDrafting(meetingId: string, live: boolean): { id: string; name: stri
     return () => { stop = true; clearInterval(timer); };
   }, [meetingId, live]);
   return who;
+}
+
+/** "3 tool calls", folded: each the call's one-liner (never its raw input) and, when kept, its result line, red on an error. */
+function ToolCalls({ calls, live, name }: { calls: MeetingToolCall[]; live?: boolean; name?: string }) {
+  const n = `${calls.length} tool call${calls.length === 1 ? "" : "s"}`;
+  return (
+    <details className={`utt-tools${live ? " live" : ""}`}>
+      <summary>{live ? `${name ?? "The agent"}: ${n} so far` : n}</summary>
+      <ol>
+        {calls.map((c, i) => (
+          <li key={i} className={c.isError ? "bad" : undefined}>
+            <span>{c.what}</span>{c.result ? <span className="utt-tool-result"> → {c.result}</span> : c.isError ? <span className="utt-tool-result"> → failed</span> : null}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+/** Calls the meeting tool itself makes (listen, speak) are the chat, not the work: left out, as on the server. */
+const MEETING_TOOL = "mcp__town__meeting";
+
+/**
+ * While an agent drafts a line: its tool calls since its previous line here, from the events feed the client already has
+ * (no new request). Results aren't in events; the posted line carries them (core meeting-tools.ts).
+ */
+function LiveToolCalls({ m, agentId, name }: { m: Meeting; agentId: string; name: string }) {
+  const events = useTown((s) => s.events);
+  const since = useMemo(() => [...m.transcript].reverse().find((u) => u.speakerId === agentId)?.at ?? m.startedAt ?? m.createdAt, [m, agentId]);
+  const calls = useMemo(
+    () => events.filter((e) => e.agentId === agentId && e.type === "agent.tool" && e.ts > since && e.payload.tool !== MEETING_TOOL).map((e) => ({ what: e.text })),
+    [events, agentId, since],
+  );
+  return calls.length ? <ToolCalls calls={calls} live name={name} /> : null;
 }
 
 function writingLine(names: string[]): string {
