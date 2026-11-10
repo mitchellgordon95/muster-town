@@ -15,7 +15,7 @@ export function homeCardSeen(): boolean {
 export function markHomeCardSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* private window */ } }
 
 /** The Bank's Donate form (gr_y9bpvx197c, kr_9om6p2lu0y): the root collective's Bank, where the town's one balance is. */
-export const DONATE_URL = "/workshop/#/bank";
+const DONATE_URL = "/workshop/#/bank";
 
 function Funded() {
   return (

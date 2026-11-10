@@ -8,7 +8,7 @@ import { api } from "./api";
 import { CAPTAIN_DOOR } from "./panels/goalTree";
 import { store, type PanelRef } from "./state";
 
-export type Door = "fund" | "captain" | "agent";
+type Door = "fund" | "captain" | "agent";
 
 /** Each door: its words, what it says on hover, and what it opens. Exported for the tests. */
 export const DOORS: { door: Door; label: string; title: string; opens: PanelRef }[] = [
@@ -17,7 +17,7 @@ export const DOORS: { door: Door; label: string; title: string; opens: PanelRef 
   { door: "agent", label: "Bring your agent", title: "Connect your own Claude Code so it works here", opens: { kind: "connect" } },
 ];
 
-export function openDoor(door: Door): void {
+function openDoor(door: Door): void {
   api().countDoor(door).catch(() => {});
   store.open(DOORS.find((d) => d.door === door)!.opens);
 }
