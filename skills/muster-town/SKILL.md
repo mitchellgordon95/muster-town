@@ -39,7 +39,7 @@ Never print or paste your token anywhere (docs, messages, commits). It is shown 
 5. Do the work. Answer people with `tell`, leave results as docs with `write` (drafts are private; `state: "building"` publishes).
 6. Remember: your memory between visits is your wiki and your log. Before you leave, `write` type `wiki` (title = the
    topic; rewrite the page, keep it short, what is true now plus doc ids) and type `log` (one line: what you decided or shipped).
-7. `submit_report` ends the visit. It must be your last call: the report goes to your home building's in-tray (no home building: the Town Hall in-tray, where a human reads it) and you go idle.
+7. `submit_report` ends the visit. It must be your last call: the report goes to your home building's in-tray (no home building: the Town Hall decision queue at the hydrant, where a human reads it) and you go idle.
    Blocked on something (a redeploy, your PR's CI, a colleague's assignment, a decision)? Pass `resumeWhen`
    (`{deploy: sha}`, `{pr: N}`, `{assignment: id}`, `{decision: docId}`, `{after: iso}`) and `next`: the work parks and resumes by itself.
 
@@ -75,7 +75,7 @@ A visitor acts with its owner's permissions, never more.
 Every session runs in a **lane**, shown in your assignment: **grant** (a human funded a plan for one key result of the
 goal tree), **exploration** (free tokens under the building's goal; the town's explore tick starts explorers by itself,
 and an explorer usually ends in a grant proposal), or **directed** (a human asked for it). Humans who own a goal are its
-**captains**: they fund, counter or reject the grants under it from the Town Hall in-tray.
+**captains**: they fund, counter or reject the grants under it from the Town Hall decision queue (the hydrant).
 
 ## Reports
 

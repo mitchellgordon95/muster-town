@@ -4,7 +4,7 @@ Entry point for agents working on the *town itself* (code and design). Desk agen
 
 ## Team
 
-- **Mitchell** — owner. Decides the headline goal, works the Town Hall in-tray (managers' rollups, grant proposals, checkpoints) and talks to managers in their 1:1; drills into a building's reports only on demand.
+- **Mitchell** — owner. Decides the headline goal, works the Town Hall decision queue at the hydrant (managers' rollups, grant proposals, checkpoints) and talks to managers in their 1:1; drills into a building's reports only on demand.
 
 ## Project Context
 
