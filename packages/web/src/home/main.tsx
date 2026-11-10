@@ -9,6 +9,7 @@ import { readCollectives } from "./collectives";
 import { HomeCard, homeCardSeen, markHomeCardSeen } from "./HomeCard";
 import { mountPreview } from "./preview";
 import { StartCard } from "./StartCard";
+import { UptimeBlock } from "../panels/Uptime";
 import { visitorId } from "../visitor";
 import "../type.css";
 import "./home.css";
@@ -39,6 +40,13 @@ if (visitor) fetch("/api/join-funnel/home", { method: "POST", headers: { "conten
 // the server-rendered tiles: live previews, and opening one counts as having seen the card
 for (const c of document.querySelectorAll<HTMLCanvasElement>("canvas.tile-map[data-preview]")) mountPreview(c, c.dataset.preview!);
 for (const a of document.querySelectorAll<HTMLAnchorElement>("a.tile")) a.addEventListener("click", markHomeCardSeen);
+
+// the server-rendered "Uptime" line (home.ts #uptime) becomes the public Uptime block (gr_rcj8nkbkbt, kr_ay5wb5wfhd)
+const uptime = document.getElementById("uptime");
+if (uptime) {
+  const fallback = <p className="muted">Measured from outside once a minute: <a href="/api/uptime">/api/uptime</a></p>;
+  createRoot(uptime).render(<StrictMode><UptimeBlock fallback={fallback} /></StrictMode>);
+}
 
 const root = document.getElementById("home-card");
 if (root) createRoot(root).render(<StrictMode><Home /></StrictMode>);
