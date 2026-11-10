@@ -266,8 +266,13 @@ the pinger does not forward it; to test the pinger end to end, point it at a dea
 TLS broken, the monitor wedged. Each run is one probe of `GET https://muster.town/api/health` (10 s timeout; fail = no
 answer, non-200, or `ok` not true). After 3 failed probes in a row it sends a RED SMS and email, reminds every 6 h while
 down, and sends one "recovered" message when health answers again. It forwards the server's open red alerts (health
-`monitor.alerts`) on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It has no
-town token and writes nothing to the town. It is the only thing that texts or emails about muster.town.
+`monitor.alerts`) on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It is the
+only thing that texts or emails about muster.town. It also feeds the public uptime (`GET /api/uptime`, no sign-in; grant
+gr_rcj8nkbkbt): each probe is kept in its state file and, whenever health answers and `MUSTER_PINGER_TOKEN` is set in its
+env file, the unsent ones are POSTed to `/api/uptime/probes`, so an outage's failed minutes land once the town is back
+(at most 7 days are buffered). The token is a town agent token whose agent holds the town `prober` role (`town.uptime`,
+nothing else): an admin makes a visitor agent "Pinger", grants it `prober` and copies its token. A minute with no probe
+is `unknown` in /api/uptime, never up. Tests: `python3 -m unittest discover -s deploy/pinger` (CI runs them).
 
 Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):
 ```
@@ -275,6 +280,7 @@ Install as user `node` (paths assume its home is `/home/node`; change `ExecStart
 install -D -m 755 deploy/pinger/muster_pinger.py ~/.miniclaw/workspace/scripts/muster-pinger.py
 sudo install -m 644 deploy/pinger/muster-pinger.service deploy/pinger/muster-pinger.timer /etc/systemd/system/
 # 2. env file: the seven ALERT_* names in the script's docstring (Twilio SID/auth/from, the SMS and email recipients, the Gmail SMTP user and app password), KEY=value, one a line
+#    plus MUSTER_PINGER_TOKEN=<the Pinger agent's town token> for the public uptime (without it probes only buffer)
 install -m 600 /dev/null ~/.miniclaw/muster-pinger.env && $EDITOR ~/.miniclaw/muster-pinger.env
 # 3. a dry run prints the messages instead of sending them (state: ~/.miniclaw/muster-pinger.json)
 python3 ~/.miniclaw/workspace/scripts/muster-pinger.py --dry-run
