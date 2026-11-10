@@ -1080,6 +1080,8 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
 .ask-decide { flex: 1 1 260px; }
 .ask-branches .btn.on { border-color: var(--accent); }
+.ask-note { width: 100%; max-width: 420px; resize: vertical; font: inherit; }
+.ask-note-toggle { align-self: center; }
 .ask-form { display: grid; gap: 6px; margin-top: 6px; max-width: 420px; }
 .ask-sources { margin-top: 6px; font-size: var(--fs-sm); }
 .ask-sources ul { margin: 4px 0 0; padding-left: 18px; }

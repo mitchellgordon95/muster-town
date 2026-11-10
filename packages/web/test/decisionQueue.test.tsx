@@ -92,7 +92,7 @@ describe("the decision queue sheet", () => {
     await mount(<DecisionQueueView data={read({ asks: [second, first], grants: grants.filter((g) => g.id === "gr_ocean"), access: [join("ar_new", "2026-11-02T00:00:00Z")] })} onReload={reload} onClose={() => undefined} />);
     expect(cards()).toEqual([first.title]);
     await act(async () => button("Add").click());
-    expect(decide).toHaveBeenCalledWith("ak_policy", "Add");
+    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "");
     expect(reload).toHaveBeenCalled();
     expect(cards()).toEqual([second.title]);
     expect(document.body.querySelector(".who-sub")?.textContent).toBe("2 waiting");

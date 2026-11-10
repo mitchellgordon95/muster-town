@@ -43,8 +43,9 @@ async function mount(el: React.ReactElement) {
 }
 afterEach(async () => { if (root) await act(async () => root!.unmount()); host?.remove(); root = null; host = null; vi.restoreAllMocks(); });
 const button = (el: HTMLElement, text: string) => [...el.querySelectorAll("button")].find((b) => b.textContent?.trim() === text) as HTMLButtonElement;
-function typeInto(input: HTMLInputElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+function typeInto(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 // the mock server answers after a short wait (60-150 ms)
@@ -133,7 +134,20 @@ describe("the ask card", () => {
     const el = await mount(<AskCard ask={ask("ak_policy")} onDecided={() => undefined} />);
     await act(async () => button(el, "Add").click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("ak_policy", "Add");
+    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "");
+  });
+
+  it("a click ask's Add a note sends the human's words with the branch", async () => {
+    signIn();
+    const decide = vi.spyOn(api(), "decideAsk").mockResolvedValue(ask("ak_policy"));
+    const el = await mount(<AskCard ask={ask("ak_policy")} onDecided={() => undefined} />);
+    expect(el.querySelector("textarea[aria-label='Note']")).toBeNull();
+    await act(async () => button(el, "Add a note").click());
+    const field = el.querySelector("textarea[aria-label='Note']") as HTMLTextAreaElement;
+    await act(async () => typeInto(field, "I edited the token instead."));
+    await act(async () => button(el, "Add").click());
+    await flush();
+    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "I edited the token instead.");
   });
 
   it("the ask order, records and helpers", () => {
