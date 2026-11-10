@@ -34,7 +34,7 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     expect(managerStateBlock(world, pix, world.buildings.require(b.id))).toContain(block);
   });
 
-  it("the lint rule flags an avoided word and names the replacement", () => {
+  it("the lint rule warns on an avoided word and names the replacement", () => {
     const pairs = [{ avoid: "top-up", use: "adjust" }, { avoid: "checkpoint card", use: "gate" }];
     expect(lintAskBody("It needs a top up of 150k.", { dictionary: pairs }).filter((p) => p.startsWith("dictionary"))).toEqual(['dictionary: the dictionary avoids "top-up" in "It needs a top up of 150k.": use "adjust"']);
     expect(lintAskBody("Two top-ups came in.", { dictionary: pairs }).find((p) => p.startsWith("dictionary"))).toContain('use "adjust"');
@@ -44,7 +44,7 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     const { world } = seededWorld();
     ensureDictionary(world);
     const { ask } = createAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Look at the checkpoint card", body: "Pix has waited since Monday. Open the checkpoint card once and this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
-    expect(ask.tags).toContain("lint-failed");
+    expect(ask.tags).toEqual([]);
     expect(ask.history.find((h) => h.action === "lint")!.note).toContain('"checkpoint card" in "Open the checkpoint card once and this never comes back.": use "gate"');
   });
 });

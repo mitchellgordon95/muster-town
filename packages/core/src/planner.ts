@@ -6,9 +6,8 @@
  * applies the change through the same path `PUT /api/town/defaults` uses (`World.setGrantPricing`) and logs it. A run
  * with no line crossed (or with a calibration ask still waiting) is skipped before any session starts.
  */
-import { grantPricingOf, vetAsk, type Agent, type Ask, type CalibrationProposal, type Schedule, type StepSize, type StepSizeTable } from "@muster-town/schema";
-import { createAsk, refuseOrFlag } from "./asks.ts";
-import { dictionaryPairs } from "./dictionary.ts";
+import { askStructure, grantPricingOf, type Agent, type Ask, type CalibrationProposal, type Schedule, type StepSize, type StepSizeTable } from "@muster-town/schema";
+import { createAsk, refuseMissingStructure } from "./asks.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { legibleMeasures, type LegibleMeasures } from "./measures.ts";
 import { holderOf } from "./permissions.ts";
@@ -166,7 +165,7 @@ export function ensureCalibrationSchedule(world: World, at: Date = new Date()): 
 /**
  * The `calibrate` verb (the Planner only). No card: the brief (measures, lines, crossed, proposal). With title, body and
  * recommendation: file the one policy ask on the step-size table with the town's proposal, its card vetted against the
- * policy contract and the linter (refused with the failing rules, the third try filed flagged). Refused when no line
+ * policy contract's structure (refused when the rule is missing; style rules are warnings in its history). Refused when no line
  * is crossed or a calibration ask already waits.
  */
 export function calibrate(world: World, me: Agent, input: { title?: string; body?: string; recommendation?: string }, at: Date = new Date()): { brief: string } | { askId: string; proposal: CalibrationProposal; note: string } {
@@ -180,7 +179,7 @@ export function calibrate(world: World, me: Agent, input: { title?: string; body
   if (!proposal) throw new AppError("conflict", "No line is crossed: there is nothing to propose. submit_report (verdict stop).");
   const branches = [{ label: "Adopt", action: ADOPT }, { label: "Keep as is", action: "keep" }];
   const card = { body: input.body, recommendation: input.recommendation, claims: [], branches, targetKind: "rule" };
-  refuseOrFlag(world, me, "calibration", vetAsk("policy", { ...card, dictionary: dictionaryPairs(world) }));
+  refuseMissingStructure("calibration", askStructure("policy", card));
   const { ask } = createAsk(world, {
     type: "policy", targetKind: "rule", targetId: CALIBRATION_TARGET, buildingId: TOWN_HALL_ID, sourceDocId: null, by: me.id,
     title: input.title, body: input.body, branches, recommendation: input.recommendation, proposal, line: proposalSentence(proposal),

@@ -2,7 +2,7 @@
  * The town dictionary (docs/legible-delegation.md §5 "A town dictionary", build step 10): one meaning per word. A Town
  * Hall doc of type `dictionary`, created once at boot (`ensureDictionary`, beside the policy ledger), one entry per line
  * (`- **word**: meaning`) and an "Avoid → use" list (`- top-up → adjust`). Every manager's first message pins a short
- * block naming the words (`dictionaryBlock`), and the ask linter's `dictionary` rule refuses an avoided word with its
+ * block naming the words (`dictionaryBlock`), and the ask linter's `dictionary` rule warns on an avoided word with its
  * replacement: core passes the doc's pairs in at vet time (`dictionaryPairs`), so the schema rule stays pure.
  */
 import type { Doc, DictionaryPair } from "@muster-town/schema";
@@ -43,7 +43,7 @@ const SEED_AVOID: readonly DictionaryPair[] = [
 const SEED_BODY = [
   "# Town dictionary",
   "",
-  "One meaning per word. Every manager's prompt pins these words, and the ask linter refuses an avoided word with its replacement. Edit a line here to change a meaning; the linter reads the Avoid → use list as it stands.",
+  "One meaning per word. Every manager's prompt pins these words, and an ask card using an avoided word is filed with a warning naming its replacement. Edit a line here to change a meaning; the linter reads the Avoid → use list as it stands.",
   "",
   "## Words",
   "",
@@ -104,5 +104,5 @@ export function dictionaryBlock(world: World): string {
   if (!d) return "";
   const words = wordsOf(d.body);
   const pairs = pairsOf(d.body).slice(0, 8);
-  return `## Town dictionary (${d.id}: \`read\` it for the meanings)\nOne meaning per word. Use these words as the dictionary defines them: ${words.join(", ")}.${pairs.length ? ` Avoid → use: ${pairs.map((p) => `${p.avoid} → ${p.use}`).join(", ")}. The ask linter refuses an avoided word.` : ""}`;
+  return `## Town dictionary (${d.id}: \`read\` it for the meanings)\nOne meaning per word. Use these words as the dictionary defines them: ${words.join(", ")}.${pairs.length ? ` Avoid → use: ${pairs.map((p) => `${p.avoid} → ${p.use}`).join(", ")}. Write the word to use, never the avoided one.` : ""}`;
 }
