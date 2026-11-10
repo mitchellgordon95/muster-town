@@ -13,7 +13,8 @@ import { ROOT_GOAL_ID } from "@muster-town/schema";
 import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type ManagerWakeLine, type ManagerWakes, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
 import { useTown } from "../state";
 import { BuildingFunding, pickRow } from "./BankFunding";
-import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine } from "./BankFinance";
+import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, noGrantCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine } from "./BankFinance";
+import { IdLink } from "./Markdown";
 import { SpendByGoal, laneLine } from "./GoalSpend";
 import { ADJ, Loading, Section, fmtTokens, useLoad } from "./ui";
 
@@ -50,7 +51,39 @@ export function spendLevel(rows: SpendNode[], trail: SpendNode[]): { crumbs: Spe
   return { crumbs, rows: crumbs.length ? crumbs[crumbs.length - 1].children ?? [] : rows };
 }
 
-const LEVEL_NAME = ["Building", "Grant", "Assignment"];
+/** The table's first column header: what the rows under the deepest crumb are. */
+const levelName = (crumb: SpendNode | undefined) => !crumb ? "Building" : crumb.kind === "building" ? "Grant" : crumb.kind === "no-grant" ? "Lane" : "Assignment";
+
+const PROPOSAL_STATE = { funded: "funded", rejected: "rejected", withdrawn: "withdrawn", open: "still open" } as const;
+const SOURCE_WORD = { meeting: "in", doc: "in", tell: "by a tell" } as const;
+/** Don't let a link inside a row pick the row. */
+const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+/**
+ * The muted line under an assignment row in a lane (gr_utygatbi85, kr_v5419kedhk): a directed row's "asked by X in
+ * <meeting>", an exploration row's "→ proposal <title> · funded" or "no proposal".
+ */
+export function LaneLine({ r }: { r: SpendNode }) {
+  if (r.source) {
+    const { id, kind, askedBy, askedById } = r.source;
+    const who = askedBy ?? askedById;
+    return (
+      <span className="spend-grant-line spend-source muted" onClick={stop}>
+        {who ? `asked by ${who}` : "who asked is not recorded"}
+        {id && kind === "tell" ? " in a tell" : id ? <> {SOURCE_WORD[kind ?? "doc"]} <IdLink id={id} /></> : who ? " (made the assignment directly)" : ""}
+      </span>
+    );
+  }
+  if (r.proposal === null) return <span className="spend-grant-line spend-proposal muted">no proposal</span>;
+  if (r.proposal) {
+    return (
+      <span className="spend-grant-line spend-proposal muted" onClick={stop}>
+        → proposal <a href={`#/grant/${r.proposal.id}`}>{r.proposal.title}</a> · {PROPOSAL_STATE[r.proposal.state]}
+      </span>
+    );
+  }
+  return null;
+}
 
 /** The Spending tab's centre: the drill-down, or Spend by goal behind its toggle. */
 export function BankSpendingTab({ sp, picked, onPick }: { sp: FinanceSpend | null; picked: string | null; onPick: (id: string | null) => void }) {
@@ -70,7 +103,8 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
   const path = crumbs.map(keyOf);
   const today = (node: SpendNode) => (node.kind === "building" && node.id ? buildings.find((b) => b.id === node.id)?.budget?.tokensToday : undefined);
   const usd = sp.rows.some((r) => r.usd !== undefined);
-  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp), grantsCheck = grantsCheckLine(sp);
+  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp), grantsCheck = grantsCheckLine(sp), laneCheck = noGrantCheckLine(sp);
+  const inNoGrant = crumbs[crumbs.length - 1]?.kind === "no-grant";
   const sum = rows.reduce((t, r) => t + r.tokens, 0);
   return (
     <Section title="Spending" right={toggle}>
@@ -82,7 +116,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
       </nav>
       <table className="table spend-table">
         <thead><tr>
-          <th>{top ? "Building" : (LEVEL_NAME[crumbs.length] ?? "Row")}</th><th>Sessions</th>{top ? <th title="Adjusted tokens the building used today (UTC)">Today</th> : null}
+          <th>{levelName(crumbs[crumbs.length - 1])}</th><th>Sessions</th>{top ? <th title="Adjusted tokens the building used today (UTC)">Today</th> : null}
           <th>{ADJ}</th>{usd ? <th title="At API list price">$</th> : null}<th>Share</th>
         </tr></thead>
         <tbody>
@@ -93,7 +127,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
             const t = today(r);
             return (
               <tr key={key} {...pick} className={[pick.className, `spend-${r.kind}`].join(" ")} title={NOTE_TITLE[r.kind] ? "Explained in the sidebar when picked" : r.id ?? undefined}>
-                <td className="spend-name">{r.name}{r.children?.length ? <span className="muted spend-more" aria-hidden> ›</span> : null}{gl ? <GrantLine g={gl} /> : null}</td>
+                <td className="spend-name">{r.name}{r.children?.length ? <span className="muted spend-more" aria-hidden> ›</span> : null}{gl ? <GrantLine g={gl} /> : null}<LaneLine r={r} /></td>
                 <td>{r.sessions ? n(r.sessions) : "–"}</td>
                 {top ? <td>{t === undefined ? "–" : fmtTokens(t)}</td> : null}
                 <td className="spend-tokens">{n(r.tokens)}</td>
@@ -110,6 +144,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
         {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
         {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
       </> : null}
+      {(top || inNoGrant) && laneCheck ? <div className={laneCheck.ok ? "finance-check ok spend-lane-check" : "error-line"} role="status">{laneCheck.ok ? "✓ " : "✗ "}{laneCheck.text}</div> : null}
       {crumbs.length === 1 && crumbs[0].kind === "building" ? <ManagerWakesLines mw={sp.managerWakes} buildingId={crumbs[0].id ?? "none"} /> : null}
       {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
     </Section>
@@ -142,9 +177,11 @@ export function SpendSelected({ sp, picked, bank, rev }: { sp: FinanceSpend; pic
           {today !== undefined ? <tr><td>Spent today</td><td>{fmtTokens(today)}</td></tr> : null}
           {held ? <tr><td>Donated to it, unspent</td><td>{fmtTokens(held)}</td></tr> : null}
           {node.kind === "grant" && node.grantTokens !== undefined ? <tr><td>Granted</td><td>{node.grantTokens == null ? "not funded yet" : n(node.grantTokens)}</td></tr> : null}
-          {node.children?.length ? <tr><td>{node.kind === "building" ? "Grants and other rows" : "Assignments and other rows"}</td><td>{n(node.children.length)}</td></tr> : null}
+          {node.children?.length ? <tr><td>{node.kind === "building" ? "Grants and other rows" : node.kind === "no-grant" ? "Lanes" : "Assignments and other rows"}</td><td>{n(node.children.length)}</td></tr> : null}
         </tbody>
       </table>
+      {node.source || node.proposal !== undefined ? <p><LaneLine r={node} /></p> : null}
+      {node.kind === "assignment" && node.id ? <p><IdLink id={node.id} /></p> : null}
       {gl ? <p>{gl.spent} · {gl.outcome}{gl.over ? <> · <span className="spend-over">{gl.over}</span></> : null}{gl.krs ? <><br />{gl.krs}</> : null}</p> : null}
       {node.kind === "grant" && node.id ? <p>{node.objective ? <span className="muted">{node.objective} </span> : null}<a href={`#/grant/${node.id}`}>Open the grant page</a></p> : null}
       {node.kind === "building" && node.id ? <><BuildingLanes id={node.id} /><BuildingFunding rev={rev} buildingId={node.id} /></> : null}

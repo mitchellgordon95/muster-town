@@ -56,6 +56,8 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...mixChecks(f.mix, bank.mix),
     // what each grant bought (gr_dt1l35tydx): the grants block by outcome closes on the grant rows
     ...grantChecks(s),
+    // what the non-grant half bought (gr_utygatbi85): the lane rows close on each building's "Not under a grant" row
+    ...noGrantChecks(s),
     // paid in cash, last 30 days (gr_qggxximtru step 2): the parts add up, the ratio is list value / cash
     ...cashChecks(f.cash, f.cashCheck),
   ];
@@ -95,6 +97,27 @@ function grantChecks(s: Json): Check[] {
     // closed grants' cost estimates (docs/how-work-gets-done.md §4): every range low ≤ high, in adjusted tokens
     flag("grant estimates", g.estimates?.unit === "adjusted tokens" && Array.isArray(g.estimates?.badRanges) && g.estimates.badRanges.length === 0 && g.estimates.inside <= g.estimates.closed,
       g.estimates ? `${g.estimates.inside} of ${g.estimates.closed} closed grants inside their estimate; low ≤ high on all (${g.estimates.unit})${g.estimates.badRanges.length ? `; low > high: ${g.estimates.badRanges.join(", ")}` : ""}` : "no estimates block"),
+  ];
+}
+
+/** Each building's "Not under a grant" row against its lane rows; noGrant.byLane against the lane rows; every directed row has a source, every exploration row a proposal field. */
+function noGrantChecks(s: Json): Check[] {
+  const ng = s.noGrant;
+  if (!ng) return [flag("lanes present", false, "GET /api/finance/spend has no noGrant block (server older than gr_utygatbi85)")];
+  const buckets = (s.rows ?? []).flatMap((b: Json) => (b.children ?? []).filter((c: Json) => c.kind === "no-grant"));
+  const lanes = buckets.flatMap((c: Json) => c.children ?? []);
+  const bad = buckets.filter((c: Json) => sum((c.children ?? []).map((l: Json) => l.tokens)) !== c.tokens || (c.children ?? []).some((l: Json) => l.kind !== "lane")).length;
+  const laneNames = ["directed", "exploration", "retainer", "manager", "before"];
+  const byLane = (l: string) => sum(lanes.filter((r: Json) => r.lane === l).map((r: Json) => r.tokens));
+  const rowsOf = (l: string) => lanes.filter((r: Json) => r.lane === l).flatMap((r: Json) => r.children ?? []);
+  const dir = rowsOf("directed"), exp = rowsOf("exploration");
+  return [
+    flag("lanes check", s.noGrantCheck?.ok, `ok ${s.noGrantCheck?.ok}, diff ${fmt(s.noGrantCheck?.diff)} (${s.noGrantCheck?.identity})`),
+    eq("lanes sum to the bucket", "Σ lane rows", sum(lanes.map((r: Json) => r.tokens)), "Σ \"Not under a grant\" rows", sum(buckets.map((c: Json) => c.tokens))),
+    flag("lanes per building", bad === 0, `${buckets.length - bad} of ${buckets.length} buildings' "Not under a grant" rows equal their lane rows`),
+    flag("lanes by lane", laneNames.every((l) => Number(ng.byLane?.[l]?.tokens) === byLane(l)), laneNames.map((l) => `${l} ${fmt(ng.byLane?.[l]?.tokens)} = rows ${fmt(byLane(l))}`).join(", ")),
+    flag("directed sources", dir.every((r: Json) => r.source && "askedBy" in r.source), `${dir.length} directed rows carry source (${dir.filter((r: Json) => r.source?.id).length} with a source id, ${dir.filter((r: Json) => r.source?.askedById).length} with who asked)`),
+    flag("exploration proposals", exp.every((r: Json) => r.proposal !== undefined) && exp.filter((r: Json) => r.proposal).length === ng.exploration?.proposals, `${exp.length} exploration rows carry proposal (${exp.filter((r: Json) => r.proposal).length} with one = noGrant.exploration.proposals ${ng.exploration?.proposals})`),
   ];
 }
 

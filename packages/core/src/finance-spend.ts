@@ -1,6 +1,7 @@
 import { grantName, countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
+import { sourceOrigin } from "./origin.ts";
 import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
 
@@ -18,7 +19,40 @@ import type { Repos } from "./store.ts";
  * `notFunded` (what is left beyond `used`: sessions nothing in the Bank or donations paid for, e.g. the Town Hall's
  * librarian). At most one of `unattributed` and `notFunded` is non-zero.
  */
-export type SpendKind = "building" | "grant" | "no-grant" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+export type SpendKind = "building" | "grant" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+
+/**
+ * The lane rows under a building's "Not under a grant" row (gr_utygatbi85, kr_k76nyweby5): a session's own lane
+ * (directed, exploration, retainer); `manager` = a non-work session (review, meeting, summary, …) on an assignment, or a
+ * grant-lane session whose grant is not recorded; `before` = a work session with no lane recorded (before lanes existed,
+ * migration 025). The assignment's lane is not used: assignments from before lanes were back-filled `directed`.
+ */
+export type NoGrantLane = "directed" | "exploration" | "retainer" | "manager" | "before";
+const NO_GRANT_LANES: readonly NoGrantLane[] = ["directed", "exploration", "retainer", "manager", "before"];
+const NO_GRANT_LANE_NAME: Record<NoGrantLane, string> = {
+  directed: "Asked for by a human (directed)",
+  exploration: "Exploration: a building looking for its next grant",
+  retainer: "Retainers: a schedule's runs",
+  manager: "Manager's assigned work: reviews, meetings and other non-work sessions on an assignment",
+  before: "Before lanes: work sessions from before lanes were recorded",
+};
+
+/** A directed assignment row's human source (kr_v5419kedhk): the meeting, doc or tell it traces to, and who asked. */
+export interface SpendSource {
+  /** Assignment.sourceId (mt_, dc_ or ms_); null = a human created the work directly, or nothing was recorded */
+  id: string | null;
+  kind: "meeting" | "doc" | "tell" | null;
+  /** the human it traces to: the source's human, else the assignment's origin, else a human creator; null = not known */
+  askedById: string | null;
+  askedBy: string | null;
+}
+/** An exploration assignment row's outcome (kr_v5419kedhk): the proposal its fork filed, or null = no proposal. */
+export interface SpendProposal {
+  id: string;
+  title: string;
+  /** funded (funded at any point, incl. closed), rejected, withdrawn, or open (draft, proposed, countered) */
+  state: "funded" | "rejected" | "withdrawn" | "open";
+}
 
 export interface SpendNode {
   kind: SpendKind;
@@ -44,7 +78,25 @@ export interface SpendNode {
   outcomeGroup?: SpendOutcome;
   /** grant rows of a known grant only: its key results by status; `open` = not-started, on-track or at-risk */
   krCounts?: KrCounts;
+  /** lane rows (kind "lane") only: which lane */
+  lane?: NoGrantLane;
+  /** assignment rows under the directed lane row only: its human source */
+  source?: SpendSource;
+  /** assignment rows under the exploration lane row only: the proposal it ended in; null = no proposal */
+  proposal?: SpendProposal | null;
   children?: SpendNode[];
+}
+
+/** FinanceSpend.noGrant: every building's "Not under a grant" row summed, split by lane, and what the exploration rows ended in. */
+export interface SpendNoGrant {
+  tokens: number;
+  sessions: number;
+  usd: number;
+  byLane: Record<NoGrantLane, { tokens: number; sessions: number; usd: number; assignments: number }>;
+  /** exploration assignment rows (each counted once per building row): how many ended in a proposal, by its state */
+  exploration: { assignments: number; proposals: number; funded: number; rejected: number; withdrawn: number; open: number };
+  /** directed assignment rows: how many name a human source, how many name who asked */
+  directed: { assignments: number; withSource: number; withAsker: number };
 }
 
 /** The three groups the Spending tab totals grants by: closed with the work done, closed without it, still open. */
@@ -130,6 +182,10 @@ export interface FinanceSpend {
   grants: SpendGrants;
   /** byOutcome done + cut + open tokens vs Σ the grant rows' tokens; ok when they are equal */
   grantsCheck: { ok: boolean; diff: number; identity: string };
+  /** the non-grant half by lane (gr_utygatbi85) */
+  noGrant: SpendNoGrant;
+  /** every lane row's tokens vs its "Not under a grant" row's, summed over buildings; ok when equal */
+  noGrantCheck: { ok: boolean; diff: number; identity: string };
   at: string;
 }
 
@@ -137,11 +193,15 @@ export interface FinanceSpend {
 export interface NotFundedBuilding { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }
 
 export interface SpendInputs {
-  sessions: Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "endedAt">[];
-  assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "title">[];
+  sessions: (Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "endedAt"> & Partial<Pick<Session, "purpose" | "lane" | "startedAt">>)[];
+  assignments: (Pick<Assignment, "id" | "buildingId" | "grantId" | "title"> & Partial<Pick<Assignment, "sourceId" | "origin" | "createdBy" | "createdByKind" | "reportId">>)[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
-  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "grantTokens" | "status" | "outcome" | "estimate">>)[];
+  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "title" | "buildingId" | "grantTokens" | "status" | "outcome" | "estimate" | "proposedBy" | "createdAt" | "fundedAt" | "findingsDocIds" | "history">>)[];
+  /** names of the humans directed rows name (left out = ids only) */
+  users?: { id: string; name: string }[];
+  /** a directed source's human (core origin.ts `sourceOrigin`), keyed by source id; left out = none known */
+  sourceAskers?: Map<string, string | null>;
   /** the grants' key results, for each grant row's `krCounts` (left out = none) */
   keyResults?: Pick<KeyResult, "grantId" | "status">[];
   /** when the Bank converted to adjusted tokens (the `bank.converted` event's ts); null = never, so no weight mismatch */
@@ -260,7 +320,7 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
   return { split, lastAt, allocationPaid };
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; grant?: GrantFields; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; grant?: GrantFields; extra?: Pick<SpendNode, "lane" | "source" | "proposal">; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
 type GrantFields = Required<Pick<SpendNode, "grantTokens" | "status" | "outcome" | "outcomeGroup" | "krCounts">>;
 const acc = (kind: SpendKind, id: string | null, name: string, objective?: string, grant?: GrantFields): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), ...(grant ? { grant } : {}), tokens: 0, usd: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
@@ -312,7 +372,13 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
           return gr ? acc("grant", grantId, grantName(gr), gr.objective, grantFields(gr)) : acc("grant", grantId, grantId);
         })
         : child(b, "no-grant", () => acc("no-grant", null, NO_GRANT));
-      path.push(g, child(g, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
+      let parent = g;
+      if (!grantId) {
+        const lane = noGrantLane(s);
+        path.push(g);
+        parent = child(g, `lane:${lane}`, () => ({ ...acc("lane", lane, NO_GRANT_LANE_NAME[lane]), extra: { lane } }));
+      }
+      path.push(parent, child(parent, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
     for (const n of path) { n.tokens += tokens; n.usd += usd; n.sessions++; }
     root.tokens += tokens;
@@ -322,8 +388,9 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const share = (t: number) => (used ? Math.round((t / used) * 1e4) / 1e4 : 0);
   const out = (n: Acc): SpendNode => {
     const kids = [...n.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
-    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...n.grant, ...(kids.length ? { children: kids } : {}) };
+    return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...n.grant, ...n.extra, ...(kids.length ? { children: kids } : {}) };
   };
+  annotateNoGrant(root, inp, now);
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
   // what the ledger booked for the sessions: the pre-conversion ones at Opus weights
@@ -342,6 +409,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
   const splitSum = nf.split.reduce((t, g) => t + g.tokens, 0);
   const gs = spendGrants(rows, new Map(inp.grants.flatMap((g) => g.estimate ? [[g.id, g.estimate] as const] : [])));
   const grantsDiff = gs.grants.byOutcome.done.tokens + gs.grants.byOutcome.cut.tokens + gs.grants.byOutcome.open.tokens - gs.rowsSum;
+  const ng = spendNoGrant(rows);
   const converted = inp.convertedAt ? inp.convertedAt.slice(0, 16).replace("T", " ") + "Z" : "never";
   return {
     used, sessionsTotal, unattributed, weightMismatch,
@@ -355,8 +423,111 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     usdSumCheck: { ok: Math.abs(usdDiff) < Math.max(0.01, 0.005 * rows.length + 1e-9), diff: usdDiff, identity: `${SPEND_IDENTITY}, in dollars at API list price` },
     grants: gs.grants,
     grantsCheck: { ok: grantsDiff === 0 && gs.grants.spent === gs.rowsSum, diff: grantsDiff, identity: GRANTS_IDENTITY },
+    noGrant: ng.noGrant,
+    noGrantCheck: { ok: ng.diff === 0, diff: ng.diff, identity: NO_GRANT_IDENTITY },
     at: now.toISOString(),
   };
+}
+
+const NO_GRANT_IDENTITY = "Σ lane rows = Σ \"Not under a grant\" rows (every building)";
+
+/** A no-grant session's lane row (NoGrantLane): its own lane, a non-work purpose = manager, no lane = before lanes. */
+function noGrantLane(s: Partial<Pick<Session, "purpose" | "lane">>): NoGrantLane {
+  if (s.purpose && s.purpose !== "work") return "manager";
+  if (s.lane === "directed" || s.lane === "exploration" || s.lane === "retainer") return s.lane;
+  return s.lane === "grant" ? "manager" : "before";
+}
+
+/** A proposal's state on an exploration row: funded once funded (closed ones too), else withdrawn, rejected or open. */
+function proposalState(g: Partial<Pick<Grant, "status" | "fundedAt" | "history">>): SpendProposal["state"] {
+  if (g.fundedAt || g.status === "funded" || g.status === "checkpoint" || g.status === "stopping") return "funded";
+  if (g.history?.some((h) => h.action === "withdraw")) return "withdrawn";
+  if (g.status === "rejected" || g.status === "closed") return "rejected";
+  return "open";
+}
+
+const SOURCE_KIND = { mt: "meeting", dc: "doc", ms: "tell" } as const;
+/** Slack after a session ends for a proposal it filed to still count as its own (the session row closes after the call). */
+const PROPOSAL_SLACK_MS = 2 * 60_000;
+
+/**
+ * Directed and exploration assignment rows under the lane rows get their `source` / `proposal` (kr_v5419kedhk). The
+ * exploration join: a grant of the assignment's building (a fork's `propose_grant` is booked as its manager's, so
+ * `proposedBy` is the manager, not the fork) or proposed by one of its session agents, created inside one of the
+ * assignment's sessions (+2 min); else a grant whose findings cite the assignment's report; the first by creation time.
+ */
+function annotateNoGrant(root: Acc, inp: SpendInputs, now: Date) {
+  const assignments = new Map(inp.assignments.map((a) => [a.id, a]));
+  const users = new Map((inp.users ?? []).map((u) => [u.id, u.name]));
+  const windows = new Map<string, { agentId: string; from: number; to: number }[]>();
+  for (const s of inp.sessions) {
+    if (!s.assignmentId || !s.startedAt) continue;
+    let w = windows.get(s.assignmentId);
+    if (!w) windows.set(s.assignmentId, w = []);
+    w.push({ agentId: s.agentId, from: Date.parse(s.startedAt), to: (s.endedAt ? Date.parse(s.endedAt) : now.getTime()) + PROPOSAL_SLACK_MS });
+  }
+  const byTime = inp.grants.filter((g) => g.createdAt).sort((x, y) => x.createdAt!.localeCompare(y.createdAt!));
+  const proposalOf = (id: string): SpendProposal | null => {
+    const a = assignments.get(id);
+    const report = a?.reportId;
+    let found: SpendInputs["grants"][number] | undefined;
+    for (const w of windows.get(id) ?? []) {
+      const g = byTime.find((x) => (x.buildingId === a?.buildingId || x.proposedBy === w.agentId) && Date.parse(x.createdAt!) >= w.from && Date.parse(x.createdAt!) <= w.to);
+      if (g && (!found || g.createdAt! < found.createdAt!)) found = g;
+    }
+    if (!found && report) found = inp.grants.find((g) => g.findingsDocIds?.includes(report));
+    return found ? { id: found.id, title: grantName({ title: found.title ?? "", objective: found.objective }), state: proposalState(found) } : null;
+  };
+  const sourceOf = (id: string): SpendSource => {
+    const a = assignments.get(id);
+    const sid = a?.sourceId ?? null;
+    const asker = (sid ? inp.sourceAskers?.get(sid) : null) ?? a?.origin?.userId ?? (a?.createdByKind === "user" ? a.createdBy ?? null : null) ?? null;
+    return { id: sid, kind: sid ? SOURCE_KIND[sid.slice(0, 2) as keyof typeof SOURCE_KIND] ?? null : null, askedById: asker, askedBy: asker ? users.get(asker) ?? null : null };
+  };
+  for (const b of root.kids.values()) {
+    const ng = b.kids.get("no-grant");
+    if (!ng) continue;
+    for (const l of ng.kids.values()) {
+      const lane = l.extra?.lane;
+      if (lane !== "directed" && lane !== "exploration") continue;
+      for (const r of l.kids.values()) {
+        if (!r.id) continue;
+        r.extra = lane === "directed" ? { source: sourceOf(r.id) } : { proposal: proposalOf(r.id) };
+      }
+    }
+  }
+}
+
+/** FinanceSpend.noGrant from the finished rows, and Σ lane rows − Σ no-grant rows (0 when the lane rows close). */
+function spendNoGrant(rows: SpendNode[]): { noGrant: SpendNoGrant; diff: number } {
+  const byLane = Object.fromEntries(NO_GRANT_LANES.map((l) => [l, { tokens: 0, sessions: 0, usd: 0, assignments: 0 }])) as SpendNoGrant["byLane"];
+  const out: SpendNoGrant = { tokens: 0, sessions: 0, usd: 0, byLane, exploration: { assignments: 0, proposals: 0, funded: 0, rejected: 0, withdrawn: 0, open: 0 }, directed: { assignments: 0, withSource: 0, withAsker: 0 } };
+  let laneSum = 0;
+  for (const b of rows) {
+    for (const ng of b.children ?? []) {
+      if (ng.kind !== "no-grant") continue;
+      out.tokens += ng.tokens; out.sessions += ng.sessions; out.usd += ng.usd;
+      for (const l of ng.children ?? []) {
+        if (l.kind !== "lane" || !l.lane) continue;
+        laneSum += l.tokens;
+        const t = byLane[l.lane];
+        t.tokens += l.tokens; t.sessions += l.sessions; t.usd += l.usd; t.assignments += l.children?.length ?? 0;
+        for (const r of l.children ?? []) {
+          if (l.lane === "exploration") {
+            out.exploration.assignments++;
+            if (r.proposal) { out.exploration.proposals++; out.exploration[r.proposal.state]++; }
+          } else if (l.lane === "directed") {
+            out.directed.assignments++;
+            if (r.source?.id) out.directed.withSource++;
+            if (r.source?.askedById) out.directed.withAsker++;
+          }
+        }
+      }
+    }
+  }
+  out.usd = cents(out.usd);
+  for (const l of NO_GRANT_LANES) byLane[l].usd = cents(byLane[l].usd);
+  return { noGrant: out, diff: laneSum - out.tokens };
 }
 
 export const GRANTS_IDENTITY = "done + cut + still open = Σ grant rows' tokens (every building)";
@@ -404,6 +575,15 @@ export function spendGrants(rows: SpendNode[], estimates: Map<string, GrantEstim
 /** The `bank.converted` event's time (migration 037, once per database), or null when the Bank was born adjusted. */
 export const bankConvertedAt = (events: EventLog): string | null => events.list({ types: ["bank.converted"], limit: 1 })[0]?.ts ?? null;
 
+/** Each directed assignment's source → the human it traces to (origin.ts `sourceOrigin`), once per distinct source. */
+function directedAskers(repos: Repos): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const a of repos.assignments.where("lane = 'directed' AND sourceId IS NOT NULL")) {
+    if (a.sourceId && !out.has(a.sourceId)) out.set(a.sourceId, sourceOrigin(repos, a.sourceId)?.userId ?? null);
+  }
+  return out;
+}
+
 /** financeSpend over the world's ledgers (Bank.spend). */
 export function townSpend(repos: Repos, events: EventLog, now = new Date()): FinanceSpend {
   return financeSpend({
@@ -413,6 +593,8 @@ export function townSpend(repos: Repos, events: EventLog, now = new Date()): Fin
     buildings: repos.buildings.all(),
     grants: repos.grants.all(),
     keyResults: repos.keyResults.all(),
+    users: repos.users.all().map((u) => ({ id: u.id, name: u.name })),
+    sourceAskers: directedAskers(repos),
     convertedAt: bankConvertedAt(events),
     usage: repos.usage.all(),
     debits: repos.bankDebits.all(),
