@@ -10,12 +10,12 @@
  * revoke per goal. The server is the gate: GET /api/members is 403 for anyone else.
  */
 import { useState, type ReactNode } from "react";
-import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView } from "../api";
+import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView, type TownHealthView, type HealthLineView } from "../api";
 import { goalShortName } from "../purpose";
 import { useTown } from "../state";
 import { letInGoal } from "./letIn";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Act, Empty, ErrorLine, Loading, Section, timeAgo, useLoad } from "./ui";
+import { Act, Empty, ErrorLine, Loading, Section, Tabs, timeAgo, useLoad } from "./ui";
 
 /** The steps in funnel order: short column label and what the number is. */
 export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string }[] = [
@@ -152,6 +152,86 @@ export function EngagementView({ e }: { e: Engagement }) {
   );
 }
 
+const pct = (x: number | null) => x == null ? "–" : `${Math.round(x * 100)}%`;
+const tok = (x: number | null) => x == null ? "–" : x >= 1_000_000 ? `${(x / 1_000_000).toFixed(1)}M` : x >= 1000 ? `${Math.round(x / 1000)}k` : String(x);
+/** Past its threshold: paperwork above the max, cache hits below the min. */
+export const healthRed = (l: HealthLineView, t: TownHealthView["thresholds"]) => ({
+  paperwork: l.paperworkShare != null && l.paperworkShare > t.paperworkMax,
+  hits: l.hitRatio != null && l.hitRatio < t.hitMin,
+});
+const LANES = ["grant", "exploration", "directed", "retainer", "manager", "other"];
+
+function HealthTable({ first, rows, t }: { first: string; rows: { key: string; head: ReactNode; l: HealthLineView }[]; t: TownHealthView["thresholds"] }) {
+  return (
+    <div className="stats-scroll"><table className="table stats-table">
+      <thead><tr><th>{first}</th><th className="num">Paperwork</th><th className="num">Cache hits</th><th className="num">Median write</th><th className="num">Overrun</th><th className="num">Per report</th><th className="num">Tokens</th></tr></thead>
+      <tbody>
+        {rows.map(({ key, head, l }) => {
+          const red = healthRed(l, t);
+          return (
+            <tr key={key}>
+              <td>{head}</td>
+              <td className={`num ${red.paperwork ? "bad" : ""}`}>{pct(l.paperworkShare)}</td>
+              <td className={`num ${red.hits ? "bad" : ""}`}>{pct(l.hitRatio)}</td>
+              <td className="num">{tok(l.medianCacheWrite)}</td>
+              <td className="num">{l.overrunTokens ? tok(l.overrunTokens) : <span className="faint">0</span>}</td>
+              <td className="num" title={LANES.filter((x) => l.byLane[x]).map((x) => `${x}: ${tok(l.byLane[x]!.perReport)}`).join(" · ")}>{tok(l.perReport)}</td>
+              <td className="num">{tok(l.tokens)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table></div>
+  );
+}
+
+/** Town health (gr_8bxoy2heif): the last 24 h as tiles (red past threshold), tokens per report by lane, then by day and by week. */
+export function HealthView({ h }: { h: TownHealthView }) {
+  const l = h.last24h, t = h.thresholds, red = healthRed(l, t);
+  const lanes = LANES.filter((x) => l.byLane[x]);
+  return (
+    <>
+      <Section title="Town health, last 24 hours" right={<a className="link" href={`${API_BASE}/api/health-stats`} target="_blank" rel="noreferrer">JSON</a>}>
+        <div className="stats-totals">
+          <div className={`stats-total ${red.paperwork ? "bad" : ""}`} title={h.definitions.paperwork}><b>{pct(l.paperworkShare)}</b><span>Paperwork</span></div>
+          <div className={`stats-total ${red.hits ? "bad" : ""}`} title={h.definitions.hitRatio}><b>{pct(l.hitRatio)}</b><span>Cache hits</span></div>
+          <div className="stats-total" title={h.definitions.medianCacheWrite}><b>{tok(l.medianCacheWrite)}</b><span>Median cache write</span></div>
+          <div className="stats-total" title={h.definitions.overrun}><b>{tok(l.overrunTokens)}</b><span>Past 100% holds</span></div>
+          <div className="stats-total" title={h.definitions.perReport}><b>{tok(l.perReport)}</b><span>Tokens / report</span></div>
+        </div>
+        {lanes.length ? <div className="muted">Per report by lane: {lanes.map((x) => `${x} ${tok(l.byLane[x]!.perReport)} (${l.byLane[x]!.reports})`).join(" · ")}.</div> : null}
+        <div className="muted">Red: paperwork above {pct(t.paperworkMax)}, cache hits below {pct(t.hitMin)}. Cost by lane and token kind is on the Bank's spending board.</div>
+      </Section>
+      <Section title="By day">
+        <HealthTable first="Day (UTC)" t={t} rows={[...h.days].reverse().map((d) => ({ key: d.day, head: <span title={d.day}>{dayLabel(d.day)}</span>, l: d }))} />
+      </Section>
+      <Section title="By week">
+        <HealthTable first="Week of" t={t} rows={[...h.weeks].reverse().map((w) => ({ key: w.week, head: <span title={`ISO week starting ${w.week}`}>{dayLabel(w.week)}</span>, l: w }))} />
+      </Section>
+      <Section title="What the numbers are">
+        <dl className="kv">
+          <div><dt>Paperwork</dt><dd>{h.definitions.paperwork}</dd></div>
+          <div><dt>Cache hits</dt><dd>{h.definitions.hitRatio}</dd></div>
+          <div><dt>Median cache write</dt><dd>{h.definitions.medianCacheWrite}</dd></div>
+          <div><dt>Past 100% holds</dt><dd>{h.definitions.overrun}</dd></div>
+          <div><dt>Tokens / report</dt><dd>{h.definitions.perReport}</dd></div>
+        </dl>
+        <div className="muted">Tokens are adjusted, as the Bank books them. A session counts on the UTC day it ended. {h.notCounted.sessions ? `${n(h.notCounted.sessions)} back-filled sessions (${tok(h.notCounted.tokens)} tokens) are left out: they have no real cache breakdown.` : ""}</div>
+      </Section>
+    </>
+  );
+}
+
+function TownHealth() {
+  const h = useLoad(() => api().healthStats(), []);
+  return (
+    <>
+      <ErrorLine error={h.error} />
+      {h.loading && !h.data ? <Loading /> : h.data ? <HealthView h={h.data} /> : null}
+    </>
+  );
+}
+
 /** The root server's Muster-Town-wide join funnel (every collective), folded: loaded only when opened. */
 function MusterTownFunnel() {
   const f = useLoad(() => api().joinFunnel(), []);
@@ -218,10 +298,13 @@ function MembersSection() {
 export function StatsPanel() {
   const e = useLoad(() => api().engagement(), []);
   const [funnel, setFunnel] = useState(false);
+  const [tab, setTab] = useState<"engagement" | "health">("engagement");
   // the server's gate for GET /api/members: an admin or any goal's captain
   const seesMembers = useTown((s) => !!s.me?.isAdmin || !!s.me?.direct?.some((d) => d.how === "captain"));
   return (
     <PanelShell icon={<Glyph kind="stats" />} title="User stats" subtitle="Community engagement in this collective: who came, spoke, steered and joined">
+      <Tabs tabs={[{ id: "engagement", label: "Engagement" }, { id: "health", label: "Town health" }]} active={tab} onChange={(id) => setTab(id as "engagement" | "health")} />
+      {tab === "health" ? <TownHealth /> : <>
       <ErrorLine error={e.error} />
       {e.loading && !e.data ? <Loading /> : e.data ? <EngagementView e={e.data} /> : null}
       {/* the root server's collective only: Muster Town's own funnel, every collective on this server */}
@@ -232,6 +315,7 @@ export function StatsPanel() {
         </details>
       )}
       {seesMembers ? <MembersSection /> : null}
+      </>}
     </PanelShell>
   );
 }

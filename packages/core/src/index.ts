@@ -53,6 +53,7 @@ export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, DOORS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
 export { engagement } from "./engagement.ts";
+export { healthOf, healthLine, grantHolds, townHealth, isoWeekStart, PAPERWORK_MAX, HIT_MIN, type TownHealth, type HealthLine, type HealthInputs, type GrantHold } from "./health.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
 export { requestCaptain, decideCaptain, canDecideCaptain, pendingCaptainRequests, pendingCaptainCount } from "./captain.ts";
 export { resetOwnAccount } from "./reset.ts";

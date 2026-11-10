@@ -1,0 +1,23 @@
+#!/bin/sh
+# Tracked pre-push hook (grant gr_baf19xtg7p): runs `npm run check --push` (docs, dead code, typecheck, and the tests that
+# read a changed docs/config file; scripts/check.ts) and refuses the push when it fails, so knip, check:docs, typecheck
+# and manual/fly.town.toml test failures are caught on the desk instead of costing a CI round-trip and a resumed session.
+# Installed by `npm install` (root `prepare`) or any `npm run check`: git config core.hooksPath .githooks.
+# Skip it for a known flake or an emergency: git push --no-verify.
+root=$(git rev-parse --show-toplevel) || exit 0
+cd "$root" || exit 0
+# a checkout without dependencies (a bare clone, the export repo) has nothing to check with
+[ -d node_modules ] || { echo "pre-push: no node_modules, skipping the check"; exit 0; }
+# pushes that delete a branch carry the zero sha as local sha: nothing to check
+zero=0000000000000000000000000000000000000000
+pushing=0
+while read -r _ local_sha _ _; do [ "$local_sha" != "$zero" ] && pushing=1; done
+[ "$pushing" = 1 ] || exit 0
+start=$(date +%s)
+echo "pre-push: npm run check --push (skip with git push --no-verify)"
+if npm run --silent check -- --push; then
+  echo "pre-push: passed in $(( $(date +%s) - start ))s"
+else
+  echo "pre-push: FAILED after $(( $(date +%s) - start ))s; the push was refused. Fix it, or git push --no-verify for a known flake." >&2
+  exit 1
+fi

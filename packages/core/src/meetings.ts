@@ -1,4 +1,5 @@
 import { grantName, isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_ID, parseDeck, type Agent, type DeckSlide, type PinnedSlide, type MeetingAttachment } from "@muster-town/schema";
+import { toolCallsSince } from "./meeting-tools.ts";
 import { countMemberAct } from "./access.ts";
 import { canDirect } from "./direct.ts";
 import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
@@ -335,7 +336,10 @@ export function meetingSpeak(world: World, actor: Agent, meetingId: string, text
   const h = world.holderOf(actor);
   if (m.kind === "one-on-one" && h.id !== m.facilitatorId && h.id !== m.withUserId) throw new AppError("forbidden", "Only the agent and the human who opened it speak in a 1:1.");
   const attachment = attach?.trim() ? resolveAttachment(world, attach) : undefined;
-  const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}) }] });
+  // an agent's line keeps the tool calls it made since its previous line here (meeting-tools.ts)
+  const prev = [...m.transcript].reverse().find((u) => u.speakerId === h.id)?.at ?? m.startedAt ?? m.createdAt;
+  const tools = h.kind === "agent" ? toolCallsSince(world, actor.id, prev) : [];
+  const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: h.id, speakerKind: h.kind, text, at: nowIso(), ...(attachment ? { attachment } : {}), ...(tools.length ? { tools } : {}) }] });
   world.events.append({ type: "meeting.utterance", agentId: actor.kind === "human" ? null : actor.id, buildingId: m.buildingId, text: `${actor.name}: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: h.id, speakerKind: h.kind, ...(attachment ? { attachment: { kind: attachment.kind, ref: attachment.ref } } : {}) } });
   if (actor.kind !== "human") clearAgentDrafting(world, actor.id, m.id);
   // a let-in member's first 1:1 line counts once in the join funnel (gr_58n37j410s step 3); other meetings don't

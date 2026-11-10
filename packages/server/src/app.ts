@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, DOORS, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, DOORS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -21,6 +21,8 @@ import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
+import { uptimeRoutes } from "./routes/uptime.ts";
+import { Uptime } from "./uptime.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { goalRoutes } from "./routes/goals.ts";
 import { askRoutes } from "./routes/asks.ts";
@@ -250,6 +252,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   // community engagement in this collective only (flag dc_r7u6bkaei4): what its signed-in humans did here, counts only
   app.get(`${prefix}/api/engagement`, async () => engagement(opts.world));
+  // town health in this collective only (gr_8bxoy2heif): paperwork share, cache hits, overrun past holds, tokens per report; counts only
+  app.get(`${prefix}/api/health-stats`, async () => townHealth(opts.world));
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
@@ -311,6 +315,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
+    // public uptime from outside probes (gr_rcj8nkbkbt): every root town; empty until a pinger posts
+    await app.register(uptimeRoutes(new Uptime(opts.world)));
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
   if (opts.monitor) { const c = opts.monitor.counters; app.addHook("onResponse", async (_req, reply) => { c.response(reply.statusCode); }); }

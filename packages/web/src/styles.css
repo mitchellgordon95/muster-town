@@ -423,6 +423,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .stats-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 8px; }
 .stats-total { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .stats-total b { font-size: var(--fs-lg); color: var(--text); }
+.stats-total.bad { border-color: var(--bad); } .stats-total.bad b, .stats-table td.bad { color: var(--bad); }
 .stats-total span { font-size: var(--fs-xs); color: var(--muted); }
 .stats-table th.num, .stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stats-table td { padding: 4px 6px; }
@@ -459,6 +460,17 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .summary-text { font-size: var(--fs-md); color: var(--soft); margin-top: 4px; }
 .transcript { display: flex; flex-direction: column; gap: 6px; }
 .utt-writing { font-style: italic; font-size: var(--fs-sm); margin-top: 6px; }
+/* an agent's tool calls behind its line (1:1 mt_db6itzy2br): folded to "N tool calls", muted, one line each */
+.utt-tools { font-size: var(--fs-xs); color: var(--faint); margin: 1px 0 3px; }
+.utt-tools > summary { cursor: pointer; list-style: none; }
+.utt-tools > summary::before { content: "▸ "; }
+.utt-tools[open] > summary::before { content: "▾ "; }
+.utt-tools > summary::-webkit-details-marker { display: none; }
+.utt-tools ol { margin: 3px 0 0; padding-left: 14px; list-style: none; border-left: 1px solid var(--line); }
+.utt-tools li { overflow-wrap: anywhere; line-height: 1.35; }
+.utt-tools li.bad, .utt-tools li.bad .utt-tool-result { color: var(--bad); }
+.utt-tool-result { opacity: 0.8; }
+.utt-tools.live { margin-top: 4px; }
 .utt { background: color-mix(in srgb, var(--warn) 1%, var(--panel-2)); border-radius: 8px; padding: 6px 10px; font-size: var(--fs-md); max-width: 92%; }
 .utt.user { background: color-mix(in srgb, var(--meet) 23%, var(--black)); }
 .utt.me { align-self: flex-end; background: color-mix(in srgb, var(--blue) 39%, var(--panel-2)); }
