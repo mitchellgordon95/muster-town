@@ -132,6 +132,13 @@ export function retireAsks(world: World, kind: AskTargetKind, id: string, reason
 }
 
 const ID_CHARS = /[a-z0-9_]/;
+/** Whether the words of a deferral (`until`) name `id` as a whole id, not inside a longer one. */
+function names(until: string, id: string): boolean {
+  for (let i = until.indexOf(id); i >= 0; i = until.indexOf(id, i + 1)) {
+    if (!ID_CHARS.test(until[i - 1] ?? "") && !ID_CHARS.test(until[i + id.length] ?? "")) return true;
+  }
+  return false;
+}
 
 /**
  * The wait of a deferred ask ended (§6 defer): what it waits behind (`deferredUntil` names an ask or a target id) was
@@ -142,12 +149,6 @@ function reopenDeferred(world: World, ids: (string | null | undefined)[], reason
   const want = [...new Set(ids.filter((x): x is string => !!x))];
   if (!want.length) return [];
   const at = nowIso();
-  const names = (until: string, id: string) => {
-    for (let i = until.indexOf(id); i >= 0; i = until.indexOf(id, i + 1)) {
-      if (!ID_CHARS.test(until[i - 1] ?? "") && !ID_CHARS.test(until[i + id.length] ?? "")) return true;
-    }
-    return false;
-  };
   const out: Ask[] = [];
   for (const a of world.asks.where("status = 'deferred' AND deferredUntil IS NOT NULL", [], "ORDER BY createdAt, rowid")) {
     const hit = want.find((id) => id !== a.id && names(a.deferredUntil!, id));
@@ -671,7 +672,9 @@ export function retypeProseAsks(world: World): number {
  * twins: older boots filed the line again when its first ask's title or target had changed (2026-11-09: six pairs from
  * a 04:47 boot; ak_964oxnm14w and ak_4nc6kwr1wt twinned by the boot that retyped them). One stays (the one with a
  * target, else a deferred one, else a ranked one, else the oldest); each other folds into it (status "folded",
- * `foldedInto`, a "fold" history entry). Idempotent. Returns how many it folded.
+ * `foldedInto`, a "fold" history entry); a twin deferred behind its own twin is never the one kept. Then a deferral
+ * behind a folded ask follows the fold: the ask it folded into (or one whose keeper is settled) opens again, any other
+ * waits behind the kept one. Idempotent. Returns how many asks it folded, reopened or repointed.
  */
 export function foldTwinProseAsks(world: World): number {
   let n = 0;
@@ -687,7 +690,9 @@ export function foldTwinProseAsks(world: World): number {
     }
     for (const g of [...byRollup.values()].flat()) {
       if (g.length < 2) continue;
-      const keep = g.find((a) => a.targetId) ?? g.find((a) => a.status === "deferred") ?? g.find((a) => a.rank != null) ?? g[0]!;
+      // a twin the Secretary deferred behind its own twin is the duplicate, not the one to keep
+      const behindTwin = (a: Ask) => !!a.deferredUntil && g.some((b) => b.id !== a.id && names(a.deferredUntil!, b.id));
+      const keep = g.find((a) => a.targetId) ?? g.find((a) => a.status === "deferred" && !behindTwin(a)) ?? g.find((a) => a.rank != null && !behindTwin(a)) ?? g.find((a) => !behindTwin(a)) ?? g[0]!;
       const at = nowIso();
       for (const a of g) {
         if (a.id === keep.id) continue;
@@ -695,6 +700,24 @@ export function foldTwinProseAsks(world: World): number {
         world.events.append({ type: "ask.folded", buildingId: a.buildingId, text: `Folded twin "${oneLine(a.title, 80)}" into ${keep.id}`, payload: { askId: a.id, foldedInto: keep.id, sourceDocId: a.sourceDocId } });
         n++;
       }
+    }
+    // a deferral behind a folded twin: the ask it folded into opens again; any other waits behind the kept one instead
+    // (2026-11-10, c4952482's boot: four kept asks were deferred behind the twin folded into them, ak_r7qwu3wy7f behind one)
+    const folded = world.asks.where("status = 'folded' AND foldedInto IS NOT NULL", []);
+    for (const a of world.asks.where("status = 'deferred' AND deferredUntil IS NOT NULL", [], "ORDER BY createdAt, rowid")) {
+      const hit = folded.find((f) => f.id !== a.id && names(a.deferredUntil!, f.id));
+      if (!hit) continue;
+      const at = nowIso();
+      const into = world.asks.get(hit.foldedInto!);
+      if (hit.foldedInto === a.id || !into || (into.status !== "open" && into.status !== "deferred")) {
+        const why = hit.foldedInto === a.id ? "was its twin, folded into it" : `folded into ${hit.foldedInto}, which is settled`;
+        world.asks.upsert({ ...a, status: "open", deferredUntil: null, updatedAt: at, history: [...a.history, { at, action: "reopen", by: "system", note: `${hit.id} it waited behind ${why}` }] });
+        world.events.append({ type: "ask.reopened", buildingId: a.buildingId, text: `"${oneLine(a.title, 80)}" is open again: ${hit.id} it waited behind ${why}`, payload: { askId: a.id, behind: hit.id, reason: why } });
+      } else {
+        const until = a.deferredUntil!.split(hit.id).join(hit.foldedInto!);
+        world.asks.upsert({ ...a, deferredUntil: until, updatedAt: at, history: [...a.history, { at, action: "defer", by: "system", note: `${hit.id} folded into ${hit.foldedInto}: ${until}`.slice(0, 500) }] });
+      }
+      n++;
     }
   });
   return n;
