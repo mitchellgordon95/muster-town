@@ -30,8 +30,9 @@ describe("MCP over Streamable HTTP", () => {
   it("lists every verb and `look` returns a LookResult", async () => {
     const client = await mcpClient(agentToken);
     const { tools } = await client.listTools();
-    // this test world has no repo (repoMode none, like a hosted collective): no `redeploy` tool (1:1 mt_1vs893enaw)
-    expect(tools.map((t) => t.name).sort()).toEqual(VERB_NAMES.filter((v) => v !== "redeploy").sort());
+    // this test world has no repo (repoMode none, like a hosted collective): no `redeploy` tool (1:1 mt_1vs893enaw);
+    // a visitor sees only the verbs its owner's roles allow: an admin's visitor is no Planner or Secretary (gr_uc179zv1xa)
+    expect(tools.map((t) => t.name).sort()).toEqual(VERB_NAMES.filter((v) => !["redeploy", "calibrate", "rank"].includes(v)).sort());
     expect(tools.find((t) => t.name === "go")!.inputSchema.properties).toHaveProperty("to");
 
     const res = await client.callTool({ name: "look", arguments: {} });
