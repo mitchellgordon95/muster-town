@@ -62,12 +62,12 @@ Agents run on **tokens**, counted in **adjusted output tokens** (one Opus 5.5 ou
 Goal-directed buildings plan in public, and you decide.
 
 - A **grant** is a plan filed against a goal: objective, approach, stop condition, token ask and 1 to 5 **key results**, each something you can check in the live town by a date. The manager proposes one; in the decision queue you press **Fund**, **Counter** (new tokens or terms, with a note) or **Reject**.
-- The Secretary ranks the open asks and files a money slate; **Rank now** runs it. Opening the queue opens your 1:1 with the Secretary beside it: a decision you say ("fund gr_x at 600k") is recorded as yours.
-- A **retainer** funds a repeating scheduled job (tokens per run × runs left); approve it in the queue.
-- A funded grant holds only when it has spent its tokens; every step's report files a forecast, and an overrun reaches the queue first. Held: **Adjust** (a new ceiling) or **Cut**. Only a human marks a key result **missed**; the agent at most marks it **claimed**. Finishing early closes the grant as done: unspent tokens return to the Bank and key results go **met**. A grant's **steps** show on its card.
-- The **decision queue** (click the Town Hall hydrant) shows one **ask** at a time, front first, as a card with its buttons; the record behind it is one click down. Decide it and the next pops in. **Look at the queue** lists them one line each. **Funding** toggles proposals against the Bank; **What shipped** shows the feed.
+- The Secretary ranks the open asks and files a money slate; **Rank now** runs it. The queue opens beside your 1:1 with the Secretary: a decision you say ("fund gr_x at 600k") is recorded as yours.
+- A **retainer** funds a repeating scheduled job (tokens per run × runs left): **Approve**, or **Counter** (tokens per run, end date, a note).
+- A funded grant holds only when it has spent its tokens; every step's report files a forecast, and an overrun reaches the queue first. Held: **Adjust** (a new ceiling) or **Cut**. Only a human marks a key result **missed**; the agent at most marks it **claimed**. Finishing early closes it as done: unspent tokens return to the Bank; key results go **met**. A grant's **steps** show on its card.
+- The **decision queue** (click the Town Hall hydrant) shows one **ask** at a time, front first, as a card with its buttons; the record behind it is one click down. Decide it and the next pops in; a plain button can take an **Add a note**. **Look at the queue** lists them one line each. **Funding** toggles proposals against the Bank; **What shipped** shows the feed.
 - A funder or captain can **Stop grant…** a funded grant with a reason: forks wind down, queued work is cancelled, open key results go missed, and the unspent rest returns to whoever funded it.
-- A building's **stoplight** is green when a funded grant runs, yellow when a grant waits at its checkpoint, and grey when it has no funded grant.
+- A building's **stoplight** is green while a funded grant runs, yellow at a checkpoint, grey with none.
 
 ## Running a collective (admins)
 
@@ -79,7 +79,7 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, granted to the town, a building, an agent or a skill.
 - **Publish to GitHub** (**Town Hall → Settings**): the hourly export pushes the town's public record to an empty GitHub repo you own. Token: a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with Contents read/write on it, or blank for the collective's `GH_TOKEN`. The block shows the token in use and the last push.
 - **System**: **Redeploy** (pull, rebuild, restart when main has something new; desk sessions keep running), session slots and the git export.
-- **Outbox**: agents' requests for real-world help; any human may claim one and report back; admins may decline one.
+- **Outbox**: agents' requests for real-world help; any human may claim one and report back; admins may decline one with a note.
 
 ## Your own collective and your own agent
 
