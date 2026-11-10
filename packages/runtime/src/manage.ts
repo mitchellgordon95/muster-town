@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, inForce, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -23,10 +23,12 @@ interface ManageState {
   fed: Map<string, { sessionId: string; idx: number }>;
   /** 1:1 meetingId → the busy session already announced in it (one "busy" notice per 1:1 per session) */
   busyNoticed: Map<string, string>;
+  /** 1:1 meetingId → the Bank hold already announced in it (one notice per 1:1 per reason; forgotten when the hold lifts) */
+  heldNoticed: Map<string, string>;
   /** manage sessions given in-tray reports (team-lead work): a 1:1 fed into one cuts its current turn short (interrupt now) */
   leading: Set<string>;
 }
-export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), leading: new Set() });
+export const newManageState = (): ManageState => ({ offered: new Set(), fed: new Map(), busyNoticed: new Map(), heldNoticed: new Map(), leading: new Set() });
 
 /** A 1:1 nobody spoke in for this long (and nobody is typing in) is closed by the town. */
 const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
@@ -103,6 +105,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
     if (m?.buildingId === building.id && m.phase !== "discussing" && ![...ctx.live.values()].some((l) => l.sessionId === f.sessionId)) st.fed.delete(mid);
   }
   for (const mid of [...st.busyNoticed.keys()]) if (world.meetings.get(mid)?.phase !== "discussing") st.busyNoticed.delete(mid);
+  for (const mid of [...st.heldNoticed.keys()]) if (world.meetings.get(mid)?.phase !== "discussing") st.heldNoticed.delete(mid);
   return out;
 }
 
@@ -115,6 +118,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
   const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
   const talks = openOneOnOnes(world, agent.id);
+  noticeHeld(ctx, st, agent, talks);
   const live = ctx.live.get(agent.id);
   const side = ctx.talking.get(agent.id);
   // the session this agent's conversation goes into: the one alongside its work, else its own manage session
@@ -212,6 +216,31 @@ function noticeBusy(ctx: Ctx, st: ManageState, agent: Agent, sessionId: string, 
     const asg = world.sessions.get(sessionId)?.assignmentId;
     const title = asg ? world.assignments.get(asg)?.title : undefined;
     meetingNotice(world, m.id, `${agent.name} is in a work session${title ? ` ("${title.length > 80 ? title.slice(0, 79) + "…" : title}")` : ""} and answers here when it ends.`);
+  }
+}
+
+/**
+ * Tell each open 1:1 whose human is waiting what stops its agent from replying: the Bank holds every credential that
+ * could run it (a plan limit, no token, a hosted collective without a key). Without this the human's lines met silence
+ * until the limit's reset (2026-11-10: the Max plan ran out mid-1:1 and four 1:1s went unanswered with no word why).
+ * Said once per 1:1 per reason, whether the agent has no session or a live one the provider refuses; when the hold
+ * lifts it is forgotten, so a later hold is said again.
+ */
+function noticeHeld(ctx: Ctx, st: ManageState, agent: Agent, talks: Meeting[]): void {
+  if (!talks.length) return;
+  const { world } = ctx;
+  const bid = homeOf(world, agent.id);
+  const now = new Date(); // wall clock, as Budget.canStart reads the same hold
+  const reason = bid ? world.budget.credentialHold(bid, now, { model: world.budget.sessionModel(agent.id) }) : null;
+  for (const m of talks) {
+    if (!reason) { st.heldNoticed.delete(m.id); continue; }
+    // the agent had the last word: nobody is waiting on it yet
+    const last = [...m.transcript].reverse().find((u) => u.speakerKind !== "system");
+    if (last?.speakerId === agent.id || st.heldNoticed.get(m.id) === reason) continue;
+    st.heldNoticed.set(m.id, reason);
+    // an observed limit can be retried by hand once the plan has credit again; the other holds already say what to do
+    const limited = world.bank.availability.open().some((l) => inForce(l, now));
+    meetingNotice(world, m.id, `${agent.name} can't reply yet: ${reason}. ${limited ? `No session can start until then. If the plan has credit again sooner, "Try now" on that input at the Bank lets ${agent.name} answer here.` : `${agent.name} answers here once that is fixed.`}`);
   }
 }
 
