@@ -391,6 +391,18 @@ export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyR
 export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number }
 /** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
 export interface EngagementCounts { humans: number; spoke: number; oneOnOnes: number; flags: number; decisions: number; asked: number; letIn: number; declined: number; acted: number }
+/** GET <prefix>/api/health-stats (gr_8bxoy2heif, core health.ts): paperwork share, cache hits, overrun past holds, tokens per report; counts only. */
+export interface HealthLineView {
+  sessions: number; tokens: number; paperworkTokens: number; paperworkShare: number | null; cacheRead: number; cacheWrite: number;
+  hitRatio: number | null; medianCacheWrite: number | null; overrunTokens: number; reports: number; perReport: number | null;
+  byLane: Record<string, { tokens: number; reports: number; perReport: number | null }>;
+}
+export interface TownHealthView {
+  from: string; to: string; thresholds: { paperworkMax: number; hitMin: number };
+  days: ({ day: string } & HealthLineView)[]; weeks: ({ week: string } & HealthLineView)[]; last24h: HealthLineView;
+  notCounted: { sessions: number; tokens: number };
+  definitions: Record<"paperwork" | "hitRatio" | "medianCacheWrite" | "overrun" | "perReport", string>;
+}
 export interface EngagementView { days: number; from: string; to: string; daily: ({ day: string } & EngagementCounts)[]; totals: EngagementCounts; medianDecisionMs: number | null }
 /** One collective's funnel: the days with any count (UTC), its totals and its median wait to decision. */
 interface JoinFunnelCollective {
@@ -537,6 +549,7 @@ export interface Api {
   /** GET /api/join-funnel: the public join funnel counts */
   joinFunnel(): Promise<JoinFunnelView>;
   engagement(): Promise<EngagementView>;
+  healthStats(): Promise<TownHealthView>;
   /** POST /api/join-funnel/view: the guest card was shown (once per page load; with this browser's visitor id, once per day as a visitor) */
   countGuestCardView(): Promise<void>;
   /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
@@ -862,6 +875,7 @@ class HttpApi implements Api {
   async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   engagement() { return this.get<EngagementView>("/api/engagement"); }
+  healthStats() { return this.get<TownHealthView>("/api/health-stats"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }

@@ -56,6 +56,15 @@ describe("the hub", () => {
     expect(own.status).toBe(200);
     expect(own.body).toMatchObject({ days: 30, totals: { humans: 0, spoke: 0, flags: 0, asked: 0 }, daily: [] });
     expect((await json(app, "GET", "/api/engagement")).body.totals).toHaveProperty("decisions");
+    // town health (gr_8bxoy2heif): each collective answers for itself only, public, counts only, no ids
+    const health = await json(app, "GET", "/demo/api/health-stats");
+    expect(health.status).toBe(200);
+    expect(health.body).toMatchObject({ thresholds: { paperworkMax: 0.15, hitMin: 0.7 }, last24h: { sessions: 0, paperworkShare: null, hitRatio: null, overrunTokens: 0 }, notCounted: { sessions: 0 } });
+    expect(health.body.days).toHaveLength(14);
+    expect(health.body.weeks).toHaveLength(4);
+    const rootHealth = await json(app, "GET", "/api/health-stats");
+    expect(rootHealth.status).toBe(200);
+    expect(JSON.stringify(rootHealth.body)).not.toMatch(/"(ag|us|se)_[a-z0-9]+"/);
 
     // tokens are per World: the Workshop admin's token means nothing at /demo
     expect((await json(app, "GET", "/api/me", { headers: admin })).status).toBe(200);

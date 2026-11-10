@@ -418,6 +418,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .stats-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 8px; }
 .stats-total { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .stats-total b { font-size: var(--fs-lg); color: var(--text); }
+.stats-total.bad { border-color: var(--bad); } .stats-total.bad b, .stats-table td.bad { color: var(--bad); }
 .stats-total span { font-size: var(--fs-xs); color: var(--muted); }
 .stats-table th.num, .stats-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stats-table td { padding: 4px 6px; }

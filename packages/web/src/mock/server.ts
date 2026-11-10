@@ -2,7 +2,7 @@
 import type { AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -412,6 +412,22 @@ export class MockApi implements Api {
     ];
     const totals = Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, daily.reduce((n, r) => n + r[k], 0)])) as typeof zero;
     return { days: 30, from: day(29), to: day(0), daily, totals: { ...totals, humans: 4 }, medianDecisionMs: 3 * 3_600_000 };
+  }
+  async healthStats(): Promise<TownHealthView> {
+    await wait();
+    const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
+    const line = (paper: number, hit: number, overrun: number): HealthLineView => ({
+      sessions: 40, tokens: 900_000, paperworkTokens: Math.round(900_000 * paper), paperworkShare: paper, cacheRead: Math.round(9e6 * hit), cacheWrite: Math.round(9e6 * (1 - hit)),
+      hitRatio: hit, medianCacheWrite: 61_000, overrunTokens: overrun, reports: 20, perReport: 45_000,
+      byLane: { grant: { tokens: 500_000, reports: 10, perReport: 50_000 }, directed: { tokens: 250_000, reports: 6, perReport: 41_667 }, manager: { tokens: 150_000, reports: 4, perReport: 37_500 } },
+    });
+    const days = Array.from({ length: 14 }, (_, i) => ({ day: day(13 - i), ...line(0.1 + (i % 4) * 0.03, 0.62 + (i % 5) * 0.05, i === 11 ? 30_000 : 0) }));
+    const weeks = [3, 2, 1, 0].map((w) => ({ week: day(w * 7 + 3), ...line(0.13, 0.72, w === 0 ? 30_000 : 0) }));
+    return {
+      from: day(27), to: new Date().toISOString(), thresholds: { paperworkMax: 0.15, hitMin: 0.7 }, days, weeks, last24h: line(0.18, 0.66, 30_000),
+      notCounted: { sessions: 3, tokens: 12_000 },
+      definitions: { paperwork: "Kickoff, checkpoint and manager-wake tokens ÷ (grant lane + those).", hitRatio: "Cache reads ÷ (reads + writes).", medianCacheWrite: "The median session's cache writes.", overrun: "Tokens past a grant's 100% hold.", perReport: "A lane's tokens ÷ its reports." },
+    };
   }
   private guestCardViews = 41;
   async joinFunnel(): Promise<JoinFunnelView> {

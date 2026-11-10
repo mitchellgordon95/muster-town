@@ -29,6 +29,7 @@ import { createAssignment, createDoc, updateDoc } from "./domain.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { closedLoopNotice, fileNotice, shippedNotices } from "./notices.ts";
 import { humanOrigin } from "./origin.ts";
+import { healthLine, townHealth } from "./health.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { foldRollup } from "./rollup-asks.ts";
@@ -433,6 +434,8 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
         s.skip.length ? `**Skip**\n${s.skip.map((x) => `- ${t(x.askId)}: ${oneLine(x.why, 300)}`).join("\n")}` : "",
         unslated.length ? `_Not on the slate: ${unslated.map((a) => a.id).join(", ")}._` : "",
         "_A recommendation only: nothing is funded until you decide each ask._",
+        // the town's health over the last 24 h (gr_8bxoy2heif), built here: no Secretary tokens
+        healthLine(townHealth(world, at)),
       ].filter(Boolean).join("\n\n");
       slate = fileNotice(world, {
         kind: "slate", buildingId: TOWN_HALL_ID, goalId: null, picture: null, refs: slated, body,
