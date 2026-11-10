@@ -74,7 +74,12 @@ kbd { font-family: var(--mono); font-size: var(--fs-xs); background: var(--raise
 .hud.collapsed .youre-in { width: 248px; }
 .youre-in h2 { margin: 0 20px 4px 0; font-size: var(--fs-lg); line-height: 1.2; color: var(--green); }
 .youre-in p { margin: 0 0 10px; font-size: var(--fs-md); line-height: 1.4; }
-.youre-in-steps { display: flex; flex-wrap: wrap; gap: 8px; }
+.youre-in-steps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+/* the three doors (gr_y9bpvx197c): Fund, Captain a goal, Bring your agent, on the guest card and the You're-in card */
+.three-doors { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.three-doors-label { flex-basis: 100%; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); }
+.youre-in .three-doors { margin-bottom: 0; }
+.youre-in .three-doors-label { color: var(--ink-2); }
 .youre-in-x { position: absolute; top: 4px; right: 6px; border: none; background: none; cursor: pointer; font-size: var(--fs-lg); line-height: 1; padding: 2px 4px; color: var(--ink-2) !important; }
 .hud-top { display: flex; align-items: flex-start; gap: 8px; }
 .hud-top > div { flex: 1; }
@@ -600,6 +605,12 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .hud.g-compact .guest-card, .hud.g-full .guest-card { margin-bottom: 0; }
 .hud.g-compact .guest-card { display: flex; align-items: center; gap: 8px; }
 .hud.g-compact .here-line { flex: 1; min-width: 0; margin: 0; }
+/* the three doors on a phone guest card: their own row under who is working, no label, Sign in after them */
+.hud.g-compact .guest-card { flex-wrap: wrap; row-gap: 6px; }
+.hud.g-compact .here-line { flex-basis: 100%; }
+.hud.g-compact .three-doors { margin: 0; gap: 4px; }
+.hud.g-compact .three-doors-label { display: none; }
+.hud.g-compact .three-doors .btn { padding: 4px 8px; }
 .hud.g-compact .signin .btn, .hud.g-strip .signin .btn { padding: 4px 9px; font-size: var(--fs-md); white-space: nowrap; }
 .hud.g-strip { padding: 7px 10px; }
 .hud.g-strip .hud-top { align-items: center; }

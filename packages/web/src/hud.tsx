@@ -16,6 +16,7 @@ import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
+import { ThreeDoors } from "./threeDoors";
 import { firstManagerBuilding, youreInCanLine, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
@@ -271,11 +272,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                {view === "compact" ? null : neverRan
-                  ? <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>
-                  : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
+                {view === "compact" || !neverRan ? null
+                  : <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>}
+                <ThreeDoors small />
                 <SignInButtons onPasteToken={onPasteToken} compact />
-              </> : <AskToJoin me={me} />}
+              </> : <><ThreeDoors small /><AskToJoin me={me} /></>}
             </div>
           ) : null}
           {!auth.guest && me ? (
@@ -342,10 +343,10 @@ function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
       <button className="youre-in-x" onClick={dismiss} title="Dismiss" aria-label="Dismiss">×</button>
       <h2>You're in</h2>
       <p>{youreInLine(me, collective)} {youreInCanLine(!!manager)}</p>
-      <div className="youre-in-steps">
-        {manager ? <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
-        <button className={`btn${manager ? "" : " primary"}`} onClick={() => store.open({ kind: "connect" })}>Connect your agent</button>
-      </div>
+      {manager ? <div className="youre-in-steps">
+        <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>
+      </div> : null}
+      <ThreeDoors />
     </div>
   );
 }

@@ -28,6 +28,9 @@ export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string
   { key: "letIn", label: "Let in", what: "requests an admin granted: the account became a member" },
   { key: "declined", label: "Declined", what: "requests an admin declined" },
   { key: "acted", label: "Acted", what: "let-in members who then said something or wrote in a 1:1, each counted once" },
+  { key: "doorFund", label: "Door: Fund", what: "browsers that opened Fund (the Bank's Donate form) from the guest card or the You're-in card, each once per day" },
+  { key: "doorCaptain", label: "Door: Captain", what: "browsers that opened Captain a goal (the goal tree) from the guest card or the You're-in card, each once per day" },
+  { key: "doorAgent", label: "Door: Agent", what: "browsers that opened Bring your agent (Connect) from the guest card or the You're-in card, each once per day" },
 ];
 
 /** This collective's engagement, in the order a captain reads it: who came and what they did, then who joined. */
@@ -55,7 +58,7 @@ export function waitLabel(ms: number): string {
 export function byDay(f: JoinFunnelView): ({ day: string } & JoinFunnelCounts)[] {
   const m = new Map<string, { day: string } & JoinFunnelCounts>();
   for (const c of f.collectives) for (const d of c.daily) {
-    const row = m.get(d.day) ?? { day: d.day, homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0 };
+    const row = m.get(d.day) ?? { day: d.day, homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 };
     for (const col of COLUMNS) row[col.key] += d[col.key] ?? 0;
     m.set(d.day, row);
   }
@@ -65,7 +68,7 @@ export function byDay(f: JoinFunnelView): ({ day: string } & JoinFunnelCounts)[]
 /** A UTC day "2026-10-31" as "Oct 31" (the year is in the range line above). */
 const dayLabel = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const median = (ms: number | null) => ms == null ? "none yet" : waitLabel(ms);
-const n = (x: number) => x.toLocaleString("en-US");
+const n = (x: number | undefined) => (x ?? 0).toLocaleString("en-US");
 
 type Column<K extends string> = { key: K; label: string; what: string };
 function CountsTable<K extends string>({ first, rows, cols }: { first: string; rows: { key: string; head: ReactNode; counts: Record<K, number>; wait?: number | null }[]; cols: Column<K>[] }) {
