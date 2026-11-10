@@ -251,7 +251,7 @@ Each step is grant-sized: one proposal, S/M/L steps, key results a human checks 
 
 **UI / UX**
 
-- **A. The hydrant.** **Built** (39f8fe1d, 72657d4b): tile `hydrant:town-hall` right of the in-tray, particles from the in-tray read in `packages/web/src/map/hydrant.ts`, the panel in Places. A Town Hall object the stream pours from, the Secretary at it; particles move; asks settle into the tray, notices flow to the feed, stamped ones carry their stamp. Visible from the map.
+- **A. The hydrant.** **Built** (39f8fe1d, 72657d4b): tile `hydrant:town-hall` right of the in-tray, particles from the in-tray read in `packages/web/src/map/hydrant.ts`, the panel in Places. A Town Hall object the stream pours from, the Secretary at it; particles move; asks settle into the tray, notices flow to the feed, stamped ones carry their stamp. Visible from the map. **2026-11-10:** one stream only, water-blue asks arcing to the Secretary; the notice stream is gone (it read as a straight jet beside the arc; 1:1 mt_db6itzy2br).
 - **B. The ask card.** **Built** (c16cd68a, fa597ae1). One component replaces the in-tray rows and `RollupCards.tsx` for asks: the contract layout of §5 (delta line, body, branches as the buttons, recommendation, claims with check status, sources, the record one click down). Names, not ids (gr_irjtu6tknu). Works on a phone.
 - **C. The funding view.** **Built** (c16cd68a, fa597ae1). The slate as a page: toggle fund or hold per proposal, Bank balance, expected spend and runway update live, then decide per card; nothing is funded by the toggle. Grant cards show the step strip (sizes, done, spent) drawn from data.
 - **D. The feed and closed loops.** **Built** (c16cd68a, fa597ae1). The notices channel of §8, with pictures; closed loops beside the asks.
