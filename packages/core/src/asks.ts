@@ -168,7 +168,7 @@ function requireDecider(world: World, actor: Agent | null, a: Ask): string {
 }
 
 /** A branch label and the human's optional note as the decision's words: "Decline. I edited the token instead." */
-export function decisionWords(label: string, note?: string | null): string {
+function decisionWords(label: string, note?: string | null): string {
   const l = label.trim(), n = (note ?? "").trim();
   return !n ? l : `${l}${/[.!?:]$/.test(l) ? "" : "."} ${n}`;
 }

@@ -31,7 +31,8 @@ export type BranchCall =
   | { kind: "retainer"; action: "approve" | "counter" | "reject"; form?: "note" }
   | { kind: "captain"; action: "accept" | "decline" }
   | { kind: "access"; grant: boolean }
-  | { kind: "request"; action: "claim" | "decline" }
+  /** an outbox request: Claim opens an optional note (the author hears it), Decline a required one (the server refuses a bare decline) */
+  | { kind: "request"; action: "claim" | "decline"; form: "note" }
   | { kind: "ask"; decision: string }
   /** a branch the server refuses (continue at the ceiling): not drawn */
   | { kind: "none" };
@@ -72,8 +73,8 @@ export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["
       if (v === "decline") return { kind: "access", grant: false };
       break;
     case "request":
-      if (v === "claim") return { kind: "request", action: "claim" };
-      if (v === "decline") return { kind: "request", action: "decline" };
+      if (v === "claim") return { kind: "request", action: "claim", form: "note" };
+      if (v === "decline") return { kind: "request", action: "decline", form: "note" };
       break;
   }
   return { kind: "ask", decision: b.label };

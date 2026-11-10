@@ -68,7 +68,7 @@ describe("the ask card", () => {
     expect(html("ak_weekly")).toContain(">Approve<");
     expect(html("ak_captain")).toContain(">Accept<");
     expect(html("ak_access")).toContain(">Let in<");
-    expect(html("ak_req")).toContain(">Claim<");
+    expect(html("ak_req")).toContain(">Claim…<");
     const policy = html("ak_policy");
     expect(policy).toContain(">Add<");
     expect(policy).toContain(">Skip<");
@@ -98,7 +98,7 @@ describe("the ask card", () => {
     expect(branchCall({ targetKind: "retainer" }, { label: "Approve" })).toEqual({ kind: "retainer", action: "approve" });
     expect(branchCall({ targetKind: "captain" }, { label: "Accept" })).toEqual({ kind: "captain", action: "accept" });
     expect(branchCall({ targetKind: "access" }, { label: "Let in", action: "grant" })).toEqual({ kind: "access", grant: true });
-    expect(branchCall({ targetKind: "request" }, { label: "Decline" })).toEqual({ kind: "request", action: "decline" });
+    expect(branchCall({ targetKind: "request" }, { label: "Decline" })).toEqual({ kind: "request", action: "decline", form: "note" });
     expect(branchCall({ targetKind: "rule" }, { label: "Add" })).toEqual({ kind: "ask", decision: "Add" });
     expect(branchCall({ targetKind: null }, { label: "Bar" })).toEqual({ kind: "ask", decision: "Bar" });
     // a money ask on a grant never records a bare label: Yes / No act on the grant by its status, else nothing is drawn
@@ -148,6 +148,28 @@ describe("the ask card", () => {
     await act(async () => button(el, "Add").click());
     await flush();
     expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "I edited the token instead.");
+  });
+
+  it("an outbox request's Claim takes an optional note and sends it; Decline waits for one", async () => {
+    signIn();
+    const req = vi.spyOn(api(), "request").mockResolvedValue(null);
+    const el = await mount(<AskCard ask={ask("ak_req")} onDecided={() => undefined} />);
+    // Decline opens its note and stays disabled until the human says why (the server refuses a bare decline)
+    await act(async () => button(el, "Decline…").click());
+    const declineAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Decline") as HTMLButtonElement;
+    expect(declineAct().disabled).toBe(true);
+    await act(async () => typeInto(el.querySelector("input[aria-label='Note']") as HTMLInputElement, "no monitor here"));
+    expect(declineAct().disabled).toBe(false);
+    // Claim's note is optional: the button is live empty, and the words go with the claim
+    await act(async () => button(el, "Claim…").click());
+    const claimAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Claim") as HTMLButtonElement;
+    const field = el.querySelector("input[aria-label='Note']") as HTMLInputElement;
+    await act(async () => typeInto(field, ""));
+    expect(claimAct().disabled).toBe(false);
+    await act(async () => typeInto(field, "use Wright's VPS"));
+    await act(async () => claimAct().click());
+    await flush();
+    expect(req).toHaveBeenCalledWith("dc_req_ml", "claim", "use Wright's VPS");
   });
 
   it("the ask order, records and helpers", () => {
