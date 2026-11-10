@@ -1,9 +1,9 @@
 /**
  * The ask card's contract per type and its enforcement (docs/legible-delegation.md §4-5, build step 3): what each type
- * must carry, the bounce on submit_report's typed asks and on propose_grant, the 3-strike escape, and that whatever
- * reaches the in-tray passed or carries lint-failed.
+ * must carry, and since 1:1 mt_ewxnhs90cq decision 5 (2026-11-10): missing structure is refused on submit_report's typed
+ * asks, propose_grant and calibrate; style rules never refuse, they are filed as warnings in the ask's history.
  */
-import { checkAskContract, vetAsk } from "@muster-town/schema";
+import { askStructure, askWarnings, checkAskContract } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, townHallIntray } from "../src/index.ts";
 import { asksFor } from "../src/asks.ts";
@@ -40,7 +40,22 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     expect(checkAskContract("policy", { body: "Rule: forks may redeploy on green CI.\nI applied it twice this week.\nReversing it means a human redeploys each change." })).toEqual([]);
   });
 
-  it("an ask reaching the in-tray passed its type's contract and the linter, or carries lint-failed", async () => {
+  it("structure is the hard contract fields, two branch buttons and the recommendation field; the rest only warns", () => {
+    const n = (ps: string[]) => names(ps.map((p) => p.replace("structure ", "")));
+    expect(n(askStructure("money", { body: "It ships the deck." }))).toEqual(["branches", "recommendation", "prior-decision", "spent", "steps"]);
+    expect(askStructure("money", { body: MONEY, branches: two, recommendation: "Continue" })).toEqual([]);
+    // claims are style for money now: a warning, not a refusal
+    expect(names(askWarnings("money", { body: MONEY, branches: two, recommendation: "Continue" }))).toEqual(["claims"]);
+    // a "recommends" sentence no longer stands in for the field
+    expect(n(askStructure("money", { body: `${MONEY}\nPix recommends continue.`, branches: two }))).toEqual(["recommendation"]);
+    expect(n(askStructure("click", { body: "Create the repo.", branches: two, recommendation: "Done" }))).toEqual(["parked"]);
+    expect(n(askStructure("credential", { body: "Reissue the token.", branches: two, recommendation: "Do it" }))).toEqual(["scope", "fallback"]);
+    expect(n(askStructure("meeting", { body: "Let's talk about the deck.", branches: two, recommendation: "Yes" }))).toEqual(["question"]);
+    expect(n(askStructure("policy", { body: "Forks redeploy now.", branches: two, recommendation: "Keep" }))).toEqual(["rule"]);
+    expect(names(askWarnings("policy", { body: "Rule: forks redeploy now; keep it.", branches: two, recommendation: "Keep" }))).toEqual(["what-i-did", "reversing-cost", "no-semicolons"]);
+  });
+
+  it("an author's card missing structure is refused every time; style rules file it with warnings in its history", async () => {
     const { world, admin, by } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
@@ -65,8 +80,15 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     expect(noisyAsk.tags).toEqual([]);
     expect(noisyAsk.body).not.toContain("gr_abc123");
     expect(noisyAsk.body.split("\n")[1]).toBe("It asks for 150,000 tokens. Nothing is spent yet.");
-    // an explorer's own card with an id is refused with the rule; a clean one passes instead
-    await expect(world.verbs.propose_grant(mei, { ...plan("Show the goal first"), ask: { body: "This is a new proposal about gr_abc123. Nothing is spent yet. It has one step, and none is done yet.", recommendation: "Fund it.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } })).rejects.toThrow(/no-ids/);
+    // an explorer's own card with an id is filed, the rule a warning in its history and in the answer
+    const idCard = await world.verbs.propose_grant(mei, { ...plan("Show the goal first"), ask: { body: "This is a new proposal about gr_abc123. Nothing is spent yet. It has one step, and none is done yet.", recommendation: "Fund it.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } });
+    expect(idCard.note).toMatch(/style warning\(s\)[\s\S]*no-ids/);
+    const idAsk = asksFor(world, { kind: "grant", id: idCard.grantId })[0]!;
+    expect(idAsk.tags).toEqual([]);
+    expect(idAsk.history.find((h) => h.action === "lint")!.note).toMatch(/^warnings: [\s\S]*no-ids/);
+    // one missing its recommendation is refused, every time
+    const noRec = { ...plan("Show the goal first"), ask: { body: "This is a new proposal. Nothing is spent yet. It has one step, and none is done yet.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } };
+    for (let i = 0; i < 4; i++) await expect(world.verbs.propose_grant(mei, noRec as never)).rejects.toThrow(/structure recommendation/);
     const card = {
       body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the goal shows first.\nIf you reject: the board stays as it is.",
       recommendation: "Fund: one session does it.", claims: [{ text: "The board API lists the goal", check: { kind: "api" as const, ref: "GET /api/buildings/carbon-cycle /building/goal" } }],
@@ -74,22 +96,23 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     const withCard = await world.verbs.propose_grant(mei, { ...plan("Show the goal (see gr_abc123) first; then the grants"), ask: card });
     expect(asksFor(world, { kind: "grant", id: withCard.grantId })[0]).toMatchObject({ body: card.body, recommendation: card.recommendation, tags: [] });
 
-    // a rollup's typed ask that fails is refused twice; the session's third attempt is filed, flagged, its rules in history
+    // a rollup's typed ask missing its rule is refused every time; with the rule it is filed, its style rules as warnings
     const report = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
     const body = "## Shipped\nNone.\n\n## Decided\n- dc_a → approved\n\n## Key results\non track\n\n## Needs from Mitchell\n- Decide whether forks may redeploy.";
     const bad = { type: "policy" as const, title: "May forks redeploy?", body: "Forks redeploy now (on green CI); keep it?", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" };
     const roll = () => world.verbs.submit_report(mei, { title: "Rollup", body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] }, asks: [bad] });
-    await expect(roll()).rejects.toThrow(/asks\[0\] "May forks redeploy\?": contract rule/);
-    await expect(roll()).rejects.toThrow(/Your next attempt is filed even if it still fails/);
-    const filed = await roll();
-    const flagged = world.asks.require(filed.asks![0]!.id);
-    expect(flagged.tags).toEqual(["lint-failed"]);
-    expect(flagged.history.find((h) => h.action === "lint")!.note).toMatch(/no-semicolons[\s\S]*no-parentheses/);
-    expect(world.events.list({ types: ["ask.refused"] }).map((e) => e.payload.what)).toEqual(["proposal", "rollup", "rollup"]);
+    for (let i = 0; i < 4; i++) await expect(roll()).rejects.toThrow(/asks\[0\] "May forks redeploy\?": contract rule/);
+    const filed = await world.verbs.submit_report(mei, { title: "Rollup", body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] }, asks: [{ ...bad, body: `Rule: ${bad.body}` }] });
+    expect(filed.note).toMatch(/style warning\(s\)[\s\S]*no-semicolons/);
+    const warned = world.asks.require(filed.asks![0]!.id);
+    expect(warned.tags).toEqual([]);
+    expect(warned.history.find((h) => h.action === "lint")!.note).toMatch(/no-semicolons[\s\S]*no-parentheses/);
+    expect(world.events.list({ types: ["ask.refused"] })).toEqual([]);
 
-    // the invariant over everything open: each card passes its contract and the linter, or is flagged
+    // the invariant over everything open: no card carries the old lint-failed pill, and an author's card has its structure
     const open = townHallIntray(world).asks;
     expect(open.length).toBeGreaterThanOrEqual(3);
-    for (const a of open) expect(vetAsk(a.type, a).length === 0 || a.tags.includes("lint-failed")).toBe(true);
+    for (const a of open) expect(a.tags).not.toContain("lint-failed");
+    expect(askStructure(warned.type, warned)).toEqual([]);
   }, 30_000);
 });

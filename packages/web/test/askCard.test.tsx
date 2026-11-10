@@ -87,8 +87,8 @@ describe("the ask card", () => {
     expect(held).toContain("The full record →");
     expect(held).not.toContain(">gr_hud<");
     expect(renderToStaticMarkup(<AskCard ask={ask("ak_ocean")} onDecided={() => undefined} />)).toContain("✗");
-    expect(renderToStaticMarkup(<AskCard ask={ask("ak_land")} onDecided={() => undefined} />)).toContain("lint-failed");
-    expect(renderToStaticMarkup(<AskCard ask={ask("ak_ocean")} onDecided={() => undefined} />)).not.toContain("lint-failed");
+    // 1:1 mt_ewxnhs90cq decision 5: style rules are warnings in the history, never a pill on the card
+    expect(renderToStaticMarkup(<AskCard ask={ask("ak_land")} onDecided={() => undefined} />)).not.toContain("lint-failed");
   });
 
   it("maps each branch to its API call by target", () => {

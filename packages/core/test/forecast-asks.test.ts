@@ -186,7 +186,7 @@ describe("an over-ceiling forecast is a money ask, an on-budget one a notice", (
 });
 
 describe("the checkpoint ask's card", () => {
-  it("a grant held with no forecast and no report files its card tagged lint-failed, naming the fields it lacks", () => {
+  it("a grant held with no forecast and no report files its card with warnings in its history, naming the fields it lacks", () => {
     const { world, fund, b, gateAsks } = lab();
     const g = fund();
     world.sessions.upsert({
@@ -196,9 +196,9 @@ describe("the checkpoint ask's card", () => {
     world.grantDesk.checkpoints(g.buildingId);
     const ask = gateAsks(g.id)[0]!;
     expect(ask.title).toBe('"A banner" is held at its ceiling: adjust or cut it');
-    expect(ask.tags).toEqual(["lint-failed"]);
+    expect(ask.tags).toEqual([]);
     const lint = ask.history.find((h) => h.action === "lint")!.note;
-    expect(lint).toContain("contract recommendation");
+    expect(lint).toContain("structure recommendation");
     expect(lint).toContain("contract claims");
     expect(lint).not.toContain("contract spent");
     expect(lint).not.toContain("contract steps");

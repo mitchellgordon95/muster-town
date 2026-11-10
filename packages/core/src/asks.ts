@@ -9,7 +9,7 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  ASK_LINT_RULES, askSentences, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, proseAskTitle, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
+  ASK_LINT_RULES, askSentences, askStructure, askWarnings, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, proseAskTitle, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
   type AskType, type CalibrationProposal, type CaptainRequest, type Doc, type Event, type Grant, type Schedule, type StepSize,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -67,7 +67,7 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
   if (have) {
     if (!source.length || have.sources.some((s) => s.docId === n.sourceDocId && s.line === line)) return { ask: have, folded: true };
     // step 3: a manager's card (one with a recommendation) replaces the town's own wording on an ask that has none yet
-    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED)) && !!n.recommendation?.trim();
+    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
     const card = adopt ? vetted(world, have.type, { title: have.title, body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
     const next = world.asks.upsert({
       ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
@@ -89,34 +89,28 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
 }
 
 /**
- * Step 3: every card is vetted against its type's contract and the linter as it is stored. One that fails carries the
- * tag "lint-failed" and a "lint" history entry with the failing rules: an author's third failing attempt
- * (`refuseOrFlag`), or a card the town wrote from a source's own words. No card reaches the in-tray unvetted.
+ * Every card is vetted as it is stored (1:1 mt_ewxnhs90cq decision 5): its missing structure and the style rules it
+ * breaks go into its history as one "lint" entry of warnings. Nothing is refused here and nothing is tagged: an author's
+ * card already passed `refuseMissingStructure`, and a card the town wrote from a source's own words is filed as is.
  */
 function vetted(world: World, type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
-  const problems = vetAsk(type, { ...card, dictionary: dictionaryPairs(world) });
-  return problems.length ? { tags: [LINT_FAILED], lint: [{ at, action: "lint", by, note: problems.join("\n").slice(0, 4000) }] } : { tags: [], lint: [] };
+  const c = { ...card, dictionary: dictionaryPairs(world) };
+  const problems = [...askStructure(type, c), ...askWarnings(type, c)];
+  return { tags: [], lint: problems.length ? [{ at, action: "lint", by, note: `warnings: ${problems.join("\n")}`.slice(0, 4000) }] : [] };
 }
 
+/** The tag the old three-tries path put on a card filed failing the linter; cards that carry it lose it when rewritten. */
 const LINT_FAILED = "lint-failed";
-/** How many failing attempts an author gets before the card is filed flagged instead of refused (§12 question 4). */
-const ASK_STRIKES = 3;
 
 /**
- * Step 3's bounce: an author's card (a rollup's typed asks, a proposal's money ask) that fails its contract or the
- * linter is refused with the failing rules, the way a malformed rollup is. The same session's third failing attempt
- * goes through and is filed tagged "lint-failed" (`createAsk`), so a report is never blocked for ever. Each refusal is
- * an `ask.refused` event keyed by the session (else the assignment, else the agent) and `what` ("rollup", "proposal").
+ * An author's card (a rollup's typed asks, a proposal's money ask, the Planner's calibration card) is refused only when
+ * it lacks structure: two branches, a recommendation, its type's hard contract fields (`askStructure`). Style rules
+ * never refuse (Mitchell, 1:1 mt_ewxnhs90cq 2026-11-10 18:58: "i don't think we need the linter for text"): the card is
+ * filed and `vetted` records them as warnings. `what` names the card in the message ("rollup", "proposal").
  */
-export function refuseOrFlag(world: World, me: Agent, what: string, problems: string[]): void {
+export function refuseMissingStructure(what: string, problems: string[]): void {
   if (!problems.length) return;
-  const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY startedAt DESC");
-  const key = `${session?.id ?? me.currentAssignmentId ?? me.id}:${what}`;
-  const before = (world.db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'ask.refused' AND json_extract(payload, '$.strikeKey') = ?").get(key) as { n: number }).n;
-  if (before + 1 >= ASK_STRIKES) return;
-  world.events.append({ type: "ask.refused", agentId: me.id, buildingId: me.homeBuildingId ?? null, text: `${me.name}'s ${what} ask card was refused: ${oneLine(problems[0]!, 160)}`, payload: { strikeKey: key, what, problems } });
-  const last = before + 2 >= ASK_STRIKES;
-  throw badRequest(`Your ${what}'s ask card fails ${problems.length} rule${problems.length === 1 ? "" : "s"} (docs/legible-delegation.md §5). Rewrite it and resubmit${last ? ". Your next attempt is filed even if it still fails, flagged lint-failed for the humans" : ""}:\n- ${problems.join("\n- ")}`);
+  throw badRequest(`Your ${what}'s ask card lacks ${problems.length} required part${problems.length === 1 ? "" : "s"} (docs/legible-delegation.md §4). Add ${problems.length === 1 ? "it" : "them"} and resubmit:\n- ${problems.join("\n- ")}`);
 }
 
 /** Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired. */
@@ -297,7 +291,7 @@ const PROPOSAL_RECOMMENDATION = "Fund it: the building proposed it as its next p
 
 /**
  * Put an author's card on the live ask of a target (`propose_grant` with `ask`): body, recommendation and claims, vetted
- * again (tagged lint-failed when it fails), and its checks queued. No live ask: nothing.
+ * again (its warnings into its history), and its checks queued. No live ask: nothing.
  */
 export function setAskCard(world: World, kind: AskTargetKind, id: string, card: Card, by: string): Ask | null {
   const have = liveAskOn(world, kind, id);
@@ -771,7 +765,7 @@ function latestStepReport(world: World, g: Grant): Doc | null {
  * to a step size; cut when the latest step report's verdict is stop or pivot, or nothing is left), and one claim (the
  * latest step report: checked by a key result whose howToCheck is a curl, else manual). `held`: the grant is at its
  * ceiling now; `spent`: its spend now. Facts the town lacks are left out, never guessed: with no forecast and no top-up
- * line there is no recommendation, with no report no claim, and `vetAsk` tags the card lint-failed naming the field.
+ * line there is no recommendation, with no report no claim, and the card's history carries a warning naming the field.
  */
 function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): Card & { title: string } {
   const ceiling = g.grantTokens ?? 0;

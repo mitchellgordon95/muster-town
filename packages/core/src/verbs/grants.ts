@@ -1,5 +1,5 @@
-import { grantName, grantPricingOf, vetAsk, type Agent, type Grant } from "@muster-town/schema";
-import { lastCounterAt, proposalCard, refuseOrFlag, setAskCard } from "../asks.ts";
+import { askStructure, askWarnings, grantName, grantPricingOf, type Agent, type Grant } from "@muster-town/schema";
+import { lastCounterAt, proposalCard, refuseMissingStructure, setAskCard } from "../asks.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
 import { counteredTokens } from "../grants.ts";
@@ -29,12 +29,14 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
     if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
   }
-  // legible delegation step 3: the money ask's card (the explorer's, else the town's from the plan) passes the money
-  // contract and the linter, or the proposal is refused with the failing rules (the third failing attempt is filed, flagged)
+  // the money ask's card (the explorer's, else the town's from the plan) is refused only when it lacks structure (1:1
+  // mt_ewxnhs90cq decision 5); the style rules it breaks are filed as warnings in its history and named in the answer
   const card = ask
     ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
     : proposalCard({ askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
-  refuseOrFlag(world, caller, "proposal", vetAsk("money", { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) }));
+  const vetCard = { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) };
+  refuseMissingStructure("proposal", askStructure("money", vetCard));
+  const warnings = ask ? askWarnings("money", vetCard) : [];
   const g = world.transaction(() => {
     const proposed = open
       ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
@@ -47,12 +49,11 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     world.events.append({ type: "exploration.proposed", agentId: caller.id, buildingId: bid, text: `${caller.name}'s exploration ended in a proposal: ${grantName(g)}`, payload: { reservationId: asg.reservationId, assignmentId: asg.id, grantId: g.id, keyResultId: g.keyResultId, askTokens: g.askTokens } });
   }
   const others = world.grants.count("buildingId = ? AND id != ? AND status IN ('proposed', 'countered')", [bid, g.id]);
-  const flagged = world.asks.exists("targetKind = 'grant' AND targetId = ? AND status = 'open' AND tags LIKE '%\"lint-failed\"%'", [g.id]);
   return {
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
     // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask is the sum of the steps' sizes
     estimate: g.estimate?.sentence ?? null,
-    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${flagged ? " Its ask card still fails the linter after three tries: it is filed flagged lint-failed, so the humans see that it was not cleaned up." : ""}`,
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${warnings.length ? ` Its ask card is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ")}` : ""}`,
   };
 }
 

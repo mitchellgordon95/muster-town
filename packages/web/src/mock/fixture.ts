@@ -369,7 +369,7 @@ const askBase = { decidedBy: null, proposal: null, decidedAt: null, decision: nu
 /**
  * The open asks (docs/legible-delegation.md §4): one per type, each on the item it decides (a proposal, a held grant,
  * a retainer, a captain and an access request, an outbox request) and two with no other channel (a policy, a meeting).
- * Claims with each check result (✓, ✗, pending); one card filed lint-failed; ranked by the Secretary except two.
+ * Claims with each check result (✓, ✗, pending); one card filed with style warnings in its history; ranked by the Secretary except two.
  */
 export const asks: Ask[] = [
   {
@@ -391,13 +391,13 @@ export const asks: Ask[] = [
     createdAt: ago(35), updatedAt: ago(12),
   },
   {
-    ...askBase, id: "ak_land", type: "money", targetKind: "grant", targetId: "gr_land", buildingId: "bl_carbon", sourceDocId: "gr_land", rank: 3, tags: ["lint-failed"],
+    ...askBase, id: "ak_land", type: "money", targetKind: "grant", targetId: "gr_land", buildingId: "bl_carbon", sourceDocId: "gr_land", rank: 3, tags: [],
     title: "Carbon Cycle Lab asks for 1.5M tokens for the land sink's 2025 drop",
     body: "New proposal (gr_land); it asks 1.5M and attributes the drop, or it stops after three sessions, whichever comes first, and the write-up follows.\n\nIf you fund: step 1 starts.\nIf you reject: nothing runs.",
     branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation: "",
     claims: [{ text: "Key result: a note on the 2025 land-sink anomaly with its drivers", check: { kind: "kr", ref: "kr_bl_carbon_2" } }],
     sources: [{ docId: "gr_land", buildingId: "bl_carbon", line: "Proposed: the land sink's 2025 drop.", at: ago(30) }],
-    history: [{ at: ago(30), action: "lint", by: "ag_moss", note: "no-ids: names gr_land; no-semicolons" }],
+    history: [{ at: ago(30), action: "lint", by: "ag_moss", note: "warnings: no-ids: names gr_land\nno-semicolons" }],
     createdAt: ago(30), updatedAt: ago(30),
   },
   {

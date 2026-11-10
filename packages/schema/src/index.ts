@@ -2004,7 +2004,7 @@ export const Ask = z.object({
   createdAt: Iso,
   updatedAt: Iso,
   history: z.array(AskHistoryEntry).default([]),
-  /** legible delegation step 3: "lint-failed" when the card was filed failing its contract or the linter (the messages are in history) */
+  /** free tags; "lint-failed" is legacy (the three-tries linter, removed by 1:1 mt_ewxnhs90cq decision 5): style warnings are "lint" history entries now */
   tags: z.array(z.string()).default([]),
   /** legible delegation step 5: the Secretary's order over the open asks (1 = first; null = unranked) */
   rank: z.number().int().positive().nullable().default(null),
@@ -2308,12 +2308,12 @@ export const VerbInputs = {
     title: GrantTitle,
     note: z.string().max(2000).default("").describe("what the human should know when deciding"),
     grantId: Id.optional().describe("answer a counter: the countered proposal to rewrite with this plan and re-propose under its own id (leave it out for a new proposal)"),
-    // legible delegation step 3: the money ask's card, linted like a rollup's asks (docs/legible-delegation.md §5)
+    // the money ask's card: structure refused when missing, style rules warned like a rollup's asks (docs/legible-delegation.md §5)
     ask: z.object({
       body: z.string().trim().min(1).max(4000).describe("the card a human decides from: plain sentences of at most 20 words, no ids, no semicolons or parentheses; say this is a new proposal, that nothing is spent, how many steps, what each branch means (\"If you fund: …\", \"If you reject: …\")"),
-      recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
+      recommendation: z.string().max(400).default("").describe("required: which branch you recommend and why, in a line"),
       claims: z.array(AskClaim.omit({ result: true })).min(1).max(2).describe("the 1-2 claims that would change the decision if wrong, each with its check (pr, url, api, kr or manual)"),
-    }).optional().describe("the money ask's card (docs/legible-delegation.md §5). Left out, the town writes one from your objective, steps and ask, and lints that: a proposal whose card fails is refused with the failing rules"),
+    }).optional().describe("the money ask's card (docs/legible-delegation.md §5). Left out, the town writes one from your objective, steps and ask. A card missing structure (a recommendation, the prior decision, spent, steps) is refused; style rules are filed as warnings"),
   }),
   close_grant: z.object({
     grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
