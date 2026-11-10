@@ -9,7 +9,7 @@ import type { MeetingToolCall } from "@muster-town/schema";
 import type { World } from "./world.ts";
 
 /** at most this many calls per line (the newest) */
-export const MEETING_TOOLS_MAX = 30;
+const MEETING_TOOLS_MAX = 30;
 
 /** Long opaque tokens (mixed case and digits), known token prefixes and `key=value` secrets become "[hidden]". */
 export function hideSecrets(s: string): string {
