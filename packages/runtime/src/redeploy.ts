@@ -13,7 +13,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { World } from "@muster-town/core";
-import { townEnv, type Event, type RedeployLive, type RedeployResult, type RedeployRun } from "@muster-town/schema";
+import { REDEPLOY_CHANGES_MAX, townEnv, type Event, type RedeployChange, type RedeployLive, type RedeployResult, type RedeployRun } from "@muster-town/schema";
 import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.ts";
 
 export interface CmdResult { code: number; stdout: string; stderr: string }
@@ -159,6 +159,45 @@ export function drainNudgeOneOnOne(): string {
   return "A redeploy is pending and will restart the server in a couple of minutes, possibly mid-conversation. Keep answering the 1:1 as usual; don't submit a report or stop because of it. If you are cut off, the town posts a notice in the 1:1 and a new session picks it up after the restart with the lines you missed.";
 }
 
+/** `git log` format for a run's changes: short sha, subject, body; fields split by \x1f, records by \x1e. */
+export const CHANGES_FORMAT = "--format=%h%x1f%s%x1f%b%x1e";
+
+/** `git log --first-parent` output in CHANGES_FORMAT → changes (newest first). A GitHub merge commit ("Merge pull request #N from …") shows its PR title (the body's first line) and (#N). */
+export function parseChanges(out: string): RedeployChange[] {
+  const changes: RedeployChange[] = [];
+  for (const rec of out.split("\x1e")) {
+    const [sha = "", subject = "", body = ""] = rec.replace(/^\s+/, "").split("\x1f");
+    if (!sha.trim()) continue;
+    const pr = /^Merge pull request #(\d+) from /.exec(subject);
+    const title = body.split("\n").map((l) => l.trim()).find(Boolean);
+    changes.push({ sha: sha.trim(), subject: pr && title ? `${title} (#${pr[1]})` : subject.trim() });
+  }
+  return changes.slice(0, REDEPLOY_CHANGES_MAX);
+}
+
+/** The https page of a repo from its remote URL (scp or ssh form → https; credentials and ".git" dropped), for `<it>/commit/<sha>` links; undefined when it isn't one. */
+export function repoWebUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  let u = url.trim();
+  const scp = /^[\w.-]+@([\w.-]+):(.+)$/.exec(u);
+  if (scp) u = `https://${scp[1]}/${scp[2].replace(/^\/+/, "")}`;
+  const ssh = /^ssh:\/\/(?:[^@/]+@)?([\w.-]+)(?::\d+)?\/(.+)$/.exec(u);
+  if (ssh) u = `https://${ssh[1]}/${ssh[2]}`;
+  try {
+    const p = new URL(u);
+    if (p.protocol !== "https:") return undefined;
+    return `https://${p.host}${p.pathname.replace(/\/+$/, "").replace(/\.git$/, "")}`;
+  } catch { return undefined; }
+}
+
+const changesOf = (v: unknown): RedeployChange[] | undefined =>
+  Array.isArray(v) ? v.filter((c): c is RedeployChange => !!c && typeof c.sha === "string" && typeof c.subject === "string").slice(0, REDEPLOY_CHANGES_MAX) : undefined;
+/** the run's change list and repo link carried from an earlier run (done-file or last event), when it has them */
+const carryChanges = (prev: Partial<RedeployRun> | undefined): Pick<RedeployRun, "changes" | "repoUrl"> => {
+  const changes = changesOf(prev?.changes);
+  return { ...(changes ? { changes } : {}), ...(typeof prev?.repoUrl === "string" ? { repoUrl: prev.repoUrl } : {}) };
+};
+
 const TAIL = 2000;
 const tail = (r: CmdResult) => (r.stdout + (r.stderr ? `\n${r.stderr}` : "")).trim().slice(-TAIL);
 
@@ -205,7 +244,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const prev = JSON.parse(readFileSync(path, "utf8")) as Partial<RedeployRun> & { again?: RedeployRequest };
     unlinkSync(path);
     const head = typeof prev.head === "string" ? prev.head : undefined;
-    run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [], ...(head ? { head } : {}) };
+    run_ = { state: "done", requestedBy: String(prev.requestedBy ?? ""), commits: typeof prev.commits === "number" ? prev.commits : null, working: [], blocked: [], ...(head ? { head } : {}), ...carryChanges(prev) };
     const n = run_.commits;
     say(`Redeploy finished: the server is back up${n === null ? "" : ` with ${n} new change${n === 1 ? "" : "s"}`}${head ? ` at ${head.slice(0, 7)}` : ""}`, { phase: "done", head: head ?? null });
     if (prev.again) carried = { image: !!prev.again.image, ...(prev.again.restart ? { restart: String(prev.again.restart) } : {}), requestedBy: String(prev.again.requestedBy ?? "") };
@@ -217,7 +256,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     const last = deps.world.events.latestWith("system", "redeploy");
     if (last && !isTerminalRedeployEvent(last)) {
       const prevRun = (last.payload as { run?: RedeployRun }).run;
-      run_ = { state: "aborted", requestedBy: prevRun?.requestedBy ?? "", commits: prevRun?.commits ?? null, working: [], blocked: [] };
+      run_ = { state: "aborted", requestedBy: prevRun?.requestedBy ?? "", commits: prevRun?.commits ?? null, working: [], blocked: [], ...carryChanges(prevRun) };
       say("Redeploy: ended by a server restart (the run was interrupted)", { phase: "end", terminal: true, ok: false, aborted: true });
     }
   } catch (e) { console.log("[runtime] redeploy startup check:", e instanceof Error ? e.message : e); }
@@ -253,16 +292,20 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
     const head = async () => (await run("git", ["rev-parse", "HEAD"], { cwd, timeoutMs: 30_000 })).stdout.trim();
     const before = await head();
-    /** commits since `from`, and whether package-lock.json changed */
-    const since = async (from: string) => ({
-      count: Number((await run("git", ["rev-list", "--count", `${from}..HEAD`], { cwd, timeoutMs: 30_000 })).stdout.trim()) || 0,
-      lock: !!(await run("git", ["diff", "--name-only", from, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim(),
-    });
+    /** commits since `from`, whether package-lock.json changed, and the deploy branch's own commits (the HUD card's lines) */
+    const since = async (from: string) => {
+      const count = Number((await run("git", ["rev-list", "--count", `${from}..HEAD`], { cwd, timeoutMs: 30_000 })).stdout.trim()) || 0;
+      const lock = !!(await run("git", ["diff", "--name-only", from, "HEAD", "--", "package-lock.json"], { cwd, timeoutMs: 30_000 })).stdout.trim();
+      if (!count) return { count, lock, changes: [] as RedeployChange[] };
+      const log = await run("git", ["log", "--first-parent", `-n${REDEPLOY_CHANGES_MAX}`, CHANGES_FORMAT, `${from}..HEAD`], { cwd, timeoutMs: 30_000 });
+      return { count, lock, changes: log.code === 0 ? parseChanges(log.stdout) : [] };
+    };
+    const repoUrl = repoWebUrl(deps.world.host.repoUrl ?? deps.world.town.get().workspace?.repoUrl);
     let lockChanged = false;
     const pulled = await step(`git pull --rebase origin ${branch}`, "git", ["pull", "--rebase", "origin", branch], 300_000, async () => {
       if (!before) return "";
       const d = await since(before);
-      run_ = { ...run_, commits: d.count };
+      run_ = { ...run_, commits: d.count, changes: d.changes, ...(repoUrl ? { repoUrl } : {}) };
       lockChanged = d.lock;
       return `${d.count} commit${d.count === 1 ? "" : "s"}`;
     });
@@ -276,7 +319,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     // re-read the request after the await: a request that joined meanwhile may have asked for the image or a restart
     if (liveCommit && !o.image && !o.restart) {
       if (now && now === liveCommit) {
-        run_ = { ...run_, state: "done", commits: 0, working: [], blocked: [], head: now };
+        run_ = { ...run_, state: "done", commits: 0, changes: [], working: [], blocked: [], head: now };
         say(`Redeploy: nothing new on ${branch} (live ${now.slice(0, 7)}); no restart. CI deploys a merge once main is green. Give restart: "<reason>" for a deliberate restart.`,
           { step: "nothing new", phase: "end", ok: true, noop: true, head: now });
         return;
@@ -417,9 +460,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     if (again2.code !== 0) {
       say(`Redeploy: pull again after the drain … failed (exit ${again2.code}); restarting with what was pulled before`, { step: "git pull again", phase: "end", ok: false, code: again2.code, output: tail(again2) });
     } else {
-      const d = mid ? await since(mid) : { count: 0, lock: false };
+      const d = mid ? await since(mid) : { count: 0, lock: false, changes: [] as RedeployChange[] };
       if (d.count) {
-        run_ = { ...run_, commits: (run_.commits ?? 0) + d.count };
+        run_ = { ...run_, commits: (run_.commits ?? 0) + d.count, changes: [...d.changes, ...(run_.changes ?? [])].slice(0, REDEPLOY_CHANGES_MAX), ...(repoUrl ? { repoUrl } : {}) };
         say(`Redeploy: pull again after the drain … ok (${d.count} more commit${d.count === 1 ? "" : "s"})`, { step: "git pull again", phase: "end", ok: true, code: 0, output: tail(again2) });
         if (!(await rebuild(d.lock, " (again)"))) return;
       } else {

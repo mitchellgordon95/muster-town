@@ -2862,7 +2862,19 @@ export interface RedeployRun {
   blocked: string[];
   /** the commit being restarted into (`restarting`) or now live (`done`) */
   head?: string;
+  /**
+   * What the run deploys, newest first: the deploy branch's own commits (`git log --first-parent`, at most
+   * REDEPLOY_CHANGES_MAX) pulled before and after the drain, a merged PR shown by its title. Carried through the
+   * done-file, so the restarted server's `done` event lists them too.
+   */
+  changes?: RedeployChange[];
+  /** https base of the repo the changes are in (`<repo>/commit/<sha>` opens one), credentials stripped; absent when unknown */
+  repoUrl?: string;
 }
+/** One deployed change on a redeploy run: its short sha and one-line subject. */
+export interface RedeployChange { sha: string; subject: string }
+/** At most this many changes are listed on a run (the count, `commits`, stays exact). */
+export const REDEPLOY_CHANGES_MAX = 50;
 
 /** `GET /api/admin/redeploy`: the runtime's live view of a redeploy (the HUD checks the event-derived banner against it). */
 export const RedeployLive = z.object({
