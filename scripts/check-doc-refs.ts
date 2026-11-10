@@ -15,10 +15,12 @@
 //            verbatim, so renaming a cited test fails the check. Each invariants doc cites at least one test.
 // It also holds docs/manual.md to its word cap (MANUAL_CAP): over the cap it fails with the count, the overage and the
 // largest sections, so the trim happens in the same change; under it, a warning once fewer than 50 words are left.
+// And it keeps the town log conflict-free (scripts/log-rule.ts): docs/log.md is frozen, entries go in docs/log.d/.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { VERB_NAMES } from "@muster-town/schema";
+import { logProblems } from "./log-rule.ts";
 
 const ROOT = join(dirname(new URL(import.meta.url).pathname), "..");
 const DOCS: { file: string; verbs: boolean }[] = [
@@ -164,5 +166,7 @@ for (const p of problems) console.error(`${p.file}:${p.line}: ${p.kind} \`${p.re
 if (problems.length) console.error(`\n${problems.length} broken reference(s). Fix the doc (or the code) in this change; see scripts/check-doc-refs.ts for what counts.`);
 const cap = checkManualCap();
 if (cap) console.error(cap);
-if (problems.length || cap) process.exit(1);
+const log = logProblems(ROOT);
+for (const p of log) console.error(p);
+if (problems.length || cap || log.length) process.exit(1);
 console.log(`doc references ok: ${DOCS.map((d) => d.file).join(", ")}`);
