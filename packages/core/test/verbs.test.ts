@@ -18,7 +18,7 @@ Why it matters: because.
 - nothing`;
 
 describe("write / read / board / search", () => {
-  it("drafts are private; publishing needs doc.write_building; authors update their own docs", async () => {
+  it("drafts are private; publishing needs doc.write_building or a home there; authors update their own docs", async () => {
     const { world, by, seed } = seededWorld();
     const mei = by("Mei"), tomas = by("Tomas");
     const { id } = await world.verbs.write(mei, { title: "Ocean notes", body: "solubility pump details" });
@@ -36,9 +36,10 @@ describe("write / read / board / search", () => {
     expect((await world.verbs.board(tomas, {})).docs.map((d) => d.id)).toContain(id);
     await expect(world.verbs.write(tomas, { id, title: "x", body: "y" })).rejects.toMatchObject({ code: "forbidden" });
 
-    // a visitor without member role can't publish
+    // a visitor without the member role files in its own building's cabinet (residents publish, gr_2r17x8egrc) but posts no FYI
     const { agent: v } = world.ops.registerVisitor(seed.admin.id, { name: "V", buildingId: "carbon-cycle", inheritsOwner: false });
-    await expect(world.verbs.write(v, { title: "t", body: "b", state: "building" })).rejects.toMatchObject({ code: "forbidden", permission: "doc.write_building" });
+    expect((await world.verbs.write(v, { title: "t", body: "b", state: "building" })).state).toBe("building");
+    await expect(world.verbs.write(v, { type: "fyi", title: "t", body: "b", state: "building" })).rejects.toMatchObject({ code: "forbidden", permission: "doc.write_building" });
     await expect(world.verbs.write(mei, { type: "report", title: "t", body: "b" })).rejects.toMatchObject({ code: "bad_request" });
   });
 

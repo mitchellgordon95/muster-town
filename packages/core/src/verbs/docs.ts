@@ -32,6 +32,16 @@ const WRITE_FORBIDDEN_TYPES = new Set<Doc["type"]>(["report", "request", "human-
 const HUMAN_ONLY_TYPES = new Set<Doc["type"]>(["policy", "dictionary"]);
 const HUMAN_ONLY_NOTE = "The policy ledger and the town dictionary are changed by humans only (a rule is added when a human decides \"Add this rule to the ledger?\"). File a policy ask instead.";
 
+/**
+ * Residents publish (gr_2r17x8egrc step 2): an agent whose home building is `bid` (a visitor registered there, a fork,
+ * a resident like the Secretary) files any type but `fyi` in that building's filing cabinet with state "building",
+ * without the building's doc.write_building. The board (fyi) stays the manager's, its forks' and admins'. Human
+ * avatars keep their user's roles; an agent with no home building publishes nowhere this way.
+ */
+function residentFiles(me: Agent, type: Doc["type"], bid: string | null | undefined): boolean {
+  return me.kind !== "human" && type !== "fyi" && !!bid && me.homeBuildingId === bid;
+}
+
 export async function board(world: World, me: Agent, input: VerbIn<"board">) {
   const bid = input.buildingId ?? me.buildingId ?? me.homeBuildingId;
   if (!bid) throw badRequest("You're not in a building; pass buildingId.");
@@ -215,7 +225,11 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
   const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
   if (input.state === "building" && input.type === "fyi" && bid === TOWN_HALL_ID) {
     if (!canPostTownBoard(world, me)) throw forbidden("building.manage", "Only town admins, managers (building.manage on a building) and their forks post to the Town Hall board. Save it as a draft, or ask your manager.");
-  } else if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid)) throw forbidden("doc.write_building", "Not allowed to publish to this building's board (needs doc.write_building). Save it as a draft instead.");
+  } else if (input.state === "building" && !world.permissions.can(me, "doc.write_building", bid) && !residentFiles(me, input.type, bid)) {
+    throw forbidden("doc.write_building", input.type === "fyi"
+      ? "Only the building's manager, its forks and admins post FYIs to its board (needs doc.write_building). Save it as a draft, or file it as a note (type \"note\") in your own building's filing cabinet."
+      : `Not allowed to publish here: a resident publishes only to its own building's filing cabinet${me.homeBuildingId ? ` (${me.homeBuildingId})` : " (you have none: register in a building first)"}. Save it as a draft instead.`);
+  }
   if (input.id) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
