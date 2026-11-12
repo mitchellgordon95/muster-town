@@ -1,9 +1,10 @@
-import { AppError, markSeen } from "@muster-town/core";
+import { AppError, jobThread, markSeen } from "@muster-town/core";
 import { CloseGrantInput, StopGrantInput, CreateGrantRequest, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
 
+const JobsQuery = z.object({ from: z.coerce.number().int().min(1).optional(), limit: z.coerce.number().int().min(1).max(200).optional() });
 const ProposeInput = z.object({ note: z.string().max(2000).default("") });
 
 /**
@@ -20,6 +21,18 @@ export async function grantRoutes(app: FastifyInstance) {
     const { status } = parse(GrantsQuery, req.query);
     const includeDrafts = !!req.auth && desk.canManage(actorOf(world, req), req.params.id);
     return { grants: desk.list(req.params.id, { status, includeDrafts }) };
+  });
+
+  /**
+   * One job and its thread of entries (plan dc_uwx045472m step 3, read only): a job id (jb_…) or what it tracks (a grant,
+   * a retainer's schedule, a building, an assignment). `from`: entries from that seq on; else the last `limit` (≤ 200).
+   * → { job, entries, total }
+   */
+  app.get<{ Params: Params }>("/api/jobs/:id", async (req) => {
+    const { from, limit } = parse(JobsQuery, req.query);
+    const thread = jobThread(world, req.params.id, { from, limit });
+    if (!thread) throw new AppError("not_found", `job not found: ${req.params.id}`);
+    return thread;
   });
 
   app.get<{ Params: Params }>("/api/grants/:id", async (req) => {
