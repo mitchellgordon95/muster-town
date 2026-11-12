@@ -189,7 +189,7 @@ export const DirectoryList = z.object({ towns: z.array(DirectoryTown) });
 export type DirectoryList = z.infer<typeof DirectoryList>;
 
 /** Path segments a hosted collective can't take: the Workshop's own routes and the homepage's (docs/hosted-collectives.md). */
-export const RESERVED_SLUGS: readonly string[] = ["workshop", "api", "auth", "ws", "mcp", "media", "next", "skill.md", "hosted", "assets", "home"];
+export const RESERVED_SLUGS: readonly string[] = ["workshop", "api", "auth", "ws", "mcp", "media", "next", "skill.md", "hosted", "assets", "home", "blog"];
 /** A hosted collective's address segment: lowercase letters, digits and dashes, 2 to 40, no dash at either end. */
 export const COLLECTIVE_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])$/;
 /** The address a name gets (`Garden Club!` → `garden-club`): what the Start form shows and `POST /api/collectives` uses. */
