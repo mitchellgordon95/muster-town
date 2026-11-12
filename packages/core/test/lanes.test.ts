@@ -337,10 +337,10 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
     world.ops.startSession(mei.id, { purpose: "work", model: "m" });
-    const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
+    const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "checked live: the banner shows Usage" });
     expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResults: g.keyResults.map(() => ({ status: "met" })), checkpointDocId: null });
     for (const k of krs) {
-      expect(world.keyResults.require(k.id)).toMatchObject({ status: "met", statusNote: "the banner shows Usage live", statusBy: mei.id });
+      expect(world.keyResults.require(k.id)).toMatchObject({ status: "met", statusNote: "checked live: the banner shows Usage", statusBy: mei.id });
       expect(world.keyResults.require(k.id).archivedAt).toBeTruthy();
     }
     expect(world.grants.require(g.id).history.at(-1)).toMatchObject({ action: "close", tokens: 3_000_000 });
@@ -368,7 +368,8 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const g = fund(1_000_000);
     expect(() => world.grantDesk.close(mei, g.id, { outcome: "done", note: " " })).toThrow(/evidence/);
     const r = world.grantDesk.close(admin, g.id, { outcome: "done" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met" }] });
+    // a bare close names no live check: met, unverified (1:1 mt_msnjkpgwdb decision 9)
+    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met-unverified" }] });
     const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
     expect(world.keyResults.require(g.keyResultId!).statusNote).toBe(note);
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);

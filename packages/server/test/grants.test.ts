@@ -208,10 +208,10 @@ describe("grants routes", () => {
     const id = (await json(app, "POST", `/api/buildings/${LAB}/grants`, { headers: mgr, body: { title: "Lab banner for guests", objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS } })).body.grant.id as string;
     await json(app, "POST", `/api/grants/${id}/propose`, { headers: mgr });
     await json(app, "POST", `/api/grants/${id}/decide`, { headers: auth, body: { action: "fund" } });
-    expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "done", note: "live on the banner" } })).status).toBe(200);
+    expect((await json(app, "POST", `/api/grants/${id}/close`, { headers: mgr, body: { outcome: "done", note: "checked live: it shows on the banner" } })).status).toBe(200);
     const got = (await json(app, "GET", `/api/grants/${id}`)).body.grant;
     expect(got).toMatchObject({ status: "closed", outcome: "done" });
-    for (const k of got.keyResults) expect(k).toMatchObject({ status: "met", statusNote: "live on the banner", archivedAt: expect.any(String) });
+    for (const k of got.keyResults) expect(k).toMatchObject({ status: "met", statusNote: "checked live: it shows on the banner", archivedAt: expect.any(String) });
     const intray = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
     expect(intray.grants.map((g: { id: string }) => g.id)).not.toContain(id);
     const deck = (await json(app, "GET", "/api/review-deck", { headers: auth })).body;

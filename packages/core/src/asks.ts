@@ -398,6 +398,8 @@ export function checkRollupAsks(world: World, body: string, input: RollupAskInpu
     if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule or meeting).`);
     if (a.type === "money" && kind !== "grant" && kind !== "retainer") throw badRequest(`${where} is a money ask: its target is a grant or a retainer, not a ${kind}.`);
     if (!targetExists(world, kind, a.targetId)) throw badRequest(`${where}: ${a.targetId} is not a ${kind} of this town.`);
+    // 1:1 mt_msnjkpgwdb decision 9: a key result met on code and tests is shown as "met, unverified"; nobody is asked about it
+    if (kind === "keyResult" && world.keyResults.get(a.targetId)?.status === "met-unverified") throw badRequest(`${where}: ${a.targetId} is "met, unverified" (its grant closed without a live check). The town shows it as such and asks no human about it: check it live and say so in your next report, or leave it; a human flips it to met or missed from the grant page.`);
     return { ...a, targetKind: kind };
   });
   const targets = new Set(asks.map((a) => a.targetId).filter(Boolean));

@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, grantName, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, grantName, isJudgedKr, krStatusWords, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type ThreadEntry } from "../api";
 import { unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -477,9 +477,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   // on the grant's own page each key result opens on one line; the full text sits in its "How to check" fold (kr_p6l1w6tade)
   const krLine = (text: string) => (onPage ? clipText(text, KR_LINE).head : text);
   // a closed-as-done grant's per-key-result mark (on its own page: inside that key result's fold, gr_zak30564zh step 5)
-  const markActions = (k: (typeof krs)[number]) => closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
+  const markActions = (k: (typeof krs)[number]) => closedDone && canFund && signedInHuman && isJudgedKr(k.status) ? (
     <div className="actions">
-      {k.status === "met"
+      {/* met, unverified (closed on code and tests, no live check named): a human who saw it live marks it met */}
+      {k.status === "met-unverified" ? <Act small tone="ok" run={mark(k.id, "met")} title="You saw it on the live town: mark it met">Mark met</Act> : null}
+      {k.status !== "missed"
         ? <Act small tone="bad" disabled={!note.trim()} run={mark(k.id, "missed")} title={note.trim() ? "It did not ship: mark it missed (queues a postmortem)" : "Say why in the note first"}>Mark missed</Act>
         : <Act small run={mark(k.id, "met")} title="Undo: back to met">Back to met</Act>}
     </div>
@@ -490,11 +492,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       <ul className="grant-krs">
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
-            <b>{onPage && krs.length > 1 ? `${i + 1}.` : `Key result${krs.length > 1 ? ` ${i + 1}` : ""}:`}</b> {krLine(k.text)} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
+            <b>{onPage && krs.length > 1 ? `${i + 1}.` : `Key result${krs.length > 1 ? ` ${i + 1}` : ""}:`}</b> {krLine(k.text)} <span className="muted">· {krStatusWords(k.status)}{k.due ? ` · due ${k.due}` : ""}</span>
             <details className="kr-more"><summary>{onPage ? "details" : `How to check${k.statusNote ? " · note" : ""}`}</summary>
               {krLine(k.text) !== k.text ? <div className="kr-full">{k.text}</div> : null}
               <div className="muted kr-check">How to check: {k.howToCheck}</div>
-              {k.statusNote ? <div className="muted kr-check">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div> : null}
+              {k.statusNote ? <div className="muted kr-check">{krStatusWords(k.status)}: <DocText text={k.statusNote} /></div> : null}
               {onPage ? markActions(k) : null}
             </details>
             {onPage ? null : markActions(k)}
@@ -505,8 +507,8 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       <GrantSteps grant={g} />
       {onPage ? null : <div className="intray-proposal">Stop when: {g.stopCondition}</div>}
   </>);
-  const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met") ? (<>
-        <div className="muted">Closed as done: its key results are met. If one did not ship, say why and mark it missed.</div>
+  const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met" || k.status === "met-unverified") ? (<>
+        <div className="muted">Closed as done: its key results are met{krs.some((k) => k.status === "met-unverified") ? " (those marked \"met, unverified\" stand on code and tests: no live check was named)" : ""}. If one did not ship, say why and mark it missed.</div>
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Why missed"><input value={note} placeholder="required to mark one missed" onChange={(e) => setNote(e.target.value)} /></Field></div>
           <div className="actions decide-footer">{talk}</div>

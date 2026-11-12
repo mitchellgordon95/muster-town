@@ -11,7 +11,7 @@
  * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
  * provenance names).
  */
-import { ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { isJudgedKr, krStatusWords, ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
@@ -27,7 +27,7 @@ const FLAG_AFTER_MS = 2 * H;
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 import { waitedFor } from "./time.ts";
 ;
-const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", missed: "❌" };
+const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", "met-unverified": "☑️", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited", stop: "stopped" };
@@ -398,8 +398,8 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
   const directed = lanes.reduce((s, l) => s + l.directed.spentTodayTokens, 0);
   const rows = world.buildings.where("kind != 'town-hall'", [], "ORDER BY rowid").map((b) => {
     const light = world.grantDesk.stoplight(b);
-    const krs = world.grantDesk.keyResults(b.id).filter((k) => !k.archivedAt && k.status !== "met" && k.status !== "missed");
-    return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${k.status.replace(/-/g, " ")}`).join(" · ") : "_none_"} |`;
+    const krs = world.grantDesk.keyResults(b.id).filter((k) => !k.archivedAt && !isJudgedKr(k.status));
+    return `| ${b.name} | ${light ? LIGHT[light.light] ?? "" : ""} | ${krs.length ? krs.map((k) => `${KR_LIGHT[k.status] ?? "⚪"} ${krStatusWords(k.status)}`).join(" · ") : "_none_"} |`;
   });
   // desks are the steer (docs/goals.md "Effort steering is desks"): each pillar's subtree headcount (mt_n25udpflus decision 3)
   const desks = (n: GoalNode): number => n.buildings.reduce((s, b) => s + b.headcount, 0) + n.children.reduce((s, c) => s + desks(c), 0);
@@ -432,7 +432,7 @@ function decidedLabel(world: World, p: PinnedSlide): string {
     const g = world.grants.get(grantId);
     if (g && p.kind === "close") {
       const krs = world.grantDesk.keyResultsOf(g.id);
-      if (krs.length && krs.every((k) => k.status === "met" || k.status === "missed")) return krs.length === 1 ? `key result marked ${krs[0]!.status}` : `key results marked ${krs.map((k) => k.status).join(", ")}`;
+      if (krs.length && krs.every((k) => isJudgedKr(k.status))) return krs.length === 1 ? `key result marked ${krStatusWords(krs[0]!.status)}` : `key results marked ${krs.map((k) => krStatusWords(k.status)).join("; ")}`;
     }
     const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
     if (e) return ACTION_PAST[e.action] ?? e.action;

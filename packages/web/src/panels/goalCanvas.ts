@@ -4,6 +4,7 @@
  * wide, a parent is as wide as its children's row, centred over it, so no two subtrees overlap. Pure, so it is tested
  * without a DOM; GoalCanvas.tsx draws it and pans and zooms it.
  */
+import { isJudgedKr } from "@muster-town/schema";
 import type { GoalTreeNode } from "@muster-town/schema";
 
 /** One box's size and the gaps between boxes, in canvas pixels (before zoom). */
@@ -14,7 +15,7 @@ export const BOX = { w: 210, h: 92, gapX: 26, gapY: 60, row: 21 };
  * captain, key results, due), and a row for each attached building (each shows its own desks).
  */
 function boxHeight(n: Pick<GoalTreeNode, "buildings" | "ownerId" | "keyResults">): number {
-  const open = n.keyResults.filter((k) => !k.archivedAt && k.status !== "met" && k.status !== "missed");
+  const open = n.keyResults.filter((k) => !k.archivedAt && !isJudgedKr(k.status));
   const tags = 1 + (n.ownerId ? 1 : 0) + (open.length ? 1 : 0) + (open.some((k) => k.due) ? 1 : 0);
   return BOX.h + BOX.row * ((tags > 3 ? 1 : 0) + n.buildings.length);
 }

@@ -1490,8 +1490,17 @@ export const CalibrationProposal = z.object({
 export type CalibrationProposal = z.infer<typeof CalibrationProposal>;
 // ---------- end legible delegation steps 9-10 ----------
 
-export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "missed"]);
+/**
+ * `met-unverified` ("met, unverified", 1:1 mt_msnjkpgwdb decision 9): its grant closed as done on code and tests, with
+ * no live check named in the evidence. Judged like met (archived, not open); the town shows it as such and files no
+ * ask about it; a human can flip it to met or missed from the grant page.
+ */
+export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "met-unverified", "missed"]);
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
+/** A key result nobody works on any more: met, met unverified or missed. It is archived under its goal. */
+export const isJudgedKr = (status: string): boolean => status === "met" || status === "met-unverified" || status === "missed";
+/** A key result's status in words: "not started", "met, unverified". */
+export const krStatusWords = (status: string): string => (status === "met-unverified" ? "met, unverified" : status.replace(/-/g, " "));
 /**
  * A key result of a grant (docs/how-work-gets-done.md §4): something a human can check in the live town, by a date. The
  * manager writes them in its grant proposal and sets status up to `claimed` (`close_grant`, PATCH /api/key-results);
@@ -1895,7 +1904,7 @@ export type Kpi = z.infer<typeof Kpi>;
 /** A key result at a checkpoint, in one word: claimed (or met) = shipped, not-started / missed = not shipped, on-track / at-risk = partly. */
 export type KrVerdict = "shipped" | "not" | "partly";
 export function krVerdict(status: KeyResultStatus): KrVerdict {
-  return status === "claimed" || status === "met" ? "shipped" : status === "on-track" || status === "at-risk" ? "partly" : "not";
+  return status === "claimed" || status === "met" || status === "met-unverified" ? "shipped" : status === "on-track" || status === "at-risk" ? "partly" : "not";
 }
 const VERDICT_MARK: Record<KrVerdict, string> = { shipped: "✓ shipped", not: "✗ not shipped", partly: "~ partly" };
 /**
@@ -2433,7 +2442,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
-  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence (a human can still flip one to missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
+  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",

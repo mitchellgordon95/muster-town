@@ -527,7 +527,7 @@ export function overtakenReason(world: World, it: { title: string; whatItIs: str
   const call = it.yourCall;
   for (const id of idsIn(text, "kr")) {
     const kr = world.keyResults.get(id);
-    if (kr && (kr.status === "met" || kr.status === "missed") && MARK_MET.test(call)) return `${id} is already ${kr.status}`;
+    if (kr && (kr.status === "met" || kr.status === "met-unverified" || kr.status === "missed") && MARK_MET.test(call)) return `${id} is already ${kr.status === "met-unverified" ? "met, unverified" : kr.status}`;
   }
   const askedAbout = idsIn(`${it.title} ${call}`, "gr").map((id) => world.grants.get(id)).filter((g): g is NonNullable<typeof g> => !!g);
   for (const g of askedAbout) {

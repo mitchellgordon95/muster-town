@@ -179,7 +179,7 @@ export interface SpendNode {
   status?: string;
   outcome?: string | null;
   outcomeGroup?: "done" | "cut" | "open";
-  krCounts?: { met: number; missed: number; claimed: number; open: number };
+  krCounts?: { met: number; missed: number; claimed: number; open: number; unverified?: number };
   /** lane rows under "Not under a grant" (gr_utygatbi85): which lane */
   lane?: NoGrantLane;
   /** directed assignment rows: the human source (meeting, doc or tell) and who asked; nulls = not recorded */

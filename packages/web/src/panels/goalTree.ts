@@ -2,12 +2,13 @@
  * Pure helpers for the Town Hall goal editor (docs/goals.md "The Town Hall goal editor"): who may edit a node, the
  * rows the tree shows, archived key results folded under their goal, past-due dates, and the retire dialog's choices.
  */
+import { isJudgedKr } from "@muster-town/schema";
 import type { GoalTreeNode } from "@muster-town/schema";
 
 export type TreeKr = GoalTreeNode["keyResults"][number];
 
 /** A key result is archived once it is met or missed (a grant closed as done marks them met; a human marks or flips them) or archived on its own. */
-export const isArchived = (k: Pick<TreeKr, "status" | "archivedAt">) => !!k.archivedAt || k.status === "met" || k.status === "missed";
+export const isArchived = (k: Pick<TreeKr, "status" | "archivedAt">) => !!k.archivedAt || isJudgedKr(k.status);
 
 /** "✓ 4 done, 1 missed" for a goal's archived key results, or null when it has none. */
 export function archivedLine(krs: Pick<TreeKr, "status" | "archivedAt">[]): string | null {

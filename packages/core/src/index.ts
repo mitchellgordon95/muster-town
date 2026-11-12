@@ -103,6 +103,7 @@ export { tickMemo, withTickMemo } from "./tick-memo.ts";
 export { decideAsk, deferAsk, openAsks } from "./asks.ts";
 export { answerEntry, appendEntry, bookEntryTokens, entryOf, fileDeadSession, jobThread, openManagerEntries, type Entry } from "./jobs.ts";
 export { answer, asksSomething, type Answer, type EntryFacts } from "./answer.ts";
+export { namesLiveCheck, statusAtClose } from "./kr-evidence.ts";
 export { markSeen } from "./seen.ts";
 // legible delegation steps 9-10: the measures, the Planner's calibration schedule, the town dictionary
 export { legibleMeasures } from "./measures.ts";

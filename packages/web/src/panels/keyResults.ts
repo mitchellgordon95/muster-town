@@ -2,7 +2,7 @@
  * Pure helpers for the building panel's Goals and Grants tabs and the Town Hall in-tray (goal-directed buildings): the
  * same numbers and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
-import type { GrantView, KeyResultStatus } from "@muster-town/schema";
+import { krStatusWords, type GrantView, type KeyResultStatus } from "@muster-town/schema";
 import type { FinanceSpend, ObjectiveTree, ObjectiveView, SpendNode } from "../api";
 import { ADJ, fmtTokens, fmtTokensExact } from "../format";
 
@@ -20,7 +20,7 @@ export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens">
 
 /** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
 export function krTone(s: KeyResultStatus): string {
-  return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" ? "warn" : "";
+  return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" || s === "met-unverified" ? "warn" : "";
 }
 
 /** "Moves Trust · 2026-Q4", an objective's subtitle. */
@@ -29,7 +29,7 @@ export function objectiveLine(o: Pick<ObjectiveView, "kpiName" | "horizon">): st
 }
 
 /** The human-readable status, "not started" for "not-started". */
-export const krStatusLabel = (s: KeyResultStatus) => s.replace(/-/g, " ");
+export const krStatusLabel = (s: KeyResultStatus) => krStatusWords(s);
 
 /** The statuses a holder may set: `fund` holders judge met / missed; managers (and `manage` holders) go up to claimed. */
 const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];

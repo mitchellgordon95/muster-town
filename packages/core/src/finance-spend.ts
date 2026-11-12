@@ -112,7 +112,8 @@ export interface SpendNoGrant {
 
 /** The three groups the Spending tab totals grants by: closed with the work done, closed without it, still open. */
 export type SpendOutcome = "done" | "cut" | "open";
-export interface KrCounts { met: number; missed: number; claimed: number; open: number }
+/** `unverified`: met on code and tests, no live check named (status met-unverified); counted apart from `met`. */
+export interface KrCounts { met: number; missed: number; claimed: number; open: number; unverified?: number }
 
 /**
  * A grant's group on the Spending tab: closed as `done` or `met` → done; closed any other way (`cut`, `stopped`, `spent`)
@@ -356,19 +357,26 @@ function child(parent: Acc, key: string, make: () => Acc): Acc {
 }
 
 /** The pure aggregation behind GET /api/finance/spend, given `used` from financeSummary. */
+/** Each grant's key results by status (a grant row's `krCounts`): met, met unverified, missed, claimed, else open. */
+export function krCountsByGrant(keyResults: { grantId?: string | null; status: string }[]): Map<string, KrCounts> {
+  const krs = new Map<string, KrCounts>();
+  for (const k of keyResults) {
+    if (!k.grantId) continue;
+    let c = krs.get(k.grantId);
+    if (!c) krs.set(k.grantId, c = { met: 0, missed: 0, claimed: 0, open: 0 });
+    if (k.status === "met" || k.status === "missed" || k.status === "claimed") c[k.status]++;
+    else if (k.status === "met-unverified") c.unverified = (c.unverified ?? 0) + 1;
+    else c.open++;
+  }
+  return krs;
+}
+
 export function financeSpend(inp: SpendInputs, used: number, now = new Date()): FinanceSpend {
   const assignments = new Map(inp.assignments.map((a) => [a.id, a]));
   const agents = new Map(inp.agents.map((a) => [a.id, a]));
   const buildingNames = new Map(inp.buildings.map((b) => [b.id, b.name]));
   const grantsById = new Map(inp.grants.map((g) => [g.id, g]));
-  const krs = new Map<string, KrCounts>();
-  for (const k of inp.keyResults ?? []) {
-    if (!k.grantId) continue;
-    let c = krs.get(k.grantId);
-    if (!c) krs.set(k.grantId, c = { met: 0, missed: 0, claimed: 0, open: 0 });
-    if (k.status === "met" || k.status === "missed" || k.status === "claimed") c[k.status]++;
-    else c.open++;
-  }
+  const krs = krCountsByGrant(inp.keyResults ?? []);
   const grantFields = (g: SpendInputs["grants"][number]): GrantFields | undefined => g.status === undefined ? undefined : {
     grantTokens: g.grantTokens ?? null, status: g.status, outcome: g.outcome ?? null, outcomeGroup: spendOutcome({ status: g.status, outcome: g.outcome ?? null }),
     krCounts: krs.get(g.id) ?? { met: 0, missed: 0, claimed: 0, open: 0 },

@@ -253,7 +253,7 @@ export class Sim {
     const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
     Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
-    if (i.outcome === "done") for (const k of g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []) if (k.status !== "met" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
+    if (i.outcome === "done") for (const k of g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []) if (k.status !== "met" && k.status !== "met-unverified" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
     this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
