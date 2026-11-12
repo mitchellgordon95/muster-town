@@ -97,7 +97,7 @@ export function maskTokens(text: string, secrets: string[] = []): string {
  * The top-level names the export owns in its repo (rebuilt from the live world every run, so a hand edit to them is
  * overwritten by the next export); anything else at the repo's top level (a LICENSE, .gitignore, .github/) is foreign and kept.
  */
-export const EXPORT_OWNED = ["README.md", "town.json", "index.json", "agents.json", "buildings", "library", "town-hall", "meetings", "events"] as const;
+const EXPORT_OWNED = ["README.md", "town.json", "index.json", "agents.json", "buildings", "library", "town-hall", "meetings", "events"] as const;
 
 /** The ref a push fetches the remote's main into (keeps its objects, so a later fetch transfers only what is new). */
 const REMOTE_MAIN = "refs/publish/main";
