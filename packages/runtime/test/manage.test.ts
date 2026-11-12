@@ -54,7 +54,7 @@ describe("manager team-lead session", () => {
     const s = sdk.sessions[0];
     expect(s.received[0]).toContain(r1.id);
     expect(s.received[1]).toContain(r2.id);
-    expect(s.options.tools).toEqual([]); // no web, no code tools
+    expect(s.options.tools).toEqual([]); // a team-lead session (not the Secretary's): no web, no code tools
     // the cached prefix: a plain string (no Claude Code preset) with the in-tray rules but nothing live (docs/prompt-caching.md);
     // the live state opens the first message, before the task
     expect(typeof s.options.systemPrompt).toBe("string");

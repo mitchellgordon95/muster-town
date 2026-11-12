@@ -11,7 +11,7 @@ import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
 import { meetingImages } from "./meetingImages.ts";
 import type { ImageBlock } from "./sdk.ts";
-import { claudeDirOf, findSdkTranscript, homeOf, runAgentSession, type Ctx, type LiveSession } from "./session.ts";
+import { claudeDirOf, findSdkTranscript, homeOf, runAgentSession, webFor, type Ctx, type LiveSession } from "./session.ts";
 
 /** A 1:1 beside a work session can do anything a manage session can except what belongs to the work: its report and assignment. */
 const ALONGSIDE_VERBS: VerbName[] = VERB_NAMES.filter((v) => v !== "submit_report" && v !== "accept_assignment");
@@ -298,7 +298,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
     ? seeing(world, `${state}\n\n${oneOnOnePrompt(first, nameOf, talkBlocks(world, first, agentId, work))}`, humanLines(first))
     : [`${state}\n\n${resume ? resumePrompt(resume) : managePrompt(building, fresh, nameOf)}`, []];
   const run = runAgentSession(ctx, {
-    agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: false, meetingId: first?.id ?? null,
+    agentId, purpose: "manage", model: agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: webFor("manage", { secretary: world.secretary.isSecretary(agent), oneOnOne: !!first }), meetingId: first?.id ?? null,
     // beside a work session: its own registry slot, and no verbs that act for the work (its report, its assignment)
     ...(work ? { alongside: true, verbs: ALONGSIDE_VERBS } : {}),
     system: managerSystemPrompt(agent, building, world.town.get(), { purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building), skills: skillsBlock(world.skills.forAgent(agentId)), code: !!code, repo: world.repoMode(), captain: world.captainName() }),
