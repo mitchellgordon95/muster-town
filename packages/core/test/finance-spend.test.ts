@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, OFF_STEP, STEPS_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -268,6 +268,51 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     for (const st of ["funded", "checkpoint", "proposed", "draft", "countered"] as const) expect(spendOutcome({ status: st, outcome: null })).toBe("open");
   });
 
+  it("a step-priced grant opens into its steps with size, price, spent and ratio, plus an Off-step row; the rows sum to the grant row (gr_3na7vdmd52)", () => {
+    const prices = { S: 50_000, M: 150_000, L: 400_000 };
+    const inp: SpendInputs = {
+      ...base,
+      sessions: [
+        s("ag_asha", "a1", 60_000, "g1"), s("ag_asha", "a1c", 30_000, "g1"), // step 1 and its parked continuation
+        s("ag_asha", "a2", 75_000, "g1"), // step 2 (L), running
+        s("ag_asha", "a9", 5_000, "g1"), // the manager's follow-up under the grant: no step
+        s("ag_lab", "a4", 400), s("ag_asha", "a6", 100, "g2"), // g2: steps without sizes (funded before migration 098)
+      ],
+      assignments: [
+        { id: "a1", buildingId: "bank", grantId: "g1", title: "step 1", grantStep: 0, status: "done", createdAt: "2026-11-01T00:00:00Z" },
+        { id: "a1c", buildingId: "bank", grantId: "g1", title: "step 1 (resumed)", grantStep: 0, status: "done", createdAt: "2026-11-01T02:00:00Z" },
+        { id: "a2", buildingId: "bank", grantId: "g1", title: "step 2", grantStep: 1, status: "active", createdAt: "2026-11-02T00:00:00Z" },
+        { id: "a9", buildingId: "bank", grantId: "g1", title: "follow-up", grantStep: null, status: "done" },
+        { id: "a4", buildingId: "lab", grantId: null, title: "lab work" },
+        { id: "a6", buildingId: "bank", grantId: "g2", title: "old step", grantStep: 0, status: "done" },
+      ],
+      grants: [
+        { id: "g1", objective: "Sized", steps: [{ title: "Build", size: "M", description: "d" }, { title: "Verify", size: "L", description: "d" }, { title: "Close", size: "S", description: "d" }] },
+        { id: "g2", objective: "Unsized", steps: [{ title: "Old", description: "d" }] },
+      ],
+      stepPrices: prices,
+    };
+    const f = financeSpend(inp, 170_500, T0);
+    const g1 = f.rows[0].children!.find((c) => c.id === "g1")!;
+    expect(g1.tokens).toBe(170_000);
+    expect(g1.children!.map((c) => [c.kind, c.id, c.name, c.tokens, c.step ?? null])).toEqual([
+      ["step", "step-1", "Step 1: Build", 90_000, { index: 0, size: "M", price: 150_000, ratio: 0.6, status: "done" }],
+      ["step", "step-2", "Step 2: Verify", 75_000, { index: 1, size: "L", price: 400_000, ratio: 0.19, status: "active" }],
+      ["off-step", null, OFF_STEP, 5_000, null],
+    ]);
+    // a step row opens into its assignments, the continuation included
+    expect(g1.children![0].children!.map((c) => c.id)).toEqual(["a1", "a1c"]);
+    expect(sum(g1.children!)).toBe(g1.tokens);
+    // a grant with unsized steps keeps plain assignment rows
+    const g2 = f.rows[0].children!.find((c) => c.id === "g2")!;
+    expect(g2.children!.map((c) => c.kind)).toEqual(["assignment"]);
+    expect(f.stepsCheck).toEqual({ ok: true, diff: 0, grants: 1, identity: STEPS_IDENTITY });
+    expect(f.stepPrices).toEqual(prices);
+    expect(f.steps).toBeNull();
+    // without the price table there are no step rows
+    expect(financeSpend({ ...inp, stepPrices: undefined }, 170_500, T0).rows[0].children!.find((c) => c.id === "g1")!.children!.every((c) => c.kind === "assignment")).toBe(true);
+  });
+
   it("an empty grants block when no grant is known, with an ok check", () => {
     const f = financeSpend(base, 1_500, T0);
     expect(f.grants).toMatchObject({ count: 0, spent: 0, funded: 0 });
@@ -289,5 +334,9 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.rows.find((r) => r.id === b.id)!.usd).toBe(0.02);
     expect(f.usd.used).toBe(world.bank.finance(T0).usd.used);
     expect(f.usdSumCheck.ok).toBe(true);
+    // the step calibration rides along, public (gr_3na7vdmd52): no step done yet
+    expect(f.steps?.lines).toEqual(["S: no step completed in 30 days", "M: no step completed in 30 days", "L: no step completed in 30 days"]);
+    expect(f.stepPrices).toEqual({ S: 50_000, M: 150_000, L: 400_000 });
+    expect(f.stepsCheck.ok).toBe(true);
   });
 });

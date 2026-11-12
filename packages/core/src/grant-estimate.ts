@@ -1,6 +1,7 @@
 import { estimateRangeOf, grantPricingOf, type Assignment, type Grant, type GrantEstimate, type SimilarGrant, type StepCalibration, type StepSize } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { nowIso } from "./util.ts";
+import type { Repos } from "./store.ts";
 import type { World } from "./world.ts";
 
 /** What an estimate is asked about: a grant (or a plan not saved yet) by its building, key-result count and ask. */
@@ -78,9 +79,10 @@ const CALIBRATION_MIN_SAMPLE = 3;
  * What steps really cost against the table (docs/legible-delegation.md §7.3, §7.4): for each size, over the plan steps
  * completed in the last 30 days (a step = the assignments of a grant with that `grantStep`, its parked continuations
  * included; done when its latest one is), the median of spent ÷ the size's table value, with the sample count,
- * collective-wide and per building. `ratio` is null with no sample. Read-only; GET /api/town shows it beside the table.
+ * collective-wide and per building. `ratio` is null with no sample. Read-only; GET /api/town shows it beside the table, and
+ * GET /api/finance/spend carries it as `steps` (public, gr_3na7vdmd52).
  */
-export function stepCalibration(world: World, now = new Date()): StepCalibration {
+export function stepCalibration(world: Pick<Repos, "town" | "assignments" | "sessions" | "grants">, now = new Date()): StepCalibration {
   const table = grantPricingOf(world.town.get()).stepSizes;
   const since = new Date(now.getTime() - CALIBRATION_DAYS * 86_400_000).toISOString();
   // the latest assignment per (grant, step) decides whether the step is done, and when

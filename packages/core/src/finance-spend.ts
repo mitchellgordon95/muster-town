@@ -1,7 +1,8 @@
-import { grantName, countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
+import { grantName, grantPricingOf, countsOf, estimateRangeOf, isBackfilled, rawTokens, splitRaw, type Agent, type StepCalibration, type StepSize, type Allocation, type Assignment, type BankDebit, type Building, type Grant, type GrantEstimate, type GrantOutcome, type GrantStatus, type KeyResult, type Session, type UsageEntry } from "@muster-town/schema";
 import { adjustedOutputTokens, sessionTokens } from "./bank.ts";
 import type { EventLog } from "./events.ts";
 import { sourceOrigin } from "./origin.ts";
+import { stepCalibration } from "./grant-estimate.ts";
 import { bankTokensUsd, cents, sessionListUsd, townFinance } from "./finance.ts";
 import type { Repos } from "./store.ts";
 
@@ -19,7 +20,15 @@ import type { Repos } from "./store.ts";
  * `notFunded` (what is left beyond `used`: sessions nothing in the Bank or donations paid for, e.g. the Town Hall's
  * librarian). At most one of `unattributed` and `notFunded` is non-zero.
  */
-export type SpendKind = "building" | "grant" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+export type SpendKind = "building" | "grant" | "step" | "off-step" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+
+/**
+ * A step row's price (gr_3na7vdmd52, kr_jap500c8u3): under a step-priced grant (every plan step carries a size), its
+ * assignments are grouped by `Assignment.grantStep`; the row names the step's size, its price from the collective's
+ * table (`grantPricingOf(town).stepSizes`, today's), what it spent and spent ÷ price. `status` is its latest
+ * assignment's (a parked continuation shares the step), so a running step's ratio is still growing.
+ */
+export interface SpendStep { index: number; size: StepSize; price: number; ratio: number; status: Assignment["status"] | null }
 
 /**
  * The lane rows under a building's "Not under a grant" row (gr_utygatbi85, kr_k76nyweby5): a session's own lane
@@ -84,6 +93,8 @@ export interface SpendNode {
   source?: SpendSource;
   /** assignment rows under the exploration lane row only: the proposal it ended in; null = no proposal */
   proposal?: SpendProposal | null;
+  /** step rows (kind "step") only: the step's number, size, table price, spent ÷ price and status */
+  step?: SpendStep;
   children?: SpendNode[];
 }
 
@@ -186,6 +197,16 @@ export interface FinanceSpend {
   noGrant: SpendNoGrant;
   /** every lane row's tokens vs its "Not under a grant" row's, summed over buildings; ok when equal */
   noGrantCheck: { ok: boolean; diff: number; identity: string };
+  /**
+   * How steps ran against their price across the collective (gr_3na7vdmd52, kr_5j25451emh): core grant-estimate.ts
+   * `stepCalibration`, the same figures GET /api/town shows admins: per size the median spent ÷ table price over the
+   * steps done in the last 30 days, and how many. Null when the caller passed none (a pure `financeSpend` in a test).
+   */
+  steps: StepCalibration | null;
+  /** the table's price per size the step rows are priced at (null: none passed, so no step rows) */
+  stepPrices: Record<StepSize, number> | null;
+  /** Σ step rows + off-step rows vs Σ the step-priced grant rows; `grants` = how many such grant rows; ok when equal */
+  stepsCheck: { ok: boolean; diff: number; grants: number; identity: string };
   at: string;
 }
 
@@ -194,10 +215,14 @@ export interface NotFundedBuilding { buildingId: string | null; buildingName: st
 
 export interface SpendInputs {
   sessions: (Pick<Session, "agentId" | "assignmentId" | "grantId" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "endedAt"> & Partial<Pick<Session, "purpose" | "lane" | "startedAt">>)[];
-  assignments: (Pick<Assignment, "id" | "buildingId" | "grantId" | "title"> & Partial<Pick<Assignment, "sourceId" | "origin" | "createdBy" | "createdByKind" | "reportId">>)[];
+  assignments: (Pick<Assignment, "id" | "buildingId" | "grantId" | "title"> & Partial<Pick<Assignment, "sourceId" | "origin" | "createdBy" | "createdByKind" | "reportId" | "grantStep" | "status" | "createdAt">>)[];
   agents: Pick<Agent, "id" | "buildingId">[];
   buildings: Pick<Building, "id" | "name">[];
-  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "title" | "buildingId" | "grantTokens" | "status" | "outcome" | "estimate" | "proposedBy" | "createdAt" | "fundedAt" | "findingsDocIds" | "history">>)[];
+  grants: (Pick<Grant, "id" | "objective"> & Partial<Pick<Grant, "title" | "buildingId" | "grantTokens" | "status" | "outcome" | "estimate" | "proposedBy" | "createdAt" | "fundedAt" | "findingsDocIds" | "history" | "steps">>)[];
+  /** the step-size table's prices (`grantPricingOf(town).stepSizes`); left out = no step rows */
+  stepPrices?: Record<StepSize, number>;
+  /** the collective's step calibration (`stepCalibration`), passed through as `steps`; left out = null */
+  steps?: StepCalibration;
   /** names of the humans directed rows name (left out = ids only) */
   users?: { id: string; name: string }[];
   /** a directed source's human (core origin.ts `sourceOrigin`), keyed by source id; left out = none known */
@@ -219,6 +244,7 @@ export const UNATTRIBUTED = "Usage from before sessions carried counters (before
 export const WEIGHT_MISMATCH = "Priced differently before the switch to adjusted tokens (nothing went unpaid)";
 export const NOT_FUNDED = "Not funded: work sessions the Bank never charged";
 export const NOT_FUNDED_UNATTRIBUTED = "unattributed";
+export const OFF_STEP = "Off-step: work on this grant outside its planned steps (follow-ups the manager assigned, sessions with no step recorded)";
 /** why the split by building can differ from notFunded (shown instead of a bare "these differ") */
 export const NOT_FUNDED_SPLIT_REASON = "Not funded is a net total (what sessions counted, less everything paid), so a session paid more than it counted cancels part of it; the split by building counts each undebited usage row in full, after what donations to that building paid, so it is an estimate that can come out higher.";
 /** a usage row counts as paid when a Bank debit for the same agent lies within this many ms of it (dc_cvp89lj91o) */
@@ -320,7 +346,7 @@ export function notFundedUsage(inp: Pick<SpendInputs, "usage" | "debits" | "allo
   return { split, lastAt, allocationPaid };
 }
 
-interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; grant?: GrantFields; extra?: Pick<SpendNode, "lane" | "source" | "proposal">; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
+interface Acc { kind: SpendKind; id: string | null; name: string; objective?: string; grant?: GrantFields; extra?: Pick<SpendNode, "lane" | "source" | "proposal" | "step">; tokens: number; usd: number; sessions: number; kids: Map<string, Acc> }
 type GrantFields = Required<Pick<SpendNode, "grantTokens" | "status" | "outcome" | "outcomeGroup" | "krCounts">>;
 const acc = (kind: SpendKind, id: string | null, name: string, objective?: string, grant?: GrantFields): Acc => ({ kind, id, name, ...(objective != null ? { objective } : {}), ...(grant ? { grant } : {}), tokens: 0, usd: 0, sessions: 0, kids: new Map() });
 function child(parent: Acc, key: string, make: () => Acc): Acc {
@@ -348,6 +374,16 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     krCounts: krs.get(g.id) ?? { met: 0, missed: 0, claimed: 0, open: 0 },
   };
   const root = acc("building", null, "");
+  const prices = inp.stepPrices ?? null;
+  // each (grant, step)'s latest assignment's status: a parked continuation carries the same grantStep
+  const stepStatus = new Map<string, Assignment["status"]>();
+  const latest = new Map<string, string>();
+  for (const a of inp.assignments) {
+    if (!a.grantId || a.grantStep == null || !a.status) continue;
+    const k = `${a.grantId}:${a.grantStep}`;
+    const at = a.createdAt ?? "";
+    if (!latest.has(k) || at >= latest.get(k)!) { latest.set(k, at); stepStatus.set(k, a.status); }
+  }
   let weightMismatch = 0, mismatched = 0;
   const since = inp.convertedAt ? countersSince(inp.sessions) : null;
 
@@ -377,6 +413,17 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
         const lane = noGrantLane(s);
         path.push(g);
         parent = child(g, `lane:${lane}`, () => ({ ...acc("lane", lane, NO_GRANT_LANE_NAME[lane]), extra: { lane } }));
+      } else if (prices && stepPriced(grantsById.get(grantId))) {
+        // a step-priced grant opens into its steps (gr_3na7vdmd52): the assignment's grantStep, else the Off-step row
+        const steps = grantsById.get(grantId)!.steps!;
+        const k = a?.grantId === grantId && a.grantStep != null && a.grantStep < steps.length ? a.grantStep : null;
+        path.push(g);
+        parent = k === null
+          ? child(g, "off-step", () => acc("off-step", null, OFF_STEP))
+          : child(g, `step:${k}`, () => {
+            const size = steps[k]!.size!;
+            return { ...acc("step", `step-${k + 1}`, `Step ${k + 1}: ${steps[k]!.title}`), extra: { step: { index: k, size, price: prices[size], ratio: 0, status: stepStatus.get(`${grantId}:${k}`) ?? null } } };
+          });
       }
       path.push(parent, child(parent, s.assignmentId, () => acc("assignment", s.assignmentId, a?.title ?? s.assignmentId!)));
     }
@@ -391,6 +438,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     return { kind: n.kind, id: n.id, name: n.name, ...(n.objective != null ? { objective: n.objective } : {}), tokens: n.tokens, share: share(n.tokens), sessions: n.sessions, usd: cents(n.usd), ...n.grant, ...n.extra, ...(kids.length ? { children: kids } : {}) };
   };
   annotateNoGrant(root, inp, now);
+  const stepsSum = annotateSteps(root);
   const rows = [...root.kids.values()].sort((x, y) => y.tokens - x.tokens).map(out);
   const sessionsTotal = root.tokens;
   // what the ledger booked for the sessions: the pre-conversion ones at Opus weights
@@ -425,11 +473,42 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     grantsCheck: { ok: grantsDiff === 0 && gs.grants.spent === gs.rowsSum, diff: grantsDiff, identity: GRANTS_IDENTITY },
     noGrant: ng.noGrant,
     noGrantCheck: { ok: ng.diff === 0, diff: ng.diff, identity: NO_GRANT_IDENTITY },
+    steps: inp.steps ?? null,
+    stepPrices: prices,
+    stepsCheck: { ok: stepsSum.diff === 0, diff: stepsSum.diff, grants: stepsSum.grants, identity: STEPS_IDENTITY },
     at: now.toISOString(),
   };
 }
 
 const NO_GRANT_IDENTITY = "Σ lane rows = Σ \"Not under a grant\" rows (every building)";
+export const STEPS_IDENTITY = "Σ step rows + off-step rows = Σ step-priced grant rows (every building)";
+
+/** A grant is step-priced when it has a plan and every step carries a size (grants funded before migration 098 keep unsized steps). */
+export function stepPriced(g: Pick<Grant, "steps"> | Partial<Pick<Grant, "steps">> | undefined): boolean {
+  return !!g?.steps?.length && g.steps.every((s) => !!s.size);
+}
+
+/**
+ * Each step row's ratio (spent ÷ price, 2 decimals), once its tokens are in; returns Σ (step + off-step rows) − Σ the
+ * grant rows that have them, and how many grant rows that is (`stepsCheck`).
+ */
+function annotateSteps(root: Acc): { diff: number; grants: number } {
+  let diff = 0, grants = 0;
+  for (const b of root.kids.values()) {
+    for (const g of b.kids.values()) {
+      if (g.kind !== "grant") continue;
+      const steps = [...g.kids.values()].filter((c) => c.kind === "step" || c.kind === "off-step");
+      if (!steps.length) continue;
+      grants++;
+      diff += steps.reduce((t, c) => t + c.tokens, 0) - g.tokens;
+      for (const c of steps) {
+        const st = c.extra?.step;
+        if (st) st.ratio = st.price ? Math.round((c.tokens / st.price) * 100) / 100 : 0;
+      }
+    }
+  }
+  return { diff, grants };
+}
 
 /** A no-grant session's lane row (NoGrantLane): its own lane, a non-work purpose = manager, no lane = before lanes. */
 function noGrantLane(s: Partial<Pick<Session, "purpose" | "lane">>): NoGrantLane {
@@ -599,5 +678,7 @@ export function townSpend(repos: Repos, events: EventLog, now = new Date()): Fin
     usage: repos.usage.all(),
     debits: repos.bankDebits.all(),
     allocations: repos.allocations.all(),
+    stepPrices: grantPricingOf(repos.town.get()).stepSizes,
+    steps: stepCalibration(repos, now),
   }, townFinance(repos, now).used, now);
 }
