@@ -16,7 +16,6 @@ import { decideRetainer } from "./retainers.ts";
 import { badRequest, forbidden, notFound } from "./errors.ts";
 import { focusTarget } from "./meeting-focus.ts";
 import { meetingNotice } from "./meetings.ts";
-import { ruleFromOneOnOne } from "./secretary.ts";
 import { oneLine } from "./text.ts";
 import type { VerbIn } from "./verbs/types.ts";
 import type { World } from "./world.ts";
@@ -79,7 +78,6 @@ export function actForHuman(world: World, agent: Agent, given: VerbIn<"act_in_1o
     throw badRequest(`${input.targetId} is neither a grant (gr_…), a schedule with a retainer ask (sc_…) nor an outbox request (dc_…).`);
   }
   meetingNotice(world, m.id, `${agent.name} did this for ${human.name}: ${did}. Citing: "${quote}"`);
-  // legible delegation §6: the human said a decision in words; the Secretary proposes it as a rule ("Add this rule to the ledger?")
-  ruleFromOneOnOne(world, m, human.name, quote, did);
+  // no ledger ask from a bare act: a rule is proposed only when a human asks for a standing rule (mt_msnjkpgwdb decisions 6, 8)
   return { ...result, recorded: note, note: `Done as ${human.name}; the record says it was you, in this 1:1, quoting them. Say in the 1:1 what you did.` };
 }

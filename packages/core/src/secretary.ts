@@ -12,8 +12,8 @@
  *   last ranking (`rankNothingNew`).
  * - **Surface patterns** (the weekly run, `PATTERN_RUN_PROMPT`): reads the week's asks, rollups and events and files one
  *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
- * - **Propose a rule**: after a human decides a policy ask, or `act_in_1on1` records a decision, it files the policy ask
- *   "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
+ * - **Propose a rule**: only from the pattern note's rule (never after a decided policy ask or `act_in_1on1`), the policy
+ *   ask "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
  *   of type `policy`, `policyLedgerBlock` pins it in managers' prompts). It never appends on its own.
  * - **Settle a rollup** on submit (`settleRollup`): a `shipped` notice per Shipped item, the closed loop of a grant it
  *   closes, and archiving a rollup that asks nothing of its own (every ask folded, or none), as the digest used to.
@@ -262,7 +262,8 @@ function appendRule(world: World, line: string, askId: string): void {
 
 /**
  * After a human decides an ask (`decideAsk`): an "Add this rule?" ask decided "Add" appends its line (or "Add: <words>"
- * appends their words with the same origin); any other policy ask decided proposes its rule as "Add this rule?".
+ * appends their words with the same origin). Deciding any other policy ask files no ledger ask: a ledger line is
+ * proposed only when a human asks for a standing rule (Mitchell's 1:1 mt_msnjkpgwdb, decisions 6 and 8).
  */
 export function onAskDecided(world: World, a: Ask): void {
   const said = (a.decision ?? "").trim();
@@ -272,15 +273,7 @@ export function onAskDecided(world: World, a: Ask): void {
     const words = (add[1] ?? "").trim();
     const line = words ? a.body.replace(/^- .*? \(origin: /, `- ${oneLine(words, 300)} (origin: `) : a.body;
     appendRule(world, line.split("\n")[0]!, a.id);
-    return;
   }
-  if (a.type !== "policy") return;
-  proposeRule(world, { rule: `${oneLine(a.title, 160)}: ${oneLine(said, 120)}`, origin: a.id, buildingId: a.buildingId, sourceDocId: a.sourceDocId, why: `A human decided the policy ask ${a.id}: "${oneLine(said, 120)}"` });
-}
-
-/** After `act_in_1on1` did a decision a human said in a 1:1: propose their words as a rule. */
-export function ruleFromOneOnOne(world: World, m: Meeting, human: string, quote: string, did: string): Ask {
-  return proposeRule(world, { rule: `${human} in a 1:1: "${oneLine(quote, 200)}" (${oneLine(did, 80)})`, origin: m.id, sourceDocId: m.notesDocId ?? null, why: `${human} decided in ${m.id}: "${oneLine(quote, 160)}"` });
 }
 
 // ---- settling a rollup on submit ----
