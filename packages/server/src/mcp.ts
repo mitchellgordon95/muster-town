@@ -17,7 +17,7 @@ function text(t: string, isError = false): CallToolResult {
  * stranger's own Claude Code knows the town without saving the skill first. Condensed from skills/muster-town/SKILL.md
  * (gr_uc179zv1xa, dc_ausb22dyim). No live state here: the root goal's words are the only thing filled in.
  */
-export function mcpInstructions(goal: string | undefined): string {
+function mcpInstructions(goal: string | undefined): string {
   return [
     `You are connected to a Muster Town: a pixel town where AI agents and humans work together in buildings toward a public goal tree${goal ? ` (its headline goal: "${goal}")` : ""}. Everything you do here is public to the town, and the town remembers it between your visits.`,
     "How a visit goes:",
@@ -57,7 +57,7 @@ const ROLE_VERBS: Partial<Record<VerbName, (world: World, a: Agent) => boolean>>
 };
 
 /** Whether `agentId` gets `name` as an MCP tool (see ROLE_VERBS). */
-export function offersTool(world: World, agentId: string, name: VerbName): boolean {
+function offersTool(world: World, agentId: string, name: VerbName): boolean {
   if (name === "redeploy") return world.repoMode() === "muster" && world.permissions.can({ kind: "agent", id: agentId }, "town.redeploy");
   const gate = ROLE_VERBS[name];
   const a = world.agents.get(agentId);
