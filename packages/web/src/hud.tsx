@@ -9,13 +9,14 @@ import { STATUS_COLOR } from "./map/overlay";
 import { iconUrl, type IconKind } from "./map/sprites";
 import type { Target } from "./map/renderer";
 import { api, isMock } from "./api";
-import { cacheMissAlert, dockerDown, effectiveRedeploy, fundingAlert, redeployLine, redeployTone, slotsFull } from "./redeploy";
+import { cacheMissAlert, dockerDown, effectiveRedeploy, fundingAlert, redeployChanges, redeployLine, redeployTone, slotsFull } from "./redeploy";
 import { joinMeeting } from "./panels/Places";
 import { decideJoin, letInGoal } from "./panels/letIn";
 import { Act, timeAgo } from "./panels/ui";
 import { SignInButtons, signOut, useAuth } from "./auth/auth";
 import { mapRenderer } from "./map/MapCanvas";
 import { whoIsHere } from "./whoIsHere";
+import { ThreeDoors } from "./threeDoors";
 import { firstManagerBuilding, youreInCanLine, youreInDue, youreInLine } from "./youreIn";
 import { canTalkToManager } from "./panels/oneOnOne";
 import { founderStep } from "./founder";
@@ -32,7 +33,11 @@ const PHONE = typeof matchMedia === "function" && matchMedia("(max-width: 760px)
 
 const ORDER: AgentStatus[] = ["working", "in-meeting", "walking", "idle", "out-of-budget", "offline", "stopped", "banned"];
 
-interface Notice { key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet" | "ok" | "bad"; go: () => void; hint?: string; actions?: { label: string; primary?: boolean; run: () => Promise<unknown> }[] }
+interface Notice {
+  key: string; icon: IconKind; text: ReactNode; cta: string; tone: "warn" | "meet" | "ok" | "bad"; go: () => void; hint?: string; actions?: { label: string; primary?: boolean; run: () => Promise<unknown> }[];
+  /** lines under the notice, each a link (a redeploy's changes, to their commits) */
+  links?: { key: string; label: string; title?: string; href?: string }[];
+}
 
 function walkOrOpen(placeId: string, panel: PanelRef) { if (!store.walkTo(placeId, panel)) store.open(panel); }
 
@@ -173,6 +178,8 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
         key: `redeploy:${rd.eventId}`, icon: "planning", tone: redeployTone(rd), cta: "Log →",
         text: redeployLine(rd, (id) => agents[id]?.name ?? id, live),
         go: () => walkOrOpen("planning-desk", { kind: "planning", tab: "System" }),
+        // what went live, each to its commit; a failed or interrupted run lists none (its steps, "Log →", come first)
+        links: redeployChanges(rd).map((c) => ({ key: c.sha, label: c.subject, title: c.sha, href: c.href })),
       });
     }
     // someone asked to join (gr_fibsfwr4tz step 2): one line each for an admin, so a request never waits unseen behind the badge
@@ -265,11 +272,11 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 </div>
               ) : null}
               {auth.guest || !me ? <>
-                {view === "compact" ? null : neverRan
-                  ? <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>
-                  : <div className="guest-text"><b>Watch first:</b> {TOUCH ? "tap" : "click"} any agent to see what they're doing. Sign in to ask to join; an admin lets you in.</div>}
+                {view === "compact" || !neverRan ? null
+                  : <div className="guest-text"><b>This collective hasn't started:</b> {notStartedWhy(health)}{working ? <> Watch <a className="link" href={working.url}>{working.name}</a>, which is working.</> : null}</div>}
+                <ThreeDoors small />
                 <SignInButtons onPasteToken={onPasteToken} compact />
-              </> : <AskToJoin me={me} />}
+              </> : <><ThreeDoors small /><AskToJoin me={me} /></>}
             </div>
           ) : null}
           {!auth.guest && me ? (
@@ -290,6 +297,17 @@ export function Hud({ onPasteToken, onHelp }: { onPasteToken?: () => void; onHel
                 <div key={n.key} className={`hud-row ${n.tone} with-actions`} title={n.hint}>
                   <img className="px" src={iconUrl(n.icon)} alt="" /><span className="notice-text">{n.text}</span>
                   {n.actions.map((a) => <Act key={a.label} small tone={a.primary ? "primary" : undefined} run={a.run}>{a.label}</Act>)}
+                </div>
+              ) : n.links?.length ? (
+                <div key={n.key}>
+                  <button className={`hud-row ${n.tone}`} onClick={n.go}>
+                    <img className="px" src={iconUrl(n.icon)} alt="" /><span className="notice-text">{n.text}</span><em>{n.cta}</em>
+                  </button>
+                  <ul style={{ margin: "-2px 0 6px", padding: "0 8px 0 34px", fontSize: "var(--fs-sm)", lineHeight: 1.35, color: "var(--muted)" }}>
+                    {n.links.map((l) => <li key={l.key}>{l.href
+                      ? <a href={l.href} target="_blank" rel="noreferrer" title={l.title}>{l.label}</a>
+                      : <span title={l.title}>{l.label}</span>}</li>)}
+                  </ul>
                 </div>
               ) : (
                 <button key={n.key} className={`hud-row ${n.tone}`} onClick={n.go}>
@@ -325,10 +343,10 @@ function YoureIn({ me, collective }: { me: AuthMe; collective: string }) {
       <button className="youre-in-x" onClick={dismiss} title="Dismiss" aria-label="Dismiss">×</button>
       <h2>You're in</h2>
       <p>{youreInLine(me, collective)} {youreInCanLine(!!manager)}</p>
-      <div className="youre-in-steps">
-        {manager ? <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button> : null}
-        <button className={`btn${manager ? "" : " primary"}`} onClick={() => store.open({ kind: "connect" })}>Connect your agent</button>
-      </div>
+      {manager ? <div className="youre-in-steps">
+        <button className="btn primary" onClick={() => store.open({ kind: "agent", id: manager.id, tab: "Talk" })}>Talk to ★ {manager.name}</button>
+      </div> : null}
+      <ThreeDoors />
     </div>
   );
 }

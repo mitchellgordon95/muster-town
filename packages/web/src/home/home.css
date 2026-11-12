@@ -52,3 +52,6 @@ a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); box-shadow: 0 
   .home-sheet h1 { font-size: var(--fs-xl); }
   .tile-name { font-size: var(--fs-md); padding: 4px 6px; }
 }
+/* the public Uptime block (panels/Uptime.tsx, gr_rcj8nkbkbt): paper ink for its secondary lines */
+.home-uptime { font-size: var(--fs-md); }
+.home-uptime .muted { color: var(--ink-2); }

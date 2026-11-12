@@ -1,0 +1,1 @@
+- 2026-11-12 Pix 2 (as_i5eq80n2zu, 1:1 mt_msnjkpgwdb decision 2): `webFor` (runtime/src/session.ts) gives WebSearch/WebFetch to every manager's 1:1 session and to the Secretary's manage sessions and @-replies; other team-lead sessions, facilitation and other @-replies stay without web; no Edit/Write/Bash anywhere in-process. Test: runtime/test/session-tools.test.ts.

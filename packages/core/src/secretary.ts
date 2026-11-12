@@ -26,9 +26,11 @@ import { grantName, isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Ask, 
 import { archiveReport } from "./archive.ts";
 import { createAsk, deferAsk, rankedAsks, setRank } from "./asks.ts";
 import { createAssignment, createDoc, updateDoc } from "./domain.ts";
+import { syncManagerRoles } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { closedLoopNotice, fileNotice, shippedNotices } from "./notices.ts";
 import { humanOrigin } from "./origin.ts";
+import { healthLine, townHealth } from "./health.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { foldRollup } from "./rollup-asks.ts";
@@ -92,16 +94,22 @@ export class Secretary {
 
   /**
    * The Secretary, created on first call (server boot, after the seed): a Town Hall resident holding a mod-station desk slot, drawn beside the hydrant (TOWN_HALL_RESTS) (else
-   * by the door), on SECRETARY_MODEL. Not the manager (the Planner stays it) and no role: it acts on decisions only with
-   * the human as actor. A stopped Secretary stays stopped (a human stopped it on purpose). An existing one moves to
-   * SECRETARY_MODEL (step 5).
+   * by the door), on SECRETARY_MODEL. It is the Town Hall's manager (Mitchell, 1:1 mt_db6itzy2br 20:52 UTC; the Planner
+   * stays a resident that runs calibration and reorgs): `seatAsManager` names it and grants the Town Hall's manager role
+   * (assign, schedule), every boot. It still decides no ask: building.fund is never an agent's, and it acts on decisions
+   * only with the human as actor. A stopped Secretary stays stopped (a human stopped it on purpose). An existing one
+   * moves to SECRETARY_MODEL (step 5).
    */
   ensure(): Agent | null {
     const have = this.agent();
-    if (have) return have.model === SECRETARY_MODEL ? have : this.world.agents.patch(have.id, { model: SECRETARY_MODEL });
+    if (have) {
+      const sec = have.model === SECRETARY_MODEL ? have : this.world.agents.patch(have.id, { model: SECRETARY_MODEL });
+      this.seatAsManager(sec);
+      return sec;
+    }
     const th = this.world.buildings.get(TOWN_HALL_ID);
     if (!th) return null;
-    return this.world.transaction(() => {
+    const made = this.world.transaction(() => {
       const id = newId("ag");
       this.world.agents.upsert(Agent.parse({
         id, name: SECRETARY_TITLE, kind: "resident", buildingId: th.id, homeBuildingId: th.id, ownerUserId: th.createdBy ?? null,
@@ -113,6 +121,19 @@ export class Secretary {
       this.world.events.append({ type: "agent.created", agentId: id, buildingId: th.id, text: `${agent.name} joined the Town Hall (keeps the in-tray in order)`, payload: { kind: "resident", secretary: true } });
       return agent;
     });
+    this.seatAsManager(made);
+    return made;
+  }
+
+  /** Name the Secretary the Town Hall's manager (unless it already is) and grant it the Town Hall's manager role. */
+  private seatAsManager(sec: Agent): void {
+    const th = this.world.buildings.get(TOWN_HALL_ID);
+    if (!th) return;
+    if (th.managerAgentId !== sec.id) {
+      this.world.buildings.upsert({ ...th, managerAgentId: sec.id });
+      this.world.events.append({ type: "building.updated", buildingId: th.id, text: `${sec.name} is now the Town Hall's manager`, payload: { fields: ["managerAgentId"] } });
+    }
+    syncManagerRoles(this.world);
   }
 
   /**
@@ -433,6 +454,8 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
         s.skip.length ? `**Skip**\n${s.skip.map((x) => `- ${t(x.askId)}: ${oneLine(x.why, 300)}`).join("\n")}` : "",
         unslated.length ? `_Not on the slate: ${unslated.map((a) => a.id).join(", ")}._` : "",
         "_A recommendation only: nothing is funded until you decide each ask._",
+        // the town's health over the last 24 h (gr_8bxoy2heif), built here: no Secretary tokens
+        healthLine(townHealth(world, at)),
       ].filter(Boolean).join("\n\n");
       slate = fileNotice(world, {
         kind: "slate", buildingId: TOWN_HALL_ID, goalId: null, picture: null, refs: slated, body,

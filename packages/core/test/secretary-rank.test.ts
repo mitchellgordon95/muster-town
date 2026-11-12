@@ -44,6 +44,8 @@ describe("the Secretary's ranking run", () => {
     expect(slate.body).toMatch(new RegExp(`\\*\\*Fund now\\*\\*\\n- Fund "A third banner" at 150k \\(${kc.id}\\): it unblocks the lab`));
     expect(slate.body).toContain(`(${ka.id}) until the third banner ships: it builds on it`);
     expect(slate.body).toContain("nothing is funded until you decide each ask");
+    // the Health line (gr_8bxoy2heif), built in code over the last 24 h
+    expect(slate.body).toMatch(/\nHealth: paperwork .+ · cache hits .+ · overrun .+ · .+\/report \(last 24 h\)$/);
     expect(world.events.list({ types: ["ask.ranked"] }).at(-1)).toMatchObject({ payload: { ranked: 3, slateId: out.slateId } });
     // the deck opens on today's slate, then the town, then the asks in rank order (each on its grant's own slide)
     const deck = reviewDeck(world).slides;

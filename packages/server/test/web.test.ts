@@ -110,6 +110,13 @@ describe("collectives homepage and /api/collectives", () => {
     expect(collectives(world, [row("quiet", false)]).map((c) => c.slug)).toEqual(["workshop", "quiet"]);
   });
 
+  // gr_rcj8nkbkbt (kr_ay5wb5wfhd): the signed-out landing carries the Uptime block's mount, with a no-JS link to the figures
+  it("the homepage has an Uptime section linking /api/uptime", () => {
+    const html = renderHome(collectives(world, []));
+    expect(html).toContain('<div id="uptime" class="home-uptime">');
+    expect(html).toContain('<a href="/api/uptime">/api/uptime</a>');
+  });
+
   it("another collective dir lists itself by its own slug, opening here", async () => {
     const app = await buildApp({ world, webDist: false, collective: "garden" });
     const { collectives } = (await app.inject("/api/collectives")).json();

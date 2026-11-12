@@ -8,7 +8,7 @@ Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8
 |---|---|---|---|---|
 | Attendee summary | `SUMMARY_MODEL` = `claude-sonnet-5-5` (was `building.cheapModel`, Haiku, until row 1 landed) | none (one-shot) | own last report, own last 20 events, own 3 recent docs; agenda or "(none)" | `packages/runtime/src/meetings.ts:41`, `packages/core/src/prompts.ts:158` |
 | Facilitator | `facilitator.model ?? meeting building's model ?? home building's model ?? claude-opus-5-5` | every town verb (`look`, `read`, `search`, `meeting`, `assign`…), no web, no code; ≤60 turns | summaries, last 20 utterances, agenda or "(none; set one from the summaries)" | `runtime/meetings.ts:151`, `prompts.ts:173` |
-| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | `read`, `search`, `meeting` only (`MEETING_REPLY_VERBS`; host session, ≤4 turns, no web; was a one-shot until row 4 landed) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:107`, `prompts.ts:294`, `runtime/session.ts:61` (`SessionSpec.verbs`) |
+| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | `read`, `search`, `meeting` only (`MEETING_REPLY_VERBS`; host session, ≤4 turns, no web except the Secretary's (`webFor`, runtime/session.ts); was a one-shot until row 4 landed) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:107`, `prompts.ts:294`, `runtime/session.ts:61` (`SessionSpec.verbs`) |
 
 Two corrections to what was said in the meeting (I said it, so I'm correcting it):
 
@@ -94,6 +94,8 @@ The meeting panel shows "<name> is writing…" under the transcript while an age
 - **Set** during the discussion when an agent's `listen` returns something from someone else, and for the facilitator after any `listen` or `status` (it is steering or writing decisions).
 - **Cleared** when that agent calls `listen` again (waiting to hear is not writing), speaks, decides or ends; when its session ends; when the meeting leaves collecting/discussing; or after `AGENT_DRAFTING_MS` (5 min).
 - Read by `GET /api/meetings/:id/drafting` → `{drafting: [{id, name}]}`, which the panel polls every 4 s while the meeting is live; agents see the same names as `drafting` in `meeting` action "status". A restart drops every mark.
+
+**Tool calls behind a line** (Mitchell, 1:1 mt_db6itzy2br). While an agent is writing, the panel shows its `agent.tool` events since its previous line in that meeting, from the events feed it already has (no new request), folded to "<name>: N tool calls so far". When it speaks, `meetingSpeak` stores those calls on the utterance as `tools` (packages/core/src/meeting-tools.ts, at most 30, its own `meeting` calls left out), so the transcript reads "▸ N tool calls" above the reply, also after the meeting. Each call is its describeTool one-liner, never the raw input; a result line (from the in-memory `toolResults` ring, so none after a restart) is kept for town tools and for errors, red on an error, with secret-looking runs hidden.
 
 ## 8. Presenting in a meeting (town hall mt_q1w4o85ao9 decision 5 item 3)
 

@@ -83,8 +83,8 @@ describe("join funnel", () => {
     for (const f of files.filter((f) => f.includes("join_funnel"))) copyFileSync(join(all, f), join(dir, f));
     migrate(db, dir);
     expect(db.prepare("SELECT * FROM join_funnel ORDER BY day").all()).toEqual([
-      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0 },
-      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0 },
+      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 },
+      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 },
     ]);
     expect(db.prepare("SELECT * FROM join_funnel_waits").all()).toEqual([{ day: "2026-10-30", waitMs: 7_200_000 }]);
   });

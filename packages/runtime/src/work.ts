@@ -1,7 +1,7 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
 import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, codeWorkspace, createDoc, fallbackReportBody, fixedParts, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
 import { isGone, countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
-import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, webFor, type Ctx } from "./session.ts";
 
 /** The allocation a session of this agent would be charged to now, or null (also when the Bank holds no credential: the spend is still recorded). */
 function allocationOf(world: World, agentId: string): string | null {
@@ -61,7 +61,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     // the fixed parts go to the system prompt, the live ones after the clock in the first message (docs/prompt-caching.md)
     const parts = sessionMemory(world, agent, building, assignment);
     const out = await runAgentSession(ctx, {
-      agentId, purpose: "work", model: assignment.model ?? agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: true,
+      agentId, purpose: "work", model: assignment.model ?? agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: webFor("work"),
       assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...fixedParts(parts), skills: skillsBlock(world.skills.forAgent(agent.forkOf ?? agentId)) }),
       prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId), agent.forkOf ? chainBlock(world, assignment) : undefined, Date.now(), workStateBlock(agent, parts)),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),

@@ -9,13 +9,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
+import { signInWithGithub } from "../auth/auth";
 import { store, useTown } from "../state";
 import { Glyph } from "./PanelShell";
 import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
-import { allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
+import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
@@ -61,7 +62,8 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const reload = () => setBump((n) => n + 1);
   const root = tree.data;
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
-  const node = root ? findGoal(root, selected) ?? root : null;
+  const at = selected === CAPTAIN_DOOR ? root?.children.find((c) => c.status === "active")?.id : selected;
+  const node = root ? (at ? findGoal(root, at) : null) ?? root : null;
   useEffect(() => {
     const at = root && focusKr ? krGoal(root, focusKr) : null;
     if (at) select(at.id);
@@ -96,7 +98,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
             </select>
             <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
           </div>
-          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId}
+          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId === CAPTAIN_DOOR ? node.id : goalId}
             scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
             canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
             onSelect={select} onToggle={toggle} onChanged={reload}
@@ -174,7 +176,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
           {node.parentId ? tool("retire", "Retire", undefined, "bad") : null}
         </div>
       ) : <div className="muted goal-meta">{node.status === "retired" ? `Retired${node.retiredNote ? `: ${node.retiredNote}` : "."}` : me.userId ? "Only an admin or this goal's captain edits it; managers propose with propose_goal." : "Sign in to see what you can change."}</div>}
-      {!can && me.userId && node.status === "active" && node.id !== ROOT_GOAL_ID ? <AskToCaptain node={node} userId={me.userId} /> : null}
+      {!can && node.status === "active" && node.id !== ROOT_GOAL_ID ? <AskToCaptain node={node} userId={me.userId} /> : null}
       {open ? <ChangeBanner c={open} /> : null}
       {form === "change" ? <ChangeForm node={node} onDone={done} /> : null}
       {form === "edit" ? <EditForm node={node} onDone={done} /> : null}
@@ -399,15 +401,15 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
 }
 
 /**
- * "Ask to captain this goal" (gr_bwm0iz7rwl): a member who can't edit this goal asks to become its captain (its owner).
- * The ask waits in the decision queue for the goal's current captain or an admin; once asked, it says so instead.
+ * "Ask to captain this goal" (gr_bwm0iz7rwl): anyone signed in who can't edit this goal asks to become its captain (its
+ * owner), let in or not (gr_y9bpvx197c: accepting also lets them in). The ask waits in the decision queue for the goal's
+ * current captain or an admin; once asked, it says so instead. Signed out, it says to sign in.
  */
-function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string }) {
-  const member = useTown((s) => !!s.me?.canInteract);
-  const asks = useLoad(() => api().captainRequests(node.id), [node.id]);
+function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string | null }) {
+  const asks = useLoad(() => userId ? api().captainRequests(node.id) : Promise.resolve([]), [node.id, userId]);
   const [open, setOpen] = useState(false), [note, setNote] = useState("");
   const mine = asks.data?.find((r) => r.userId === userId);
-  if (!member) return <div className="muted goal-meta captain-ask">Want to captain this goal? Ask to join first (the card on the map): members can ask to captain a goal.</div>;
+  if (!userId) return <div className="captain-ask"><span className="muted goal-meta">Want to captain this goal? Sign in with GitHub to ask its captain. </span><button className="btn sm primary" onClick={signInWithGithub}>Sign in to ask</button></div>;
   if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the decision queue for {mine.captainName} to accept or decline.</div>;
   const ask = async () => {
     await api().askToCaptain(node.id, note.trim() || undefined);
