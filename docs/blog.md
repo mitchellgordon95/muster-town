@@ -33,6 +33,15 @@ The root app (muster.town, not hosted collectives) serves a blog from markdown f
 - `draft: true` serves the post at `/blog/<slug>` (marked as a draft on the page) but leaves it out of `/blog` and the feed. Use it to preview a post live.
 - To publish, remove the `draft` line (or set `draft: false`) and merge. Files are read per request, so the post shows once the commit is deployed, without a restart.
 
-## The signup slot
+## The email signup
 
-Each post page has a `<!-- signup: ... -->` comment in its `<footer>`, after the article and before the links (`renderPost` in `blog.ts`). The email signup form goes there.
+Every post page and the index end with a one-field signup form ("New posts by email. Nothing else."), `signup()` in `blog.ts`. It posts JSON to `POST /api/blog/subscribe` (`packages/server/src/mailing-list.ts`): public, no sign-in; the address is trimmed, lowercased and checked (one @, a dot in the domain, no spaces, at most 254 characters, else 400); a repeat answers ok like the first time; a filled hidden `website` field (the honeypot) is dropped silently; each client IP may post 10 times an hour (then 429 `rate_limited`). There is no confirmation email: the town has no mail sender.
+
+The list is the `mailing_list` table (migration 112) in the town's SQLite database, so it is in Prod's backups with everything else. An admin reads it:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" https://muster.town/api/blog/subscribers            # {count, subscribers: [{email, createdAt, source}]}
+curl -H "Authorization: Bearer $TOKEN" "https://muster.town/api/blog/subscribers?format=csv" -o subscribers.csv
+```
+
+`source` is the post slug the form was on, or `index`. There is no unsubscribe link yet; to take someone off, set `unsubscribedAt` on their row.

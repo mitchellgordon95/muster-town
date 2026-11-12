@@ -50,7 +50,11 @@ a{color:#2f56b0}.meta{font:14px/1.4 system-ui,sans-serif;color:#6b6b75}
 pre{background:#f0ede4;padding:.8rem;overflow-x:auto;font-size:14px}code{font-size:.9em}
 blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #d6d1c3;color:#4a4a52}img{max-width:100%}
 ul.posts{list-style:none;padding:0}ul.posts li{margin:1.6rem 0}ul.posts h2{margin:0;font-size:1.3rem}
-footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2ddd0}`;
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2ddd0}
+.signup{margin:0 0 1.5rem}.signup p{margin:0 0 .5rem}.signup .row{display:flex;gap:.5rem;flex-wrap:wrap}
+.signup input[type=email]{flex:1 1 14rem;font:16px/1.4 system-ui,sans-serif;padding:.45rem .6rem;border:1px solid #c9c3b3;border-radius:4px;background:#fff}
+.signup button{font:15px/1.4 system-ui,sans-serif;padding:.45rem 1rem;border:0;border-radius:4px;background:#2f56b0;color:#fff;cursor:pointer}
+.signup .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.signup .err{color:#a33;font:14px/1.4 system-ui,sans-serif}`;
 
 function page(o: { origin: string; path: string; title: string; description: string; article?: boolean; body: string }): string {
   const url = o.origin + o.path;
@@ -82,6 +86,24 @@ ${o.body}
 `;
 }
 
+/**
+ * The email signup at the foot of every blog page (Mitchell, mt_msnjkpgwdb decision 7): one input, one button. Posts JSON
+ * to POST /api/blog/subscribe (mailing-list.ts) and swaps itself for a thank-you; with scripts off it does nothing.
+ * `website` is the honeypot: hidden from people, filled by bots. `source` is the post slug, or "index".
+ */
+function signup(source: string): string {
+  return `<form class="signup" method="post" action="/api/blog/subscribe" data-source="${esc(source)}">
+<p>New posts by email. Nothing else.</p>
+<div class="row"><input type="email" name="email" required maxlength="254" placeholder="you@example.com" aria-label="Email address"><button type="submit">Sign up</button></div>
+<div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+<p class="err" role="alert" hidden></p>
+</form>
+<script>(function(){var f=document.querySelector("form.signup");if(!f)return;f.addEventListener("submit",function(e){e.preventDefault();var b=f.querySelector("button"),err=f.querySelector(".err");b.disabled=true;err.hidden=true;
+fetch("/api/blog/subscribe",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email:f.email.value,website:f.website.value,source:f.getAttribute("data-source")})})
+.then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})}).then(function(r){if(!r.ok)throw new Error(r.j&&r.j.error||"Something went wrong. Try again.");var p=document.createElement("p");p.textContent="Thanks, you're on the list.";f.replaceWith(p)})
+.catch(function(x){err.textContent=x.message||"Something went wrong. Try again.";err.hidden=false;b.disabled=false})})})();</script>`;
+}
+
 const byline = (p: Post) => `<p class="meta"><time datetime="${esc(p.date)}">${esc(p.date)}</time>${p.author ? ` · ${esc(p.author)}` : ""}${p.draft ? " · draft (not in the index or feed)" : ""}</p>`;
 
 function renderPost(origin: string, p: Post): string {
@@ -93,7 +115,7 @@ ${byline(p)}
 ${html}
 </article>
 <footer>
-<!-- signup: the email signup form goes here, after the post and before the links (the next assignment) -->
+${signup(p.slug)}
 <p class="meta"><a href="/blog">All posts</a> · <a href="/">Visit muster.town</a></p>
 </footer>` });
 }
@@ -102,7 +124,7 @@ function renderIndex(origin: string, posts: Post[]): string {
   const list = posts.length
     ? `<ul class="posts">\n${posts.map((p) => `<li><h2><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></h2>${byline(p)}${p.summary ? `<p>${esc(p.summary)}</p>` : ""}</li>`).join("\n")}\n</ul>`
     : "<p>No posts yet.</p>";
-  return page({ origin, path: "/blog", title: "Muster Town blog", description: "Notes from Muster Town: AI agents working in public, collectively funded.", body: `<h1>Muster Town blog</h1>\n${list}` });
+  return page({ origin, path: "/blog", title: "Muster Town blog", description: "Notes from Muster Town: AI agents working in public, collectively funded.", body: `<h1>Muster Town blog</h1>\n${list}\n<footer>\n${signup("index")}\n</footer>` });
 }
 
 function renderFeed(origin: string, posts: Post[]): string {
