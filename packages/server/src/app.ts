@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
+import { blogRoutes } from "./blog.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
@@ -314,6 +315,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       if (!token) return reply.code(404).send({ error: "Not found: GET /.well-known/muster-town (MUSTER_TOWN_DIRECTORY_TOKEN is not set)", code: "not_found" });
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
+    // the blog (blog/posts/*.md, read per request; docs/blog.md)
+    await app.register(blogRoutes((townEnv("PUBLIC_URL") ?? "https://muster.town").replace(/\/+$/, "")));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
     // public uptime from outside probes (gr_rcj8nkbkbt): every root town; empty until a pinger posts
     await app.register(uptimeRoutes(new Uptime(opts.world)));
