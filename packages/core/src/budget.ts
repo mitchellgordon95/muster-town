@@ -72,7 +72,7 @@ interface FundingOpts {
 
 /** Donations, allocations, and charging. `world.budget`. */
 export class Budget {
-  /** goal-directed budgets: the lane gate (`laneHold`, set by World): why an assignment is held, or null */
+  /** goal-directed budgets: the lane gate (`ruleHold`, set by World): why an assignment is held, or null */
   gate?: (assignment: Assignment) => string | null;
   /** goal-directed budgets: after every charge (World runs the grants' 100% checkpoints of the building) */
   afterCharge?: (buildingId: string) => void;

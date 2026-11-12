@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, decideRetainer, fireSchedules, freeTokens, intrayCount, intrayRoutes, reviewDeck, scheduleView, townHallIntray, updateBuilding } from "../src/index.ts";
-import { laneHold } from "../src/lanes.ts";
+import { ruleHold } from "../src/lanes.ts";
 import { runsLeft } from "../src/retainers.ts";
 import { newId, nowIso } from "../src/util.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
@@ -58,7 +58,7 @@ describe("retainers", () => {
     // the fire creates the run in lane retainer with the schedule as its source, held while asked
     const a = fireSchedules(world, new Date(t0 + 2 * H)).fired[0]!;
     expect(a).toMatchObject({ lane: "retainer", sourceId: id, grantId: null });
-    expect(laneHold(world, a)).toMatch(/retainer not approved/);
+    expect(ruleHold(world, a)).toMatch(/retainer not approved/);
     // asked retainers don't claim the Bank
     expect(freeTokens(world, "gl_town")).toMatchObject({ retainerTokens: 0, retainerJobs: 0 });
   });
@@ -75,7 +75,7 @@ describe("retainers", () => {
     // the manager hears back in their inbox
     expect(world.messages.where("toId = ?", [pix.id]).some((m) => /approved the retainer/.test(m.body))).toBe(true);
     const a = fireSchedules(world, new Date(t0 + 2 * H)).fired[0]!;
-    expect(laneHold(world, a)).toBeNull();
+    expect(ruleHold(world, a)).toBeNull();
     // a run books against the schedule (drawn), never a grant
     spend(a.id, 2_500);
     world.assignments.patch(a.id, { status: "done" });
@@ -85,7 +85,7 @@ describe("retainers", () => {
     // a big overspend: the next run would pass the approved total, so it is held
     spend(a.id, 10_000);
     const b = fireSchedules(world, new Date(t0 + 8 * H)).fired[0]!;
-    expect(laneHold(world, b)).toMatch(/retainer spent/);
+    expect(ruleHold(world, b)).toMatch(/retainer spent/);
   });
 
   it("the claim follows the town's lookahead, plus what a run under way may still spend", async () => {

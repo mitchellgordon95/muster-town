@@ -10,7 +10,7 @@ import { backfillJobs } from "./jobs.ts";
 import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
-import { laneHold } from "./lanes.ts";
+import { ruleHold } from "./lanes.ts";
 import { intrayCount, intrayCounts, isTownHallItem, moveManagerRowsToBuildingQueue } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
@@ -234,7 +234,7 @@ export class World {
     this.reorgs = new Reorgs(this);
     this.secretary = new Secretary(this);
     this.streams = new Streams(this);
-    this.budget.gate = (a) => laneHold(this, a);
+    this.budget.gate = (a) => ruleHold(this, a);
     this.budget.afterCharge = (bid) => this.grantDesk.checkpoints(bid);
     this.bank.freeTokens = () => freeTokens(this, ROOT_GOAL_ID);
     this.skills = new Skills(this);

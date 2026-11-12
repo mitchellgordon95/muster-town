@@ -6,7 +6,7 @@
  */
 import { NOT_GONE, QUEUE_ORDER, type Assignment, type BlockedAssignment, type BlockedBy, type BuildingStats } from "@muster-town/schema";
 import { isTownHallItem } from "./domain.ts";
-import { laneBlock } from "./lanes.ts";
+import { ruleBlock } from "./lanes.ts";
 import { truncate } from "./util.ts";
 import { chainTip, waitMet } from "./waits.ts";
 import type { World } from "./world.ts";
@@ -61,7 +61,7 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
     const b = world.buildings.get(a.queue === "building" ? a.buildingId : agent.homeBuildingId ?? agent.buildingId ?? "");
     return { kind: "budget", targetId: b?.id ?? null, placeId: "bank", text: `out of budget: ${b?.name ?? "the building"} has no tokens left` };
   }
-  const hold = laneBlock(world, a);
+  const hold = ruleBlock(world, a);
   if (!hold) return null;
   if (hold.kind === "overdraft" || hold.kind === "reserve") {
     return { kind: "budget", targetId: a.buildingId, placeId: "bank", text: hold.reason.replace(/^held: /, "") };

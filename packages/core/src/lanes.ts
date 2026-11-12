@@ -4,6 +4,7 @@ import { badRequest } from "./errors.ts";
 import type { Holder } from "./permissions.ts";
 import { BUDGET_POLICY } from "./policy.ts";
 import { claimShort } from "./free-tokens.ts";
+import { jobOf } from "./jobs.ts";
 import { retainerHold } from "./retainers.ts";
 import type { World } from "./world.ts";
 
@@ -96,32 +97,36 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
 }
 
 /**
- * Why the lane gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
- * grant → the grant is funded (at checkpoint every new session on it waits for a human); exploration → there are free tokens
- * under the building's goal and the optional exploration cap it inherits isn't reached (docs/how-work-gets-done.md §8);
- * directed → there are free tokens under the building's goal (Mitchell, 2026-11-02: directed work draws free tokens like
- * exploration; before, it was never held for money and ate the balance ahead of grant work); retainer → its schedule's
- * retainer is funded and one more run fits its approved total. Before any lane: the operating reserve. Every work session
- * waits while the Bank's balance is within the reserve (`operatingReserveTokens`); only manager sessions (deciding
- * reports, 1:1s, meetings: `Budget.canStart` with no assignment) run on it, so a manager can always unstick its building.
+ * Why the budget gate holds this assignment now, or null (the gate half of `Budget.canStart`). The Town Hall: never.
+ * The checks are keyed by the rule of the assignment's job (jobs.ts `jobOf`; plan dc_uwx045472m step 4), which replaces
+ * the lane: ceiling → the grant is funded (at checkpoint every new session on it waits for a human); chunk → the
+ * explorer's own reservation, else free tokens under the building's goal and the optional exploration cap it inherits
+ * (docs/how-work-gets-done.md §8); pocket and building → there are free tokens under the building's goal (Mitchell,
+ * 2026-11-02: directed work draws free tokens like exploration); per-run → its schedule's retainer is funded and one more
+ * run fits its approved total. Before any rule: the operating reserve. Every work session waits while the Bank's balance
+ * is within the reserve (`operatingReserveTokens`); only manager sessions (deciding reports, 1:1s, meetings:
+ * `Budget.canStart` with no assignment) run on it, so a manager can always unstick its building.
  */
-export function laneHold(world: World, a: Assignment): string | null {
-  return laneBlock(world, a)?.reason ?? null;
+export function ruleHold(world: World, a: Assignment): string | null {
+  return ruleBlock(world, a)?.reason ?? null;
 }
 
-/** `laneHold` with what it is: the reserve hold, the grant hold (and its grant), the reservation hold, or exploration / directed work with no free tokens (exploration also at its cap). */
-export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "directed" | "retainer" | "overdraft" | "reserve"; reason: string; grantId?: string; used?: number; cap?: number } | null {
+/** `ruleHold` with what it is: the reserve hold, the grant hold (and its grant), the reservation hold, or exploration / directed work with no free tokens (exploration also at its cap). */
+export function ruleBlock(world: World, a: Assignment): { kind: "grant" | "reserved" | "exploration" | "directed" | "retainer" | "overdraft" | "reserve"; reason: string; grantId?: string; used?: number; cap?: number } | null {
   const building = world.buildings.get(a.buildingId);
   if (!laneGated(building)) return null;
-  // the operating reserve is kept for manager sessions: no work session of any lane starts while the balance is within it
+  // the operating reserve is kept for manager sessions: no work session of any rule starts while the balance is within it
   // (the Bank's general balance, which every session draws first; a building's own legacy allocations don't lift the hold)
   const reserve = world.town.get().operatingReserveTokens;
   if (reserve > 0 && world.bank.remaining(a.buildingId) <= reserve) {
     return { kind: "reserve", reason: `held: the Bank's balance is within the operating reserve (${fmt(reserve)} tokens kept for manager sessions: deciding reports, 1:1s and meetings)` };
   }
-  if (a.lane === "grant") {
-    const g = a.grantId ? world.grants.get(a.grantId) : undefined;
-    const grantId = a.grantId ?? undefined;
+  // a grant-lane assignment that lost its grant id has no ceiling job to charge: held like a missing grant
+  if (a.lane === "grant" && !a.grantId) return { kind: "grant", reason: "held: its grant doesn't exist" };
+  const job = jobOf(a);
+  if (job.rule === "ceiling") {
+    const g = world.grants.get(job.pocketRef!);
+    const grantId = job.pocketRef!;
     if (!g) return { kind: "grant", grantId, reason: "held: its grant doesn't exist" };
     if (g.status === "funded") {
       // the overdraft walk (free-tokens.ts): a funded grant the usable balance doesn't cover at all waits for funding; one
@@ -136,7 +141,7 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
     if (g.status === "proposed" || g.status === "countered" || g.status === "draft") return { kind: "grant", grantId, reason: "held: grant not funded yet" };
     return { kind: "grant", grantId, reason: `held: grant ${g.status}` };
   }
-  if (a.lane === "retainer") {
+  if (job.rule === "per-run") {
     // a schedule's run draws on its own approved retainer (already claimed in the Bank), so no other hold applies
     const reason = retainerHold(world, a);
     return reason ? { kind: "retainer", reason } : null;
@@ -144,7 +149,7 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
   if (BUDGET_POLICY.grantReservations && world.budget.remaining(a.buildingId) - reservedTokens(world, a.buildingId) <= 0) {
     return { kind: "reserved", reason: "held: the building's tokens are reserved for its funded grants" };
   }
-  if (a.lane === "exploration") {
+  if (job.rule === "chunk") {
     // the explore tick's explorer runs on its own reservation (it already passed the free-tokens and cap checks)
     if (a.reservationId && world.bankReservations.get(a.reservationId)?.closedAt === null) return null;
     const e = world.grantDesk.exploration(a.buildingId);
@@ -152,10 +157,11 @@ export function laneBlock(world: World, a: Assignment): { kind: "grant" | "reser
     if (e.cap && e.cap.spentTodayTokens >= e.cap.tokensPerDay) {
       return { kind: "exploration", used: e.cap.spentTodayTokens, cap: e.cap.tokensPerDay, reason: `held: exploration cap reached today (${fmt(e.cap.spentTodayTokens)} / ${fmt(e.cap.tokensPerDay)} tokens, set on goal ${e.cap.goalId})` };
     }
+    return null;
   }
   if (a.lane === "directed") {
-    // a human asked for it, but it draws the same free tokens as exploration: held until some are free under its goal
-    // (a building's own legacy allocation, drawn after the general balance, still runs it: pools-era donations to one building)
+    // pocket and building: a human asked for it, but it draws the same free tokens as exploration: held until some are
+    // free under its goal (a building's own legacy allocation, drawn after the general balance, still runs it)
     const e = world.grantDesk.exploration(a.buildingId);
     if (e.freeTokens <= 0 && allocationTokensLeft(world, a.buildingId) <= 0) {
       return { kind: "directed", reason: "held: no free tokens under its goal for directed work (funded grants, open proposals and reservations claim the whole balance)" };
