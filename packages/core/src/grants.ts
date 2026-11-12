@@ -1011,7 +1011,7 @@ export class Grants {
       },
     });
     // asks on this key result retire when a human sets its status, or when it is met or missed by anyone (a close as done)
-    if (inp.status && (by?.kind === "user" || isJudgedKr(next.status))) retireAsks(this.world, "keyResult", kr.id, patched.text);
+    if (inp.status && (by?.kind === "user" || isJudgedKr(next.status))) retireAsks(this.world, "keyResult", kr.id, patched.text, by?.kind === "user" ? by.id : false);
     // a human verified it met (not the close as done, which marks every open one): a `verified` notice (§8)
     if (inp.status === "met" && kr.status !== "met" && by?.kind === "user" && !opts.closing) verifiedNotice(this.world, next, this.world.nameOf(by.id));
     return next;

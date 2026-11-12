@@ -16,6 +16,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { queueClaimChecks, urlOfHowToCheck } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
+import { maySettle } from "./overtake.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
 import { askDecidedOnThread } from "./review-entry.ts";
 import { holderOf } from "./permissions.ts";
@@ -47,6 +48,12 @@ interface NewAsk {
   by?: string;
   /** step 9: the Planner's table change on a rule ask (deciding "Adopt" applies it, planner.ts) */
   proposal?: CalibrationProposal | null;
+}
+
+/** The human behind an act, for `retireAsks`: the user id of a human's avatar; false for an agent or the system. */
+function humanBehind(world: World, agentId: string | null | undefined): string | false {
+  const a = agentId ? world.agents.get(agentId) : undefined;
+  return a?.kind === "human" ? a.ownerUserId ?? a.id : false;
 }
 
 /** The live (open or deferred) ask on a target, if any. */
@@ -114,16 +121,40 @@ export function refuseMissingStructure(what: string, problems: string[]): void {
   throw badRequest(`Your ${what}'s ask card lacks ${problems.length} required part${problems.length === 1 ? "" : "s"} (docs/legible-delegation.md §4). Add ${problems.length === 1 ? "it" : "them"} and resubmit:\n- ${problems.join("\n- ")}`);
 }
 
-/** Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired. */
-export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string): Ask[] {
+/**
+ * Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired.
+ * `human`: a human's decision retired them (their user or avatar id when known): the Secretary runs after it (decision 10).
+ */
+export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string, human: string | boolean = false): Ask[] {
   const at = nowIso();
   const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
     const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: "system", note: reason }] });
-    world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason } });
+    world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason, human: !!human } });
     return next;
   });
   reopenDeferred(world, [id, ...retired.map((a) => a.id)], reason);
+  // 1:1 mt_msnjkpgwdb decision 10: a human's decision on an ask wakes the Secretary (debounced) to settle what it made moot and re-rank
+  if (human && retired.length) world.secretary.afterDecision({ targetKind: kind, targetId: id, text: reason, by: typeof human === "string" ? human : null });
   return retired;
+}
+
+/**
+ * The Secretary closes a live ask a human's decision made moot (1:1 mt_msnjkpgwdb decisions 10, 20a): only a click or
+ * policy ask that is not a Do (`maySettle`, overtake.ts); money, credential and meeting asks stay the humans'. `because`
+ * cites the human's decision, `note` says why it is moot. The ask retires (asks deferred behind it open again); it
+ * decides nothing else and wakes no further Secretary run.
+ */
+export function overtakeAsk(world: World, by: Agent, id: string, because: string, note: string): Ask {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary closes an ask as overtaken.");
+  const a = world.asks.require(id, "ask");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
+  if (!maySettle(a)) throw badRequest(`overtaken: ${id} is ${a.targetKind === "request" ? "a request a human must carry out" : `a ${a.type} ask`}; only a human settles it. Rank or defer it instead.`);
+  const at = nowIso();
+  const reason = `Overtaken by ${oneLine(because, 200)}: ${oneLine(note, 300)}`;
+  const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: by.id, note: reason }] });
+  world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} closed "${oneLine(a.title, 80)}" as overtaken: ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, overtaken: true, because, human: false } });
+  reopenDeferred(world, [a.id], reason);
+  return next;
 }
 
 const ID_CHARS = /[a-z0-9_]/;
@@ -195,6 +226,8 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   if (manager) sendMessage(world, { kind: "system", fromId: by, fromKind: "user", toId: manager.id, body: `${world.nameOf(by)} decided your ask "${oneLine(a.title, 120)}" (${a.id}): ${said.slice(0, 2000)}` });
   // asks deferred behind this ask (or behind its target) are open again
   reopenDeferred(world, [a.id, a.targetId], `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`);
+  // 1:1 mt_msnjkpgwdb decision 10: the Secretary runs after every human decision (debounced): settle what it made moot, re-rank
+  world.secretary.afterDecision({ askId: a.id, targetKind: a.targetKind, targetId: a.targetId, text: `${world.nameOf(by)} decided "${oneLine(a.title, 100)}": ${oneLine(said, 200)}`, by });
   return next;
 }
 
@@ -229,9 +262,9 @@ const GRANT_DECIDED: Record<string, true> = { "grant.funded": true, "grant.count
  * funded, continued, adjusted, countered (it waits on the manager now), rejected, cut, closed, withdrawn or stopping
  * retires the live ask on it with the event's text.
  */
-export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "text" | "payload">): void {
+export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "text" | "payload"> & { agentId?: string | null }): void {
   if (e.type === "grant.proposed") askForProposal(world, g, e.text);
-  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text);
+  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text, humanBehind(world, e.agentId));
 }
 
 /** A grant proposal's money ask: fund / counter / reject, its card written by the town from the plan (`proposalCard`). */

@@ -553,7 +553,7 @@ export class Ops {
     const request = updateDoc(this.world, doc.id, patch);
     const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "done" && (action !== "claim" || !!body?.trim()) ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
     // the request's ask (docs/legible-delegation.md §4) retires when a human claims or declines it, or it is withdrawn
-    retireAsks(this.world, "request", doc.id, updated.text);
+    retireAsks(this.world, "request", doc.id, updated.text, h.kind === "user" ? h.id : false);
     // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)
     if (humanReport) requestAnswerWake(this.world, request, humanReport, updated);
     return { request, humanReport };

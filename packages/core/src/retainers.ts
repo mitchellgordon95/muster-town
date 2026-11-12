@@ -206,7 +206,7 @@ export function decideRetainer(world: World, actor: Agent, id: string, input: Re
   }
   const deck = input.deckSlide ? { deckSlide: input.deckSlide } : {};
   const decided = world.events.append({ type: "retainer.decided", agentId: actor.id, buildingId: s.buildingId, text: `${said}: retainer for "${truncate(s.title, 80)}"${note ? `: ${truncate(note, 160)}` : ""}`, payload: { scheduleId: s.id, action: input.action, retainer: next.retainer, retainerTokens: next.retainerTokens, ...deck } });
-  retireAsks(world, "retainer", s.id, decided.text);
+  retireAsks(world, "retainer", s.id, decided.text, actor.ownerUserId ?? true);
   const manager = world.buildings.get(s.buildingId) ? managerAgentOf(world, world.buildings.get(s.buildingId)!) : undefined;
   if (manager) {
     const what = input.action === "approve" ? `approved the retainer for your schedule "${s.title}" (${s.id}): ${fmt(next.retainerTokens! - drawn)} tokens, ${fmt(s.tokensPerRun)} per run; its runs start`

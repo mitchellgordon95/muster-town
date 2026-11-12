@@ -24,18 +24,20 @@
  */
 import { grantName, isGone, NOT_GONE, parseRollup, rollupAsks, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
 import { archiveReport } from "./archive.ts";
-import { createAsk, deferAsk, rankedAsks, setRank } from "./asks.ts";
-import { createAssignment, createDoc, updateDoc } from "./domain.ts";
+import { createAsk, deferAsk, overtakeAsk, rankedAsks, setRank } from "./asks.ts";
+import { createAssignment, createDoc, managerAgentOf, updateDoc } from "./domain.ts";
 import { syncManagerRoles } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { closedLoopNotice, fileNotice, shippedNotices } from "./notices.ts";
+import { appendEntry } from "./jobs.ts";
 import { humanOrigin } from "./origin.ts";
+import { overtakeCandidates, type AskFacts } from "./overtake.ts";
 import { healthLine, townHealth } from "./health.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { foldRollup } from "./rollup-asks.ts";
 import { createSchedule, raiseRetainerPerRun } from "./schedules.ts";
-import { utcDate, whenFor } from "./time.ts";
+import { stamp, utcDate, whenFor } from "./time.ts";
 import { newId, nowIso, truncate } from "./util.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -68,6 +70,26 @@ const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs
 4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list. In each why, name a grant by its title (the short name on its ask), never by its objective.
 5. Call \`rank\` once with \`order\` (every open ask id), \`slate\` and \`defer\`. It sets the ranks, files the slate as a notice beside the asks and parks the deferred asks. It funds nothing.
 6. submit_report (verdict stop): the slate notice id and how many asks you ranked. Nothing else: don't read other docs, don't write pages.`;
+
+/** The decision run's title: one pending run at a time is found by it (the debounce). */
+const DECISION_RUN_TITLE = "Settle and re-rank after a decision";
+/** A run of human decisions this close together is one Secretary wake (1:1 mt_msnjkpgwdb decision 10). */
+export const DECISION_RUN_DEBOUNCE_MS = 3 * 60_000;
+/**
+ * At most this many decision runs a UTC day: they draw on the ranking schedule's retainer (each capped at its
+ * tokensPerRun), which a human approved for the daily ranking, so a busy day can't spend it down. Past the cap a
+ * decision waits for the next ranking, whose read lists it under "Decided since the last ranking" all the same.
+ */
+export const DECISION_RUNS_PER_DAY = 8;
+const DECIDED_HEAD = "The human's decisions this run follows (oldest first):";
+
+/** The decision run's instructions (1:1 mt_msnjkpgwdb decisions 10 and 20a): the lines under DECIDED_HEAD are added as decisions land. */
+const DECISION_RUN_PROMPT = `A human just decided on the Town Hall queue (you are the Secretary; docs/legible-delegation.md §6). Take that decision and do what follows from it. You never fund, continue, cut or approve anything, and you decide nothing a human has not already decided.
+1. Call \`rank\` with no arguments. It lists the open asks and, under "Decided since the last ranking", each human decision with the open asks it may have overtaken (candidates: the same item, or an ask whose words name the decided item).
+2. Settle what the decision made moot: for each candidate, and any other open ask the decision plainly answers, judge whether a human would still have anything to decide on it. If not, close it with \`rank\` \`overtaken\`: its ask id, \`because\` (the decided ask or item by id, or the 1:1 and their words) and a one-sentence \`note\`. Only click and policy asks close this way; money, credentials, meetings and requests a human must carry out stay theirs (the tool refuses them): rank or defer those. When in doubt, leave it open.
+3. Re-rank what is left: \`order\` (every open ask id, most urgent first) and \`defer\` for an ask that is now moot until another resolves. File a \`slate\` only if the decision changed the money picture. One \`rank\` call can carry overtaken, order, defer and slate together.
+4. Send back what the decision implies for a building when the building's own decision message would not say it (it hears "cut", not why, or not that a second ask of its went with it): \`tell\` the building (to: its bl_ id) in one or two plain lines. Skip this when there is nothing to add.
+5. submit_report (verdict stop): what you closed as overtaken and why, how many asks you ranked, whom you told. Nothing else: don't read other docs, don't write pages.`;
 
 /** The weekly run's instructions. */
 const PATTERN_RUN_PROMPT = `Write this week's pattern note for the humans (you are the Secretary; docs/legible-delegation.md §6, "Surface patterns"). You never fund, decide or approve anything.
@@ -194,6 +216,33 @@ export class Secretary {
       authorId: by?.id ?? th.createdBy ?? "system", authorKind: by ? "agent" : "user",
       body: `${LEDGER_HEAD}\n`,
     }, "The policy ledger opened in the Town Hall");
+  }
+
+  /**
+   * A human decided on a Town Hall ask (1:1 mt_msnjkpgwdb decision 10: "take every user decision made on this queue …
+   * potentially answer some cards that logically follow from the decision, rerank"): one Secretary run, debounced. The
+   * first decision queues a run that waits DECISION_RUN_DEBOUNCE_MS; decisions that land while it waits add a line to
+   * it (one pending run at a time); a decision during a run queues one more. It is a run of the ranking schedule's
+   * retainer (lane retainer, capped per run, at most DECISION_RUNS_PER_DAY a day), so nothing is queued while that
+   * retainer is not approved, the Secretary is stopped, or no ask is left open. Returns the run, or null.
+   */
+  afterDecision(d: { askId?: string | null; targetKind?: string | null; targetId?: string | null; text: string; by?: string | null }, at: Date = new Date()): Assignment | null {
+    const world = this.world;
+    const sec = this.agent();
+    const s = rankSchedule(world);
+    if (!sec || sec.status === "stopped" || isGone(sec) || !s || s.retainer !== "funded") return null;
+    if (!rankedAsks(world).length) return null;
+    const line = `- ${stamp(at.toISOString())}: ${oneLine(d.text, 300)}${d.askId ? ` (ask ${d.askId})` : ""}${d.targetId ? ` (about ${d.targetId})` : ""}`;
+    const pending = world.assignments.first("agentId = ? AND status = 'pending' AND title = ?", [sec.id, DECISION_RUN_TITLE], "ORDER BY createdAt DESC, rowid DESC");
+    if (pending) return pending.description.includes(line) ? pending : world.assignments.upsert({ ...pending, description: `${pending.description}\n${line}`.slice(0, 20_000), updatedAt: at.toISOString() });
+    const today = `${at.toISOString().slice(0, 10)}T00:00:00.000Z`;
+    if (world.assignments.count("agentId = ? AND title = ? AND createdAt >= ?", [sec.id, DECISION_RUN_TITLE, today]) >= DECISION_RUNS_PER_DAY) return null;
+    const user = d.by?.startsWith("us_") ? d.by : null;
+    return createAssignment(world, {
+      agentId: sec.id, title: DECISION_RUN_TITLE, description: `${DECISION_RUN_PROMPT}\n\n${DECIDED_HEAD}\n${line}`, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
+      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: user ? humanOrigin(user, d.askId ?? d.targetId ?? s.id, at.toISOString()) : null, model: s.model,
+      waitFor: { after: new Date(at.getTime() + DECISION_RUN_DEBOUNCE_MS).toISOString() },
+    });
   }
 
   /** The Secretary's part of a 1:1 prompt (null when the 1:1 is with anyone else). */
@@ -386,14 +435,35 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
     .sort((a, b) => b.h.at.localeCompare(a.h.at)).slice(0, 30)
     .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${grantName(g)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
   const decided = world.asks.where("status = 'decided'", [], "ORDER BY decidedAt DESC LIMIT 15").map((a) => `- ${a.id} (${a.type}) "${oneLine(a.title, 100)}": ${oneLine(a.decision ?? "", 120)}`);
+  const since = decidedSinceRanking(world, asks);
   return [
     `Open asks (${asks.length}), in their current order:\n\n${list.join("\n\n")}`,
+    `Decided since the last ranking, and the open asks each may have overtaken (candidates: judge each; close one only when a human has nothing left to decide on it):\n${since.join("\n") || "(none)"}`,
     `The humans' recent money decisions (newest first):\n${decisions.join("\n") || "(none yet)"}`,
     `Asks the humans decided lately:\n${decided.join("\n") || "(none yet)"}`,
   ].join("\n\n");
 }
 
+/**
+ * The humans' decisions since the last ranking (an ask decided, or retired by a human's decision on its item), oldest
+ * first, each with the open asks it may have overtaken (`overtakeCandidates`, pure). At most the last 30.
+ */
+function decidedSinceRanking(world: World, open: Ask[]): string[] {
+  const last = world.events.latestWith("ask.ranked", "ranked");
+  const facts: AskFacts[] = open.map((a) => ({ id: a.id, type: a.type, status: a.status, targetKind: a.targetKind, targetId: a.targetId, title: a.title, body: a.body, deferredUntil: a.deferredUntil }));
+  const events = world.events.list({ types: ["ask.decided", "ask.retired"], since: last?.id ?? 0, limit: 1000 })
+    .filter((e) => e.type === "ask.decided" || (e.payload.human === true && e.payload.overtaken !== true)).slice(-30);
+  return events.map((e) => {
+    const p = e.payload as { askId?: string; targetKind?: string | null; targetId?: string | null };
+    const ask = p.askId ? world.asks.get(p.askId) : undefined;
+    const d = { askId: p.askId ?? null, targetKind: p.targetKind ?? ask?.targetKind ?? null, targetId: p.targetId ?? ask?.targetId ?? null };
+    const c = overtakeCandidates(d, facts);
+    return `- ${stamp(e.ts)} ${oneLine(e.text, 220)}${d.askId ? ` (ask ${d.askId}${d.targetId ? `, about ${d.targetId}` : ""})` : ""}\n  → ${c.length ? `may have overtaken: ${c.map((a) => `${a.id} (${a.type}) "${oneLine(a.title, 80)}"`).join("; ")}` : "no open ask is on the same item or names it"}`;
+  });
+}
+
 interface RankInput {
+  overtaken?: { askId: string; because: string; note: string }[];
   order?: string[];
   slate?: { fund: { askId: string; why: string }[]; hold: { askId: string; until: string; why: string }[]; skip: { askId: string; why: string }[] };
   defer?: { askId: string; until: string }[];
@@ -408,16 +478,24 @@ interface RankInput {
 export function applyRank(world: World, by: Agent, input: RankInput, at: Date = new Date()): { ranked: number; deferred: string[]; slateId: string | null; note: string } {
   if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary ranks the asks.");
   const live = new Map(rankedAsks(world).map((a) => [a.id, a]));
+  // asks closed as overtaken in this call leave the queue first: they are in no order, slate or defer
+  const closing = new Set<string>();
+  for (const o of input.overtaken ?? []) {
+    if (!live.has(o.askId)) throw badRequest(`overtaken: ${o.askId} is not an open ask.`);
+    if (closing.has(o.askId)) throw badRequest(`overtaken: ${o.askId} is listed twice.`);
+    closing.add(o.askId);
+  }
   const order = input.order ?? [];
   const seen = new Set<string>();
   for (const id of order) {
+    if (closing.has(id)) throw badRequest(`order: ${id} is being closed as overtaken in this call; leave it out of the order.`);
     if (!live.has(id)) throw badRequest(`order: ${id} is not an open ask (read \`rank\` again: it may have been decided or retired).`);
     if (seen.has(id)) throw badRequest(`order: ${id} is listed twice.`);
     seen.add(id);
   }
   for (const d of input.defer ?? []) {
     const a = live.get(d.askId);
-    if (!a || a.status !== "open") throw badRequest(`defer: ${d.askId} is not an open ask.`);
+    if (!a || a.status !== "open" || closing.has(d.askId)) throw badRequest(`defer: ${d.askId} is not an open ask.`);
     if (d.until === d.askId) throw badRequest(`defer: ${d.askId} can't wait behind itself.`);
     if (d.until.startsWith("ak_") && !live.has(d.until)) throw badRequest(`defer: ${d.until} is not a live ask to wait behind.`);
   }
@@ -426,15 +504,18 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
   const onSlate = new Set<string>();
   for (const id of slated) {
     const a = live.get(id);
-    if (!a) throw badRequest(`slate: ${id} is not an open ask.`);
+    if (!a || closing.has(id)) throw badRequest(`slate: ${id} is not an open ask.`);
     if (a.type !== "money") throw badRequest(`slate: ${id} is a ${a.type} ask; the slate is for money asks only.`);
     if (onSlate.has(id)) throw badRequest(`slate: ${id} is on the slate twice (fund, hold and skip are exclusive).`);
     onSlate.add(id);
   }
   return world.transaction(() => {
+    // decisions 10 and 20a: close what a human's decision made moot (click and policy asks only; `overtakeAsk` refuses the rest)
+    const overtaken = (input.overtaken ?? []).map((o) => ({ ask: overtakeAsk(world, by, o.askId, o.because, o.note), ...o }));
+    tellBuildingsOvertaken(world, by, overtaken);
     if (input.order) {
       order.forEach((id, i) => setRank(world, id, i + 1));
-      for (const id of live.keys()) if (!seen.has(id)) setRank(world, id, null);
+      for (const id of live.keys()) if (!seen.has(id) && !closing.has(id)) setRank(world, id, null);
     }
     const deferred = (input.defer ?? []).map((d) => deferAsk(world, by, d.askId, d.until).id);
     let slate: Notice | null = null;
@@ -455,9 +536,30 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
         title: `Money slate ${utcDate(at)}: fund ${s.fund.length}, hold ${s.hold.length}, skip ${s.skip.length}`,
       });
     }
-    world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null } });
-    return { ranked: order.length, deferred, slateId: slate?.id ?? null, note: `Done${slate ? `: the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
+    world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${overtaken.length ? `, closed ${overtaken.length} as overtaken` : ""}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null, overtaken: overtaken.map((o) => o.askId) } });
+    return { ranked: order.length, deferred, overtaken: overtaken.map((o) => o.askId), slateId: slate?.id ?? null, note: `Done${overtaken.length ? `: closed ${overtaken.length} as overtaken` : ""}${slate ? `; the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
   });
+}
+
+/**
+ * The filing building hears that the Secretary closed its asks as overtaken: one entry per building on its own thread
+ * at level manager (it may be waiting on them), listing each ask, the decision that overtook it and the note.
+ */
+function tellBuildingsOvertaken(world: World, by: Agent, closed: { ask: Ask; because: string; note: string }[]): void {
+  const byBuilding = new Map<string, typeof closed>();
+  for (const c of closed) {
+    const b = c.ask.buildingId;
+    if (!b || b === TOWN_HALL_ID || !managerAgentOf(world, world.buildings.get(b))) continue;
+    byBuilding.set(b, [...(byBuilding.get(b) ?? []), c]);
+  }
+  for (const [b, list] of byBuilding) {
+    appendEntry(world, {
+      jobId: `jb_${b}`, authorKind: "secretary", authorId: by.id, level: "manager",
+      note: `${by.name} closed ${list.length} of your ask${list.length === 1 ? "" : "s"} as overtaken by a human's decision`,
+      body: `${list.map((c) => `- ${c.ask.id} "${oneLine(c.ask.title, 120)}": overtaken by ${oneLine(c.because, 160)}. ${oneLine(c.note, 300)}`).join("\n")}\n\nNothing waits on a human for these any more. If one still needs a human, file it again with what changed.`,
+      moved: { kind: "message", rule: "overtaken", askIds: list.map((c) => c.ask.id) },
+    });
+  }
 }
 
 /** Today's slate (UTC), the newest, if the Secretary filed one today: the review deck's first slide. */
