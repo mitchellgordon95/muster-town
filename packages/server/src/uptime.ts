@@ -1,32 +1,18 @@
 import type { World } from "@muster-town/core";
-import { z } from "zod";
 
 /**
- * Public uptime measured from outside (grant gr_rcj8nkbkbt, kr_6ofa7wf812). The pinger probes GET /api/health once a minute
- * from another box and posts its probes here in batches (a probe taken while the town was down is buffered and lands once
- * it is back). A minute with no probe is `unknown`, never up. Restart gaps come from the server's own events: the last
- * event before each "Server started" boot marker (capacity.ts markBoot) to that marker.
+ * Public uptime (grant gr_rcj8nkbkbt, then gr_hbz0twkfp9). Table uptime_probes (migration 108) holds one row per probed
+ * minute per source; nothing writes it any more (the probe API is gone: UptimeRobot measures muster.town, and the next
+ * step reads it here). A minute with no probe is `unknown`, never up. Restart gaps come from the server's own events:
+ * the last event before each "Server started" boot marker (capacity.ts markBoot) to that marker.
  */
 const DAY_MS = 24 * 3600_000;
 const MIN_MS = 60_000;
 const UPTIME_DAYS = 30;
-/** probes older than this are dropped on ingest and pruned */
-const KEEP_DAYS = 35;
 /** a run of failed minutes this long or longer is an outage */
 const OUTAGE_MIN_MINUTES = 2;
 /** unknown minutes inside a run of failed ones that still join it (a late or skipped timer tick) */
 const OUTAGE_JOIN_GAP = 1;
-
-export const ProbeBatch = z.object({
-  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).default("pinger"),
-  probes: z.array(z.object({
-    /** when the probe ran (ISO); its UTC minute is the key */
-    at: z.string().datetime({ offset: true }),
-    ok: z.boolean(),
-    ms: z.number().int().nonnegative().max(600_000).nullable().optional(),
-  })).max(7 * 1440 + 60),
-});
-export type ProbeBatch = z.infer<typeof ProbeBatch>;
 
 interface UptimeDay { date: string; up: number; down: number; unknown: number; pct: number | null }
 interface Outage { from: string; to: string; minutes: number }
@@ -53,24 +39,6 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
 export class Uptime {
   constructor(private readonly world: World, private readonly o: { now?: () => number } = {}) {}
   private now(): number { return this.o.now?.() ?? Date.now(); }
-
-  /** Store a batch; a minute already stored for the source is ignored, so the pinger can resend safely. */
-  ingest(batch: ProbeBatch): { accepted: number; ignored: number } {
-    const now = this.now();
-    const oldest = now - KEEP_DAYS * DAY_MS;
-    const receivedAt = new Date(now).toISOString();
-    const insert = this.world.db.prepare("INSERT OR IGNORE INTO uptime_probes (minute, source, ok, ms, receivedAt) VALUES (?, ?, ?, ?, ?)");
-    let accepted = 0;
-    this.world.db.transaction(() => {
-      for (const p of batch.probes) {
-        const t = Date.parse(p.at);
-        if (t < oldest || t > now + 2 * MIN_MS) continue;
-        accepted += insert.run(minuteKey(t), batch.source, p.ok ? 1 : 0, p.ms ?? null, receivedAt).changes;
-      }
-      this.world.db.prepare("DELETE FROM uptime_probes WHERE minute < ?").run(minuteKey(oldest));
-    })();
-    return { accepted, ignored: batch.probes.length - accepted };
-  }
 
   summary(days = UPTIME_DAYS): UptimeSummary {
     const now = this.now();

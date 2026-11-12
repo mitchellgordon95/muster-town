@@ -44,9 +44,9 @@ export function UptimeView({ u }: { u: UptimeData }) {
     <div className="uptime" aria-label="Uptime">
       <p style={{ margin: "0 0 6px" }}>
         {u.pct === null
-          ? <b>Not measured yet: no outside probe has reached the town.</b>
+          ? <b>Not measured yet.</b>
           : <><b style={{ fontSize: "var(--fs-xl)" }}>{u.pct}%</b> up over the last {u.days} days</>}
-        <span className="muted"> · probed from outside once a minute; {u.coverage}% of minutes measured</span>
+        <span className="muted"> · measured by UptimeRobot; {u.coverage}% of minutes measured</span>
       </p>
       <div role="img" aria-label={`Day strip, oldest to today: ${u.byDay.map((d) => `${d.date} ${d.pct === null ? "not measured" : `${d.pct}%`}`).join(", ")}`}
         style={{ display: "flex", gap: 2, margin: "0 0 6px" }}>

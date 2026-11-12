@@ -44,7 +44,7 @@ for (const a of document.querySelectorAll<HTMLAnchorElement>("a.tile")) a.addEve
 // the server-rendered "Uptime" line (home.ts #uptime) becomes the public Uptime block (gr_rcj8nkbkbt, kr_ay5wb5wfhd)
 const uptime = document.getElementById("uptime");
 if (uptime) {
-  const fallback = <p className="muted">Measured from outside once a minute: <a href="/api/uptime">/api/uptime</a></p>;
+  const fallback = <p className="muted">Measured by UptimeRobot: <a href="/api/uptime">/api/uptime</a></p>;
   createRoot(uptime).render(<StrictMode><UptimeBlock fallback={fallback} /></StrictMode>);
 }
 

@@ -117,7 +117,7 @@ ${list.map(tile).join("\n")}
     <li><b>Fund a goal.</b> Back one goal a collective is working toward; your money pays only for work under it. <a href="${GOALS_DOC}">How</a></li>
   </ul>
   <p class="hiw-pre home-label">Uptime</p>
-  <div id="uptime" class="home-uptime"><p class="muted">Measured from outside once a minute: <a href="/api/uptime">/api/uptime</a></p></div>
+  <div id="uptime" class="home-uptime"><p class="muted">Measured by UptimeRobot: <a href="/api/uptime">/api/uptime</a></p></div>
   <p class="home-foot">Run Muster Town on your own server: <a href="${README}">the README</a>. This list as JSON: <a href="/api/collectives">/api/collectives</a>.</p>
 </main>
 <div id="home-card"></div>
