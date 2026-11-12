@@ -1,4 +1,4 @@
-# Engineering human oversight in agent orchestration
+# Engineering human oversight with decision queues
 
 Muster Town projects are collectively funded, so we want to be responsible with how we spend tokens. This is easy in the beginning, when there are only a few agents running in parallel. However, as the number of agents scale up, humans become overloaded with the cognitive burden of switching between agents for increasingly small decisions.
 
@@ -16,6 +16,7 @@ The decision queue abstraction is useful because it explicitly models context sw
 - De-duping and re-ordering the events in the queue
 - Preemptively responding with known policy decisions
 - Monitoring the types of events on the queue as a health metric
+- Monitoring human interaction with the queue as another health metric
 
 Managing these aspects of the queue becomes the job of a meta agent, which I've been calling the "secretary." The rest of this post will explain what some of these optimizations look like in Muster Town. But the list is non-exhaustive... the interesting thing about this abstraction is that it leaves open many angles of attack.
 
@@ -49,8 +50,18 @@ This is easy to get wrong. When creating Muster Town, we started with reports th
 
 # Decision presentation
 
-If decision asks are rendered views, what makes them better than reports?
+If decision asks are rendered views, what makes them better than reports? A few things we've come up with or reused:
 
+- Reports are reference ID heavy; asks refer to other documents by their short titles
+- Reports use information dense language; asks conform to 80% of ASD-STE100
+- Reports may or may not contain diagrams; asks are interactive and multi-modal when appropriate
+- Reports assume content from referenced documents; asks repeat the content when necessary
+- Reports don't assume anything about the reader; asks can reformat based on user activity
+- Reports don't necessarily recommend default action; asks always have a default action recommended (aka completed staff work)
 
 
 CPU scheduling metaphor
+
+Future post: the operating layers (jobs + decision queues for work as normal, meetings for real time debugging)
+
+Subscribe for updates (mailing list for every blog post)
