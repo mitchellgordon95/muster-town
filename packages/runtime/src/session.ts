@@ -61,6 +61,19 @@ export interface LiveSession {
 
 export const TOWN_TOOLS = VERB_NAMES.map((v) => `mcp__town__${v}`);
 export const WEB_TOOLS = ["WebSearch", "WebFetch"];
+/**
+ * Whether an in-process (no-code) session gets WEB_TOOLS. Work sessions always do. A manager's 1:1 with a human does,
+ * for every manager: the human may ask something only a web page answers (a price, a doc). The Secretary (the Town
+ * Hall's manager) has web in every manage session and in its meeting replies (1:1 mt_msnjkpgwdb decision 2). Other
+ * managers' team-lead sessions decide in-tray reports from the town's own docs, and facilitation never needs the web:
+ * no web there, so their tool list (part of the cached prefix) and their context stay as they were.
+ */
+export function webFor(purpose: Session["purpose"], opts: { secretary?: boolean; oneOnOne?: boolean } = {}): boolean {
+  if (purpose === "work") return true;
+  if (purpose === "manage") return !!opts.secretary || !!opts.oneOnOne;
+  if (purpose === "meeting-reply") return !!opts.secretary;
+  return false;
+}
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
 const THOUGHT_CHARS = 200;
 export const clipThought = (t: string) => (t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t);

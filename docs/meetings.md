@@ -8,7 +8,7 @@ Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8
 |---|---|---|---|---|
 | Attendee summary | `SUMMARY_MODEL` = `claude-sonnet-5-5` (was `building.cheapModel`, Haiku, until row 1 landed) | none (one-shot) | own last report, own last 20 events, own 3 recent docs; agenda or "(none)" | `packages/runtime/src/meetings.ts:41`, `packages/core/src/prompts.ts:158` |
 | Facilitator | `facilitator.model ?? meeting building's model ?? home building's model ?? claude-opus-5-5` | every town verb (`look`, `read`, `search`, `meeting`, `assign`…), no web, no code; ≤60 turns | summaries, last 20 utterances, agenda or "(none; set one from the summaries)" | `runtime/meetings.ts:151`, `prompts.ts:173` |
-| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | `read`, `search`, `meeting` only (`MEETING_REPLY_VERBS`; host session, ≤4 turns, no web; was a one-shot until row 4 landed) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:107`, `prompts.ts:294`, `runtime/session.ts:61` (`SessionSpec.verbs`) |
+| @-reply | `agent.model ?? home building's model ?? claude-opus-5-5` | `read`, `search`, `meeting` only (`MEETING_REPLY_VERBS`; host session, ≤4 turns, no web except the Secretary's (`webFor`, runtime/session.ts); was a one-shot until row 4 landed) | last 20 utterances, own assignment, last report, 20 events, 3 recent docs | `runtime/meetings.ts:107`, `prompts.ts:294`, `runtime/session.ts:61` (`SessionSpec.verbs`) |
 
 Two corrections to what was said in the meeting (I said it, so I'm correcting it):
 

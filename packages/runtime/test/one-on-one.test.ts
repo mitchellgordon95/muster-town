@@ -36,6 +36,7 @@ describe("the manager's 1:1", () => {
     await until(() => world.meetings.require(m.id).transcript.length === 1);
     expect(sdk.sessions).toHaveLength(1);
     expect(sdk.sessions[0].received[0]).toContain(m.id);
+    expect(sdk.sessions[0].options.tools).toEqual(["WebSearch", "WebFetch"]); // a 1:1 has web (mt_msnjkpgwdb decision 2)
     const live = world.sessions.first("agentId = ? AND status = 'running'", [mei.id])!;
     expect(live).toMatchObject({ purpose: "manage", meetingId: m.id });
     expect(runtime.isWorking(mei.id)).toBe(true);

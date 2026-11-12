@@ -6,7 +6,7 @@ import type { Meeting, VerbName } from "@muster-town/schema";
 import { recentWorkBlock } from "@muster-town/core";
 import { facilitateMaterial, meetingContextBlock, facilitatePrompt, facilitateSystemPrompt, lastMeetingFor, meetingReplyPrompt, meetingReplySystemPrompt, summaryPrompt, summarySystemPrompt } from "@muster-town/core";
 import { oneShot } from "./sdk.ts";
-import { chargeUsage, endAndCharge, fundingFor, homeOf, runAgentSession, type Ctx } from "./session.ts";
+import { chargeUsage, endAndCharge, fundingFor, homeOf, runAgentSession, webFor, type Ctx } from "./session.ts";
 import { latestReport } from "./work.ts";
 
 export const COLLECTING_MS = 3 * 60_000;
@@ -111,7 +111,7 @@ async function replyInMeeting(ctx: Ctx, meetingId: string, agentId: string): Pro
   const spoken = () => world.meetings.get(meetingId)?.transcript.length ?? 0;
   const before = spoken();
   await runAgentSession(ctx, {
-    agentId, purpose: "meeting-reply", model, maxTurns: MEETING_REPLY_MAX_TURNS, web: false, meetingId, verbs: MEETING_REPLY_VERBS,
+    agentId, purpose: "meeting-reply", model, maxTurns: MEETING_REPLY_MAX_TURNS, web: webFor("meeting-reply", { secretary: world.secretary.isSecretary(agent) }), meetingId, verbs: MEETING_REPLY_VERBS,
     system: meetingReplySystemPrompt(agent), prompt: note ? `${prompt}\n\n${note}` : prompt, images,
     // the session's own end: speak the final text if the model didn't `speak` itself, then record and charge
     finish: async (out, allocationId) => {
@@ -174,7 +174,7 @@ export async function facilitate(ctx: Ctx, st: MeetingState, meetingId: string):
     const model = fac.model ?? bid?.model ?? (home ? world.buildings.get(home)?.model : undefined) ?? "claude-opus-5-5";
     try {
       await runAgentSession(ctx, {
-        agentId: fac.id, purpose: "facilitate", model, maxTurns: FACILITATE_MAX_TURNS, web: false, meetingId: m.id,
+        agentId: fac.id, purpose: "facilitate", model, maxTurns: FACILITATE_MAX_TURNS, web: webFor("facilitate"), meetingId: m.id,
         system: facilitateSystemPrompt(fac, bid && { ...bid, goal: world.goalTree.purposeOf(bid) }, world.town.get(), meetingContextBlock(world, fac, m)), prompt: facilitatePrompt(m, (id) => world.nameOf(id), facilitateMaterial(world, m)),
       });
     } catch (e) {
