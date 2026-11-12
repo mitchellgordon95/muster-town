@@ -767,18 +767,18 @@ export class MockApi implements Api {
   async request(docId: string, action: RequestAction, body?: string) {
     await wait();
     const d = this.need(this.sim.docs.get(docId), "doc");
-    if (action === "claim" || action === "decline" || action === "delete") this.retireAsks(docId, `request ${action}`);
+    if (action === "done" || action === "decline" || action === "delete") this.retireAsks(docId, `request ${action}`);
     if (action === "delete") { this.sim.docs.delete(docId); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return null; }
     if (action === "withdraw" || action === "decline") {
       d.requestStatus = action === "withdraw" ? "withdrawn" : "declined"; d.requestNote = body || "(no note)"; d.requestDecidedById = "us_mitchell";
       this.sim.putDoc(d); this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() }); return d;
     }
-    d.requestStatus = action === "claim" ? "claimed" : "done";
-    if (action === "claim") d.claimedByUserId = "us_mitchell";
-    if (action === "done") {
+    d.requestStatus = "done";
+    d.claimedByUserId = "us_mitchell";
+    {
       const hr = this.sim.putDoc({ id: newId("dc"), type: "human-report", state: "library", title: `Re: ${d.title}`, body: body || "(no details)", authorId: "us_mitchell", authorKind: "user", buildingId: d.buildingId, provenance: { sourceIds: [], urls: [] }, tags: [], createdAt: now(), updatedAt: now() });
       this.sim.event("doc.created", null, `Mitchell answered a request: ${d.title}`, { docId: hr.id });
-    } else this.sim.event("doc.updated", null, `Request "${d.title}" claimed`, { docId });
+    }
     const out = clone(this.sim.putDoc(d));
     this.sim.emit({ type: "outbox", open: this.sim.outboxOpen() });
     return out;

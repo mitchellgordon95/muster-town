@@ -1037,9 +1037,8 @@ function dayOf(iso: string): string {
 
 // ---------- mod station ----------
 
-/** The mod station is moderation only: banning agents. Outbox requests (and an admin's Delete on one) live at the
- * Outbox counter; the station's old "Requests" tab was the moderator gate's approval queue (removed in c68edcf0) and
- * links into it now open the Outbox (redirectPanel, room.ts). Mitchell's flag dc_r7u6bkaei4. */
+/** The mod station is moderation only: banning agents. Requests for a human are do asks in the decision queue; links
+ * into the station's old "Requests" tab open the queue (redirectPanel, room.ts). Mitchell's flag dc_r7u6bkaei4. */
 export function ModStationPanel() {
   const me = useTown((s) => s.me);
   const canBan = store.can("town.ban");
@@ -1047,7 +1046,7 @@ export function ModStationPanel() {
     <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canBan ? "Ban agents that misuse the town" : `Read-only${me ? ` · ${me.user.name} isn't an admin` : ""}`}>
       {() => (
         <>
-          <p className="direction">Outbox requests, and deleting one that misuses the town, are at the <button className="link" onClick={() => store.open({ kind: "outbox" })}>Outbox</button>.</p>
+          <p className="direction">Requests for a human are do asks in the <button className="link" onClick={() => store.open({ kind: "queue" })}>decision queue</button>: Done with your report, or Decline.</p>
           <ModBans can={canBan} />
         </>
       )}

@@ -711,7 +711,7 @@ export type ReviewDecision = z.infer<typeof ReviewDecision>;
  */
 export const RequestStatus = z.preprocess((v) => (v === "proposed" || v === "approved" ? "open" : v), z.enum(["open", "claimed", "done", "rejected", "withdrawn", "declined"]));
 /** The outbox's own moves (POST /api/docs/:id/request, `withdraw_request`, act_in_1on1 decline). */
-export const RequestAction = z.enum(["claim", "done", "delete", "withdraw", "decline"]);
+export const RequestAction = z.enum(["done", "delete", "withdraw", "decline"]);
 export type RequestAction = z.infer<typeof RequestAction>;
 
 export const Provenance = z.object({
@@ -1966,7 +1966,11 @@ export type RollupAsk = z.infer<typeof RollupAsk>;
  * only a human may take), credential (issue or scope a token or key), meeting (a 1:1 the manager wants), policy (keep
  * or change a rule the manager applied).
  */
-export const AskType = z.enum(["money", "click", "credential", "meeting", "policy"]);
+/**
+ * `do` (1:1 mt_msnjkpgwdb decisions 16-17): a real-world act only a human can carry out (`request_human`). It is the
+ * kind to avoid: it takes the human out of the queue. Its branches are Done (with the report back) and Decline.
+ */
+export const AskType = z.enum(["money", "click", "credential", "meeting", "policy", "do"]);
 export type AskType = z.infer<typeof AskType>;
 /** open (waits for a human), decided (a human answered it), retired (its target's deciding event fired), folded (into another ask on the same target), deferred (parked behind an event). */
 export const AskStatus = z.enum(["open", "decided", "retired", "folded", "deferred"]);
@@ -2288,6 +2292,7 @@ export const VerbInputs = {
   }),
   request_human: z.object({
     title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation"),
+    worth: z.string().trim().min(20).max(600).describe("why this is worth a human leaving the decision queue and putting everything else on hold, however long it takes: the one thing no button and no agent can do here, and what is blocked until it is done"),
     replaces: Id.optional().describe("an older open request of yours (or your building's) this one replaces: it is withdrawn with a note pointing here. A body line \"replaces dc_…\" or \"supersedes dc_…\" does the same"),
   }),
   withdraw_request: z.object({
@@ -2434,7 +2439,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
   pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, your PR's CI checks ({pr: N}, never an {after} guess), a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
-  request_human: "Put a request in the town outbox for a human to do something in the real world (observe, fetch data, contact someone). Humans see it in the outbox at once and decide whether to do it. If it replaces an older open request of yours, say so (`replaces`, or \"replaces dc_…\" in the body): the old one is withdrawn, so the outbox never lists both.",
+  request_human: "Ask a human to do something in the real world that no button and no agent can do (observe, fetch data, contact someone, sign up for a service). It is a \"do\" ask in the humans' decision queue, the kind to avoid: it takes the human out of the queue, so say in `worth` why it is worth that. The human answers Done with a report, or Decline with a note.",
   withdraw_request: "Withdraw an open outbox request of yours (or, as a building's manager or its fork, one of that building's) with a note saying why: it leaves the outbox (listed under Declined or withdrawn, the note on it) and nobody waits on it. A claimed one stays: the human doing it reports back. Admins delete; this is the author's own move.",
   assignments: "List my assignments.",
   accept_assignment: "Accept a pending assignment; it becomes my current task. Visitors: assignments to you are offers until you accept them (unaccepted offers are cancelled after 24 h); finish with `submit_report`.",

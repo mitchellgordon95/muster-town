@@ -68,7 +68,7 @@ describe("the ask card", () => {
     expect(html("ak_weekly")).toContain(">Approve<");
     expect(html("ak_captain")).toContain(">Accept<");
     expect(html("ak_access")).toContain(">Let in<");
-    expect(html("ak_req")).toContain(">Claim…<");
+    expect(html("ak_req")).toContain(">Done…<");
     const policy = html("ak_policy");
     expect(policy).toContain(">Add<");
     expect(policy).toContain(">Skip<");
@@ -151,7 +151,7 @@ describe("the ask card", () => {
     expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "I edited the token instead.");
   });
 
-  it("an outbox request's Claim takes an optional note and sends it; Decline waits for one", async () => {
+  it("a request (a do ask) has no Claim: Done waits for the report back and sends it; Decline waits for a note", async () => {
     signIn();
     const req = vi.spyOn(api(), "request").mockResolvedValue(null);
     const el = await mount(<AskCard ask={ask("ak_req")} onDecided={() => undefined} />);
@@ -161,16 +161,17 @@ describe("the ask card", () => {
     expect(declineAct().disabled).toBe(true);
     await act(async () => typeInto(el.querySelector("input[aria-label='Note']") as HTMLInputElement, "no monitor here"));
     expect(declineAct().disabled).toBe(false);
-    // Claim's note is optional: the button is live empty, and the words go with the claim
-    await act(async () => button(el, "Claim…").click());
-    const claimAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Claim") as HTMLButtonElement;
+    // Done's note is the report back: required, and it goes with the press
+    expect(el.textContent).not.toContain("Claim");
+    await act(async () => button(el, "Done…").click());
+    const doneAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Done") as HTMLButtonElement;
     const field = el.querySelector("input[aria-label='Note']") as HTMLInputElement;
     await act(async () => typeInto(field, ""));
-    expect(claimAct().disabled).toBe(false);
-    await act(async () => typeInto(field, "use Wright's VPS"));
-    await act(async () => claimAct().click());
+    expect(doneAct().disabled).toBe(true);
+    await act(async () => typeInto(field, "Signed up; the monitor is live."));
+    await act(async () => doneAct().click());
     await flush();
-    expect(req).toHaveBeenCalledWith("dc_req_ml", "claim", "use Wright's VPS");
+    expect(req).toHaveBeenCalledWith("dc_req_ml", "done", "Signed up; the monitor is live.");
   });
 
   it("a retainer's Counter takes tokens per run, an end date and a note, like a grant's counter", async () => {

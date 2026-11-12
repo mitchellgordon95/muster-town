@@ -102,7 +102,7 @@ describe("act_in_1on1", () => {
   it("declines an outbox request as the human: the request records them via the agent and 1:1, the author hears why; their gate applies", async () => {
     const { world, admin, by, mei, say } = setup();
     const ingrid = by("Ingrid");
-    const { id } = await world.verbs.request_human(ingrid, { title: "Run the drill v1", body: "x" });
+    const { id } = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Run the drill v1", body: "x" });
     // a member without town.approve_request is refused as the button refuses them
     const ana = world.ops.createUser("Ana");
     world.permissions.grant({ kind: "user", id: ana.user.id }, townRoleId("member"));
@@ -122,7 +122,7 @@ describe("act_in_1on1", () => {
     expect(d).toMatchObject({ requestStatus: "declined", requestDecidedById: world.holderOf(admin).id, requestViaAgentId: mei.id, requestViaMeetingId: m.id });
     expect(d.requestNote).toBe(`by ${admin.name} via Mei in ${m.id}: "decline ${id}, it was replaced"\nSuperseded by v2.`);
     expect(world.ops.outbox()).toHaveLength(0);
-    expect((await world.verbs.inbox(ingrid, {})).messages.some((x) => x.body.includes(`via Mei in ${m.id} declined your outbox request`))).toBe(true);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((x) => x.body.includes(`via Mei in ${m.id} declined your request`))).toBe(true);
     expect(world.events.list({ types: ["grant.decided-via"] })[0]!.payload).toMatchObject({ docId: id, action: "decline", meetingId: m.id });
     expect(world.meetings.require(m.id).transcript.at(-1)!.text).toMatch(/Mei did this for .*decline the request/);
     await expect(world.verbs.act_in_1on1(mei, { meetingId: m.id, utteranceAt: at, action: "decline", targetId: id })).rejects.toThrow(/declined/);

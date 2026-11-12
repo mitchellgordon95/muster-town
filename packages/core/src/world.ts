@@ -7,7 +7,7 @@ import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
 import { backfillJobs } from "./jobs.ts";
-import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
+import { requestsToDoAsks, backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { ruleHold } from "./lanes.ts";
@@ -297,6 +297,8 @@ export class World {
     this.repairDesks();
     this.grantDesk.releaseHalfway();
     moveManagerRowsToBuildingQueue(this);
+    // the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17): claimed requests are open again, their asks offer Done / Decline; idempotent
+    requestsToDoAsks(this);
     // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
     backfillAsks(this);
     // migration 105: live town-written cards that quoted a clipped objective are written again from their target; idempotent

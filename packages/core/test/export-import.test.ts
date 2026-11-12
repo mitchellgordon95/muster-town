@@ -36,7 +36,7 @@ describe("export", () => {
   it("writes the mirror, commits, skips no-op commits, and round-trips doc count", async () => {
     const { world, by, seed } = seededWorld();
     await world.verbs.write(by("Mei"), { title: "Private draft", body: "secret-ish" });
-    await world.verbs.request_human(by("Ingrid"), { title: "Field photo", body: "please" });
+    await world.verbs.request_human(by("Ingrid"), { worth: "Only a human can do this; the work waits on it.", title: "Field photo", body: "please" });
     const m = world.ops.createMeeting(null, { kind: "standup", buildingId: "carbon-cycle", startNow: true });
     world.ops.endMeeting(null, m.id);
     const dir = tempDir();
@@ -90,7 +90,7 @@ describe("export", () => {
 
   it("off the main thread: the worker writes the same tree as the in-process export and appends no event", async () => {
     const { world, by } = seededWorld();
-    await world.verbs.request_human(by("Ingrid"), { title: "Field photo", body: "please" });
+    await world.verbs.request_human(by("Ingrid"), { worth: "Only a human can do this; the work waits on it.", title: "Field photo", body: "please" });
     const inProcess = world.export(tempDir());
     const done = () => world.events.list({ types: ["export.done"], limit: 100 }).length;
     const before = done();

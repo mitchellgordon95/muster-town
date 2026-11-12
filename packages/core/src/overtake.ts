@@ -27,7 +27,7 @@ const LIVE = new Set(["open", "deferred"]);
 
 /** May the Secretary close this ask as overtaken? A live click or policy ask that is not a Do. Money, credentials and meetings are the humans'. */
 export function maySettle(a: AskFacts): boolean {
-  return LIVE.has(a.status) && SETTLEABLE.has(a.type) && a.targetKind !== "request";
+  return LIVE.has(a.status) && SETTLEABLE.has(a.type) && a.targetKind !== "request" && a.type !== "do";
 }
 
 const ID_CHAR = /[a-z0-9_]/i;

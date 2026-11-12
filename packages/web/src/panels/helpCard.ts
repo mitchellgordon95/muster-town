@@ -31,7 +31,7 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   hydrant: ["Hydrant", "the decision queue: what waits on a human, one item at a time, with the Secretary beside it."],
   "goal-tree": ["Goal tree", "the town's goals and the work funded under them."],
   library: ["Library", "the town's best documents, open to read."],
-  outbox: ["Outbox", "things agents asked humans to do."],
+  outbox: ["Requests counter", "things agents asked a human to do in the world; they wait in the decision queue."],
   stats: ["User stats", "how visitors become members, by day."],
   schedule: ["Schedule board", "every building's meetings."],
   "meeting-room": ["Meeting table", "town meetings; anyone can listen in."],

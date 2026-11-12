@@ -1,5 +1,6 @@
+import { isAnswered } from "../src/jobs.ts";
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, cabinetDocs, createBuilding, createResident, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
+import { entryOf, buildingRoleId, cabinetDocs, createBuilding, createResident, extractProposal, intrayWorker, isTownHallItem, managerAgentOf, setAssignmentStatus, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 import { RequestStatus } from "@muster-town/schema";
 
@@ -310,52 +311,56 @@ describe("say / tell / inbox / look", () => {
 });
 
 describe("request_human lifecycle", () => {
-  it("open (no approval step) → claimed → done creates a library human-report and notifies the agent", async () => {
+  it("open → done (no claim: 1:1 mt_msnjkpgwdb decision 17) creates a library human-report, answers its entry on the thread and notifies the agent", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
-    const { id } = await world.verbs.request_human(ingrid, { title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
+    const { id } = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
     expect(world.docs.require(id)).toMatchObject({ type: "request", state: "building", requestStatus: "open", location: "Yukon" });
     expect(world.ops.outbox().map((d) => d.id)).toEqual([id]);
     const other = world.ops.createUser("Rando").user;
     const randoAvatar = world.ops.ensureAvatar(other.id);
-    world.ops.requestAction(randoAvatar, id, "claim");
-    expect(() => world.ops.requestAction(randoAvatar, id, "claim")).toThrow(/claimed/);
-    expect(world.docs.require(id).claimedByUserId).toBe(other.id);
-    expect(() => world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "done")).toThrow(/needs a report body/);
+    // it is a do ask in the decision queue, with the reason it is worth leaving the queue, and an entry at level human on the thread
+    expect(world.docs.require(id).body).toContain("Worth leaving the queue: Only a human can do this");
+    expect(world.asks.first("targetKind = 'request' AND targetId = ?", [id])).toMatchObject({ type: "do", status: "open", branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] });
+    expect(entryOf(world, `en_${id}`)).toMatchObject({ level: "human", docId: id, moved: { kind: "do", requestId: id } });
+    expect(() => world.ops.requestAction(randoAvatar, id, "claim" as never)).toThrow();
+    expect(() => world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "done")).toThrow(/needs your report back/);
     const { humanReport } = world.ops.requestAction(randoAvatar, id, "done", "Photos attached; slump is 40 m wide.");
     expect(humanReport).toMatchObject({ type: "human-report", state: "library", authorId: other.id, authorKind: "user" });
-    expect(world.docs.require(id).requestStatus).toBe("done");
+    expect(world.docs.require(id)).toMatchObject({ requestStatus: "done", claimedByUserId: other.id });
+    expect(world.asks.first("targetKind = 'request' AND targetId = ?", [id])!.status).toBe("retired");
+    expect(isAnswered(world, `en_${id}`)).toBe(true);
+    expect(() => world.ops.requestAction(randoAvatar, id, "done", "again")).toThrow(/Request is done/);
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes(humanReport!.id))).toBe(true);
   });
 
   it("only an admin can delete a request; the requester is told", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
-    const { id } = await world.verbs.request_human(ingrid, { title: "Spam", body: "x" });
+    const { id } = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Spam", body: "x" });
     const rando = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
     expect(() => world.ops.requestAction(rando, id, "delete")).toThrow(/approve_request/);
     expect(world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "delete").request).toBeNull();
     expect(world.docs.get(id)).toBeUndefined();
     expect(world.ops.outbox()).toHaveLength(0);
-    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("deleted your outbox request"))).toBe(true);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("deleted your request"))).toBe(true);
   });
 
-  it("the outbox badge counts only unclaimed requests: snapshot and live `outbox` frames", async () => {
+  it("the open-requests count (the map's counter badge) follows requests filed, done and deleted: snapshot and live `outbox` frames", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
     const sent: number[] = [];
     world.changes.subscribe((m) => { if (m.type === "outbox") sent.push(m.open); });
-    const a = await world.verbs.request_human(ingrid, { title: "Photo the slump", body: "x" });
-    const b = await world.verbs.request_human(ingrid, { title: "Call the office", body: "y" });
-    await world.verbs.request_human(ingrid, { title: "Spam", body: "z" });
+    const a = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Photo the slump", body: "x" });
+    const b = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Call the office", body: "y" });
+    await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Spam", body: "z" });
     expect(world.snapshot().outbox).toBe(3);
     const avatar = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
-    world.ops.requestAction(avatar, a.id, "claim");
     world.ops.requestAction(avatar, a.id, "done", "Done.");
-    world.ops.requestAction(avatar, b.id, "claim");
+    world.ops.requestAction(avatar, b.id, "done", "Called.");
     const spam = world.ops.outbox().find((d) => d.title === "Spam")!;
     world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), spam.id, "delete");
-    expect(sent).toEqual([1, 2, 3, 2, 2, 1, 0]);
+    expect(sent).toEqual([1, 2, 3, 2, 1, 0]);
     expect(world.snapshot().outbox).toBe(0);
     expect(world.ops.outbox().filter((d) => d.requestStatus === "open")).toHaveLength(0);
   });
@@ -365,7 +370,7 @@ describe("request_human lifecycle", () => {
     const ingrid = by("Ingrid");
     const noor = by("Noor");
     const mei = by("Mei");
-    const { id } = await world.verbs.request_human(ingrid, { title: "Photo", body: "x" });
+    const { id } = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Photo", body: "x" });
     await expect(world.verbs.withdraw_request(noor, { docId: id, note: "nope" })).rejects.toMatchObject({ code: "forbidden" });
     expect(() => world.ops.requestAction(ingrid, id, "withdraw")).toThrow(/why/);
     const r = await world.verbs.withdraw_request(ingrid, { docId: id, note: "No longer needed." });
@@ -376,42 +381,42 @@ describe("request_human lifecycle", () => {
     await expect(world.verbs.withdraw_request(ingrid, { docId: id, note: "again" })).rejects.toThrow(/withdrawn/);
     // the building's manager withdraws a resident's; the resident is told
     world.ops.updateBuilding(world.ops.ensureAvatar(seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
-    const b = await world.verbs.request_human(ingrid, { title: "Second", body: "y" });
+    const b = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Second", body: "y" });
     await world.verbs.withdraw_request(mei, { docId: b.id, note: "Superseded by the plan." });
     expect(world.docs.require(b.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: mei.id });
-    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("withdrew your outbox request") && m.body.includes("Superseded"))).toBe(true);
-    // a claimed one is someone's work: it stays
-    const c = await world.verbs.request_human(ingrid, { title: "Third", body: "z" });
-    world.ops.requestAction(world.ops.ensureAvatar(world.ops.createUser("Rando").user.id), c.id, "claim");
-    await expect(world.verbs.withdraw_request(ingrid, { docId: c.id, note: "late" })).rejects.toThrow(/claimed/);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("withdrew your request") && m.body.includes("Superseded"))).toBe(true);
+    // a finished one is settled: it stays
+    const c = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Third", body: "z" });
+    world.ops.requestAction(world.ops.ensureAvatar(world.ops.createUser("Rando").user.id), c.id, "done", "Did it.");
+    await expect(world.verbs.withdraw_request(ingrid, { docId: c.id, note: "late" })).rejects.toThrow(/done/);
   });
 
   it("a request that replaces an older one withdraws it: `replaces`, or \"replaces dc_…\" in the text; another agent's is left alone", async () => {
     const { world, by } = seededWorld();
     const ingrid = by("Ingrid");
     const noor = by("Noor");
-    const a = await world.verbs.request_human(ingrid, { title: "Drill v1", body: "x" });
-    const theirs = await world.verbs.request_human(noor, { title: "Noor's", body: "n" });
-    const b = await world.verbs.request_human(ingrid, { title: "Drill v2", body: "Run it again.", replaces: a.id });
+    const a = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Drill v1", body: "x" });
+    const theirs = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Noor's", body: "n" });
+    const b = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Drill v2", body: "Run it again.", replaces: a.id });
     expect(b.withdrew).toEqual([a.id]);
     expect(world.docs.require(a.id)).toMatchObject({ requestStatus: "withdrawn", requestDecidedById: ingrid.id });
     expect(world.docs.require(a.id).requestNote).toContain(`Replaced by ${b.id}`);
     expect(world.docs.require(b.id).requestReplaces).toBe(a.id);
-    const c = await world.verbs.request_human(ingrid, { title: "Drill v3", body: `This supersedes ${b.id} and ${theirs.id}. Run it once more.` });
+    const c = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Drill v3", body: `This supersedes ${b.id} and ${theirs.id}. Run it once more.` });
     expect(c.withdrew).toEqual([b.id]);
     expect(world.docs.require(b.id).requestStatus).toBe("withdrawn");
     expect(world.docs.require(c.id).requestReplaces).toBe(b.id);
     expect(world.docs.require(theirs.id).requestStatus).toBe("open");
     expect(world.ops.outbox().map((d) => d.id).sort()).toEqual([c.id, theirs.id].sort());
     // an explicit `replaces` that isn't yours, or isn't open, refuses the whole request
-    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: theirs.id })).rejects.toMatchObject({ code: "forbidden" });
-    await expect(world.verbs.request_human(ingrid, { title: "Bad", body: "x", replaces: a.id })).rejects.toThrow(/not open/);
+    await expect(world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Bad", body: "x", replaces: theirs.id })).rejects.toMatchObject({ code: "forbidden" });
+    await expect(world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Bad", body: "x", replaces: a.id })).rejects.toThrow(/not open/);
   });
 
   it("an admin declines an open request with a note; the author hears why; a member can't; delete stays its own move", async () => {
     const { world, by, seed } = seededWorld();
     const ingrid = by("Ingrid");
-    const { id } = await world.verbs.request_human(ingrid, { title: "Set the repo topics", body: "x" });
+    const { id } = await world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Set the repo topics", body: "x" });
     const rando = world.ops.ensureAvatar(world.ops.createUser("Rando").user.id);
     expect(() => world.ops.requestAction(rando, id, "decline", "no")).toThrow(/approve_request/);
     expect(() => world.ops.requestAction(ingrid, id, "decline", "no")).toThrow(/Only humans/);
@@ -422,8 +427,8 @@ describe("request_human lifecycle", () => {
     expect(request!.requestViaAgentId).toBeUndefined();
     expect(world.ops.outbox()).toHaveLength(0);
     expect(world.ops.outbox(true).map((d) => d.id)).toEqual([id]);
-    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("declined your outbox request") && m.body.includes("Outreach is paused."))).toBe(true);
-    expect(() => world.ops.requestAction(admin, id, "claim")).toThrow(/declined/);
+    expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes("declined your request") && m.body.includes("Outreach is paused."))).toBe(true);
+    expect(() => world.ops.requestAction(admin, id, "done", "too late")).toThrow(/declined/);
     expect(world.ops.requestAction(admin, id, "delete").request).toBeNull();
   });
 

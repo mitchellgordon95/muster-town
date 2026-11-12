@@ -57,8 +57,8 @@ describe("act_in_1on1 route", () => {
     world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", mei.id)}` };
     const ingridAuth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", ingrid.id)}` };
-    const a = (await json(app, "POST", "/api/verbs/request_human", { headers: ingridAuth, body: { title: "Drill v1", body: "x" } })).body.result;
-    const b = (await json(app, "POST", "/api/verbs/request_human", { headers: ingridAuth, body: { title: "Topics", body: "y" } })).body.result;
+    const a = (await json(app, "POST", "/api/verbs/request_human", { headers: ingridAuth, body: { title: "Drill v1", body: "x", worth: "Only a human can run the drill; recovery waits on it." } })).body.result;
+    const b = (await json(app, "POST", "/api/verbs/request_human", { headers: ingridAuth, body: { title: "Topics", body: "y", worth: "Only a human can pick the topics; the post waits on it." } })).body.result;
     const aId = a.id as string;
     const bId = b.id as string;
     // withdraw: the author over the request route, with the note in `note`

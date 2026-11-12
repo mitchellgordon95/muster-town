@@ -57,7 +57,7 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     ]);
 
     // decide and defer: a human only
-    const req = await world.verbs.request_human(by("Noor"), { title: "Photograph the slump", body: "From the north side.", kind: "observation" });
+    const req = await world.verbs.request_human(by("Noor"), { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side.", kind: "observation" });
     const reqAsk = world.asks.first("targetKind = 'request' AND targetId = ?", [req.id])!;
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/defer`, { headers: agent, body: { until: "the rain stops" } })).status).toBe(403);
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/defer`, { headers: auth, body: { until: "the rain stops" } })).body.ask).toMatchObject({ status: "deferred", deferredUntil: "the rain stops" });

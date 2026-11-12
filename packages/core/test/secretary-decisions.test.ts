@@ -161,7 +161,7 @@ describe("the decision run: rank lists what was decided and its candidates; over
     const money = world.asks.first("targetId = ? AND status = 'open'", [g.id])!;
     const cred = click("Paste the monitor's API key", { type: "credential" });
     const ok = click("A plain click");
-    const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "please", location: "x" });
+    const req = await world.verbs.request_human(manager, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the gauge", body: "please", location: "x" });
     const doAsk = world.asks.first("targetKind = 'request' AND targetId = ?", [req.id])!;
     const because = "ak_decided by Mitchell";
     for (const bad of [money, cred, doAsk]) {

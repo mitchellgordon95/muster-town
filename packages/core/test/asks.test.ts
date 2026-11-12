@@ -5,7 +5,7 @@
 import { parseRollup } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, decideAccess, decideCaptain, decideRetainer, newId, nowIso, requestAccess, requestCaptain, townHallIntray, townRoleId, upsertGithubUser } from "../src/index.ts";
-import { asksFor, backfillAsks, createAsk, decideAsk, deferAsk, openAsks } from "../src/asks.ts";
+import { asksFor, backfillAsks, createAsk, decideAsk, deferAsk, openAsks, rankedAsks, requestsToDoAsks } from "../src/asks.ts";
 import { overtakenReason, rollupCalls } from "../src/secretary.ts";
 import { askAt, seededWorld } from "./helpers.ts";
 
@@ -43,6 +43,33 @@ async function setup() {
   };
   return { ...s, mei, noor, propose, fund, spend, roll, member };
 }
+
+describe("the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17)", () => {
+  it("boot repair: a claimed request is open again and its ask offers Done / Decline as a do; a second run changes nothing", async () => {
+    const { world, by } = seededWorld();
+    const noor = by("Noor");
+    const { id } = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side." });
+    // as the old outbox left it: claimed, its ask a click with Claim
+    world.docs.patch(id, { requestStatus: "claimed", claimedByUserId: "us_x" });
+    const ask = world.asks.first("targetKind = 'request' AND targetId = ?", [id])!;
+    world.asks.upsert({ ...ask, type: "click", branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }] });
+    expect(requestsToDoAsks(world)).toEqual({ reopened: 1, asks: 1 });
+    expect(world.docs.require(id)).toMatchObject({ requestStatus: "open", claimedByUserId: "us_x" });
+    expect(world.asks.require(ask.id)).toMatchObject({ type: "do", status: "open", branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] });
+    expect(requestsToDoAsks(world)).toEqual({ reopened: 0, asks: 0 });
+  });
+
+  it("an unranked do ask sorts after every other unranked ask, whatever its age", async () => {
+    const { world, by } = seededWorld();
+    const noor = by("Noor");
+    const { id } = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side." });
+    const later = createAsk(world, { type: "click", buildingId: "carbon-cycle", sourceDocId: null, title: "Press Let in", body: "Noor has waited since today.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" }).ask;
+    const order = rankedAsks(world).map((a) => a.id);
+    const doAsk = world.asks.first("targetKind = 'request' AND targetId = ?", [id])!;
+    expect(order.indexOf(doAsk.id)).toBeGreaterThan(order.indexOf(later.id));
+    expect(order.at(-1)).toBe(doAsk.id);
+  });
+});
 
 describe("asks as a table (docs/legible-delegation.md §4)", () => {
   it("a proposal files one money ask; a second ask on its grant folds in as a source line; funding retires it with the event's text", async () => {
@@ -84,12 +111,12 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(live("retainer", sc)).toEqual([expect.objectContaining({ type: "money", targetKind: "retainer" })]);
     decideRetainer(world, admin, sc, { action: "reject", note: "not now" });
     expect(live("retainer", sc)).toEqual([]);
-    // outbox requests: a token is a credential ask, anything else a click; claim and withdraw retire them
-    const pat = await world.verbs.request_human(noor, { title: "Reissue the test account's PAT", body: "The token expired.", kind: "other" });
-    const photo = await world.verbs.request_human(noor, { title: "Photograph the slump", body: "From the north side.", kind: "observation" });
-    expect(live("request", pat.id)).toEqual([expect.objectContaining({ type: "credential", branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }] })]);
-    expect(live("request", photo.id)).toEqual([expect.objectContaining({ type: "click" })]);
-    world.ops.requestAction(admin, pat.id, "claim");
+    // requests: a token is a credential ask, anything else a do; Done / Decline (no Claim); done and withdraw retire them
+    const pat = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Reissue the test account's PAT", body: "The token expired.", kind: "other" });
+    const photo = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side.", kind: "observation" });
+    expect(live("request", pat.id)).toEqual([expect.objectContaining({ type: "credential", branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] })]);
+    expect(live("request", photo.id)).toEqual([expect.objectContaining({ type: "do" })]);
+    world.ops.requestAction(admin, pat.id, "done", "Reissued; it is in the Secrets tab.");
     await world.verbs.withdraw_request(noor, { docId: photo.id, note: "Not needed after all." });
     expect([...live("request", pat.id), ...live("request", photo.id)]).toEqual([]);
     expect(asksFor(world, { kind: "request", id: photo.id })[0]!.retiredBy).toMatch(/is withdrawn/);
@@ -112,7 +139,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
 
   it("only a human who can fund decides an ask; a deferred ask stays listed until decided", async () => {
     const { world, admin, mei, noor } = await setup();
-    const req = await world.verbs.request_human(noor, { title: "Hold a 1:1 about the deck", body: "Ten minutes.", kind: "other" });
+    const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Hold a 1:1 about the deck", body: "Ten minutes.", kind: "other" });
     const ask = asksFor(world, { kind: "request", id: req.id })[0]!;
     expect(() => decideAsk(world, mei, ask.id, "Done")).toThrow(/Only a human/);
     expect(() => deferAsk(world, mei, ask.id, "gr_x ships")).toThrow(/Only a human/);
@@ -127,7 +154,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
 
   it("a click ask's note rides with its label as the decision's words, and the building's manager hears them", async () => {
     const { world, admin, noor } = await setup();
-    const req = await world.verbs.request_human(noor, { title: "Create the repo for the bot", body: "One repo.", kind: "other" });
+    const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Create the repo for the bot", body: "One repo.", kind: "other" });
     const ask = asksFor(world, { kind: "request", id: req.id })[0]!;
     const managerId = world.buildings.get(ask.buildingId!)!.managerAgentId ?? "";
     expect(managerId).not.toBe("");
@@ -140,7 +167,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
   it("a deferred ask opens again when the ask or the target it waits behind is decided or retired", async () => {
     const { world, admin, noor, propose } = await setup();
     const asked = async (title: string) => {
-      const req = await world.verbs.request_human(noor, { title, body: "Ten minutes.", kind: "other" });
+      const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title, body: "Ten minutes.", kind: "other" });
       return asksFor(world, { kind: "request", id: req.id })[0]!;
     };
     const first = await asked("Hold a 1:1 about the deck");
@@ -168,7 +195,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const g = propose();
     const countered = propose(50_000, "A second plan");
     world.grantDesk.decide(admin, countered.id, { action: "counter", note: "smaller" });
-    const req = await world.verbs.request_human(noor, { title: "Create a GitHub repo for the test account", body: "Public, empty.", kind: "other" });
+    const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Create a GitHub repo for the test account", body: "Public, empty.", kind: "other" });
     const ana = member("Ana");
     const cr = requestCaptain(world, ana.id, world.goalTree.create(admin, { parentId: "gl_trust", text: "Grant pages show sessions" }).id);
     const ar = requestAccess(world, upsertGithubUser(world, { id: 77, login: "newcomer" }).user.id);

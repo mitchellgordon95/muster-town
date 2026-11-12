@@ -75,8 +75,7 @@ describe("work routing step 2: a forking manager's messages are entries on its b
     const human = world.ops.createUser("Rando").user;
     const avatar = world.ops.ensureAvatar(human.id);
     const answer = async (asker: typeof pix, title: string) => {
-      const { id } = await world.verbs.request_human(asker, { title, body: "please", location: "x" });
-      world.ops.requestAction(avatar, id, "claim");
+      const { id } = await world.verbs.request_human(asker, { worth: "Only a human can do this; the work waits on it.", title, body: "please", location: "x" });
       return world.ops.requestAction(avatar, id, "done", "Done: 40 m wide.");
     };
     await answer(pix, "Photograph the slump");
@@ -90,10 +89,9 @@ describe("work routing step 2: a forking manager's messages are entries on its b
     const { fork } = forkManager(world, b.id, asked.id);
     setAssignmentStatus(world, asked.id, "active");
     world.agents.patch(fork.id, { currentAssignmentId: asked.id });
-    const { id } = await world.verbs.request_human(fork, { title: "Count the geese", body: "please", location: "x" });
+    const { id } = await world.verbs.request_human(fork, { worth: "Only a human can do this; the work waits on it.", title: "Count the geese", body: "please", location: "x" });
     setAssignmentStatus(world, asked.id, "done");
     retireFork(world, fork.id, { reason: "done" });
-    world.ops.requestAction(avatar, id, "claim");
     world.ops.requestAction(avatar, id, "done", "Twelve geese.");
     const [job] = buildingQueue(world, b.id);
     expect(job).toMatchObject({ agentId: pix.id, queue: "building", chainId: asked.id, lane: "directed" });

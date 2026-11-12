@@ -355,13 +355,37 @@ const retainerTitle = (title: string, tokens: number) => `Approve the retainer f
 /** A request for a token, key or credential (the click it asks for is issuing one). */
 const CREDENTIAL = /\b(token|tokens|credential|credentials|api[- ]?key|keys?|PAT|password|secret|ssh|oauth|scope)\b/i;
 
-/** An outbox request (`request_human`): a credential ask when it asks for a token or key, else a click. Claim / decline. */
+/** A request for a human to act in the world (`request_human`): a credential ask when it asks for a token or key, else a do. Done / Decline. */
 export function askForRequest(world: World, d: Doc): void {
   createAsk(world, {
-    type: CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "click", targetKind: "request", targetId: d.id, buildingId: d.buildingId, sourceDocId: d.id,
+    type: CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "do", targetKind: "request", targetId: d.id, buildingId: d.buildingId, sourceDocId: d.id,
     by: d.authorId, title: withoutEllipsis(d.title), body: withoutEllipsis(d.body), line: d.title,
-    branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }],
+    branches: DO_BRANCHES,
   });
+}
+
+/** A request's two branches (1:1 mt_msnjkpgwdb decision 17: no Claim): Done with the report back, Decline with a note. */
+const DO_BRANCHES: AskBranch[] = [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }];
+
+/**
+ * Boot repair for the end of the outbox (decisions 16-17), idempotent: a claimed request is open again (its claimer
+ * and note stay on it; Done still takes their report), and every live ask on a request offers Done / Decline, typed
+ * `do` unless it asks for a credential. Returns how many requests and asks it changed.
+ */
+export function requestsToDoAsks(world: World): { reopened: number; asks: number } {
+  let reopened = 0, asks = 0;
+  for (const d of world.docs.where("type = 'request' AND requestStatus = 'claimed'", [])) {
+    world.docs.patch(d.id, { requestStatus: "open" });
+    reopened++;
+  }
+  const at = nowIso();
+  for (const a of world.asks.where(`targetKind = 'request' AND ${LIVE_ASK}`, [])) {
+    const type = a.type === "click" ? "do" : a.type;
+    if (type === a.type && a.branches.length === 2 && a.branches[0]!.action === "done") continue;
+    world.asks.upsert({ ...a, type, branches: DO_BRANCHES, updatedAt: at, history: [...a.history, { at, action: "retyped", by: "system", note: "A request is a do ask: Done with the report back, or Decline (no Claim)." }] });
+    asks++;
+  }
+  return { reopened, asks };
 }
 
 /** A member asks to captain a goal: accept / decline. */
@@ -919,5 +943,6 @@ export function setRank(world: World, id: string, rank: number | null): Ask {
 
 /** The live asks in the Secretary's order: ranked ones by rank, then the unranked oldest first. */
 export function rankedAsks(world: World): Ask[] {
-  return world.asks.where(LIVE_ASK, [], "ORDER BY rank IS NULL, rank, createdAt, rowid");
+  // an unranked do ask goes last: it takes the human out of the queue (1:1 mt_msnjkpgwdb decision 16)
+  return world.asks.where(LIVE_ASK, [], "ORDER BY rank IS NULL, rank, type = 'do', createdAt, rowid");
 }

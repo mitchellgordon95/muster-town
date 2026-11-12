@@ -17,7 +17,7 @@ import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { fileForecast } from "../grant-forecast.ts";
 import { answer, asksSomething } from "../answer.ts";
-import { answerEntry, entryOf, fileReportEntry, jobOf, refreshJob } from "../jobs.ts";
+import { answerEntry, appendEntry, entryOf, fileReportEntry, jobOf, refreshJob } from "../jobs.ts";
 import { passUpWithAsk, requireOpenEntry, reviewEntry } from "../review-entry.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
@@ -575,15 +575,26 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
   const holder = world.holderOf(me);
   if (input.replaces) {
     const old = world.docs.get(input.replaces);
-    if (!old || old.type !== "request") throw badRequest(`${input.replaces} is not an outbox request.`);
+    if (!old || old.type !== "request") throw badRequest(`${input.replaces} is not a request.`);
     if (old.requestStatus !== "open") throw badRequest(`${input.replaces} is ${old.requestStatus}, not open: only an open request is replaced.`);
     if (!world.ops.canWithdrawRequest(me, old)) throw forbidden("building.manage", `${input.replaces} is not yours (nor your building's) to replace.`);
   }
+  // decisions 16-17 (1:1 mt_msnjkpgwdb): a request is a do ask in the decision queue, the kind to avoid, so it says why
+  // it is worth the human leaving the queue; the card carries that line
+  const body = `${input.body.trimEnd()}\n\nWorth leaving the queue: ${input.worth}`;
+  // the session's work (a 1:1 beside it can't file one: runtime ALONGSIDE_VERBS), so the entry lands on the job that asked
+  const asking = me.currentAssignmentId ? world.assignments.get(me.currentAssignmentId) : undefined;
   const doc = createDoc(world, {
-    type: "request", state: "building", title: input.title, body: input.body, location: input.location,
+    type: "request", state: "building", title: input.title, body, location: input.location,
     requestStatus: "open", tags: [input.kind], authorId: holder.id, authorKind: holder.kind, buildingId: bid,
+    ...(asking ? { assignmentId: asking.id } : {}),
     ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
+  // its entry on the thread of the job that asked (else the building's own), at level human: the do ask is its rendering
+  if (bid) appendEntry(world, {
+    id: `en_${doc.id}`, jobId: asking ? jobOf(asking).id : `jb_${bid}`, authorKind: world.buildings.get(bid)?.managerAgentId === me.id ? "manager" : "fork", authorId: me.id,
+    level: "human", note: input.title, body, docId: doc.id, assignmentId: asking?.id ?? null, moved: { kind: "do", requestId: doc.id }, createdAt: doc.createdAt,
+  });
   askForRequest(world, doc);
   const withdrew: string[] = [];
   for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
@@ -593,15 +604,15 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
     withdrew.push(id);
   }
   if (withdrew.length && !doc.requestReplaces) updateDoc(world, doc.id, { requestReplaces: withdrew[0] });
-  return { id: doc.id, requestStatus: doc.requestStatus, ...(withdrew.length ? { withdrew } : {}), note: `It is in the town outbox now; a human decides whether to do it and reports back.${withdrew.length ? ` Withdrew ${withdrew.join(", ")} (replaced by this one).` : ""}` };
+  return { id: doc.id, requestStatus: doc.requestStatus, ...(withdrew.length ? { withdrew } : {}), note: `It is in the humans' decision queue now as a do ask; a human does it and reports back (Done), or declines with a note.${withdrew.length ? ` Withdrew ${withdrew.join(", ")} (replaced by this one).` : ""}` };
 }
 
 /** `withdraw_request` (1:1 mt_pr3347g2w2 decision 7): the author (or its building's manager or fork) takes an open request back with a note. */
 export async function withdraw_request(world: World, me: Agent, input: VerbIn<"withdraw_request">) {
   const d = world.docs.get(input.docId);
-  if (!d || d.type !== "request") throw badRequest(`${input.docId} is not an outbox request.`);
+  if (!d || d.type !== "request") throw badRequest(`${input.docId} is not a request.`);
   const { request } = world.ops.requestAction(me, input.docId, "withdraw", input.note);
-  return { id: input.docId, requestStatus: request?.requestStatus, note: "Withdrawn: it left the outbox (listed under Declined or withdrawn, your note on it). File a new request_human if something else is needed." };
+  return { id: input.docId, requestStatus: request?.requestStatus, note: "Withdrawn: it left the humans' decision queue, your note on it. File a new request_human if something else is needed." };
 }
 
 export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {

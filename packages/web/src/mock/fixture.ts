@@ -423,10 +423,10 @@ export const asks: Ask[] = [
     claims: [], sources: [{ docId: "ar_octo", buildingId: null, line: "@octocat asked to join", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
   },
   {
-    ...askBase, id: "ak_req", type: "click", targetKind: "request", targetId: "dc_req_ml", buildingId: "bl_carbon", sourceDocId: "dc_req_ml", rank: 6,
+    ...askBase, id: "ak_req", type: "do", targetKind: "request", targetId: "dc_req_ml", buildingId: "bl_carbon", sourceDocId: "dc_req_ml", rank: 6,
     title: "Photograph a CO2 monitor reading near you",
     body: "Noor has waited on this since this morning. Take a reading outdoors at noon and note the value in ppm.\n\nIf you claim: it is yours to do and report back.\nIf you decline: Noor drops the comparison.",
-    branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }], recommendation: "",
+    branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }], recommendation: "",
     claims: [], sources: [{ docId: "dc_req_ml", buildingId: "bl_carbon", line: "Photograph a CO2 monitor reading near you", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
   },
   {
