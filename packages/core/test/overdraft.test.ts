@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blockedBy, buildingRoleId, createAssignment, freeTokens } from "../src/index.ts";
-import { laneHold } from "../src/lanes.ts";
+import { ruleHold } from "../src/lanes.ts";
 import { askAt, seededWorld } from "./helpers.ts";
 
 // Promised and available, and the overdraft walk (docs/bank.md, Mitchell 2026-11-01).
@@ -59,26 +59,26 @@ describe("the overdraft walk", () => {
     const { world, k1, k2, g1, g2, root } = setup();
     expect(root()).toMatchObject({ fundedRemainingTokens: 9_000, freeTokens: 1_000 });
     expect(root()).not.toHaveProperty("overdraftTokens");
-    expect(laneHold(world, g2.work)).toBeNull();
+    expect(ruleHold(world, g2.work)).toBeNull();
 
     // the newer key breaks: 6,000 usable covers G1 (5,000) and 1,000 of G2, which straddles the line and runs
     world.bank.availability.recordFailure({ inputId: k2.id, model: OPUS, text: "Your credit balance is too low" });
     expect(root()).toMatchObject({ freeTokens: 0, overdraftTokens: 3_000, overdrafted: [{ kind: "funded", id: g2.grant.id, tokens: 4_000, shortTokens: 3_000 }] });
-    expect(laneHold(world, g1.work)).toBeNull();
-    expect(laneHold(world, g2.work)).toBeNull();
+    expect(ruleHold(world, g1.work)).toBeNull();
+    expect(ruleHold(world, g2.work)).toBeNull();
 
     // both keys broken: nothing usable; both grants wait, at the Bank, with the shortfall
     world.bank.availability.recordFailure({ inputId: k1.id, model: OPUS, text: "authentication_error: invalid x-api-key" });
     expect(root()).toMatchObject({ overdraftTokens: 9_000 });
-    expect(laneHold(world, g1.work)).toMatch(/^held: overdrafted, .* \(5,000 tokens short\)$/);
+    expect(ruleHold(world, g1.work)).toMatch(/^held: overdrafted, .* \(5,000 tokens short\)$/);
     expect(blockedBy(world, world.assignments.require(g2.work.id))).toMatchObject({ kind: "budget", placeId: "bank", text: expect.stringMatching(/^overdrafted/) });
 
     // the newer key is fixed ("Try now", then a success): the walk covers G1 first (funded earlier), G2 waits
     const lim = world.bank.availability.open(k2.id)[0]!;
     world.bank.availability.clear(lim);
     expect(root()).toMatchObject({ overdraftTokens: 5_000 });
-    expect(laneHold(world, g1.work)).toBeNull();
-    expect(laneHold(world, g2.work)).toMatch(/^held: overdrafted/);
+    expect(ruleHold(world, g1.work)).toBeNull();
+    expect(ruleHold(world, g2.work)).toMatch(/^held: overdrafted/);
   });
 
   it("an open proposal's ask soaks up a shortfall first and is never listed as overdrafted", () => {

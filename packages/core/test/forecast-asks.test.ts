@@ -36,7 +36,7 @@ function lab() {
       id: newId("se"), agentId: fork.id, assignmentId: a.id, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
       sdkSessionId: null, output: tokens, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: a.grantId,
     } as never);
-    const r = await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict });
+    const r = await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict, left: "The rest of the plan." });
     retireFork(world, fork.id);
     return { a, r };
   };

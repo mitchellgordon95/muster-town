@@ -34,7 +34,7 @@ describe("key-result evidence class (docs/legible-delegation.md §5)", () => {
     const a = buildingQueue(world, b.id)[0]!;
     const { fork } = forkManager(world, b.id, a.id);
     world.assignments.patch(a.id, { status: "active" });
-    await world.verbs.submit_report(fork, { title: "Banner", body: REPORT, verdict: "continue", keyResults: [{ id: k1.id, status: "claimed", evidence: "PR #12" }, { id: k2.id, status: "on-track", evidence: "half done" }] });
+    await world.verbs.submit_report(fork, { title: "Banner", body: REPORT, verdict: "continue", left: "The rest of the plan.", keyResults: [{ id: k1.id, status: "claimed", evidence: "PR #12" }, { id: k2.id, status: "on-track", evidence: "half done" }] });
     retireFork(world, fork.id);
     expect(world.keyResults.require(k1.id)).toMatchObject({ status: "claimed", evidence: "claimed" });
     expect(world.keyResults.require(k2.id)).toMatchObject({ status: "on-track", evidence: "unknown" });

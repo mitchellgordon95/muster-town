@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, createResident, createSchedule, fireSchedules, grantHistoryLine } from "../src/index.ts";
 import { decideRetainer } from "../src/retainers.ts";
-import { laneBlock } from "../src/lanes.ts";
+import { ruleBlock } from "../src/lanes.ts";
 import { applyRank, pressRank, RANK_TOKENS_PER_RUN, rankNothingNew, rankRunView, SECRETARY_MODEL } from "../src/secretary.ts";
 import { askAt, creditBank, seededWorld } from "./helpers.ts";
 
@@ -151,7 +151,7 @@ describe("the Secretary", () => {
     const nextRun = world.schedules.require(s.id).nextRunAt;
     const a = pressRank(world, admin);
     expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: SECRETARY_MODEL, description: s.description, origin: { userId: world.holderOf(admin).id } });
-    expect(laneBlock(world, a)).toBeNull(); // the approved retainer pays for it
+    expect(ruleBlock(world, a)).toBeNull(); // the approved retainer pays for it
     expect(world.schedules.require(s.id)).toMatchObject({ nextRunAt: nextRun, lastAssignmentId: a.id, runs: 0 });
     expect(rankRunView(world, admin)).toMatchObject({ runningId: a.id, refused: expect.stringMatching(/under way/) });
     expect(() => pressRank(world, admin)).toThrow(/already under way/);

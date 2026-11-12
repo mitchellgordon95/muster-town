@@ -38,7 +38,7 @@ function lab() {
     const a = buildingQueue(world, b.id)[0]!;
     const { fork } = forkManager(world, b.id, a.id);
     world.assignments.patch(a.id, { status: "active" });
-    const r = await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict, ...(resumeWhen ? { resumeWhen, next: "resume" } : {}) });
+    const r = await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict, left: "The rest of the plan.", ...(resumeWhen ? { resumeWhen, next: "resume" } : {}) });
     retireFork(world, fork.id);
     return { a, fork, r };
   };

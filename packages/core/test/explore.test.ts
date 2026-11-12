@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createAssignment, exploreBlock, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
-import { laneBlock } from "../src/lanes.ts";
+import { ruleBlock } from "../src/lanes.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -43,7 +43,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     expect(freeTokens(world, goalId)).toMatchObject({ reservedTokens: 100_000, freeTokens: before - 100_000 });
     expect(world.events.list({ types: ["exploration.reserved"] })).toHaveLength(1);
     // the explorer runs on its own reservation even if nothing else is free; one open explorer per building
-    expect(laneBlock(world, a)).toBeNull();
+    expect(ruleBlock(world, a)).toBeNull();
     expect(exploreTick(world).started).toHaveLength(0);
     expect(exploreBlock(world, world.buildings.require(LAB))).toMatch(/explorer of this building is still open/);
     expect(explorers()).toHaveLength(1);
