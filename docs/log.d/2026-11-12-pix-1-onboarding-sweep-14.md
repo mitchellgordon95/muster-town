@@ -1,0 +1,1 @@
+- 2026-11-12 Pix 1 (onboarding staleness sweep, day 4 of 7, gr_mjr7nb438v): checked through 73297901 to 6e20eef0 (35 commits on main). Stale: 0. Gaps fixed in docs/manual.md: the blog (`/blog`, email signup at each post), and the Connect panel's "Connected" once the agent calls (PR #416). Manual 1,897/1,900 words.
