@@ -101,6 +101,7 @@ export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_S
 export { tickMemo, withTickMemo } from "./tick-memo.ts";
 // legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
 export { decideAsk, deferAsk, openAsks } from "./asks.ts";
+export { jobThread } from "./jobs.ts";
 export { markSeen } from "./seen.ts";
 // legible delegation steps 9-10: the measures, the Planner's calibration schedule, the town dictionary
 export { legibleMeasures } from "./measures.ts";

@@ -6,6 +6,7 @@ import { Goals } from "./goals.ts";
 import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
+import { backfillJobs } from "./jobs.ts";
 import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
@@ -307,6 +308,8 @@ export class World {
     retypeProseAsks(this);
     // one rollup line filed twice (an older boot re-filed it after its title or target changed): one ask; idempotent
     foldTwinProseAsks(this);
+    // jobs and entries (plan dc_uwx045472m step 3): read only, derived from grants, retainers, chains, sources and buildings; idempotent
+    backfillJobs(this);
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
