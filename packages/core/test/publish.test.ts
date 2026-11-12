@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUBLISH_TOKEN_SECRET, REPO_TOKEN_SECRET } from "../src/index.ts";
 import { maskTokens, worldSource, writeExport } from "../src/export.ts";
@@ -76,9 +76,82 @@ describe("publish: the export pushes to the collective's repo", () => {
     expect(r.error).toBeNull();
     expect(r.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(r.pushedAt).toBeNull();
-    expect(r.pushError).toMatch(/^git push: /);
+    expect(r.pushError).toMatch(/^git (fetch|push): /);
     expect(r.pushError).not.toContain(TOKEN);
     expect(maskTokens(`fatal: ghp_${"a".repeat(36)} bad`)).toBe("fatal: *** bad");
+  });
+});
+
+/** a commit on the bare repo's main made by hand (a clone, `files` written, commit, plain push) */
+function handCommit(bare: string, files: Record<string, string>, message = "hand commit"): string {
+  const work = tempDir();
+  const g = (...args: string[]) => execFileSync("git", ["-c", "user.name=Hand", "-c", "user.email=hand@example.com", ...args], { cwd: work, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  g("init", "-q", "-b", "main");
+  if (head(bare)) { g("fetch", "-q", bare, "main"); g("reset", "-q", "--hard", "FETCH_HEAD"); }
+  for (const [path, content] of Object.entries(files)) { mkdirSync(dirname(join(work, path)), { recursive: true }); writeFileSync(join(work, path), content); }
+  g("add", "-A");
+  g("commit", "-q", "-m", message);
+  g("push", "-q", bare, "HEAD:refs/heads/main");
+  return g("rev-parse", "HEAD");
+}
+const isAncestor = (bare: string, a: string, b: string) => { try { execFileSync("git", ["merge-base", "--is-ancestor", a, b], { cwd: bare, stdio: "ignore" }); return true; } catch { return false; } };
+
+describe("publish: a repo whose main has commits of its own (1:1 mt_msnjkpgwdb decision 5)", () => {
+  it("a repo initialised with a README: the export lands on top of it, the foreign files survive, no force", () => {
+    const { world } = freshWorld();
+    const bare = bareRepo();
+    const init = handCommit(bare.dir, { "README.md": "# hello from GitHub\n", LICENSE: "MIT\n", ".github/workflows/x.yml": "on: push\n" }, "Initial commit");
+    const r = writeExport(worldSource(world), tempDir(), { repoUrl: bare.url, token: null, lastPushCommit: null });
+    expect(r.pushError).toBeNull();
+    expect(r.pushCommit).toBe(head(bare.dir));
+    expect(r.pushCommit).not.toBe(r.commit);
+    expect(isAncestor(bare.dir, init, head(bare.dir)!)).toBe(true);
+    expect(show(bare.dir, "LICENSE")).toBe("MIT\n");
+    expect(show(bare.dir, ".github/workflows/x.yml")).toBe("on: push\n");
+    // README.md is the export's own: the mirror's, with the source-of-truth rule at the top
+    expect(show(bare.dir, "README.md")).toMatch(/The town is the source of truth; this repo is its mirror/);
+    expect(JSON.parse(show(bare.dir, "town.json")).name).toBe(world.town.get().name);
+    // the scratch index is gone and the export's own history is untouched
+    expect(readdirSync(join(r.dir, ".git"))).not.toContain("publish-index");
+    // nothing new: no push
+    const again = writeExport(worldSource(world), r.dir, { repoUrl: bare.url, token: null, lastPushCommit: r.pushCommit });
+    expect(again).toMatchObject({ pushedAt: null, pushCommit: null, pushError: null });
+  });
+
+  it("a hand commit on top of a push: the next export pushes again (fast-forward) and keeps the foreign file", () => {
+    const { world } = freshWorld();
+    const bare = bareRepo();
+    const dir = tempDir();
+    const first = writeExport(worldSource(world), dir, { repoUrl: bare.url, token: null, lastPushCommit: null });
+    expect(head(bare.dir)).toBe(first.commit);
+    const hand = handCommit(bare.dir, { "NOTES.txt": "kept\n" });
+    world.town.set({ name: "Renamed Town" });
+    const next = writeExport(worldSource(world), dir, { repoUrl: bare.url, token: null, lastPushCommit: first.commit });
+    expect(next.pushError).toBeNull();
+    expect(head(bare.dir)).toBe(next.pushCommit);
+    expect(isAncestor(bare.dir, hand, next.pushCommit!)).toBe(true);
+    expect(show(bare.dir, "NOTES.txt")).toBe("kept\n");
+    expect(JSON.parse(show(bare.dir, "town.json")).name).toBe("Renamed Town");
+    // and the run after that, with another export change, stacks on its own push
+    world.town.set({ name: "Third Name" });
+    const third = writeExport(worldSource(world), dir, { repoUrl: bare.url, token: null, lastPushCommit: next.pushCommit });
+    expect(isAncestor(bare.dir, next.pushCommit!, third.pushCommit!)).toBe(true);
+    expect(show(bare.dir, "NOTES.txt")).toBe("kept\n");
+  });
+
+  it("a hand edit to an exported file is overwritten by the next export, even with nothing new in the town", () => {
+    const { world } = freshWorld();
+    const bare = bareRepo();
+    const dir = tempDir();
+    const first = writeExport(worldSource(world), dir, { repoUrl: bare.url, token: null, lastPushCommit: null });
+    const original = show(bare.dir, "town.json");
+    handCommit(bare.dir, { "town.json": "{\"name\": \"hand edit\"}\n", "buildings/extra-by-hand.md": "x\n" });
+    const next = writeExport(worldSource(world), dir, { repoUrl: bare.url, token: null, lastPushCommit: first.commit });
+    expect(next.changed).toBe(false);
+    expect(next.pushError).toBeNull();
+    expect(show(bare.dir, "town.json")).toBe(original);
+    // a file inside the export's own paths that the export doesn't write is gone too
+    expect(() => show(bare.dir, "buildings/extra-by-hand.md")).toThrow();
   });
 });
 
@@ -123,7 +196,7 @@ describe("publish: the World's setting", () => {
     const bad = await world.exportOffThread(dir);
     world.recordExport(bad);
     expect(bad.commit).not.toBeNull();
-    expect(world.town.get().publish).toMatchObject({ lastPushAt: null, lastPushCommit: null, lastPushError: expect.stringMatching(/^git push: /) });
+    expect(world.town.get().publish).toMatchObject({ lastPushAt: null, lastPushCommit: null, lastPushError: expect.stringMatching(/^git (fetch|push): /) });
     world.setPublish({ repoUrl: bare.url });
     const ok = await world.exportOffThread(dir);
     world.recordExport(ok);
