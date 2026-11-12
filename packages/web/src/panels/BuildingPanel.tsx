@@ -373,8 +373,9 @@ export function PublishToGitHub() {
     <Section title="Publish to GitHub">
       <form className="form" onSubmit={(e) => e.preventDefault()}>
         <p className="direction">Every hour the town exports its published docs, meetings, outbox and event log (no drafts, no secrets) and pushes them to a GitHub repo, so anyone can browse its work there.</p>
+        <p className="muted">The town is the source of truth and the repo is a mirror: a hand edit to an exported file is overwritten by the next hourly export; files outside the export's paths (a LICENSE, .gitignore, .github/) are kept.</p>
         <ol className="muted">
-          <li><b>Repo:</b> create an empty repo you own on GitHub (no README) and paste its URL.</li>
+          <li><b>Repo:</b> create a repo you own on GitHub (empty, or with a README or LICENSE) and paste its URL.</li>
           <li><b>Token:</b> a <a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">fine-grained token</a> with Contents read/write on that repo, kept encrypted and never shown again. Or leave it blank: the push then uses the collective's <code>GH_TOKEN</code> from the Secrets tab, if that token can write to the repo.</li>
           <li>Save. The next hourly export pushes; the last push, or its error, shows below.</li>
         </ol>
