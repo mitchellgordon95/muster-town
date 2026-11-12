@@ -3181,4 +3181,5 @@ export * from "./deck.ts";
 export * from "./notices.ts";
 export * from "./funders.ts";
 export * from "./desks.ts";
+export * from "./jobs.ts";
 export { townEnv, townEnvBoth, ENV_PREFIX, OLD_ENV_PREFIX, type TownEnvName } from "./env.ts";

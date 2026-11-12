@@ -108,3 +108,4 @@ export { ensureCalibrationSchedule } from "./planner.ts";
 export { ensureDictionary } from "./dictionary.ts";
 export { claimsStale, runClaimChecks } from "./ask-checks.ts";
 export { blockedAddress, safeGet, type Fetcher } from "./net-guard.ts";
+export { jobThread } from "./jobs.ts";

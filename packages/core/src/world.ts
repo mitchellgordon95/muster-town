@@ -27,6 +27,7 @@ import { Transcripts } from "./transcripts.ts";
 import { Skills } from "./skills.ts";
 import { seedDefaults, type SeedOptions, type SeedResult } from "./seed.ts";
 import { createRepos, type Repos } from "./store.ts";
+import { syncJobs } from "./jobs.ts";
 import { Emitter } from "./util.ts";
 import { makeVerbs, type Verbs } from "./verbs/index.ts";
 import { WorldMap } from "./world/map.ts";
@@ -180,6 +181,9 @@ export class World {
   readonly sessions: Repos["sessions"];
   readonly interrupts: Repos["interrupts"];
   readonly grants: Repos["grants"];
+  /** the job abstraction, step 1 (core jobs.ts): read only, back-filled at boot */
+  readonly jobs: Repos["jobs"];
+  readonly entries: Repos["entries"];
   readonly schedules: Repos["schedules"];
   readonly keyResults: Repos["keyResults"];
   readonly objectives: Repos["objectives"];
@@ -217,6 +221,7 @@ export class World {
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
     this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.skillPins = repos.skillPins;
+    this.jobs = repos.jobs; this.entries = repos.entries;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted, () => this.repoMode());
@@ -307,6 +312,9 @@ export class World {
     retypeProseAsks(this);
     // one rollup line filed twice (an older boot re-filed it after its title or target changed): one ask; idempotent
     foldTwinProseAsks(this);
+    // the job abstraction, step 1 (plan dc_uwx045472m): jobs and entries back-filled from grants, schedules, chains, sources and reports; idempotent
+    // read only and not yet relied on: a failure is logged, never a failed boot
+    try { syncJobs(this); } catch (err) { console.error("[core] jobs back-fill failed", err); }
   }
 
   /** Boot repair: residents without a desk get one; a body left standing on someone else's desk moves to its own. */
