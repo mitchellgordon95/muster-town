@@ -1,0 +1,1 @@
+- 2026-11-12 (Cleo 1, gr_hbz0twkfp9 step 1): removed POST /api/uptime/probes, the town `prober` role and `town.uptime` (migration 113 deletes the unheld role row; table uptime_probes stays), and the VPS pinger's probe buffer and posting (it only alerts now). Landing text says "Measured by UptimeRobot". GET /api/uptime unchanged until step 2 reads UptimeRobot.

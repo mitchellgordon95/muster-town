@@ -1,5 +1,5 @@
-/** Public uptime from outside probes (grant gr_rcj8nkbkbt, kr_6ofa7wf812): ingest, unknown vs down, outages, restart gaps, auth. */
-import { townRoleId, World } from "@muster-town/core";
+/** Public uptime (gr_rcj8nkbkbt, gr_hbz0twkfp9): unknown vs down, outages, restart gaps; the probe POST is gone. */
+import { World } from "@muster-town/core";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { outagesOf, Uptime } from "../src/uptime.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -9,6 +9,13 @@ const at = (iso: string) => `${iso}:15.000Z`;
 const minutes = (from: string, n: number, ok: boolean) =>
   Array.from({ length: n }, (_, i) => ({ at: new Date(Date.parse(`${from}:20Z`) + i * 60_000).toISOString(), ok, ms: ok ? 120 : null }));
 
+type Probe = { at: string; ok: boolean; ms?: number | null };
+/** what the removed probe POST used to store: one row per UTC minute per source */
+function store(world: World, b: { source: string; probes: Probe[] }) {
+  const ins = world.db.prepare("INSERT OR IGNORE INTO uptime_probes (minute, source, ok, ms, receivedAt) VALUES (?, ?, ?, ?, ?)");
+  for (const p of b.probes) ins.run(new Date(p.at).toISOString().slice(0, 16), b.source, p.ok ? 1 : 0, p.ms ?? null, p.at);
+}
+
 describe("Uptime", () => {
   let world: World;
   const up = () => new Uptime(world, { now: () => NOW });
@@ -16,21 +23,9 @@ describe("Uptime", () => {
   afterEach(() => { world.db.exec("DELETE FROM uptime_probes; DELETE FROM events"); });
   afterAll(() => world.close());
 
-  it("a repeat of a minute is ignored, from the same source; another source counts on its own", () => {
-    const u = up();
-    expect(u.ingest({ source: "pinger", probes: [{ at: at("2026-11-10T11:00"), ok: true, ms: 90 }, { at: "2026-11-10T11:00:50Z", ok: false }] })).toEqual({ accepted: 1, ignored: 1 });
-    expect(u.ingest({ source: "pinger", probes: [{ at: at("2026-11-10T11:00"), ok: true }] })).toEqual({ accepted: 0, ignored: 1 });
-    expect(u.ingest({ source: "other", probes: [{ at: at("2026-11-10T11:00"), ok: true }] })).toEqual({ accepted: 1, ignored: 0 });
-    expect(world.db.prepare("SELECT COUNT(*) AS n FROM uptime_probes").get()).toEqual({ n: 2 });
-  });
-
-  it("probes from the future or older than 35 days are dropped", () => {
-    expect(up().ingest({ source: "pinger", probes: [{ at: "2026-11-10T12:10:00Z", ok: true }, { at: "2026-10-01T00:00:00Z", ok: true }] })).toEqual({ accepted: 0, ignored: 2 });
-  });
-
   it("a minute with no probe is unknown, never up; a failed probe is down", () => {
     const u = up();
-    u.ingest({ source: "pinger", probes: [...minutes("2026-11-10T10:00", 50, true), ...minutes("2026-11-10T10:50", 3, false)] });
+    store(world, { source: "pinger", probes: [...minutes("2026-11-10T10:00", 50, true), ...minutes("2026-11-10T10:50", 3, false)] });
     const s = u.summary();
     expect(s.byDay).toHaveLength(30);
     expect(s.byDay[0].date).toBe("2026-10-12");
@@ -55,7 +50,7 @@ describe("Uptime", () => {
 
   it("outages: ≥ 2 failed minutes; one unknown minute joins a run, an up minute splits it; a single failure is no outage", () => {
     const u = up();
-    u.ingest({ source: "pinger", probes: [
+    store(world, { source: "pinger", probes: [
       ...minutes("2026-11-10T09:00", 1, false),                                    // lone failure
       ...minutes("2026-11-10T09:01", 1, true),
       ...minutes("2026-11-10T09:10", 3, false), /* 09:13 unknown */ ...minutes("2026-11-10T09:14", 2, false),
@@ -75,8 +70,8 @@ describe("Uptime", () => {
 
   it("a minute is down when any source saw it fail", () => {
     const u = up();
-    u.ingest({ source: "pinger", probes: [{ at: at("2026-11-10T08:00"), ok: true }] });
-    u.ingest({ source: "second", probes: [{ at: at("2026-11-10T08:00"), ok: false }] });
+    store(world, { source: "pinger", probes: [{ at: at("2026-11-10T08:00"), ok: true }] });
+    store(world, { source: "second", probes: [{ at: at("2026-11-10T08:00"), ok: false }] });
     expect(u.summary().byDay[29]).toMatchObject({ up: 0, down: 1 });
   });
 
@@ -99,28 +94,19 @@ describe("/api/uptime routes", () => {
   let close: (() => Promise<void>) | null = null;
   afterEach(async () => { await close?.(); close = null; });
 
-  it("POST needs town.uptime (role prober); GET is public", async () => {
+  it("GET is public; the probe POST is gone", async () => {
     const t = await seededApp();
     close = t.close;
     const noor = t.by("Noor");
     const agentAuth = { authorization: `Bearer ${t.world.tokens.getOrCreate("agent", noor.id)}` };
     const body = { probes: [{ at: new Date(Date.now() - 60_000).toISOString(), ok: true, ms: 80 }] };
-
-    expect((await json(t.app, "POST", "/api/uptime/probes", { body })).status).toBe(401);
-    const denied = await json(t.app, "POST", "/api/uptime/probes", { headers: agentAuth, body });
-    expect(denied.status).toBe(403);
-    expect(t.world.db.prepare("SELECT COUNT(*) AS n FROM uptime_probes").get()).toEqual({ n: 0 });
-
-    t.world.permissions.grant(noor, townRoleId("prober"));
-    const ok = await json(t.app, "POST", "/api/uptime/probes", { headers: agentAuth, body });
-    expect(ok).toEqual({ status: 200, body: { accepted: 1, ignored: 0 } });
-    expect((await json(t.app, "POST", "/api/uptime/probes", { headers: agentAuth, body: { probes: [{ at: "nope", ok: true }] } })).status).toBe(400);
+    expect((await json(t.app, "POST", "/api/uptime/probes", { headers: agentAuth, body })).status).toBe(404);
+    expect(t.world.db.prepare("SELECT 1 FROM roles WHERE id = 'role:prober'").get()).toBeUndefined();
 
     const pub = await json(t.app, "GET", "/api/uptime");
     expect(pub.status).toBe(200);
     expect(pub.body.byDay).toHaveLength(30);
-    expect(pub.body.up).toBe(1);
-    expect(pub.body.sources).toEqual(["pinger"]);
+    expect(pub.body.pct).toBeNull();
     expect(pub.body.restarts).toEqual(expect.any(Array));
   });
 });

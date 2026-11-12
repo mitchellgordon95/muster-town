@@ -12,7 +12,8 @@
  * - who may interact (dc_f0cumcfubk): built-in town deployer gains `town.interact`; creates the town
  *   `member` role once the town has roles, and in that pass grants it to every user holding any role other than
  *   `visitor`, so nobody who can act today is locked out except plain visitors. Later opens never re-grant.
- * - public uptime (gr_rcj8nkbkbt): creates the town `prober` role (`town.uptime`) once the town has roles; nobody is granted it.
+ * - public uptime: the town `prober` role (gr_rcj8nkbkbt) is gone (gr_hbz0twkfp9, UptimeRobot measures it); migration 113
+ *   deletes its row, and its `town.uptime` permission drops out of every role here.
  */
 import { BUILTIN_ROLES, Permission } from "@muster-town/schema";
 import type { DB } from "./db.ts";
@@ -62,11 +63,6 @@ export function migrateRoles(db: DB): MigrateRolesResult {
         db.prepare("INSERT OR IGNORE INTO memberships (roleId, holderKind, holderId) VALUES ('role:deployer', 'agent', ?)").run(r.id);
         res.granted++;
       }
-    }
-    // public uptime (gr_rcj8nkbkbt): the town `prober` role (`town.uptime`), held by nobody until an admin grants it to the pinger's agent
-    if (!db.prepare("SELECT 1 FROM roles WHERE id = 'role:prober'").get()) {
-      db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES ('role:prober', 'prober', 'town', NULL, ?, 1)").run(JSON.stringify(BUILTIN_ROLES.town.prober));
-      res.created++;
     }
     if (!db.prepare("SELECT 1 FROM roles WHERE id = 'role:member'").get()) {
       db.prepare("INSERT INTO roles (id, name, scope, buildingId, permissions, builtin) VALUES ('role:member', 'member', 'town', NULL, ?, 1)").run(JSON.stringify(BUILTIN_ROLES.town.member));
