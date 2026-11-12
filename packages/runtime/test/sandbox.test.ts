@@ -119,6 +119,24 @@ describe("SandboxBackend", () => {
     expect(f.calls).toContain("stop desk-c-a");
   });
 
+  test("stopFrozen (an adopted session went silent) stops the agent's desk at once, and the next ensure() waits for it before starting it", async () => {
+    const events: string[] = [];
+    const f = fakeApi({ found: { id: "sb1", name: "desk-c-ag_abc123", state: "stopped" } });
+    let stopDone!: () => void;
+    const order: string[] = [];
+    const api: SandboxApi = { ...f.api, async stop(name) { order.push(`stop ${name}`); await new Promise<void>((r) => { stopDone = r; }); order.push("stopped"); }, async start(name) { order.push(`start ${name}`); } };
+    const b = new SandboxBackend({ api, collective: "c", onEvent: (t) => events.push(t) });
+    b.stopFrozen(agent.id, "its adopted session went silent");
+    expect(order).toEqual(["stop desk-c-ag_abc123"]);
+    expect(events).toEqual(["Desk desk-c-ag_abc123 stopped after its adopted session went silent"]);
+    const ensured = b.ensure(agent, building);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(order).toEqual(["stop desk-c-ag_abc123"]);
+    stopDone();
+    await ensured;
+    expect(order).toEqual(["stop desk-c-ag_abc123", "stopped", "start desk-c-ag_abc123"]);
+  });
+
   test("an exec that fails (-1, not killed) stops the sandbox at once and logs it; a killed one waits for the idle stop", async () => {
     vi.useFakeTimers();
     const events: string[] = [];

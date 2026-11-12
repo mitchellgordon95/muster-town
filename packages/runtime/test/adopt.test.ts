@@ -131,6 +131,25 @@ describe("redeploy without draining", () => {
     expect(s.world.events.recent({ limit: 50 }).some((e) => (e.payload as { adoptedLost?: boolean }).adoptedLost)).toBe(true);
   });
 
+  test("a silent adopted session's desk is stopped before its re-queued work can start on the frozen guest (11-12 exit -1 deaths)", async () => {
+    const s = await running();
+    s.runtime.redeploy({ image: false, requestedBy: "Noor" });
+    await vi.waitFor(() => expect(s.exit).toHaveBeenCalledWith(75), { timeout: 15_000 });
+    const desk = new FakeDesk();
+    const stopped: string[] = [];
+    Object.assign(desk, { stopFrozen: (agentId: string) => { stopped.push(agentId); expect(s.world.sessions.require(s.session.id).status).toBe("running"); } });
+    const next = restart(s, { deskBackend: desk, adoptedSilentMs: 60_000 });
+    s.clock.t += 30_000;
+    next.deskSeen("ag_other", "se_other");
+    await next.tickOnce();
+    expect(stopped).toEqual([]);
+    s.clock.t += 31_000;
+    next.deskSeen("ag_other", "se_other");
+    await next.tickOnce();
+    expect(stopped).toEqual([s.noor.id]);
+    expect(s.world.sessions.require(s.session.id)).toMatchObject({ status: "error", error: "desk lost after restart" });
+  });
+
   test("when no desk reaches the town (its network is down), a silent adopted session is kept until ADOPTED_LOST_MS (10-31 21:30Z)", async () => {
     const s = await running();
     s.runtime.redeploy({ image: false, requestedBy: "Noor" });
