@@ -15,6 +15,7 @@ import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
 import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
+import { jobOf } from "./jobs.ts";
 import { policyLedgerBlock } from "./secretary.ts";
 import { dictionaryBlock } from "./dictionary.ts";
 
@@ -57,7 +58,7 @@ export const REPORT_FORMAT = reportFormat("muster");
  * Grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence with its report; the held grant's
  * checkpoint card assembles from it (there is no manager checkpoint session). Static text: it sits in the cached system prompt.
  */
-const GRANT_EVIDENCE = `When your session runs in the grant lane and your work moved one of that grant's key results, file it with your report: \`submit_report\` keyResults: [{id, status, evidence}] (id: a key result of your session's own grant, as the first message lists them; status: not-started | on-track | at-risk | claimed, never met or missed, a human marks those; evidence: where a human checks it, a PR, a commit, a doc id or a live URL, at most 2000 chars) and, when more tokens would finish it, topUp: {tokens, buys} (how many more tokens and what they would deliver). The grant's checkpoint card in the Town Hall in-tray is built from what you file: it lists each key result with your note and your name, the grant's reports, and the latest top-up line. Filing for another grant's key results, or from an exploration or directed session, is refused.`;
+const GRANT_EVIDENCE = `When your session runs in the grant lane and your work moved one of that grant's key results, file it with your report: \`submit_report\` keyResults: [{id, status, evidence}] (id: a key result of your session's own grant, as the first message lists them; status: not-started | on-track | at-risk | claimed, never met or missed, a human marks those; evidence: where a human checks it, a PR, a commit, a doc id or a live URL, at most 2000 chars) and, when more tokens would finish it, topUp: {tokens, buys} (how many more tokens and what they would deliver). The grant's checkpoint card in the Town Hall in-tray is built from what you file: it lists each key result with your note and your name, the grant's reports, and the latest top-up line. Filing for another grant's key results, or from an exploration or directed session, is refused. Every session's work belongs to one job (a grant's, a retainer's, an exploration chunk's, a human's request, or the building's own), and your report is also filed as one entry on that job's thread (GET /api/jobs/<id>). A grant step's report must say what is left of the grant's work after the step: \`submit_report\` left: "<one or two plain sentences>" (not needed when you park).`;
 
 /** Nobody has a lane: an agent owns its assignment across the whole system. */
 const OWNERSHIP = `You own your assignment end to end. There are no lanes: do whatever it needs, in any part of the system, rather than handing pieces to others.`;
@@ -261,11 +262,14 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const ownerName = world.users.get(owner.userId)?.name ?? owner.userId;
   const attached = `Attached to: ${tree.pathText(at)} (captain: ${ownerName}). Key results belong to grants: a grant is filed against a goal in this subtree and carries its own dated key results; goals keep none open.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
   const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
+  // plan dc_uwx045472m step 4: the session's job, its budget rule and its pocket (the rule replaces the lane)
+  const job = assignment ? jobOf(assignment) : null;
+  const head = job ? `This session: job ${job.id} (rule ${job.rule}${job.pocketRef ? `, pocket ${job.pocketRef}` : ""})` : "";
   const lane = !assignment ? "" : assignment.lane === "grant"
-    ? `This session: grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : ""}.`
+    ? `${head}, grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : ""}.${assignment.grantStep != null ? " Your report on this step says what is left of the grant's work (`left`)." : ""}`
     : assignment.lane === "exploration"
-      ? assignment.reservationId ? explorerBrief(world, building, assignment) : `This session: exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
-      : `This session: directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;
+      ? assignment.reservationId ? `${head}.\n${explorerBrief(world, building, assignment)}` : `${head}, exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
+      : `${head}, directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;
   return `Goals and grants (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
 ${attached}
 ${lines.join("\n")}${ideas.length ? `\nIdeas left from the old goal key results (dropped when key results merged into grants; a grant proposal can take one up): ${ideas.map((k) => `"${oneLine(k.text, 120)}"`).join("; ")}` : ""}

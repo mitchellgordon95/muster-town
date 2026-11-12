@@ -16,6 +16,7 @@ import { ftsQuery, oneLine } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { fileForecast } from "../grant-forecast.ts";
+import { fileReportEntry, refreshJob } from "../jobs.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
@@ -349,6 +350,11 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
+  // plan dc_uwx045472m step 4: a grant step's entry says what is left (`moved.left`), required when the step ends here
+  const left = input.left?.trim() || undefined;
+  if (!left && !resumeWhen && !input.rollup && current?.grantId && current.grantStep != null) {
+    throw badRequest(`A grant step's report says what is left: add left: "<what is left of grant ${current.grantId}'s work after this step, one or two plain sentences>" and submit again.`);
+  }
   const parks = (current?.parked ?? 0) + 1;
   if (resumeWhen) {
     if (!current) throw badRequest("resumeWhen needs a current assignment to continue.");
@@ -371,6 +377,12 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       tags: [...(input.rollup ? ["rollup"] : []), ...(untyped ? ["untyped-asks"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
     }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+    // the entry (plan dc_uwx045472m step 4): what this session moved, on its job's thread; the report doc stays beside it
+    const proposed = current?.lane === "exploration" ? (world.db.prepare("SELECT json_extract(payload, '$.grantId') AS g FROM events WHERE type = 'exploration.proposed' AND json_extract(payload, '$.assignmentId') = ? ORDER BY id DESC LIMIT 1").get(current.id) as { g: string | null } | undefined)?.g ?? undefined : undefined;
+    const entryJob = bid ? fileReportEntry(world, {
+      docId: doc.id, buildingId: bid, title: input.title, body, verdict: input.verdict, authorId: me.id, manager: isManager, assignment: current ?? null, session: session ?? null,
+      moved: { stepsDone: current?.grantStep != null ? [current.grantStep] : undefined, krClaimed: evidenceGrant ? krEvidence : undefined, left, topUp: evidenceGrant ? input.topUp : undefined, proposed },
+    }) : null;
     if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
     // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
@@ -416,6 +428,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
     const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
     if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
+    // the job's row follows its work: a chunk or a pocket whose last assignment just reported closes
+    if (entryJob) refreshJob(world, entryJob);
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
@@ -430,10 +444,10 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
+      return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
         note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 

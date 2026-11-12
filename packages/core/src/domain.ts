@@ -1,5 +1,6 @@
 import { isGone, Doc, QUEUE_ORDER, type Agent, type Ask, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
+import { openJob } from "./jobs.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
@@ -91,7 +92,10 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
-  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, chainId: assignment.chainId, queue, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null, origin } });
+  // plan dc_uwx045472m step 4: the lane picks the job (a grant's ceiling, a retainer's per-run, an exploration chain's
+  // chunk, a human source's pocket, else the building's own); a new chunk or pocket job is created here
+  const jobId = openJob(world, assignment);
+  world.events.append({ type: "assignment.created", agentId: agent.id, buildingId, text: `${assignment.offered ? "Offered to" : "New assignment for"} ${agent.name}: ${a.title}${assignment.waitFor ? ` (waits on ${describeWait(world, assignment.waitFor)})` : ""}`, payload: { assignmentId: assignment.id, jobId, chainId: assignment.chainId, queue, lane: assignment.lane, grantId: assignment.grantId, offered: !!assignment.offered, waitFor: assignment.waitFor, createdBy: a.createdBy.id, fromReportId: a.fromReportId ?? null, fromMeetingId: a.fromMeetingId ?? null, origin } });
   return assignment;
 }
 
