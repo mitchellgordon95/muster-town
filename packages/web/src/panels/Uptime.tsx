@@ -1,9 +1,9 @@
 /**
- * The public Uptime block (grant gr_rcj8nkbkbt, kr_ay5wb5wfhd): the 30-day % measured from outside by the pinger, a
- * 30-cell day strip and the outage list, from the public `GET /api/uptime` (server/src/uptime.ts `UptimeSummary`). Shown at
+ * The public Uptime block (grant gr_hbz0twkfp9, kr_xu6x845ycp): UptimeRobot's 30-day %, a 30-cell day strip of its daily
+ * ratios, its outages and a link to its public status page, from the public `GET /api/uptime` (server/src/uptime.ts `UptimeSummary`). Shown at
  * the Bank server rack (BankPanel.tsx, the Hosting tab) and on the signed-out landing (home/main.tsx mounts it into
  * home.ts's `#uptime`). Always the root server's `/api/uptime`: a hosted collective runs on the same Machine.
- * A day with no probe is grey ("not measured"), never green.
+ * A day UptimeRobot didn't watch is grey ("not measured"), never green.
  */
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -11,6 +11,10 @@ export interface UptimeDay { date: string; up: number; down: number; unknown: nu
 export interface UptimeData {
   at: string; days: number; pct: number | null; coverage: number;
   up: number; down: number; unknown: number; lastProbeAt: string | null;
+  /** "uptimerobot" when the number is UptimeRobot's; "unknown" with no key or when its API failed */
+  source?: "uptimerobot" | "unknown";
+  /** UptimeRobot's public status page, when set */
+  statusUrl?: string | null;
   byDay: UptimeDay[];
   outages: { from: string; to: string; minutes: number }[];
   restarts: { from: string; to: string; seconds: number; kind: "redeploy" | "unclean" }[];
@@ -46,7 +50,9 @@ export function UptimeView({ u }: { u: UptimeData }) {
         {u.pct === null
           ? <b>Not measured yet.</b>
           : <><b style={{ fontSize: "var(--fs-xl)" }}>{u.pct}%</b> up over the last {u.days} days</>}
-        <span className="muted"> · measured by UptimeRobot; {u.coverage}% of minutes measured</span>
+        <span className="muted"> · {u.statusUrl
+          ? <a href={u.statusUrl} target="_blank" rel="noreferrer">Measured by UptimeRobot</a>
+          : "Measured by UptimeRobot"}{u.pct !== null && u.coverage < 100 ? `; it watched ${u.coverage}% of the window` : ""}</span>
       </p>
       <div role="img" aria-label={`Day strip, oldest to today: ${u.byDay.map((d) => `${d.date} ${d.pct === null ? "not measured" : `${d.pct}%`}`).join(", ")}`}
         style={{ display: "flex", gap: 2, margin: "0 0 6px" }}>
