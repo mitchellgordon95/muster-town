@@ -23,7 +23,9 @@ export function tempDir(): string {
 export function freshWorld(): { world: World; dir: string; dbPath: string } {
   const dir = tempDir();
   const dbPath = join(dir, "town.db");
+  const __t0 = performance.now();
   const world = World.open(dbPath);
+  require('node:fs').appendFileSync('/tmp/seed.log', `F ${performance.now()-__t0}\n`);
   cleanups.unshift(() => { try { world.close(); } catch { /* already closed */ } });
   return { world, dir, dbPath };
 }
@@ -58,6 +60,7 @@ export function askAt<G extends { id: string }>(world: World, g: G, askTokens: n
 
 /** `shape`: draw the map in that shape instead of a new town's ("fountain"), for tests about one shape's geometry. */
 export function seededWorld(shape?: MapLayout) {
+  const __t = performance.now();
   const f = freshWorld();
   const seed = f.world.seedDefaults({ importDir: CARBON_DIR, townJsonPath: TOWN_JSON, dataDir: f.dir });
   if (shape) { f.world.town.set({ mapLayout: shape }); f.world.layout.rebuild(); }
@@ -65,7 +68,9 @@ export function seededWorld(shape?: MapLayout) {
   // test Banks hold thousands of tokens, not millions: no operating reserve unless a test sets one (free-tokens.test.ts)
   f.world.town.set({ operatingReserveTokens: 0 });
   const by = (name: string) => f.world.agents.first("name = ?", [name])!;
-  return { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };
+  const __r = { ...f, seed, by, admin: f.world.ops.ensureAvatar(seed.admin.id) };
+  require('node:fs').appendFileSync('/tmp/seed.log', `S ${performance.now()-__t}\n`);
+  return __r;
 }
 
 /**
