@@ -544,6 +544,9 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); continue; }
       if (t - (adoptedSeen.get(l.sessionId) ?? t) < silentMs) continue;
       adoptedSeen.delete(l.sessionId);
+      // its desk is likely frozen (11-12: a test run filled its memory): stop it before the re-queued work lands on it. The desk
+      // is resolved before dropLive retires the fork and frees its slot
+      try { orphanKiller?.stopFrozen?.(agentId, "its adopted session went silent"); } catch (e) { log("stop silent desk")(e); }
       dropLive(agentId, "desk lost after restart");
       const asg = s.assignmentId ? world.assignments.get(s.assignmentId) : undefined;
       if (asg?.status === "active") {
