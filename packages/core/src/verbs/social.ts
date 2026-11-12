@@ -1,5 +1,5 @@
 import { NOT_GONE } from "@muster-town/schema";
-import type { Agent, LookResult, MailboxDigest, Message } from "@muster-town/schema";
+import type { Agent, LookResult, MailboxDigest, Message, VisitorWelcome } from "@muster-town/schema";
 import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
@@ -41,6 +41,8 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
     (p.kind === "meeting-room" && (mine(p) || p.buildingId === "town-hall")) ||
     (p.kind === "desk" && !p.id.startsWith("desk:free:") && mine(p)));
   const red = mainRedLine(world);
+  const { digest } = digestFor(world, me);
+  const welcome = me.kind === "visitor" && world.presence.takeWelcome(me.id, !!digest) ? welcomeFor(world, me) : null;
   return {
     me: { id: me.id, name: me.name, status: me.status, buildingId: me.buildingId, place: place?.id ?? null, pos: me.pos },
     building: here ? { id: here.id, name: here.name, goal: world.goalTree.purposeOf(here) } : null,
@@ -51,13 +53,31 @@ export async function look(world: World, me: Agent, _input: VerbIn<"look">): Pro
       pendingAssignments: world.assignments.count("agentId = ? AND status = 'pending'", [me.id]),
       currentAssignment: current?.title ?? null,
       nextMeeting: meeting ? { id: meeting.id, title: meeting.title, at: meeting.scheduledAt, phase: meeting.phase } : null,
-      ...digestFor(world, me),
+      ...(digest ? { digest } : {}),
       // gr_7op2v8fjcl step 2: while main is red, who holds its one fix assignment
       ...(red ? { mainRed: red } : {}),
     },
     places: visible.map((p) => ({ id: p.id, name: p.name, kind: p.kind })),
     town: `${world.buildings.count()} buildings in town: \`town\` lists them with their managers and who is in each now.`,
+    ...(welcome ? { welcome } : {}),
   };
+}
+
+/**
+ * A visitor's welcome (gr_uc179zv1xa, dc_ausb22dyim): its goal and building (or none yet), that building's manager,
+ * its open offers and one first step. On its first `look` per server start and after each return from offline.
+ */
+function welcomeFor(world: World, me: Agent): VisitorWelcome {
+  const b = me.homeBuildingId ? world.buildings.get(me.homeBuildingId) : undefined;
+  const mgr = b?.managerAgentId ? world.agents.get(b.managerAgentId) : undefined;
+  const manager = mgr && mgr.id !== me.id ? { id: mgr.id, name: mgr.name } : null;
+  const offers = world.assignments.where("agentId = ? AND status = 'pending' AND offered = 1", [me.id], "ORDER BY createdAt").map((a) => ({ id: a.id, title: a.title }));
+  const firstStep = offers.length
+    ? `${offers.length === 1 ? "An assignment is" : `${offers.length} assignments are`} offered to you: \`accept_assignment\` (id ${offers[0].id}) and start on it.`
+    : b
+      ? `Read your building's \`board\`, then \`tell\` ${manager ? `${manager.name} (${manager.id}), its manager,` : `the building (${b.id})`} what you'd like to work on toward its goal.`
+      : "You have no building yet: you sit at the Town Hall visitor bench. Call `town` to see every building with its goal and manager, then `tell` the manager whose goal you'd like to work on.";
+  return { goal: b ? world.goalTree.purposeOf(b) : null, building: b ? { id: b.id, name: b.name } : null, manager, offers, firstStep };
 }
 
 /** How many names `town` lists per building before it just counts the rest. */

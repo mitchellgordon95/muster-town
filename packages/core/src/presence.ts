@@ -122,6 +122,16 @@ export class Presence {
     return { offlineSince: since, messages, mentions, assignmentsOffered, meetingsMissed };
   }
 
+  /** Visitors whose `look` has carried a welcome since this server started (cleared on each return from offline). */
+  private welcomed = new Set<string>();
+
+  /** For `look`: true once per visitor per server start and once after each return from offline (`back`). */
+  takeWelcome(agentId: string, back: boolean): boolean {
+    if (!back && this.welcomed.has(agentId)) return false;
+    this.welcomed.add(agentId);
+    return true;
+  }
+
   /** For `look`: the digest of the offline window that just ended, once. */
   takeDigest(agentId: string): MailboxDigest | null {
     const win = this.windows.get(agentId);

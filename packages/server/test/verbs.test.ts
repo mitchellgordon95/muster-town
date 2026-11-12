@@ -53,8 +53,10 @@ describe("v1.4 generic verbs endpoint", () => {
   it("`look` via /api/verbs/look equals the MCP tool result", async () => {
     const client = new Client({ name: "test", version: "0.0.0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
-    const viaMcp = JSON.parse(((await client.callTool({ name: "look", arguments: {} })).content as { text: string }[])[0].text);
+    const { welcome, ...viaMcp } = JSON.parse(((await client.callTool({ name: "look", arguments: {} })).content as { text: string }[])[0].text);
     await client.close();
+    // the visitor's first look carries its welcome (once); the next one doesn't
+    expect(welcome).toMatchObject({ goal: null, building: null, manager: null, offers: [] });
     const res = await fetch(`${base}/api/verbs/look`, { method: "POST", headers: { ...bearer(token), "content-type": "application/json" }, body: "{}" });
     expect(res.status).toBe(200);
     const viaHttp = (await res.json()) as { result: unknown };
@@ -106,6 +108,40 @@ describe("v1.4 generic verbs endpoint", () => {
     expect((await json(ctx.app, "GET", "/api/agents/me/digest", { headers: ctx.auth })).status).toBe(403);
     const since = await json(ctx.app, "GET", `/api/agents/me/digest?since=${encodeURIComponent(new Date(Date.now() + 60_000).toISOString())}`, { headers: bearer(token) });
     expect(since.body).toMatchObject({ messages: 0 });
+  });
+
+  it("MCP: initialize carries the orientation; a plain visitor's tools leave out manager, admin, Planner and Secretary verbs", async () => {
+    const connect = async (t: string) => {
+      const client = new Client({ name: "test", version: "0.0.0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${t}` } } }));
+      return client;
+    };
+    const visitor = await connect(token);
+    expect(visitor.getInstructions()).toMatch(/Muster Town[\s\S]*`look` first[\s\S]*`submit_report`/);
+    const names = (await visitor.listTools()).tools.map((t) => t.name);
+    for (const hidden of ["assign", "review", "propose_grant", "close_grant", "fork_status", "promote", "ban", "rank", "calibrate", "redeploy"]) expect(names).not.toContain(hidden);
+    for (const kept of ["look", "inbox", "tell", "write", "submit_report", "accept_assignment", "adopt"]) expect(names).toContain(kept);
+    // a hidden verb still answers by name with the verb's own refusal
+    const denied = await visitor.callTool({ name: "ban", arguments: { agentId, reason: "x" } });
+    expect(denied.isError).toBe(true);
+    await visitor.close();
+    // a building's manager keeps its manager verbs
+    const manager = await connect(ctx.world.tokens.create("agent", ctx.seed.manager!.id));
+    const managerTools = (await manager.listTools()).tools.map((t) => t.name);
+    for (const kept of ["assign", "review", "propose_grant"]) expect(managerTools).toContain(kept);
+    await manager.close();
+  });
+
+  it("visitor first look carries welcome: its building, manager and one first step; once, then again after a return from offline", async () => {
+    const mgr = ctx.seed.manager!;
+    const r = ctx.world.ops.registerVisitor(ctx.seed.admin.id, { name: "Homed Claude", inheritsOwner: false, buildingId: mgr.homeBuildingId! });
+    const look = async () => (await json<{ result: LookResult }>(ctx.app, "POST", "/api/verbs/look", { headers: bearer(r.token), body: {} })).body.result;
+    const first = await look();
+    const b = ctx.world.buildings.require(mgr.homeBuildingId!);
+    expect(first.welcome).toEqual({ goal: ctx.world.goalTree.purposeOf(b), building: { id: b.id, name: b.name }, manager: { id: mgr.id, name: mgr.name }, offers: [], firstStep: expect.stringMatching(/`board`[\s\S]*`tell`/) });
+    expect((await look()).welcome).toBeUndefined();
+    ctx.world.presence.sweep(new Date(Date.now() + 120_000));
+    expect((await look()).welcome).toMatchObject({ building: { id: b.id } });
   });
 
   it("digest is null for an agent that was never offline", async () => {

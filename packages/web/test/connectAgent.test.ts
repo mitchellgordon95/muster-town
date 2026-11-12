@@ -3,10 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import type { AuthMe } from "@muster-town/schema";
 
-const registerVisitor = vi.fn(async (i: { name: string; goalId?: string }) => ({ agent: { name: i.name }, token: "mt_secret" }));
+const registerVisitor = vi.fn(async (i: { name: string; goalId?: string }) => ({ agent: { id: "ag_new", name: i.name }, token: "mt_secret" }));
 vi.mock("../src/api", () => ({ api: () => ({ registerVisitor }), ApiError: class extends Error {}, API_BASE: "" }));
 
-const { connectStep, defaultAgentName, joinableGoals, mcpAddLine, registerAgent, TokenOnce } = await import("../src/panels/ConnectAgent");
+const { ConnectStatus, connectedAt, connectStep, defaultAgentName, joinableGoals, mcpAddLine, registerAgent, TokenOnce } = await import("../src/panels/ConnectAgent");
 
 const me = (canInteract: boolean) => ({ user: { name: "Ada", githubLogin: "ada" }, canInteract } as unknown as AuthMe);
 
@@ -47,5 +47,20 @@ describe("Connect your agent", () => {
     expect(html).toContain("Bearer mt_secret");
     expect(html).toContain("Shown once");
     expect(html).toContain('href="/skill.md"');
+  });
+
+  it("after the command: waiting for the first call (with what to try), then connected once lastSeenAt moves past createdAt", () => {
+    expect(connectedAt(null)).toBeNull();
+    expect(connectedAt({ createdAt: "2026-11-10T20:00:00.000Z", lastSeenAt: null })).toBeNull();
+    expect(connectedAt({ createdAt: "2026-11-10T20:00:00.000Z", lastSeenAt: "2026-11-10T20:00:00.000Z" })).toBeNull();
+    expect(connectedAt({ createdAt: "2026-11-10T20:00:00.000Z", lastSeenAt: "2026-11-10T20:01:00.000Z" })).toBe("2026-11-10T20:01:00.000Z");
+    const waiting = renderToStaticMarkup(createElement(ConnectStatus, { name: "ada's Claude", seenAt: null }));
+    expect(waiting).toContain("Waiting for ada&#x27;s Claude&#x27;s first call");
+    expect(waiting).toContain("claude mcp list");
+    const ok = renderToStaticMarkup(createElement(ConnectStatus, { name: "ada's Claude", seenAt: new Date(Date.now() - 3 * 60_000).toISOString() }));
+    expect(ok).toContain("Connected 3m ago");
+    // the token screen carries the status once the agent's id is known
+    const html = renderToStaticMarkup(createElement(TokenOnce, { done: { id: "ag_new", name: "b", token: "t", line: "l" } }));
+    expect(html).toContain("first call");
   });
 });

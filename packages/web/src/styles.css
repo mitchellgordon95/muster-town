@@ -781,6 +781,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .connect-form { display: flex; flex-direction: column; gap: 12px; }
 .connect-line { font-family: var(--mono); font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-all; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; user-select: all; }
 .connect-actions { display: flex; gap: 8px; }
+.connect-status { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .warn-line { color: var(--warn); font-size: var(--fs-md); margin: 10px 0; }
 
 /* objectives (board, settings) */
