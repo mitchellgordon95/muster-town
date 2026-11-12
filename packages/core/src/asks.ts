@@ -9,17 +9,21 @@
  * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
  */
 import {
-  ASK_LINT_RULES, askSentences, askStructure, askWarnings, clipWords, grantName, grantPricingOf, kTokens, nameWithin, parseRollup, proseAskTitle, rollupAsks, rollupNeedsIdsAll, vetAsk, withoutEllipsis, Ask, RollupAskInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
+  ASK_LINT_RULES, askSentences, askStructure, askWarnings, clipWords, grantName, grantPricingOf, kTokens, nameWithin, vetAsk, withoutEllipsis, Ask, AskCardInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
   type AskType, type CalibrationProposal, type CaptainRequest, type Doc, type Event, type Grant, type Schedule, type StepSize,
 } from "@muster-town/schema";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { queueClaimChecks, urlOfHowToCheck } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
+import { maySettle } from "./overtake.ts";
+import { appendEntry, entryOf, threadSeq } from "./jobs.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
+import { askDecidedOnThread } from "./review-entry.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
-import { onAskDecided, rollupCalls } from "./secretary.ts";
+import { onAskDecided } from "./secretary.ts";
 import { stamp, utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -44,8 +48,16 @@ interface NewAsk {
   line?: string;
   /** who filed it (an agent or user id, "system" by default) */
   by?: string;
+  /** the entry on a job's thread that raised it; left out, `createAsk` writes one on the building's own thread (the Town Hall's for none) */
+  sourceEntryId?: string | null;
   /** step 9: the Planner's table change on a rule ask (deciding "Adopt" applies it, planner.ts) */
   proposal?: CalibrationProposal | null;
+}
+
+/** The human behind an act, for `retireAsks`: the user id of a human's avatar; false for an agent or the system. */
+function humanBehind(world: World, agentId: string | null | undefined): string | false {
+  const a = agentId ? world.agents.get(agentId) : undefined;
+  return a?.kind === "human" ? a.ownerUserId ?? a.id : false;
 }
 
 /** The live (open or deferred) ask on a target, if any. */
@@ -62,30 +74,122 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
   const by = n.by ?? "system";
   const kind = n.targetId ? n.targetKind ?? null : null;
   const line = oneLine(n.line ?? n.title, 400);
-  const source = n.sourceDocId ? [{ docId: n.sourceDocId, buildingId: n.buildingId, line, at }] : [];
+  let entryId = n.sourceEntryId ?? null;
+  const sourceOf = () => (n.sourceDocId || entryId ? [{ docId: n.sourceDocId ?? null, entryId, buildingId: n.buildingId, line, at }] : []);
+  const source = sourceOf();
   const have = kind && n.targetId ? liveAskOn(world, kind, n.targetId) : undefined;
   if (have) {
-    if (!source.length || have.sources.some((s) => s.docId === n.sourceDocId && s.line === line)) return { ask: have, folded: true };
+    if (!source.length || have.sources.some((s) => s.docId === (n.sourceDocId ?? null) && (s.entryId ?? null) === entryId && s.line === line)) return { ask: have, folded: true };
     // step 3: a manager's card (one with a recommendation) replaces the town's own wording on an ask that has none yet
-    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
+    // (the town's own proposal card is a placeholder: its words come from the entry that raises the ask, plan step 6)
+    const adopt = (!have.recommendation.trim() || have.recommendation === PROPOSAL_RECOMMENDATION || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
     const card = adopt ? vetted(world, have.type, { title: have.title, body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
     const next = world.asks.upsert({
       ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
-      history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId}: ${line}` }, ...(card?.lint ?? [])],
+      history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId ?? entryId}: ${line}` }, ...(card?.lint ?? [])],
     });
     world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `Folded into "${oneLine(have.title, 80)}": ${oneLine(line, 120)}`, payload: { askId: have.id, sourceDocId: n.sourceDocId, targetKind: kind, targetId: n.targetId } });
     if (card) queueClaimChecks(world, next.id);
     return { ask: next, folded: true };
   }
   const card = vetted(world, n.type, { title: n.title, body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
+  // an ask is a snapshot of a thread (plan step 6): one raised with no entry of its own gets one, on its building's thread
+  if (!entryId) entryId = raiseEntry(world, n, by);
+  const raisedOn = entryId ? entryOf(world, entryId)?.jobId : undefined;
   const ask = world.asks.upsert(Ask.parse({
+    sourceEntryId: entryId, renderedSeq: raisedOn ? threadSeq(world, raisedOn) : null,
     id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
     title: clipWords(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
-    status: "open", sources: source, createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
+    status: "open", sources: sourceOf(), createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
   queueClaimChecks(world, ask.id);
   return { ask, folded: false };
+}
+
+/**
+ * The entry for an ask raised with none of its own (a retainer asked, a person asking to join or to captain, the
+ * Planner's or the Secretary's rule): on its building's own thread, the Town Hall's when it has no building, at level
+ * human. Null when that thread does not exist (a world with no Town Hall).
+ */
+function raiseEntry(world: World, n: NewAsk, by: string): string | null {
+  const e = appendEntry(world, {
+    jobId: `jb_${n.buildingId ?? TOWN_HALL_ID}`, authorKind: by === "system" ? "code" : by.startsWith("us_") ? "human" : world.secretary.agent()?.id === by ? "secretary" : "manager", authorId: by,
+    level: "human", note: n.title, body: n.body ?? "", moved: { kind: "ask", type: n.type, ...(n.targetId ? { targetId: n.targetId } : {}) },
+  });
+  return e?.id ?? null;
+}
+
+/**
+ * Write the live asks again from their threads (plan dc_uwx045472m step 6; all of them, or those raised on `jobId`). A
+ * card the town writes from its object (`townCardOf`: a proposal, a gate, a retainer, a request) takes the object's
+ * facts as they are now; a card with an author's or the Secretary's words keeps them. Either way `renderedSeq` records
+ * the thread's length, so the Secretary's read can tell a card whose thread has moved since. An ask filed before
+ * migration 115 gets its source entry here when it can be named. Returns how many cards changed words.
+ */
+export function rerenderAsks(world: World, jobId?: string): number {
+  const live = jobId
+    ? world.asks.where(`${LIVE_ASK} AND sourceEntryId IN (SELECT id FROM entries WHERE jobId = ?)`, [jobId], "ORDER BY createdAt, rowid")
+    : world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid");
+  let changed = 0;
+  for (const a of live) {
+    const sourceEntryId = a.sourceEntryId ?? knownEntryOf(world, a);
+    const on = sourceEntryId ? entryOf(world, sourceEntryId)?.jobId : undefined;
+    const card = townCardOf(world, a);
+    const title = card ? clipWords(card.title, 200) : a.title;
+    const words = !!card && (title !== a.title || card.body !== a.body || (card.recommendation !== undefined && card.recommendation !== a.recommendation));
+    // a town card is the thread as it stands; an author's card keeps the seq it was written at (the Secretary rewrites it)
+    const renderedSeq = on && (card || a.renderedSeq === null) ? threadSeq(world, on) : a.renderedSeq;
+    if (!words && sourceEntryId === a.sourceEntryId && renderedSeq === a.renderedSeq) continue;
+    const at = nowIso();
+    world.asks.upsert({
+      ...a, sourceEntryId, renderedSeq, ...(words ? { title, body: card!.body, ...(card!.recommendation !== undefined ? { recommendation: card!.recommendation } : {}), ...(card!.claims ? { claims: card!.claims } : {}), updatedAt: at,
+        history: [...a.history, { at, action: "retitled" as const, by: "system", note: `rendered again from its thread; was: ${a.title}`.slice(0, 500) }] } : {}),
+    });
+    if (words) changed++;
+  }
+  return changed;
+}
+
+/**
+ * How far an ask's thread has moved since its card was written: the entries added since, for a card whose words are an
+ * author's or the Secretary's (a town card is written again by `rerenderAsks`, so it is never behind). 0 when it is current.
+ */
+export function entriesSinceCard(world: World, a: Ask): number {
+  if (a.renderedSeq === null || !a.sourceEntryId || townCardOf(world, a)) return 0;
+  const on = entryOf(world, a.sourceEntryId)?.jobId;
+  return on ? Math.max(0, threadSeq(world, on) - a.renderedSeq) : 0;
+}
+
+/**
+ * The Secretary writes an ask's card again from its thread (plan dc_uwx045472m step 6: the words come from the entry
+ * that raised it or from the Secretary): title, body and recommendation only, never its type, branches or target. The
+ * card is vetted like any other (warnings into its history) and its `renderedSeq` moves to the thread's length.
+ */
+export function rewriteAsk(world: World, by: Agent, id: string, card: { title?: string; body?: string; recommendation?: string }): Ask {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary rewrites an ask's card.");
+  const a = world.asks.require(id, "ask");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
+  if (card.title === undefined && card.body === undefined && card.recommendation === undefined) throw badRequest(`rewrite: give ${id} a title, a body or a recommendation.`);
+  const at = nowIso();
+  const next = { title: clipWords(card.title ?? a.title, 200), body: card.body ?? a.body, recommendation: card.recommendation ?? a.recommendation };
+  const v = vetted(world, a.type, { ...next, claims: a.claims, branches: a.branches, targetKind: a.targetKind }, at, by.id);
+  const on = a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined;
+  return world.asks.upsert({ ...a, ...next, renderedSeq: on ? threadSeq(world, on) : a.renderedSeq, updatedAt: at, history: [...a.history, { at, action: "rewritten", by: by.id, note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
+}
+
+/** The entry an ask filed before migration 115 came from, when its id can be named: a request's, a proposal's last propose. */
+function knownEntryOf(world: World, a: Ask): string | null {
+  const id = a.targetKind === "request" && a.targetId ? `en_${a.targetId}`
+    : a.targetKind === "grant" && a.targetId ? proposeEntryId(world.grants.get(a.targetId)) : null;
+  return id && entryOf(world, id) ? id : null;
+}
+
+/** A grant's latest propose, as its entry on the grant's job (jobs.ts writes history entries as `en_<grant>_h<index>`). */
+function proposeEntryId(g: Grant | undefined): string | null {
+  if (!g) return null;
+  const i = g.history.map((h) => h.action).lastIndexOf("propose");
+  return i < 0 ? null : `en_${g.id}_h${i}`;
 }
 
 /**
@@ -113,16 +217,40 @@ export function refuseMissingStructure(what: string, problems: string[]): void {
   throw badRequest(`Your ${what}'s ask card lacks ${problems.length} required part${problems.length === 1 ? "" : "s"} (docs/legible-delegation.md §4). Add ${problems.length === 1 ? "it" : "them"} and resubmit:\n- ${problems.join("\n- ")}`);
 }
 
-/** Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired. */
-export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string): Ask[] {
+/**
+ * Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired.
+ * `human`: a human's decision retired them (their user or avatar id when known): the Secretary runs after it (decision 10).
+ */
+export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string, human: string | boolean = false): Ask[] {
   const at = nowIso();
   const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
     const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: "system", note: reason }] });
-    world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason } });
+    world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason, human: !!human } });
     return next;
   });
   reopenDeferred(world, [id, ...retired.map((a) => a.id)], reason);
+  // 1:1 mt_msnjkpgwdb decision 10: a human's decision on an ask wakes the Secretary (debounced) to settle what it made moot and re-rank
+  if (human && retired.length) world.secretary.afterDecision({ targetKind: kind, targetId: id, text: reason, by: typeof human === "string" ? human : null });
   return retired;
+}
+
+/**
+ * The Secretary closes a live ask a human's decision made moot (1:1 mt_msnjkpgwdb decisions 10, 20a): only a click or
+ * policy ask that is not a Do (`maySettle`, overtake.ts); money, credential and meeting asks stay the humans'. `because`
+ * cites the human's decision, `note` says why it is moot. The ask retires (asks deferred behind it open again); it
+ * decides nothing else and wakes no further Secretary run.
+ */
+export function overtakeAsk(world: World, by: Agent, id: string, because: string, note: string): Ask {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary closes an ask as overtaken.");
+  const a = world.asks.require(id, "ask");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
+  if (!maySettle(a)) throw badRequest(`overtaken: ${id} is ${a.targetKind === "request" ? "a request a human must carry out" : `a ${a.type} ask`}; only a human settles it. Rank or defer it instead.`);
+  const at = nowIso();
+  const reason = `Overtaken by ${oneLine(because, 200)}: ${oneLine(note, 300)}`;
+  const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: by.id, note: reason }] });
+  world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} closed "${oneLine(a.title, 80)}" as overtaken: ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, overtaken: true, because, human: false } });
+  reopenDeferred(world, [a.id], reason);
+  return next;
 }
 
 const ID_CHARS = /[a-z0-9_]/;
@@ -187,11 +315,15 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   onAskDecided(world, next);
   // step 9: a rule ask carrying the Planner's table change, decided "Adopt", applies it (planner.ts)
   onRuleAskDecided(world, actor!, next);
+  // an ask passed up from an entry: the human's words are their entry on that thread, and the manager moves on it
+  askDecidedOnThread(world, next, by, said);
   // the building that filed it hears the human's words (the event alone reaches no one's inbox)
   const manager = managerAgentOf(world, a.buildingId ? world.buildings.get(a.buildingId) : undefined);
   if (manager) sendMessage(world, { kind: "system", fromId: by, fromKind: "user", toId: manager.id, body: `${world.nameOf(by)} decided your ask "${oneLine(a.title, 120)}" (${a.id}): ${said.slice(0, 2000)}` });
   // asks deferred behind this ask (or behind its target) are open again
   reopenDeferred(world, [a.id, a.targetId], `Decided "${oneLine(a.title, 80)}": ${oneLine(said, 160)}`);
+  // 1:1 mt_msnjkpgwdb decision 10: the Secretary runs after every human decision (debounced): settle what it made moot, re-rank
+  world.secretary.afterDecision({ askId: a.id, targetKind: a.targetKind, targetId: a.targetId, text: `${world.nameOf(by)} decided "${oneLine(a.title, 100)}": ${oneLine(said, 200)}`, by });
   return next;
 }
 
@@ -226,9 +358,9 @@ const GRANT_DECIDED: Record<string, true> = { "grant.funded": true, "grant.count
  * funded, continued, adjusted, countered (it waits on the manager now), rejected, cut, closed, withdrawn or stopping
  * retires the live ask on it with the event's text.
  */
-export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "text" | "payload">): void {
+export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "text" | "payload"> & { agentId?: string | null }): void {
   if (e.type === "grant.proposed") askForProposal(world, g, e.text);
-  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text);
+  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text, humanBehind(world, e.agentId));
 }
 
 /** A grant proposal's money ask: fund / counter / reject, its card written by the town from the plan (`proposalCard`). */
@@ -236,6 +368,8 @@ function askForProposal(world: World, g: Grant, line: string): void {
   const kr = world.grantDesk.keyResultsOf(g.id).map((k) => ({ id: k.id, text: k.text }));
   createAsk(world, {
     type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: g.id, by: g.proposedBy,
+    // the propose is the entry that raised it (the grant's job gets it as the grant is saved)
+    sourceEntryId: proposeEntryId(g),
     title: proposalTitle(g), line,
     ...proposalCard({ askTokens: g.askTokens, steps: g.steps.length, keyResults: kr, counteredAt: lastCounterAt(g) }),
     branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }],
@@ -319,13 +453,38 @@ const retainerTitle = (title: string, tokens: number) => `Approve the retainer f
 /** A request for a token, key or credential (the click it asks for is issuing one). */
 const CREDENTIAL = /\b(token|tokens|credential|credentials|api[- ]?key|keys?|PAT|password|secret|ssh|oauth|scope)\b/i;
 
-/** An outbox request (`request_human`): a credential ask when it asks for a token or key, else a click. Claim / decline. */
+/** A request for a human to act in the world (`request_human`): a credential ask when it asks for a token or key, else a do. Done / Decline. */
 export function askForRequest(world: World, d: Doc): void {
   createAsk(world, {
-    type: CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "click", targetKind: "request", targetId: d.id, buildingId: d.buildingId, sourceDocId: d.id,
+    type: CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "do", targetKind: "request", targetId: d.id, buildingId: d.buildingId, sourceDocId: d.id,
+    sourceEntryId: entryOf(world, `en_${d.id}`) ? `en_${d.id}` : null,
     by: d.authorId, title: withoutEllipsis(d.title), body: withoutEllipsis(d.body), line: d.title,
-    branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }],
+    branches: DO_BRANCHES,
   });
+}
+
+/** A request's two branches (1:1 mt_msnjkpgwdb decision 17: no Claim): Done with the report back, Decline with a note. */
+const DO_BRANCHES: AskBranch[] = [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }];
+
+/**
+ * Boot repair for the end of the outbox (decisions 16-17), idempotent: a claimed request is open again (its claimer
+ * and note stay on it; Done still takes their report), and every live ask on a request offers Done / Decline, typed
+ * `do` unless it asks for a credential. Returns how many requests and asks it changed.
+ */
+export function requestsToDoAsks(world: World): { reopened: number; asks: number } {
+  let reopened = 0, asks = 0;
+  for (const d of world.docs.where("type = 'request' AND requestStatus = 'claimed'", [])) {
+    world.docs.patch(d.id, { requestStatus: "open" });
+    reopened++;
+  }
+  const at = nowIso();
+  for (const a of world.asks.where(`targetKind = 'request' AND ${LIVE_ASK}`, [])) {
+    const type = a.type === "click" ? "do" : a.type;
+    if (type === a.type && a.branches.length === 2 && a.branches[0]!.action === "done") continue;
+    world.asks.upsert({ ...a, type, branches: DO_BRANCHES, updatedAt: at, history: [...a.history, { at, action: "retyped", by: "system", note: "A request is a do ask: Done with the report back, or Decline (no Claim)." }] });
+    asks++;
+  }
+  return { reopened, asks };
 }
 
 /** A member asks to captain a goal: accept / decline. */
@@ -351,7 +510,7 @@ export function askForAccess(world: World, r: AccessRequest): void {
   });
 }
 
-// ---- rollups ----
+// ---- an author's cards ----
 
 const TARGET_PREFIX: Record<string, AskTargetKind> = { gr: "grant", sc: "retainer", dc: "request", cr: "captain", ar: "access", kr: "keyResult", mt: "meeting" };
 
@@ -375,18 +534,17 @@ function targetExists(world: World, kind: AskTargetKind, id: string): boolean {
   }
 }
 
-/** A rollup's typed ask, resolved: its target kind filled in. */
-type ResolvedRollupAsk = RollupAskInput & { targetKind?: AskTargetKind };
+/** An author's card, resolved: its target kind filled in. */
+type ResolvedAskCard = AskCardInput & { targetKind?: AskTargetKind };
 
 /**
- * Check a rollup's typed `asks` against its prose (refused with the reason, nothing filed): each target exists, a money
- * ask names a grant or retainer, and every id its Needs section and its real "Your call" lines name is the target of one
- * of them. A rollup that asks something in words (a Needs line or a real "Your call") with an empty list is refused too.
+ * Check an author's cards (`ask`, `review` with `ask`; refused with the reason, nothing filed): each target exists and
+ * a money ask names a grant or retainer. Returns them with the target kind filled in.
  */
-export function checkRollupAsks(world: World, body: string, input: RollupAskInput[]): ResolvedRollupAsk[] {
-  const asks = input.map((raw, i): ResolvedRollupAsk => {
-    const a = RollupAskInput.parse(raw);
-    const where = `asks[${i}] ("${oneLine(a.title, 60)}")`;
+export function checkAskCards(world: World, input: AskCardInput[]): ResolvedAskCard[] {
+  return input.map((raw, i): ResolvedAskCard => {
+    const a = AskCardInput.parse(raw);
+    const where = input.length > 1 ? `asks[${i}] ("${oneLine(a.title, 60)}")` : `"${oneLine(a.title, 60)}"`;
     if (!a.targetId) {
       if (a.type === "money") throw badRequest(`${where} is a money ask: name the grant or retainer it is about (targetId gr_… or sc_…).`);
       return a;
@@ -395,73 +553,10 @@ export function checkRollupAsks(world: World, body: string, input: RollupAskInpu
     if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule or meeting).`);
     if (a.type === "money" && kind !== "grant" && kind !== "retainer") throw badRequest(`${where} is a money ask: its target is a grant or a retainer, not a ${kind}.`);
     if (!targetExists(world, kind, a.targetId)) throw badRequest(`${where}: ${a.targetId} is not a ${kind} of this town.`);
+    // 1:1 mt_msnjkpgwdb decision 9: a key result met on code and tests is shown as "met, unverified"; nobody is asked about it
+    if (kind === "keyResult" && world.keyResults.get(a.targetId)?.status === "met-unverified") throw badRequest(`${where}: ${a.targetId} is "met, unverified" (its grant closed without a live check). The town shows it as such and asks no human about it: check it live and say so in your next report, or leave it; a human flips it to met or missed from the grant page.`);
     return { ...a, targetKind: kind };
   });
-  const targets = new Set(asks.map((a) => a.targetId).filter(Boolean));
-  const p = parseRollup(body);
-  const uncovered = rollupNeedsIdsAll(body, p).filter((id) => !targets.has(id));
-  if (uncovered.length) {
-    throw badRequest(`Your rollup asks about ${uncovered.join(", ")} (in its Needs section or a "Your call"), but no entry of \`asks\` has it as its targetId. File one ask per thing you ask the humans (type, targetId, title, body, branches, recommendation), or take the id out of the prose.`);
-  }
-  const calls = rollupAsks(p);
-  if (calls.length && !asks.length) throw badRequest(`Your rollup asks "${oneLine(calls[0]!.call, 100)}" but \`asks\` is empty: file it as a typed ask (type, title, body, branches, recommendation), or leave \`asks\` out.`);
-  return asks;
-}
-
-/** File a rollup's checked asks, each sourced to the rollup. Returns the asks and which folded into an ask already open. */
-export function fileRollupAsks(world: World, me: Agent, doc: Doc, asks: ResolvedRollupAsk[]): { ask: Ask; folded: boolean }[] {
-  return asks.map((a) => createAsk(world, {
-    type: a.type, targetKind: a.targetKind ?? null, targetId: a.targetId ?? null, buildingId: doc.buildingId, sourceDocId: doc.id, by: me.id,
-    title: a.title, body: a.body, branches: a.branches, recommendation: a.recommendation, claims: a.claims, line: a.title,
-  }));
-}
-
-/** A "Your call" that offers a rule for veto ("unless you'd rather …", "say if you want …"): a policy ask. */
-const POLICY = /\b(unless you['’]?d rather|say if you(?:['’]d)? want|veto|keep (?:this|the) rule|the rule)\b/i;
-const ID = /\b(?:gr|sc|dc|cr|ar|kr)_[a-z0-9]+\b/g;
-
-/**
- * The asks of a rollup filed without a typed list, read from its prose (`rollupCalls`, overtaken ones skipped), typed by
- * `proseAskShape`: a call that asks for tokens on the grant or retainer it names is a money ask on it (folding into that
- * item's own ask), a rule veto a policy ask, any other a click. Idempotent per rollup.
- */
-const PROSE_BRANCHES = { money: [{ label: "Yes" }, { label: "No" }], policy: [{ label: "Keep the rule" }, { label: "Change it" }], click: [{ label: "Done" }, { label: "Decline" }] } as const satisfies Record<string, AskBranch[]>;
-
-/** A call that asks for tokens: a grant or retainer decision (fund, counter, reject, adjust, cut, continue at a gate, raise a ceiling, top up, stop, close, approve a retainer) or a token figure ("150k", "200,000 tokens"). */
-const MONEY_CALL = /\b(?:fund(?:s|ed|ing)?|counter(?:ed)?|reject(?:ed)?|adjust(?:ed)?|cut|continue|raise|top[- ]?up|ceiling|stop|close[ds]?|approve)\b|\b\d[\d,.]*\s*[km]\b|\b\d[\d,.]*\s+tokens\b/i;
-
-/**
- * How a call read from a rollup's prose is filed: a money ask on the grant (else retainer) it names only when the call
- * asks for tokens (`MONEY_CALL`); otherwise a policy ask (a rule veto) or a click, targeted at the request, captain,
- * access request or key result it names, else untargeted. A call that merely mentions a grant ("KR3 of gr_x cannot run
- * until then") is not filed on that grant: there it would fold into the grant's own money row, or become its gate.
- */
-function proseAskShape(world: World, c: { title: string; call: string }): { type: AskType; targetKind: AskTargetKind | null; targetId: string | null } {
-  const ids = [...new Set(`${c.title} ${c.call}`.match(ID) ?? [])].filter((id) => { const k = kindOf(world, id); return !!k && k !== "rule" && targetExists(world, k, id); });
-  const money = MONEY_CALL.test(c.call) ? ids.find((id) => id.startsWith("gr_")) ?? ids.find((id) => id.startsWith("sc_")) : undefined;
-  const targetId = money ?? ids.find((id) => !id.startsWith("gr_") && !id.startsWith("sc_")) ?? null;
-  return { type: money ? "money" : POLICY.test(c.call) ? "policy" : "click", targetKind: targetId ? kindOf(world, targetId) : null, targetId };
-}
-
-export function asksFromRollupProse(world: World, d: Doc): void {
-  for (const c of rollupCalls(world, d)) {
-    if (c.overtaken) continue;
-    const { type, targetKind, targetId } = proseAskShape(world, c);
-    const title = proseAskTitle(c.call);
-    // idempotent: this rollup already filed this line (on its target, or untargeted with the same line or title: a title
-    // written by an older rule, since repaired by `retitleProseAsks`, still counts)
-    const line = oneLine(c.call, 400);
-    // whatever its target or type now: a line filed under an older shape (a money ask on the grant it named, retyped by
-    // `retypeProseAsks` after this runs at boot) is still filed, so no twin is made
-    const filed = (targetId && targetKind && asksFor(world, { kind: targetKind, id: targetId }).some((a) => a.sources.some((s) => s.docId === d.id)))
-      || world.asks.exists("sourceDocId = ? AND (title = ? OR EXISTS (SELECT 1 FROM json_each(sources) WHERE json_extract(value, '$.docId') = ? AND json_extract(value, '$.line') IN (?, ?)))", [d.id, title, d.id, line, withoutEllipsis(line)]);
-    if (filed) continue;
-    createAsk(world, {
-      type, targetKind, targetId, buildingId: d.buildingId, sourceDocId: d.id, by: d.authorId, title, line: c.call,
-      body: withoutEllipsis(c.title ? `From "${c.title}" in the rollup "${d.title}".` : `From the rollup "${d.title}".`),
-      branches: PROSE_BRANCHES[type === "money" ? "money" : type === "policy" ? "policy" : "click"],
-    });
-  }
 }
 
 // ---- backfill ----
@@ -471,8 +566,7 @@ const hasAsk = (world: World, kind: AskTargetKind, id: string) => world.asks.exi
 
 /**
  * Boot repair (step 1): the asks of everything already waiting for a human: every open proposal (a countered one waits
- * on its manager: none), held grant, asked retainer, open outbox request, pending captain and access request, then each
- * pending Town Hall rollup's live calls (`asksFromRollupProse`). Idempotent: a second run creates nothing. Returns how many it made.
+ * on its manager: none), held grant, asked retainer, open request, pending captain and access request. Idempotent: a second run creates nothing. Returns how many it made.
  */
 export function backfillAsks(world: World): number {
   const before = world.asks.count();
@@ -486,7 +580,6 @@ export function backfillAsks(world: World): number {
     for (const d of world.docs.where("type = 'request' AND requestStatus = 'open'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "request", d.id)) askForRequest(world, d);
     for (const r of world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "captain", r.id)) askForCaptain(world, r);
     for (const r of world.accessRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "access", r.id)) askForAccess(world, r);
-    for (const d of world.docs.where("type = 'report' AND decision = 'pending' AND tags LIKE '%\"rollup\"%'", [], "ORDER BY createdAt, rowid")) asksFromRollupProse(world, d);
   });
   return world.asks.count() - before;
 }
@@ -553,10 +646,10 @@ function townCardOf(world: World, a: Ask): TownCard | null {
  * Returns how many asks it rewrote.
  */
 /**
- * The card of an ask read from a rollup's prose before typed asks existed (no target to write a card from): its own
- * words kept, the clipping dropped: the title is its first clause, the body and recommendation lose every ellipsis.
+ * A card the town can't write again from a target (a manager's own words, an ask with no target): its words kept, the
+ * clipping dropped. The title is its first clause; the body and recommendation lose every ellipsis.
  */
-function proseCardOf(a: Ask): { title: string; body: string; recommendation: string; claims: Ask["claims"] } | null {
+function ownCardOf(a: Ask): { title: string; body: string; recommendation: string; claims: Ask["claims"] } | null {
   if (!a.title.includes("\u2026") && !a.body.includes("\u2026") && !a.recommendation.includes("\u2026")) return null;
   return { title: nameWithin(a.title, 120), body: withoutEllipsis(a.body), recommendation: withoutEllipsis(a.recommendation), claims: a.claims };
 }
@@ -565,7 +658,7 @@ export function retitleClippedAsks(world: World): number {
   const done: string[] = [];
   world.transaction(() => {
     for (const a of world.asks.where(`${LIVE_ASK} AND (title LIKE '%…%' OR body LIKE '%…%')`, [], "ORDER BY createdAt, rowid")) {
-      const card = townCardOf(world, a) ?? proseCardOf(a);
+      const card = townCardOf(world, a) ?? ownCardOf(a);
       if (!card) continue;
       const next = { ...a, ...card, title: clipWords(card.title, 200), sources: a.sources.map((s) => ({ ...s, line: withoutEllipsis(s.line) })) };
       if (next.title === a.title && next.body === a.body && next.recommendation === a.recommendation && JSON.stringify(next.claims) === JSON.stringify(a.claims)) continue;
@@ -595,135 +688,6 @@ export function retitleGrantAsks(world: World): number {
       if (title === a.title) continue;
       const at = nowIso();
       world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
-      n++;
-    }
-  });
-  return n;
-}
-
-/**
- * Whether the town read this ask from a rollup's prose (`asksFromRollupProse`): its source is the rollup, its body the
- * "From … the rollup" line, its branches the prose ones, no recommendation or claims. A manager's typed ask (its own
- * title, body and recommendation) and a town card on a target are not.
- */
-function isProseAsk(world: World, a: Ask): boolean {
-  if (!a.sourceDocId || a.recommendation.trim() || a.claims.length) return false;
-  const d = world.docs.get(a.sourceDocId);
-  if (!d || d.type !== "report" || !d.tags.includes("rollup")) return false;
-  if (!/^From (?:".*" in )?the rollup ".*"\.$/s.test(a.body)) return false;
-  const labels = a.branches.map((b) => b.label).join("|");
-  return Object.values(PROSE_BRANCHES).some((bs) => bs.map((b) => b.label).join("|") === labels);
-}
-
-/**
- * Boot repair: every live ask read from a rollup's prose (`isProseAsk`) takes its title again from its own source line
- * by `proseAskTitle` (the whole first sentence, never a fragment before a colon or a clause cut at 8 words, as "A 1",
- * "Optional" or "Create one empty repo under dungeonrpg99-ops and give" were), keeping its id, body, sources, rank,
- * status and history, with a "retitled" history entry. A manager's typed ask is untouched. Idempotent. Returns how many it retitled.
- */
-export function retitleProseAsks(world: World): number {
-  let n = 0;
-  world.transaction(() => {
-    for (const a of world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid")) {
-      if (!isProseAsk(world, a)) continue;
-      const line = a.sources.find((s) => s.docId === a.sourceDocId)?.line;
-      if (!line) continue;
-      const title = clipWords(proseAskTitle(withoutEllipsis(line)), 200);
-      if (!title || title === a.title) continue;
-      const at = nowIso();
-      world.asks.upsert({ ...a, title, updatedAt: at, history: [...a.history, { at, action: "retitled", by: "system", note: `was: ${a.title}`.slice(0, 500) }] });
-      n++;
-    }
-  });
-  return n;
-}
-
-/**
- * Boot repair: a live ask read from a rollup's prose as a money ask on a grant (or retainer) only because its line named
- * one, though the line asks for no tokens (`proseAskShape`: the repo to create, a key result to flip), is typed again from
- * its source line: a click (or policy ask) with the prose branches, on the request, captain, access request or key result
- * the line names, else untargeted, vetted again, with a "retyped" history entry. A target that already has a live ask of
- * its own leaves it untargeted (no second row on one target). Its id, title, body, sources, rank and status stay.
- * Idempotent. Returns how many it retyped.
- */
-export function retypeProseAsks(world: World): number {
-  let n = 0;
-  world.transaction(() => {
-    for (const a of world.asks.where(`${LIVE_ASK} AND type = 'money'`, [], "ORDER BY createdAt, rowid")) {
-      if (!isProseAsk(world, a)) continue;
-      const line = a.sources.find((s) => s.docId === a.sourceDocId)?.line;
-      const d = line && world.docs.get(a.sourceDocId!);
-      if (!line || !d) continue;
-      const c = rollupCalls(world, d).find((x) => { const l = oneLine(x.call, 400); return l === line || withoutEllipsis(l) === withoutEllipsis(line); });
-      if (!c) continue;
-      const shape = proseAskShape(world, c);
-      if (shape.type === "money") continue;
-      const taken = shape.targetKind && shape.targetId ? liveAskOn(world, shape.targetKind, shape.targetId) : undefined;
-      const [targetKind, targetId] = taken && taken.id !== a.id ? [null, null] : [shape.targetKind, shape.targetId];
-      const branches = PROSE_BRANCHES[shape.type === "policy" ? "policy" : "click"];
-      const at = nowIso();
-      const v = vetted(world, shape.type, { title: a.title, body: a.body, recommendation: a.recommendation, claims: a.claims, branches, targetKind }, at, "system");
-      const was = `was: money on ${a.targetKind} ${a.targetId} (${a.branches.map((b) => b.label).join(" / ")})`;
-      world.asks.upsert({
-        ...a, type: shape.type, targetKind, targetId, branches: [...branches], tags: [...a.tags.filter((t) => t !== LINT_FAILED), ...v.tags], updatedAt: at,
-        history: [...a.history, { at, action: "retyped", by: "system", note: was.slice(0, 500) }, ...v.lint],
-      });
-      n++;
-    }
-  });
-  return n;
-}
-
-/**
- * Boot repair: live asks read from one rollup's prose for one line (same source rollup, same title or source line) are
- * twins: older boots filed the line again when its first ask's title or target had changed (2026-11-09: six pairs from
- * a 04:47 boot; ak_964oxnm14w and ak_4nc6kwr1wt twinned by the boot that retyped them). One stays (the one with a
- * target, else a deferred one, else a ranked one, else the oldest); each other folds into it (status "folded",
- * `foldedInto`, a "fold" history entry); a twin deferred behind its own twin is never the one kept. Then a deferral
- * behind a folded ask follows the fold: the ask it folded into (or one whose keeper is settled) opens again, any other
- * waits behind the kept one. Idempotent. Returns how many asks it folded, reopened or repointed.
- */
-export function foldTwinProseAsks(world: World): number {
-  let n = 0;
-  world.transaction(() => {
-    const lineOf = (a: Ask) => withoutEllipsis(a.sources.find((s) => s.docId === a.sourceDocId)?.line ?? "");
-    const byRollup = new Map<string, Ask[][]>();
-    for (const a of world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid")) {
-      if (!isProseAsk(world, a)) continue;
-      const groups = byRollup.get(a.sourceDocId!) ?? [];
-      byRollup.set(a.sourceDocId!, groups);
-      const twin = groups.find((g) => g.some((b) => b.title === a.title || (!!lineOf(a) && lineOf(b) === lineOf(a))));
-      if (twin) twin.push(a); else groups.push([a]);
-    }
-    for (const g of [...byRollup.values()].flat()) {
-      if (g.length < 2) continue;
-      // a twin the Secretary deferred behind its own twin is the duplicate, not the one to keep
-      const behindTwin = (a: Ask) => !!a.deferredUntil && g.some((b) => b.id !== a.id && names(a.deferredUntil!, b.id));
-      const keep = g.find((a) => a.targetId) ?? g.find((a) => a.status === "deferred" && !behindTwin(a)) ?? g.find((a) => a.rank != null && !behindTwin(a)) ?? g.find((a) => !behindTwin(a)) ?? g[0]!;
-      const at = nowIso();
-      for (const a of g) {
-        if (a.id === keep.id) continue;
-        world.asks.upsert({ ...a, status: "folded", foldedInto: keep.id, updatedAt: at, history: [...a.history, { at, action: "fold", by: "system", note: `twin of ${keep.id}: the same rollup line` }] });
-        world.events.append({ type: "ask.folded", buildingId: a.buildingId, text: `Folded twin "${oneLine(a.title, 80)}" into ${keep.id}`, payload: { askId: a.id, foldedInto: keep.id, sourceDocId: a.sourceDocId } });
-        n++;
-      }
-    }
-    // a deferral behind a folded twin: the ask it folded into opens again; any other waits behind the kept one instead
-    // (2026-11-10, c4952482's boot: four kept asks were deferred behind the twin folded into them, ak_r7qwu3wy7f behind one)
-    const folded = world.asks.where("status = 'folded' AND foldedInto IS NOT NULL", []);
-    for (const a of world.asks.where("status = 'deferred' AND deferredUntil IS NOT NULL", [], "ORDER BY createdAt, rowid")) {
-      const hit = folded.find((f) => f.id !== a.id && names(a.deferredUntil!, f.id));
-      if (!hit) continue;
-      const at = nowIso();
-      const into = world.asks.get(hit.foldedInto!);
-      if (hit.foldedInto === a.id || !into || (into.status !== "open" && into.status !== "deferred")) {
-        const why = hit.foldedInto === a.id ? "was its twin, folded into it" : `folded into ${hit.foldedInto}, which is settled`;
-        world.asks.upsert({ ...a, status: "open", deferredUntil: null, updatedAt: at, history: [...a.history, { at, action: "reopen", by: "system", note: `${hit.id} it waited behind ${why}` }] });
-        world.events.append({ type: "ask.reopened", buildingId: a.buildingId, text: `"${oneLine(a.title, 80)}" is open again: ${hit.id} it waited behind ${why}`, payload: { askId: a.id, behind: hit.id, reason: why } });
-      } else {
-        const until = a.deferredUntil!.split(hit.id).join(hit.foldedInto!);
-        world.asks.upsert({ ...a, deferredUntil: until, updatedAt: at, history: [...a.history, { at, action: "defer", by: "system", note: `${hit.id} folded into ${hit.foldedInto}: ${until}`.slice(0, 500) }] });
-      }
       n++;
     }
   });
@@ -827,10 +791,10 @@ function gateCard(world: World, g: Grant, o: { held: boolean; spent: number; rep
  * Cut (a bare Yes would decide the ask and leave the grant held), it keeps its sources and its words, and the gate card
  * is appended to its body, its title, recommendation and claims taken from the card.
  */
-function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sourceDocId: string, line: string): Ask {
+function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sourceDocId: string, line: string, sourceEntryId: string | null = null): Ask {
   // the live ask as it stood: a fold may adopt the card's words in place of an ask's own (createAsk), and those are kept here
   const prior = liveAskOn(world, "grant", g.id);
-  const { ask, folded } = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId, line, ...card, branches: GATE_BRANCHES });
+  const { ask, folded } = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId, sourceEntryId, line, ...card, branches: GATE_BRANCHES });
   if (!folded) return ask;
   const at = nowIso();
   const merged: Card & { title: string } = !prior || isGateAsk(prior) ? card : {
@@ -850,7 +814,8 @@ function fileGateAsk(world: World, g: Grant, card: Card & { title: string }, sou
  * at the ceiling updates one card.
  */
 export function askAtForecast(world: World, g: Grant, report: Doc | null, line: string): Ask {
-  return fileGateAsk(world, g, gateCard(world, g, { held: false, spent: g.forecast?.spent ?? world.grantDesk.spent(g.id), report }), report?.id ?? g.id, line);
+  // the step report that forecast past the ceiling is the entry that raised it
+  return fileGateAsk(world, g, gateCard(world, g, { held: false, spent: g.forecast?.spent ?? world.grantDesk.spent(g.id), report }), report?.id ?? g.id, line, report ? `en_${report.id}` : null);
 }
 
 /** A later forecast is back within the ceiling: the open gate ask of a still-running grant retires with that line. */
@@ -881,5 +846,6 @@ export function setRank(world: World, id: string, rank: number | null): Ask {
 
 /** The live asks in the Secretary's order: ranked ones by rank, then the unranked oldest first. */
 export function rankedAsks(world: World): Ask[] {
-  return world.asks.where(LIVE_ASK, [], "ORDER BY rank IS NULL, rank, createdAt, rowid");
+  // an unranked do ask goes last: it takes the human out of the queue (1:1 mt_msnjkpgwdb decision 16)
+  return world.asks.where(LIVE_ASK, [], "ORDER BY rank IS NULL, rank, type = 'do', createdAt, rowid");
 }

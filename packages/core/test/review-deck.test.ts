@@ -8,7 +8,6 @@ const KRS = [
   { text: "A visitor can see today's spend on the banner", howToCheck: "Open the lab banner, read Usage" },
   { text: "The board shows the lab's goal first", howToCheck: "Open the lab board" },
 ];
-const rollupBody = (calls: string[]) => `## Shipped\n${calls.map((c, i) => `**${i + 1}. Item ${i + 1}**\n**What it is:** thing ${i + 1}\n**What you'd see:** the board\n![shot](/api/media/mf_x${i}.png)\n**Your call:** ${c}\n`).join("\n")}\n## Decided\n- none\n## Key results\n(none)\n## Needs from Mitchell\nNothing needed.`;
 const ago = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
 
 function setup() {
@@ -22,38 +21,24 @@ function setup() {
     keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000,
     ...extra,
   }).id);
-  const rollup = (calls: string[], createdAt: string, decided?: { decision: "approve"; note: string }) => createDoc(world, {
-    type: "report", title: `Rollup ${createdAt.slice(11, 16)}`, body: rollupBody(calls), authorId: manager.id, authorKind: "agent", buildingId: LAB, state: "building",
-    tags: ["rollup"], decision: decided ? decided.decision : "pending", decisionNote: decided?.note, decidedBy: decided ? admin.id : undefined, decidedAt: decided ? createdAt : undefined, createdAt,
+  /** An unhomed visitor's report, filed under the Town Hall: the only report its in-tray holds (rollups are retired). */
+  const visitorReport = (title: string, createdAt: string) => createDoc(world, {
+    type: "report", title, body: `# ${title}\nWhat I saw on the board.\n![shot](/api/media/mf_x0.png)`, authorId: manager.id, authorKind: "agent", buildingId: "town-hall", state: "building",
+    tags: ["visitor"], decision: "pending", createdAt,
   } as never);
   const park = (decision: string) => createAssignment(world, { agentId: manager.id, title: "parked", description: "x", createdBy: world.holderOf(admin), waitFor: { decision } });
-  return { ...s, manager, krs, proposal, rollup, park };
+  return { ...s, manager, krs, proposal, visitorReport, park };
 }
 
 const ours = (d: ReturnType<typeof reviewDeck>) => d.slides.filter((s) => s.kind !== "blocked");
 
 describe("review deck (GET /api/review-deck)", () => {
-  it("a rollup's Needs lines ride on its first slide, and make its one slide when no item asks a call (1:1 mt_i50xwu4z2t)", () => {
-    const { world, rollup } = setup();
-    const needs = (body: string) => body.replace("Nothing needed.", "- Say whether methane gets its own goal.\n\n_Already waiting in your in-tray: 1 proposal (gr_y)._");
-    const r1 = rollup(["None", "Merge it?"], ago(3));
-    world.docs.patch(r1.id, { body: needs(r1.body) });
-    const r2 = rollup(["None"], ago(2));
-    world.docs.patch(r2.id, { body: needs(r2.body) });
-    const slides = reviewDeck(world).slides.filter((s) => s.kind === "rollup" || s.kind === "record");
-    expect(slides.map((s) => s.key)).toEqual([`rollup:${r1.id}:2`, `rollup:${r2.id}:needs`]);
-    expect(slides[0]!.text).toContain("**Your call:** Merge it?");
-    expect(slides[0]!.text).toContain("also needs from you:**\n\n- Say whether methane gets its own goal.");
-    expect(slides[0]!.text).not.toContain("Already waiting");
-    expect(slides[1]!.text).toContain("its 1 Shipped item asks no call");
-    expect(slides[1]!.text).toContain("needs from you:**\n\n- Say whether methane gets its own goal.");
-  });
-  it("slide 1 is the state of the town; proposals oldest first; rollup items with a real call one slide each; None-only rollups collapse into For the record", () => {
-    const { world, proposal, rollup } = setup();
+  it("slide 1 is the state of the town; proposals oldest first; then each Town Hall report (an unhomed visitor's) as one plain report slide, oldest first", () => {
+    const { world, proposal, visitorReport } = setup();
     const g1 = proposal();
     const g2 = proposal(1, { whatYoudSee: "The board shows Usage", picture: undefined });
-    const r1 = rollup(["Fund the next step?", "None"], ago(3));
-    const r2 = rollup(["None", "**None.**"], ago(2));
+    const r1 = visitorReport("First visit", ago(3));
+    const r2 = visitorReport("Second visit", ago(2));
     const deck = reviewDeck(world);
     expect(deck.slides[0]).toMatchObject({ kind: "town", key: "town", group: 0 });
     expect(deck.slides[0]!.text).toMatch(/# Review deck: the state of the town/);
@@ -62,31 +47,35 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(deck.slides[0]!.text).toMatch(/4 decisions below, oldest waiting/);
     expect(deck.slides[0]!.text).toMatch(/\| .* \| [🟢🟡🔴] \| .*on track|not started/);
     const rest = ours(deck).slice(1);
-    expect(rest.map((s) => s.key)).toEqual([`proposal:${g1.id}`, `proposal:${g2.id}`, `rollup:${r1.id}:1`, "record"]);
+    expect(rest.map((s) => s.key)).toEqual([`proposal:${g1.id}`, `proposal:${g2.id}`, `report:${r1.id}`, `report:${r2.id}`]);
     expect(rest[0]!.text).toMatch(/\*\*What it is:\*\* Plan for/);
     expect(rest[0]!.text).toMatch(/\*\*What you'd see:\*\* Open the lab banner/); // testing plan howToCheck
     expect(rest[0]!.text).toMatch(/_no picture_/);
     expect(rest[0]!.text).toMatch(/\*\*Your call:\*\* Fund 1M adjusted tokens, counter or reject\. Likely cost: ask 1,000,000 · no closed grants yet to compare it with\. Stops when: two failed tries/);
     expect(rest[1]!.text).toMatch(/\*\*What you'd see:\*\* The board shows Usage/); // propose_grant whatYoudSee wins
-    expect(rest[2]).toMatchObject({ kind: "rollup", docIds: [r1.id], itemId: r1.id });
+    // a report slide is the report's own markdown under its title: no per-item slides, no "For the record" slide
+    expect(rest[2]).toMatchObject({ kind: "report", group: 5, docIds: [r1.id], itemId: r1.id });
+    expect(rest[2]!.title).toMatch(/: First visit$/);
     expect(rest[2]!.pictures).toEqual([{ alt: "shot", src: "/api/media/mf_x0.png" }]);
-    expect(rest[2]!.text).toMatch(/Fund the next step\?/);
-    expect(rest[3]).toMatchObject({ kind: "record", docIds: [r2.id] });
+    expect(rest[2]!.text).toMatch(/: First visit\n\nWhat I saw on the board\./);
+    expect(rest[2]!.text).not.toMatch(/^# First visit/m);
+    expect(rest[3]).toMatchObject({ kind: "report", docIds: [r2.id], itemId: r2.id });
+    expect(deck.slides.some((s) => s.kind === "rollup" || s.kind === "record")).toBe(false);
     expect(rest[0]!.text).toMatch(/^_Waiting \d/);
   });
 
   it("the asks come first in rank order (an unranked proposal oldest first); then held checkpoints, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
-    const { world, admin, proposal, rollup, park, krs } = setup();
+    const { world, admin, proposal, visitorReport, park } = setup();
     const p1 = proposal();
-    const r1 = rollup(["Merge it?"], ago(5));
-    const r2 = rollup(["Pick A or B?"], ago(4));
+    const r1 = visitorReport("First visit", ago(5));
+    const r2 = visitorReport("Second visit", ago(4));
     // a funded grant held at its checkpoint
     const held = proposal(1);
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
     park(r2.id); park(r2.id); park(p1.id);
     const rest = ours(reviewDeck(world)).slice(1);
-    expect(rest.map((s) => s.key)).toEqual([`proposal:${p1.id}`, `checkpoint:${held.id}`, `rollup:${r2.id}:1`, `rollup:${r1.id}:1`]);
+    expect(rest.map((s) => s.key)).toEqual([`proposal:${p1.id}`, `checkpoint:${held.id}`, `report:${r2.id}`, `report:${r1.id}`]);
     expect(rest.map((s) => s.group)).toEqual([3, 1, 3, 5]);
     expect(rest[0]!.askId).toMatch(/^ak_/);
     expect(rest[2]).toMatchObject({ waiters: 2 });
@@ -99,7 +88,7 @@ describe("review deck (GET /api/review-deck)", () => {
   });
 
   it("a checkpoint slide leads with what shipped per key result, spend and what a top-up buys; a proposal asking again for that work shows it (mt_7b4zc7yja3)", () => {
-    const { world, admin, manager, proposal, rollup } = setup();
+    const { world, admin, manager, proposal } = setup();
     const held = proposal();
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
@@ -111,14 +100,12 @@ describe("review deck (GET /api/review-deck)", () => {
     // (forks file this with submit_report keyResults, core/test/grant-evidence.test.ts; here it is set directly)
     world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "Usage is on the banner (PR #9)" });
     world.grantDesk.updateKeyResult(manager, k2!.id, { status: "at-risk", note: "line drafted, not live" });
-    const r = rollup(["Continue?"], ago(1));
-    world.grants.patch(held.id, { topUpTokens: 300_000, whatTopUpBuys: "KR 2: the banner line", checkpointDocId: r.id });
+    world.grants.patch(held.id, { topUpTokens: 300_000, whatTopUpBuys: "KR 2: the banner line" });
     slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
     expect(slide.text).toContain("1. ✓ shipped: Usage is on the banner (PR #9)");
     expect(slide.text).not.toContain("No evidence filed by the forks");
     expect(slide.text).toContain("2. ~ partly: line drafted, not live");
     expect(slide.text).toContain("**A top-up of 300,000 tokens buys: KR 2: the banner line**");
-    expect(slide.text).toMatch(/\*\*Shipped in the checkpoint report .*:\*\* .*Item 1/);
     // the plan (key results, stop condition) comes after the call
     expect(slide.text.indexOf("**Your call:**")).toBeLessThan(slide.text.indexOf("Stops when: two failed tries"));
     // cut at the checkpoint; a new proposal on the same goal that does not name it shows nothing of it (1:1 mt_z1b38bwg98)
@@ -138,19 +125,15 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(() => proposal(0, { continues: "gr_nope" })).toThrow(/not an earlier grant of your building/);
   });
 
-  it("history lines: a grant's last human entry; the building's previous rollup decision; a 1:1 its provenance names; none when nothing applies", () => {
-    const { world, admin, manager, proposal, rollup } = setup();
+  it("history lines: a grant's last human entry; a 1:1 a report's provenance names; none when nothing applies", () => {
+    const { world, admin, manager, proposal } = setup();
     const g = proposal();
     world.grantDesk.decide(admin, g.id, { action: "counter", note: "halve the ask" });
     world.grantDesk.update(manager, g.id, { askTokens: 500_000 });
     world.grantDesk.propose(manager, g.id);
-    rollup(["None"], ago(30), { decision: "approve", note: "ship the deck first" });
-    const r = rollup(["Go?"], ago(1));
     const deck = ours(reviewDeck(world)).slice(1);
     const gs = deck.find((s) => s.grantId === g.id)!;
     expect(gs.history).toMatch(/countered .* ago: "halve the ask"/);
-    const rs = deck.find((s) => s.itemId === r.id)!;
-    expect(rs.history).toMatch(/replied to the previous rollup "Rollup .*" .* ago: "ship the deck first"/);
 
     // a plain report citing a 1:1 with a human decision
     const m = world.meetings.upsert({ id: newId("mt"), kind: "one-on-one", buildingId: LAB, title: "1:1", scheduledAt: nowIso(), phase: "done", facilitatorId: manager.id, attendeeIds: [manager.id], agenda: "", brings: {}, askHumans: false, summaries: {}, transcript: [], decisions: [{ text: "Build the review deck", assigneeId: null, assignmentId: null }], notesDocId: null, withUserId: admin.id, createdAt: nowIso(), startedAt: nowIso(), endedAt: nowIso() } as never);
@@ -166,14 +149,14 @@ describe("review deck (GET /api/review-deck)", () => {
   });
 
   it("a decision made on a slide carries payload.deckSlide (grant decide and report archive)", () => {
-    const { world, admin, proposal, rollup } = setup();
+    const { world, admin, proposal, visitorReport } = setup();
     const g = proposal();
     world.grantDesk.decide(admin, g.id, { action: "reject", deckSlide: 3 });
     expect(world.events.list({ types: ["grant.rejected"] }).at(-1)!.payload).toMatchObject({ grantId: g.id, deckSlide: 3 });
-    const r = rollup(["Go?"], ago(1));
+    const r = visitorReport("First visit", ago(1));
     world.ops.archiveReport(admin, r.id, { deckSlide: 4 });
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).toMatchObject({ docId: r.id, deckSlide: 4 });
-    const r2 = rollup(["Go?"], ago(1));
+    const r2 = visitorReport("Second visit", ago(1));
     world.ops.archiveReport(admin, r2.id);
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).not.toHaveProperty("deckSlide");
   });
@@ -213,7 +196,7 @@ describe("review deck (GET /api/review-deck)", () => {
   });
 
   it("presented in a meeting, the slide list is pinned: a decided item's slide keeps its number, marked decided; new items append (mt_xywhisvdcm)", () => {
-    const { world, admin, proposal, rollup } = setup();
+    const { world, admin, proposal, visitorReport } = setup();
     const g1 = proposal();
     const g2 = proposal(undefined);
     const m = world.ops.createMeeting(admin, { kind: "in-tray-review", buildingId: null, startNow: true, deck: { docId: REVIEW_DECK_ID } });
@@ -222,7 +205,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const at = before.findIndex((s) => s.grantId === g1.id);
     world.ops.meetingPresent(admin, m.id, REVIEW_DECK_ID, at + 1);
     world.grantDesk.decide(admin, g1.id, { action: "reject", deckSlide: at + 1 });
-    const r = rollup(["Go?"], ago(0.1));
+    const r = visitorReport("A visit", ago(0.1));
     expect(reviewDeck(world).slides.some((s) => s.grantId === g1.id)).toBe(false); // the live deck dropped it
     const pinned = world.meetings.require(m.id).deck!.pinned;
     const after = presentedReviewDeck(world, pinned).slides;

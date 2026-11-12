@@ -337,10 +337,10 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const draft = world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 });
     await expect(world.verbs.close_grant(mei, { grantId: world.grantDesk.propose(mei, draft.id).id, note: "done" })).rejects.toThrow(/proposed grant can't be closed/);
     world.ops.startSession(mei.id, { purpose: "work", model: "m" });
-    const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "the banner shows Usage live" });
+    const r = await world.verbs.close_grant(mei, { grantId: g.id, note: "checked live: the banner shows Usage" });
     expect(r).toMatchObject({ status: "closed", outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000, keyResults: g.keyResults.map(() => ({ status: "met" })), checkpointDocId: null });
     for (const k of krs) {
-      expect(world.keyResults.require(k.id)).toMatchObject({ status: "met", statusNote: "the banner shows Usage live", statusBy: mei.id });
+      expect(world.keyResults.require(k.id)).toMatchObject({ status: "met", statusNote: "checked live: the banner shows Usage", statusBy: mei.id });
       expect(world.keyResults.require(k.id).archivedAt).toBeTruthy();
     }
     expect(world.grants.require(g.id).history.at(-1)).toMatchObject({ action: "close", tokens: 3_000_000 });
@@ -348,11 +348,8 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
     expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000 });
     await expect(world.verbs.close_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
-    // the manager can't flip it to missed; the rollup links itself as the close report
+    // the manager can't flip it to missed
     expect(() => world.grantDesk.updateKeyResult(mei, krs[0]!.id, { status: "missed", note: "x" })).toThrow(/building.fund/);
-    const up = await world.verbs.submit_report(mei, { title: "Closed", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing.", verdict: "stop", rollup: true });
-    expect(world.docs.require(up.id).tags).toContain("grant-close");
-    expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
     // no Town Hall in-tray row and no deck slide for it: nothing to mark
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
     expect(reviewDeck(world).slides.some((sl) => sl.grantId === g.id)).toBe(false);
@@ -368,7 +365,8 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const g = fund(1_000_000);
     expect(() => world.grantDesk.close(mei, g.id, { outcome: "done", note: " " })).toThrow(/evidence/);
     const r = world.grantDesk.close(admin, g.id, { outcome: "done" });
-    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met" }] });
+    // a bare close names no live check: met, unverified (1:1 mt_msnjkpgwdb decision 9)
+    expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met-unverified" }] });
     const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
     expect(world.keyResults.require(g.keyResultId!).statusNote).toBe(note);
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);
@@ -457,29 +455,28 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [not-started] ${KRS[0]!.text}`);
   });
 
-  it("countered: an 'Answer the counter' in-tray row with the note and how to answer; rejected: 'read the note' (work routing step 2)", () => {
+  it("countered and rejected: each is the human's entry on the proposal's job, waiting for the manager; no town-written report, no job (plan dc_uwx045472m step 5)", async () => {
     const { world, admin, mei } = setup();
     const g = propose(world, mei);
-    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND decision = 'pending' AND tags LIKE '%wake:grant-%'", [LAB], "ORDER BY createdAt, rowid");
+    const { openManagerEntries } = await import("../src/index.ts");
+    const townRows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [LAB]);
+    const before = townRows().length;
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
-    const [c] = rows();
-    expect(c).toMatchObject({ state: "building", title: 'Answer the counter on "Visitors can tell what the lab is for"' });
-    expect(c!.body).toContain("The note: half, and a sharper plan");
-    expect(c!.body).toContain("ask now 2,000,000 tokens");
-    expect(c!.body).toContain(`\`propose_grant\` and grantId ${g.id}`);
+    const [c] = openManagerEntries(world, LAB);
+    expect(c).toMatchObject({ jobId: `jb_${g.id}`, authorKind: "human", level: "manager", note: "half, and a sharper plan", moved: { kind: "decision", action: "counter", tokens: 2_000_000 } });
     // no job: neither the manager's own queue nor the building's
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
-    // the manager answers: the same proposal goes back; a rejection writes one more row
+    // the manager answers: the same proposal goes back, and it acknowledges the entry; a rejection is one more entry
     world.grantDesk.update(mei, g.id, { note: "sharpened" });
     world.grantDesk.propose(mei, g.id);
+    await world.verbs.review(mei, { docId: c!.id, decision: "approve", note: "re-proposed" });
+    expect(openManagerEntries(world, LAB)).toEqual([]);
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "not this quarter" });
-    expect(rows()).toHaveLength(2);
-    const r = rows()[1]!;
-    expect(r.title).toBe(`Grant ${g.id} rejected: read the note`);
-    expect(r.body).toContain("The note: not this quarter");
-    expect(r.body).toContain(`Its key results (they close with it):\n- ${g.keyResultId} [not-started]`);
+    const [r] = openManagerEntries(world, LAB);
+    expect(r).toMatchObject({ jobId: `jb_${g.id}`, level: "manager", note: "not this quarter", moved: { action: "reject" } });
     expect(world.keyResults.require(g.keyResultId!).archivedAt).toBeTruthy();
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
+    expect(townRows()).toHaveLength(before);
   });
 
   it("no manager agent: nothing is queued (a human works the in-tray)", () => {

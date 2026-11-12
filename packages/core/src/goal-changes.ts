@@ -1,4 +1,4 @@
-import { NOT_GONE, Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
+import { isJudgedKr, NOT_GONE, Agent, ChangeGoalInput, ReviewKeyResultInput, ROOT_GOAL_ID, type GoalChange, type GoalChangeView, type KeyResult, type Meeting } from "@muster-town/schema";
 import { createAssignment, createDoc, managerAgentOf } from "./domain.ts";
 import { STARTER_MANAGER_MODEL } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -20,7 +20,7 @@ const PLANNER_DIRECTION = "The town's planning agent: drafts goal-tree changes a
 /** Posted in a Planner 1:1 when the Planner can't start a session: the Town Hall draws from the Bank like any building, so only an empty Bank (or a used-up share or daily cap) stops it. */
 export const PLANNER_UNPAID = "The Planner can't start a session right now: the Bank has nothing the Town Hall can draw (no credential, or its share is used up for today). Your lines are kept; it answers once it can run.";
 
-const isOpenKr = (k: KeyResult) => !k.archivedAt && k.status !== "met" && k.status !== "missed";
+const isOpenKr = (k: KeyResult) => !k.archivedAt && !isJudgedKr(k.status);
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /**

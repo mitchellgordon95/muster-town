@@ -15,7 +15,7 @@ import { StepStrip } from "./StepStrip";
 import { branchCall, claimMark, deltaOf, retainerCounter, type BranchCall } from "./asks";
 import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
-const TYPE_WORD: Record<AskView["type"], string> = { money: "money", click: "click", credential: "credential", meeting: "meeting", policy: "policy" };
+const TYPE_WORD: Record<AskView["type"], string> = { money: "money", click: "click", credential: "credential", meeting: "meeting", policy: "policy", do: "do" };
 
 /** The building's name (the Town when none). */
 function useBuildingName(id: string | null | undefined): string {
@@ -29,7 +29,7 @@ function doneLine(c: BranchCall, label: string): string {
     case "retainer": return c.action === "approve" ? "Retainer approved." : c.action === "counter" ? "Countered: the manager edits the schedule." : "Retainer rejected.";
     case "captain": return c.action === "accept" ? "Captain accepted." : "Captain ask declined.";
     case "access": return c.grant ? "Let in." : "Declined.";
-    case "request": return c.action === "claim" ? "Claimed: it is yours to do." : "Request declined.";
+    case "request": return c.action === "done" ? "Done: your report is in the library and the author hears it." : "Request declined.";
     default: return `Decided: ${label}.`;
   }
 }
@@ -68,7 +68,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
       case "ask": await api().decideAsk(ask.id, c.decision, note); break;
       case "none": return;
     }
-    store.toast(c.kind === "ask" && note.trim() ? `Decided: ${label}, with your note.` : c.kind === "request" && c.action === "claim" && note.trim() ? "Claimed, with your note: the author hears it." : doneLine(c, label), "ok");
+    store.toast(c.kind === "ask" && note.trim() ? `Decided: ${label}, with your note.` : doneLine(c, label), "ok");
     setForm(null);
     onDecided();
   };
@@ -78,8 +78,8 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   const needsForm = (c: BranchCall) => "form" in c && !!c.form;
   // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
   const plain = branches.some(({ c }) => c.kind === "ask");
-  // a form whose note may stay empty: a grant's adjust (tokens decide it) and a request's claim
-  const noteOptional = (c: BranchCall) => (c.kind === "grant" && c.action === "adjust") || (c.kind === "request" && c.action === "claim");
+  // a form whose note may stay empty: a grant's adjust (tokens decide it)
+  const noteOptional = (c: BranchCall) => c.kind === "grant" && c.action === "adjust";
   return (
     <div className="ask-decide">
       {plain && noting ? (
@@ -102,7 +102,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
               <Field label="Ends"><input type="date" value={until} onChange={(e) => setUntil(e.target.value)} aria-label="End date" title={retainer?.endsAt ? `Asked: ends ${retainer.endsAt.slice(0, 10)}` : "optional: a new last day"} /></Field>
             </div>
           ) : null}
-          <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder={form.call.kind === "request" ? (form.call.action === "claim" ? "optional: how you'll do it, e.g. use Wright's VPS" : "required: why you decline it") : noteOptional(form.call) || form.call.kind === "retainer" ? "optional" : "required: what to change"} aria-label="Note" /></Field>
+          <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder={form.call.kind === "request" ? (form.call.action === "done" ? "required: what you did and what you saw (your report back)" : "required: why you decline it") : noteOptional(form.call) || form.call.kind === "retainer" ? "optional" : "required: what to change"} aria-label="Note" /></Field>
           {form.call.kind === "retainer" ? <div className="muted">Change the per-run amount, the end date or both, or just say what to change. The manager edits the schedule, which asks again.</div> : null}
           {form.call.kind === "grant" && form.call.action === "adjust" && grant ? <div className="muted">It has spent {fmtTokens(grant.spentTokens)} {ADJ}. The new ceiling must be more.</div> : null}
           <div className="actions">
@@ -121,7 +121,7 @@ function SourceLine({ s, onOpenRecord }: { s: AskView["sources"][number]; onOpen
   return (
     <li>
       <b>{name}</b>: {s.line} <span className="muted">· {timeAgo(s.at)}</span>
-      {onOpenRecord ? <> <button className="link" title={s.docId} onClick={() => onOpenRecord(s.docId)}>read it →</button></> : null}
+      {onOpenRecord && s.docId ? <> <button className="link" title={s.docId} onClick={() => onOpenRecord(s.docId!)}>read it →</button></> : null}
     </li>
   );
 }
@@ -159,7 +159,7 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       {ask.sources.length ? (
         <details className="ask-sources">
           <summary>Asked in {ask.sources.length} place{ask.sources.length === 1 ? "" : "s"}</summary>
-          <ul>{ask.sources.map((s, i) => <SourceLine key={`${s.docId}-${i}`} s={s} onOpenRecord={onOpenRecord} />)}</ul>
+          <ul>{ask.sources.map((s, i) => <SourceLine key={`${s.docId ?? s.entryId}-${i}`} s={s} onOpenRecord={onOpenRecord} />)}</ul>
         </details>
       ) : null}
       {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}

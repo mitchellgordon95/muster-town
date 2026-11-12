@@ -89,7 +89,7 @@ export function decideAccess(world: World, actor: Holder | Agent, id: string, gr
   const user = world.users.get(req.userId);
   const who = user?.githubLogin ? `@${user.githubLogin}` : user?.name ?? req.userId;
   const decided = world.events.append({ type: "system", text: grant ? `${who} was let in as a member` : `${who}'s request to join was declined`, payload: { accessRequestId: id, userId: req.userId, granted: grant } });
-  retireAsks(world, "access", id, decided.text);
+  retireAsks(world, "access", id, decided.text, decider);
   if (grant && directGoalId) grantDirect(world, actor, req.userId, directGoalId);
   emitTownHall(world);
   return out;

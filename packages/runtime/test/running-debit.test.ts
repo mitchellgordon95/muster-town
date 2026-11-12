@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { sessionView, type World } from "@muster-town/core";
+import { entryOf, sessionView, type World } from "@muster-town/core";
 import type { Agent, DeskActivityInput } from "@muster-town/schema";
 import type { DeskBackend, DeskChild, DeskHandle } from "../src/index.ts";
 import { chargeUsage } from "../src/session.ts";
@@ -89,7 +89,7 @@ describe("host sessions are debited as they run (b)", () => {
     expect(ended).toMatchObject({ status: "error", input: 20, output: 1200, cacheRead: 50_000 });
     expect(adjusted(s.world, ended.id)).toBeGreaterThan(0);
     expect(debited(s.world, bid) - base).toBe(adjusted(s.world, ended.id));
-    expect(s.world.docs.require(ended.reportId!).title).toMatch(/without a report|ended/i);
+    expect(entryOf(s.world, `en_${ended.id}`)!.note).toMatch(/without a report|ended/i);
   });
 });
 

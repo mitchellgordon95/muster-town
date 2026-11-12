@@ -1,13 +1,13 @@
 /**
  * Notices (docs/legible-delegation.md §8, build step 5): a state change with nothing to do, stored as a row of
  * `notices` (migration 102) and listed newest first (`GET /api/notices`, and the latest 20 beside the asks in the Town
- * Hall in-tray). Written in code where the change happens: a rollup's submit (one `shipped` notice per Shipped item: its
+ * Hall in-tray). Written in code where the change happens: a grant's close (one `shipped` notice per item its manager names: its
  * "What you'd see" line and picture), a funded grant closed as done (`closed-loop`: funded on, for, closed at, what it
  * bought), a key result a human marked met (`verified`), and the Secretary's runs (`slate`, `pattern`; secretary.ts).
  * `gate` is a grant's step gate: a step report whose forecast is within the ceiling (`fileForecast`, grant-forecast.ts;
  * past it the gate is a money ask instead). Nothing here asks or decides anything.
  */
-import { grantName, NoticeKind, Notice, parseRollup, type Doc, type Grant, type KeyResult } from "@muster-town/schema";
+import { grantName, NoticeKind, Notice, type Grant, type KeyResult } from "@muster-town/schema";
 import { badRequest } from "./errors.ts";
 import { utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
@@ -16,7 +16,7 @@ import type { World } from "./world.ts";
 const fmt = (n: number) => n.toLocaleString("en-US");
 const oneLine = (s: string, max = 400) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
 const MEDIA = /^\/api\/media\/(mf_[a-z0-9]+)(?:\.[a-z0-9]+)?$/;
-/** A rollup picture's media id when it is an upload (`/api/media/mf_….png`), else its src as given; null when none. */
+/** A picture's media id when it is an upload (`/api/media/mf_….png`), else its src as given; null when none. */
 const pictureOf = (src: string | undefined) => (src ? MEDIA.exec(src)?.[1] ?? src : null);
 
 /** File a notice and log `notice.filed`. */
@@ -41,33 +41,37 @@ export function listNotices(world: World, f: { building?: string; goal?: string;
   return world.notices.where(where.length ? where.join(" AND ") : "1 = 1", args, `ORDER BY createdAt DESC, rowid DESC LIMIT ${limit}`);
 }
 
-/** Notices about one id (a rollup, a grant, a key result) of one kind. */
+/** Notices about one id (a grant, a key result) of one kind. */
 const noticesOn = (world: World, kind: Notice["kind"], id: string) => world.notices.where("kind = ? AND refs LIKE ?", [kind, `%"${id}"%`]);
 
 const goalOfBuilding = (world: World, id: string | null) => (id ? world.buildings.get(id)?.goalId ?? null : null);
 
-/** A rollup's Shipped items as notices, one each: its title, its "What you'd see" line (else what it is) and first picture. Once per rollup. */
-export function shippedNotices(world: World, doc: Doc): Notice[] {
-  if (noticesOn(world, "shipped", doc.id).length) return [];
-  const goalId = goalOfBuilding(world, doc.buildingId);
-  return parseRollup(doc.body).items.map((it) => fileNotice(world, {
-    kind: "shipped", buildingId: doc.buildingId, goalId, title: oneLine(it.title, 200), body: oneLine(it.whatYoudSee || it.whatItIs),
-    picture: pictureOf(it.pictures[0]?.src), refs: [doc.id],
+/** What a grant shipped, as its manager says it when closing (`close_grant` shipped): a title, what a human would see, an optional picture. */
+export interface ShippedItem { title: string; whatYoudSee: string; picture?: string | null }
+
+/**
+ * What a closed grant shipped, one `shipped` notice per item (refs: the grant). Plan dc_uwx045472m step 7: shipped
+ * notices come from the close, not from a rollup. Filed once per grant: a second close call adds none.
+ */
+export function shippedAtClose(world: World, g: Grant, items: ShippedItem[]): Notice[] {
+  if (!items.length || noticesOn(world, "shipped", g.id).length) return [];
+  const goalId = g.goalId ?? goalOfBuilding(world, g.buildingId);
+  return items.map((it) => fileNotice(world, {
+    kind: "shipped", buildingId: g.buildingId, goalId, title: oneLine(it.title, 200), body: oneLine(it.whatYoudSee), picture: pictureOf(it.picture ?? undefined), refs: [g.id],
   }));
 }
 
 /**
  * A funded grant closed as done: "You funded this on <date> for <N>. It closed <date> at <M>. Here is what it bought",
- * then its close report's Shipped items (`checkpointDocId`) with their "What you'd see" lines; the first picture. One per
- * grant: called again once the close report is filed (submit_report links it), it rewrites the same notice.
+ * then what it shipped (its `shipped` notices, filed at the close) with their "what you'd see" lines; the first picture.
+ * One per grant: called again it rewrites the same notice.
  */
 export function closedLoopNotice(world: World, g: Grant, spentTokens: number): Notice | null {
   if (!g.fundedAt || g.status !== "closed" || g.outcome !== "done") return null;
-  const report = g.checkpointDocId ? world.docs.get(g.checkpointDocId) : undefined;
-  const items = report ? parseRollup(report.body).items : [];
-  const bought = items.length ? items.map((it) => `- ${oneLine(it.title, 160)}: ${oneLine(it.whatYoudSee || it.whatItIs, 300)}`).join("\n") : "Its close report isn't filed yet.";
+  const items = noticesOn(world, "shipped", g.id);
+  const bought = items.length ? items.map((it) => `- ${oneLine(it.title, 160)}: ${oneLine(it.body, 300)}`).join("\n") : "Its manager named nothing shipped at the close; its thread (the grant page) has each step's report.";
   const body = `You funded this on ${utcDate(g.fundedAt)} for ${fmt(g.grantTokens ?? 0)} tokens. It closed ${utcDate(g.closedAt ?? nowIso())} at ${fmt(spentTokens)}. Here is what it bought:\n\n${bought}`;
-  const fields = { kind: "closed-loop" as const, buildingId: g.buildingId, goalId: g.goalId ?? goalOfBuilding(world, g.buildingId), title: grantName(g), body, picture: pictureOf(items.find((it) => it.pictures.length)?.pictures[0]?.src), refs: [g.id, ...(report ? [report.id] : [])] };
+  const fields = { kind: "closed-loop" as const, buildingId: g.buildingId, goalId: g.goalId ?? goalOfBuilding(world, g.buildingId), title: grantName(g), body, picture: items.find((it) => it.picture)?.picture ?? null, refs: [g.id] };
   const had = noticesOn(world, "closed-loop", g.id)[0];
   if (had) return world.notices.upsert({ ...had, ...fields });
   return fileNotice(world, fields);

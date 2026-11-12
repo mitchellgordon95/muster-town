@@ -1,4 +1,4 @@
-import {
+import { isJudgedKr,
   CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
   Event, type Agent, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
@@ -29,7 +29,7 @@ export interface GoalNode extends Goal {
 /** A proposal as the API returns it: flagged when it reaches outside the proposing building's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 
-const isOpenKr = (k: KeyResult) => !k.archivedAt && k.status !== "met" && k.status !== "missed";
+const isOpenKr = (k: KeyResult) => !k.archivedAt && !isJudgedKr(k.status);
 
 /**
  * The town goal tree (docs/goals.md, build step 1): one root (the town goal), any goal may have child goals, key results
@@ -213,7 +213,7 @@ export class Goals {
     }
     // goals keep no open key results (docs/how-work-gets-done.md §4): only the archived ones of their grants, as history
     const krs = new Map<string, KeyResult[]>();
-    for (const k of this.world.keyResults.where("goalId IS NOT NULL AND (archivedAt IS NOT NULL OR status IN ('met', 'missed'))", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), k]);
+    for (const k of this.world.keyResults.where("goalId IS NOT NULL AND (archivedAt IS NOT NULL OR status IN ('met', 'met-unverified', 'missed'))", [], "ORDER BY position, rowid")) krs.set(k.goalId!, [...(krs.get(k.goalId!) ?? []), k]);
     // desks are the steer (docs/goals.md "Effort steering is desks"): each building's headcount and the desks seated now
     const attached = new Map<string, GoalNode["buildings"]>();
     for (const b of this.world.buildings.all()) {

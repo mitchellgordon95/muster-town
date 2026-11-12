@@ -3,8 +3,8 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, grantName, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
-import { api, type Board, type BulletinNote } from "../api";
+import { BOARD_TYPES, DocType, grantName, isJudgedKr, krStatusWords, estimateRangeOf, type AccessRequestView, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { api, type Board, type BulletinNote, type ThreadEntry } from "../api";
 import { unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocSheet, DocView } from "./DocView";
@@ -72,6 +72,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {reports.map((d) => <CompactLine key={d.id} selected={sel === d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => openFromList(d.id)} />)}
         </div>
       )}
+      <ThreadEntries entries={list.data?.entries ?? []} canReview={canReview} onDecided={() => list.reload()} />
     </PanelShell>
   );
 }
@@ -135,6 +136,43 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
   );
 }
 
+/** What an entry with no report is, in two words, for its pill. */
+function entryKind(e: ThreadEntry): string {
+  if (e.moved.kind === "dead-session") return "session ended";
+  if (e.moved.decision === "ask-decided") return "answer to an ask";
+  if (e.moved.kind === "message") return "message";
+  return `${String(e.moved.action ?? "decision")}${e.moved.status ? ` ${String(e.moved.status)}` : ""}`;
+}
+
+/**
+ * The in-tray's entries that have no report behind them (plan dc_uwx045472m step 5): a session that ended without a
+ * report, a human's counter, reject, cut or missed key result, a human's words for the manager. Each opens in place;
+ * whoever may review the building answers it: Retry puts a dead session's work back on the queue, Acknowledge takes it in.
+ */
+function ThreadEntries({ entries, canReview, onDecided }: { entries: ThreadEntry[]; canReview: boolean; onDecided: () => void }) {
+  if (!entries.length) return null;
+  const answer = (e: ThreadEntry, decision: "approve" | "continue") => async () => { await api().reviewEntry(e.id, { decision, note: "" }); onDecided(); };
+  return (
+    <Section title={`On the threads (${entries.length})`}>
+      <div className="doc-list">
+        {entries.map((e) => (
+          <details key={e.id} className="doc-row">
+            <summary title={e.jobId}><Pill tone="warn">{entryKind(e)}</Pill> {e.note || e.id} <span className="muted">{timeAgo(e.createdAt)}</span></summary>
+            {e.body ? <DocText text={e.body} /> : null}
+            <div className="muted">Job {e.jobId} · entry {e.id}</div>
+            {canReview ? (
+              <div className="row">
+                {e.moved.kind === "dead-session" && e.assignmentId ? <Act small run={answer(e, "continue")} title="Put the same work back on the queue">Retry</Act> : null}
+                <Act small run={answer(e, "approve")} title={e.moved.kind === "dead-session" ? "Drop the work" : "Taken in: nothing follows"}>{e.moved.kind === "dead-session" ? "Drop" : "Acknowledge"}</Act>
+              </div>
+            ) : null}
+          </details>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
 /** A report line's author: portrait and name (★ for the building's manager; a retired fork shows its manager's sprite). */
 function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   const a = useTown((s) => s.agents[doc.authorId] ?? (forkOf ? s.agents[forkOf] : undefined));
@@ -142,24 +180,6 @@ function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   const author = useNameOf(doc.authorId);
   const name = isManager ? `★ ${author}` : author;
   return a ? <img src={portraitUrl(a.sprite, 1)} alt={name} title={name} /> : null;
-}
-
-/**
- * A rollup's ask on this row (1:1 mt_7b4zc7yja3): "Workshop asks you to fund this: <line>" and a link to the rollup.
- * A rollup that asked nothing else was folded into this row on submit (no card of its own).
- */
-function RollupAsks({ asks, verb, onOpenDoc }: { asks?: RollupAsk[]; verb: string; onOpenDoc?: (id: string) => void }) {
-  if (!asks?.length) return null;
-  return (
-    <div className="rollup-asks">
-      {asks.map((a) => (
-        <div key={a.reportId} className="intray-proposal rollup-ask">
-          <b>{a.buildingName} asks you to {verb} this:</b> <DocText text={a.line} />{" "}
-          {onOpenDoc ? <button className="link" title={a.title} onClick={() => onOpenDoc(a.reportId)}>{a.folded ? "the rollup" : "the rollup (also in Manager reports)"} →</button> : <span className="muted">({a.reportId})</span>}
-        </div>
-      ))}
-    </div>
-  );
 }
 
 /** "→ Lena via <goal>": who a waiting item is routed to (docs/goals.md "Routing"). */
@@ -232,7 +252,7 @@ export function CaptainRow({ req, route, onDecided }: { req: CaptainRequestView;
  * <title>, N tokens × M runs to <date> = T". Approve (claimed in the Bank), Counter (note, per-run amount and/or end
  * date; the manager's `schedule` edit asks again) or Reject. Countered ones wait on the manager and show no buttons.
  */
-export function RetainerRow({ x, route, onDecided, deckSlide, onOpenDoc }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
+export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
   useTown((s) => s.me);
   const canDecide = (route ? route.canDecide : store.can("building.fund", x.buildingId)) && x.retainer === "asked";
   const [note, setNote] = useState("");
@@ -254,7 +274,6 @@ export function RetainerRow({ x, route, onDecided, deckSlide, onOpenDoc }: { x: 
       </div>
       <div className="doc-row-title">{x.title}</div>
       <RoutedTo route={route} />
-      {deckSlide ? null : <RollupAsks asks={x.asks} verb={askVerb(x.retainer)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         <span title="Bank tokens (Opus 5.5 output tokens)"><b>{n(x.tokensPerRun)}</b> tokens × {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"}{x.endsAt ? ` to ${x.endsAt.slice(0, 10)}` : ""} = <b>{n(x.askTokens)}</b></span>
         {x.drawnTokens ? <span>drawn so far {n(x.drawnTokens)}</span> : null}
@@ -439,9 +458,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   // on the grant's own page each key result opens on one line; the full text sits in its "How to check" fold (kr_p6l1w6tade)
   const krLine = (text: string) => (onPage ? clipText(text, KR_LINE).head : text);
   // a closed-as-done grant's per-key-result mark (on its own page: inside that key result's fold, gr_zak30564zh step 5)
-  const markActions = (k: (typeof krs)[number]) => closedDone && canFund && signedInHuman && (k.status === "met" || k.status === "missed") ? (
+  const markActions = (k: (typeof krs)[number]) => closedDone && canFund && signedInHuman && isJudgedKr(k.status) ? (
     <div className="actions">
-      {k.status === "met"
+      {/* met, unverified (closed on code and tests, no live check named): a human who saw it live marks it met */}
+      {k.status === "met-unverified" ? <Act small tone="ok" run={mark(k.id, "met")} title="You saw it on the live town: mark it met">Mark met</Act> : null}
+      {k.status !== "missed"
         ? <Act small tone="bad" disabled={!note.trim()} run={mark(k.id, "missed")} title={note.trim() ? "It did not ship: mark it missed (queues a postmortem)" : "Say why in the note first"}>Mark missed</Act>
         : <Act small run={mark(k.id, "met")} title="Undo: back to met">Back to met</Act>}
     </div>
@@ -452,11 +473,11 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       <ul className="grant-krs">
         {krs.length ? krs.map((k, i) => (
           <li key={k.id}>
-            <b>{onPage && krs.length > 1 ? `${i + 1}.` : `Key result${krs.length > 1 ? ` ${i + 1}` : ""}:`}</b> {krLine(k.text)} <span className="muted">· {k.status.replace(/-/g, " ")}{k.due ? ` · due ${k.due}` : ""}</span>
+            <b>{onPage && krs.length > 1 ? `${i + 1}.` : `Key result${krs.length > 1 ? ` ${i + 1}` : ""}:`}</b> {krLine(k.text)} <span className="muted">· {krStatusWords(k.status)}{k.due ? ` · due ${k.due}` : ""}</span>
             <details className="kr-more"><summary>{onPage ? "details" : `How to check${k.statusNote ? " · note" : ""}`}</summary>
               {krLine(k.text) !== k.text ? <div className="kr-full">{k.text}</div> : null}
               <div className="muted kr-check">How to check: {k.howToCheck}</div>
-              {k.statusNote ? <div className="muted kr-check">{k.status.replace(/-/g, " ")}: <DocText text={k.statusNote} /></div> : null}
+              {k.statusNote ? <div className="muted kr-check">{krStatusWords(k.status)}: <DocText text={k.statusNote} /></div> : null}
               {onPage ? markActions(k) : null}
             </details>
             {onPage ? null : markActions(k)}
@@ -467,8 +488,8 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       <GrantSteps grant={g} />
       {onPage ? null : <div className="intray-proposal">Stop when: {g.stopCondition}</div>}
   </>);
-  const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met") ? (<>
-        <div className="muted">Closed as done: its key results are met. If one did not ship, say why and mark it missed.</div>
+  const decision = (closedDone && canFund && signedInHuman && krs.some((k) => k.status === "met" || k.status === "met-unverified") ? (<>
+        <div className="muted">Closed as done: its key results are met{krs.some((k) => k.status === "met-unverified") ? " (those marked \"met, unverified\" stand on code and tests: no live check was named)" : ""}. If one did not ship, say why and mark it missed.</div>
         <div className="grant-decide">
           <div className="grant-inputs"><Field label="Why missed"><input value={note} placeholder="required to mark one missed" onChange={(e) => setNote(e.target.value)} /></Field></div>
           <div className="actions decide-footer">{talk}</div>
@@ -539,7 +560,6 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       {onPage ? null : <div className="doc-row-title" title={g.objective}>{grantName(g)}</div>}
       <RoutedTo route={route} />
       {/* on a deck slide the slide text carries the ask */}
-      {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         {stop
           ? <span title={breakdownTitle(g.spentCounts)}>{stopMoneyLine(g, stop)}</span>
@@ -606,7 +626,7 @@ function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvide
       ) : null}
       {earlier ? <div>Spent {fmtTokens(e.spentTokens)} of {fmtTokens(e.grantTokens)} {ADJ} granted.</div> : null}
       {topUp ? <div>{topUpLine(e)}</div> : null}
-      {e.shipped.length ? <div>Shipped in the {e.reportId ? <button className="link" onClick={() => onOpenDoc(e.reportId!)}>checkpoint report</button> : "checkpoint report"}: {e.shipped.join(" · ")}</div> : null}
+      {e.shipped.length ? <div>Shipped: {e.shipped.join(" · ")}</div> : null}
     </div>
   );
 }
@@ -997,9 +1017,8 @@ function dayOf(iso: string): string {
 
 // ---------- mod station ----------
 
-/** The mod station is moderation only: banning agents. Outbox requests (and an admin's Delete on one) live at the
- * Outbox counter; the station's old "Requests" tab was the moderator gate's approval queue (removed in c68edcf0) and
- * links into it now open the Outbox (redirectPanel, room.ts). Mitchell's flag dc_r7u6bkaei4. */
+/** The mod station is moderation only: banning agents. Requests for a human are do asks in the decision queue; links
+ * into the station's old "Requests" tab open the queue (redirectPanel, room.ts). Mitchell's flag dc_r7u6bkaei4. */
 export function ModStationPanel() {
   const me = useTown((s) => s.me);
   const canBan = store.can("town.ban");
@@ -1007,7 +1026,7 @@ export function ModStationPanel() {
     <PanelShell icon={<Glyph kind="mod" />} title="Mod station" subtitle={canBan ? "Ban agents that misuse the town" : `Read-only${me ? ` · ${me.user.name} isn't an admin` : ""}`}>
       {() => (
         <>
-          <p className="direction">Outbox requests, and deleting one that misuses the town, are at the <button className="link" onClick={() => store.open({ kind: "outbox" })}>Outbox</button>.</p>
+          <p className="direction">Requests for a human are do asks in the <button className="link" onClick={() => store.open({ kind: "queue" })}>decision queue</button>: Done with your report, or Decline.</p>
           <ModBans can={canBan} />
         </>
       )}

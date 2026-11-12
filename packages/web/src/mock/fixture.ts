@@ -366,7 +366,7 @@ export const stepCalibration: StepCalibration = {
   lines: ["S: too few steps (3), priced at 1.0", "M: 1.1× over 9 steps", "L: 1.6× over 12 steps"],
 };
 
-const askBase = { decidedBy: null, proposal: null, decidedAt: null, decision: null, retiredBy: null, foldedInto: null, deferredUntil: null as string | null, history: [] as Ask["history"], tags: [] as string[], rank: null as number | null, status: "open" as Ask["status"] };
+const askBase = { sourceEntryId: null, renderedSeq: null, decidedBy: null, proposal: null, decidedAt: null, decision: null, retiredBy: null, foldedInto: null, deferredUntil: null as string | null, history: [] as Ask["history"], tags: [] as string[], rank: null as number | null, status: "open" as Ask["status"] };
 /**
  * The open asks (docs/legible-delegation.md §4): one per type, each on the item it decides (a proposal, a held grant,
  * a retainer, a captain and an access request, an outbox request) and two with no other channel (a policy, a meeting).
@@ -423,10 +423,10 @@ export const asks: Ask[] = [
     claims: [], sources: [{ docId: "ar_octo", buildingId: null, line: "@octocat asked to join", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
   },
   {
-    ...askBase, id: "ak_req", type: "click", targetKind: "request", targetId: "dc_req_ml", buildingId: "bl_carbon", sourceDocId: "dc_req_ml", rank: 6,
+    ...askBase, id: "ak_req", type: "do", targetKind: "request", targetId: "dc_req_ml", buildingId: "bl_carbon", sourceDocId: "dc_req_ml", rank: 6,
     title: "Photograph a CO2 monitor reading near you",
     body: "Noor has waited on this since this morning. Take a reading outdoors at noon and note the value in ppm.\n\nIf you claim: it is yours to do and report back.\nIf you decline: Noor drops the comparison.",
-    branches: [{ label: "Claim", action: "claim" }, { label: "Decline", action: "decline" }], recommendation: "",
+    branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }], recommendation: "",
     claims: [], sources: [{ docId: "dc_req_ml", buildingId: "bl_carbon", line: "Photograph a CO2 monitor reading near you", at: ago(40) }], createdAt: ago(40), updatedAt: ago(40),
   },
   {

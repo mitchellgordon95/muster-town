@@ -91,9 +91,9 @@ export function grantLine(node: SpendNode): { spent: string; outcome: string; ov
   const spent = f == null ? `spent ${n(node.tokens)}, not funded yet`
     : node.tokens > f ? `spent ${n(node.tokens)} of ${n(f)} funded`
     : `spent ${n(node.tokens)} of ${n(f)} funded (${f ? Math.round((node.tokens / f) * 100) : 0}%)`;
-  const k = node.krCounts, total = k ? k.met + k.missed + k.claimed + k.open : 0;
+  const k = node.krCounts, unverified = k?.unverified ?? 0, total = k ? k.met + unverified + k.missed + k.claimed + k.open : 0;
   const krs = !k || !total ? null
-    : `key results ${n(k.met)} of ${n(total)} met${k.missed ? `, ${n(k.missed)} missed` : ""}${k.claimed ? ` (${n(k.claimed)} claimed, waiting for a human)` : ""}`;
+    : `key results ${n(k.met)} of ${n(total)} met${unverified ? `, ${n(unverified)} met, unverified` : ""}${k.missed ? `, ${n(k.missed)} missed` : ""}${k.claimed ? ` (${n(k.claimed)} claimed, waiting for a human)` : ""}`;
   return { spent, outcome: OUTCOME_WORD[node.outcomeGroup], over: f != null && node.tokens > f ? `over by ${n(node.tokens - f)}` : null, krs };
 }
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { World } from "@muster-town/core";
+import { entryOf, World } from "@muster-town/core";
 import { startRuntime, type DeskBackend, type DeskChild, type DeskHandle } from "@muster-town/runtime";
 import type { Agent } from "@muster-town/schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -154,7 +154,7 @@ describe("agent-scoped desk API", () => {
     expect(world.assignments.where("agentId = ?", [agent.id]).length).toBe(asgs);
   });
 
-  it("session-end ends the session, writes the fallback report and charges the budget (idempotent)", async () => {
+  it("session-end ends the session, leaves the dead session's entry and charges the budget (idempotent)", async () => {
     const { app, as, world, by, start } = await setup();
     const tomas = by("Tomas");
     world.agents.patch(tomas.id, { model: world.buildings.require(tomas.buildingId!).model }); // price the session at the building's Opus, as these figures assume
@@ -163,7 +163,7 @@ describe("agent-scoped desk API", () => {
     const r = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });
     expect(r.status).toBe(200);
     expect(r.body.session).toMatchObject({ id: sessionId, status: "done", tokens: 1500, costUsd: 0.5, turns: 7, sdkSessionId: "sdk-9" });
-    expect(world.docs.require(r.body.session.reportId).body).toContain("3.1 ± 0.6 GtC/yr");
+    expect(entryOf(world, `en_${sessionId}`)!.body).toContain("3.1 ± 0.6 GtC/yr");
     expect(world.agents.require(agent.id).spentTokensToday).toBe(50);
     expect(world.allocations.first("buildingId = ?", ["carbon-cycle"])!.spentTokens).toBe(50); // 1500 raw with no counters, back-filled: 1500 / 30 adjusted
     const again = await json(app, "POST", "/api/agents/me/session-end", { headers: as(agent), body });

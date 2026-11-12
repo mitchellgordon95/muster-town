@@ -7,11 +7,11 @@ import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
 import { backfillJobs } from "./jobs.ts";
-import { backfillAsks, retitleClippedAsks, retitleGrantAsks, retitleProseAsks, retypeProseAsks, foldTwinProseAsks } from "./asks.ts";
+import { rerenderAsks, requestsToDoAsks, backfillAsks, retitleClippedAsks, retitleGrantAsks } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { ruleHold } from "./lanes.ts";
-import { intrayCount, intrayCounts, isTownHallItem, moveManagerRowsToBuildingQueue } from "./domain.ts";
+import { intrayCount, intrayCounts, isTownHallItem, moveManagerRowsToBuildingQueue, retireRollups } from "./domain.ts";
 import { migrateRoles } from "./migrate-roles.ts";
 import { openDb, type DB } from "./db.ts";
 import { AppError } from "./errors.ts";
@@ -200,6 +200,9 @@ export class World {
   readonly tokens: Repos["tokens"];
   readonly town: Repos["town"];
 
+  /** An entry landed on a job's thread (jobs.ts `appendEntry`): the asks rendered over that thread are written again. Set in the constructor. */
+  onEntry?: (jobId: string) => void;
+
   private clock: ReturnType<typeof setInterval> | null = null;
 
   /** Open (or create) the town database at `dbPath` (":memory:" works) and build the layout. */
@@ -230,6 +233,7 @@ export class World {
     this.verbs = makeVerbs(this);
     this.ops = new Ops(this);
     this.grantDesk = new Grants(this);
+    this.onEntry = (jobId) => { rerenderAsks(this, jobId); };
     this.goalTree = new Goals(this);
     this.reorgs = new Reorgs(this);
     this.secretary = new Secretary(this);
@@ -297,18 +301,20 @@ export class World {
     this.repairDesks();
     this.grantDesk.releaseHalfway();
     moveManagerRowsToBuildingQueue(this);
+    // the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17): claimed requests are open again, their asks offer Done / Decline; idempotent
+    requestsToDoAsks(this);
     // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
     backfillAsks(this);
+    // every live ask points at the entry that raised it, and its card is the thread as it stands (migration 115); idempotent
+    rerenderAsks(this);
     // migration 105: live town-written cards that quoted a clipped objective are written again from their target; idempotent
     retitleClippedAsks(this);
     retitleGrantAsks(this);
-    // asks read from rollup prose: their title is the line's whole first sentence, not a clause cut before a colon; idempotent
-    retitleProseAsks(this);
-    // asks read from rollup prose as money asks only because the line named a grant: clicks; idempotent
-    retypeProseAsks(this);
-    // one rollup line filed twice (an older boot re-filed it after its title or target changed): one ask; idempotent
-    foldTwinProseAsks(this);
-    // jobs and entries (plan dc_uwx045472m step 3): read only, derived from grants, retainers, chains, sources and buildings; idempotent
+    // rollups are retired (plan dc_uwx045472m step 7; 1:1 mt_msnjkpgwdb decision 21): the undecided ones leave the queue; idempotent
+    retireRollups(this);
+    // work left queued on a grant that closed (before a close cancelled it) can never start: cancelled; idempotent
+    this.grantDesk.cancelOrphanedWork();
+    // jobs and entries (plan dc_uwx045472m step 3): derived from grants, retainers, chains, sources, flags and buildings; idempotent
     backfillJobs(this);
   }
 

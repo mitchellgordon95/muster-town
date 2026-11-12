@@ -1,11 +1,12 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
-  type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
+  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict,
+  type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, isJudgedKr, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
 import { syncJob } from "./jobs.ts";
-import { closedLoopNotice, verifiedNotice } from "./notices.ts";
+import { statusAtClose } from "./kr-evidence.ts";
+import { shippedAtClose, type ShippedItem, closedLoopNotice, verifiedNotice } from "./notices.ts";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
 import { checkForkModel, interruptFork } from "./forks.ts";
@@ -13,7 +14,6 @@ import { attachablePages } from "./schedules.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
-import { intrayRow } from "./wakes.ts";
 import { freeTokens, goalFunding, grantGoalOf } from "./free-tokens.ts";
 import { estimateGrant, estimateVsActual, type EstimateVsActual } from "./grant-estimate.ts";
 import { holderOf } from "./permissions.ts";
@@ -40,7 +40,7 @@ function holdAtTokens(g: Pick<Grant, "grantTokens" | "checkpointsDone">): number
 
 const LIVE: GrantStatus[] = ["funded", "checkpoint"];
 const TERMINAL: GrantStatus[] = ["closed", "rejected"];
-const isOpenKr = (k: KeyResult) => !k.archivedAt && k.status !== "met" && k.status !== "missed";
+const isOpenKr = (k: KeyResult) => !k.archivedAt && !isJudgedKr(k.status);
 
 /** Why a goal-directed building is blocked (shown on GET /api/buildings/:id, the board and the Town Hall in-tray). */
 
@@ -160,7 +160,7 @@ export class Grants {
       spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
       topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
       reportId: report ? report.id : null,
-      shipped: report ? parseRollup(report.body).items.map((i) => i.title) : [],
+      shipped: this.world.notices.where("kind = 'shipped' AND refs LIKE ?", [`%"${g.id}"%`]).map((n) => n.title),
       reports, filed: krs.some((k) => !!k.statusBy && !!this.world.agents.get(k.statusBy)),
     };
   }
@@ -648,9 +648,9 @@ export class Grants {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note, via);
-        const countered = this.event("grant.countered", next, actor, `Countered: ${grantName(next)}`, deck);
+        // the counter is a human entry at level manager on the proposal's job (jobs.ts, written as the grant is saved): the manager's move
+        this.event("grant.countered", next, actor, `Countered: ${grantName(next)}`, deck);
         this.notifyManager(next, actor, `A human countered your proposal "${grantName(next)}": ${inp.note}`);
-        this.decisionAssignment(next, actor, "countered", inp.note, countered);
         break;
       }
       case "reject":
@@ -658,9 +658,8 @@ export class Grants {
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note, via);
         // a rejected proposal's key results archive with it (goals keep no open ones)
         for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} rejected`, updatedAt: nowIso() });
-        const rejected = this.event("grant.rejected", next, actor, `Rejected: ${grantName(next)}`, deck);
+        this.event("grant.rejected", next, actor, `Rejected: ${grantName(next)}`, deck);
         this.notifyManager(next, actor, `A human rejected your proposal "${grantName(next)}"${inp.note ? `: ${inp.note}` : "."}`);
-        this.decisionAssignment(next, actor, "rejected", inp.note, rejected);
         break;
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
@@ -845,20 +844,29 @@ export class Grants {
   }
 
   /** Cancel a stopped grant's queued work (pending, any lane naming it), the reason kept as the row's `heldReason`. Returns the ids. */
-  private cancelQueued(grantId: string, reason: string): string[] {
+  private cancelQueued(grantId: string, reason: string, what = "Grant stopped"): string[] {
     return this.world.assignments.where("grantId = ? AND status = 'pending'", [grantId])
-      .map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `Grant stopped: ${reason}`.slice(0, 500) }).id);
+      .map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `${what}: ${reason}`.slice(0, 500) }).id);
+  }
+
+  /**
+   * Boot repair (idempotent): work still queued on a grant that is closed or rejected can never start (as_0rk272gsne
+   * sat pending on a grant closed as done). It is cancelled with the reason. Returns the ids.
+   */
+  cancelOrphanedWork(): string[] {
+    const rows = this.world.assignments.where("status = 'pending' AND grantId IN (SELECT id FROM grants WHERE status IN ('closed', 'rejected'))", []);
+    return rows.map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `Grant ${a.grantId} is ${this.world.grants.get(a.grantId!)?.status ?? "closed"}: its queued work was cancelled` }).id);
   }
 
   /**
    * The manager's `close_grant` (and POST /api/grants/:id/close with outcome "done"): the work is done before the grant is spent, so the manager
    * closes a funded (or checkpoint) grant as `closed`, outcome `done` (Mitchell, town hall mt_6830h8x5qk decision 3), and its open
    * key results go straight to `met` with the note as evidence, archived under their goal (town hall mt_v09cn7a8yr decision 2:
-   * no human met/missed step; what shipped goes in the rollup). The unspent rest goes back to the Bank by construction:
+   * no human met/missed step; what shipped is named at the close, `shipped`). The unspent rest goes back to the Bank by construction:
    * reservations only count live grants. A human can still flip a key result to missed from the grant (PATCH /api/key-results/:id).
-   * `reportId` links the close report (`checkpointDocId`); without it the manager's next rollup this session links itself.
+   * `reportId` links a close report (`checkpointDocId`), when there is one.
    */
-  closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null }): GrantView {
+  closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null; shipped?: ShippedItem[] }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     // the manager (close_grant) or a human who can fund the building (the web "Close grant" button)
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.canFund(actor, g)) throw forbidden("building.manage");
@@ -879,9 +887,21 @@ export class Grants {
     return this.world.transaction(() => {
       const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
-      for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "met", note }, { closing: true });
+      // work still queued on it has no grant to run on: cancelled with the reason (a running session finishes and books)
+      this.cancelQueued(g.id, "closed as done", "Grant closed");
+      // decision 9 (1:1 mt_msnjkpgwdb): met when the evidence names a live check, else "met, unverified" (kr-evidence.ts)
+      const closedKrs = this.keyResultsOf(g.id).filter(isOpenKr).map((k) => this.updateKeyResult(actor, k.id, { status: statusAtClose(note, k.status === "claimed" ? k.statusNote : ""), note }, { closing: true }));
+      const unverified = closedKrs.filter((k) => k.status === "met-unverified");
+      if (unverified.length) {
+        // the close entry on the job's thread says which stand on code and tests alone
+        const at = this.world.grants.require(g.id, "grant");
+        const last = at.history.at(-1)!;
+        this.world.grants.upsert({ ...at, history: [...at.history.slice(0, -1), { ...last, note: `${last.note} Key results: ${closedKrs.length - unverified.length} met, ${unverified.length} met, unverified (${unverified.map((k) => k.id).join(", ")}): no live check named.` }] });
+      }
       this.event("grant.closed", next, actor, `Closed (done): ${grantName(next)}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
-      // the closed loop (docs/legible-delegation.md §8): funded on, for, closed at, what it bought (rewritten once the close report lands)
+      // what it shipped, as its manager names it now (plan dc_uwx045472m step 7: no rollup), then the closed loop
+      // (docs/legible-delegation.md §8): funded on, for, closed at, what it bought
+      shippedAtClose(this.world, next, input.shipped ?? []);
       closedLoopNotice(this.world, next, spentTokens);
       this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${grantName(next)}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
       return this.view(next);
@@ -932,34 +952,6 @@ export class Grants {
     return released;
   }
 
-  /**
-   * A human's decision on a proposal reaches the manager as a pending row in its building's in-tray (work routing step 2,
-   * 1:1 mt_lsyqj98z0w; continue / adjust / cut already are, `managerIntrayRow`): it is decided in the team-lead session,
-   * never as a fork's job. Countered → how to answer (`propose_grant` with grantId); rejected → read the note. None when
-   * the building has no manager agent: a human works its in-tray. Funding writes no row: it queues the plan's step 1
-   * itself (`queueStep`, grant B gr_b5fyqibfx2).
-   */
-  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string, e: Event): void {
-    const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
-    const krs = this.krLines(g);
-    const said = note.trim() ? `The note: ${note.trim()}` : "No note was given.";
-    if (decision === "countered") {
-      intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-countered", title: `Answer the counter on "${grantName(g)}"`.slice(0, 160),
-        what: `${who} countered proposal ${g.id}`,
-        summary: `${who} countered your proposal ${g.id} "${grantName(g)}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
-        footer: `To answer: read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask); revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, \`withdraw_grant\` it and say what you'd propose instead. Then acknowledge this row with \`review\` approve.`,
-      });
-    } else {
-      intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-rejected", title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
-        what: `${who} rejected proposal ${g.id}`,
-        summary: `${who} rejected your proposal ${g.id} "${grantName(g)}" (${fmt(g.askTokens)} tokens asked).\n\n${said}\n\nIts key results (they close with it):\n${krs}`,
-        footer: "Read the note and the proposal, then decide what follows: a different plan (`propose_grant` with its own key results), exploration first (`assign` lane exploration with a gap), or nothing until your next 1:1 or rollup. Acknowledge this row with `review` approve.",
-      });
-    }
-  }
-
   /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */
   deleteKeyResult(actor: Actor, id: string): void {
     const kr = this.world.keyResults.require(id, "key result");
@@ -993,7 +985,9 @@ export class Grants {
       if (moved && inp.objectiveId) this.requireObjectiveRoom(kr.buildingId, inp.objectiveId, kr.id);
     }
     if (actor && inp.status && !opts.closing) {
-      const judged = inp.status === "met" || inp.status === "missed" || kr.status === "met" || kr.status === "missed";
+      // "met, unverified" is the close's word only; a human takes it to met or missed
+      if (inp.status === "met-unverified") throw badRequest("\"met, unverified\" is set when a grant closes as done without a live check: mark the key result met or missed.");
+      const judged = isJudgedKr(inp.status) || isJudgedKr(kr.status);
       // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Captains on nodes")
       if (judged) {
         if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
@@ -1004,7 +998,7 @@ export class Grants {
     const by = actor ? holderOf(actor) : null;
     const now = nowIso();
     // met or missed archives it under its goal (the goal stays); undoing that brings it back
-    const archive = inp.status ? { archivedAt: inp.status === "met" || inp.status === "missed" ? kr.archivedAt ?? now : null } : {};
+    const archive = inp.status ? { archivedAt: isJudgedKr(inp.status) ? kr.archivedAt ?? now : null } : {};
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
     const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
     const evidence = inp.status ? { evidence: evidenceAfter(kr, inp.status, by?.kind === "user" && !opts.closing) } : {};
@@ -1019,7 +1013,7 @@ export class Grants {
       },
     });
     // asks on this key result retire when a human sets its status, or when it is met or missed by anyone (a close as done)
-    if (inp.status && (by?.kind === "user" || next.status === "met" || next.status === "missed")) retireAsks(this.world, "keyResult", kr.id, patched.text);
+    if (inp.status && (by?.kind === "user" || isJudgedKr(next.status))) retireAsks(this.world, "keyResult", kr.id, patched.text, by?.kind === "user" ? by.id : false);
     // a human verified it met (not the close as done, which marks every open one): a `verified` notice (§8)
     if (inp.status === "met" && kr.status !== "met" && by?.kind === "user" && !opts.closing) verifiedNotice(this.world, next, this.world.nameOf(by.id));
     return next;
@@ -1139,6 +1133,8 @@ export function counteredTokens(g: Pick<Grant, "status" | "history">): number | 
  */
 function evidenceAfter(kr: KeyResult, status: KeyResult["status"], byHuman: boolean): NonNullable<KeyResult["evidence"]> {
   if (byHuman && status === "met") return "verified";
+  // met on code and tests: the evidence is a claim, whoever closed the grant
+  if (status === "met-unverified") return "claimed";
   if (byHuman && kr.status === "met" && status !== "met") return status === "claimed" ? "claimed" : "unknown";
   if (status === "claimed" && (kr.evidence ?? "unknown") === "unknown") return "claimed";
   return kr.evidence ?? "unknown";

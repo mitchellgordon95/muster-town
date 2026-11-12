@@ -11,17 +11,25 @@ import { adoptGoal } from "../entities.ts";
 import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
+import { askHumans } from "../review-entry.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
   look, town, go, say, tell, inbox, board, search, read, write, skills, pin, submit_report, request_human, withdraw_request,
   assignments, accept_assignment, meeting, review, assign, schedule, cancel, stop_fork, fork_status: async (world: World, me: Agent, input: VerbIn<"fork_status">) => forkStatus(world, me, input), propose_grant, close_grant, withdraw_grant, set_objective,
   act_in_1on1: async (world: World, me: Agent, input: VerbIn<"act_in_1on1">) => actForHuman(world, me, input), propose_goal, promote, ban, redeploy,
+  ask: async (world: World, me: Agent, input: VerbIn<"ask">) => {
+    const bid = me.homeBuildingId ?? me.buildingId;
+    if (!bid || !world.permissions.can(me, "building.manage", bid)) throw new AppError("forbidden", "Only a building's manager asks the humans (building.manage); a fork puts what it needs in its report's \"What I need from you\".");
+    const r = world.transaction(() => askHumans(world, me, bid, input));
+    const { warnings, ...filed } = r;
+    return { ...filed, ...(warnings.length ? { warnings } : {}), note: `Filed as ask ${r.askId}${r.folded ? " (folded into the ask already open on that item: your words are on it)" : ""} in the humans' decision queue, on the thread of ${r.jobId}. Their decision comes back to your in-tray as an entry on that thread; don't wait in this session.${warnings.length ? ` It is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ").slice(0, 1200)}.` : ""}` };
+  },
   rank: async (world: World, me: Agent, input: VerbIn<"rank">) => {
     if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary ranks the asks.");
     if (input.pattern) return filePattern(world, me, input.pattern);
     if (input.week) return { inputs: weekInputsText(world) };
-    if (!input.order && !input.slate && !input.defer) return { inputs: rankInputsText(world) };
+    if (!input.order && !input.slate && !input.defer && !input.overtaken && !input.rewrite) return { inputs: rankInputsText(world) };
     return applyRank(world, me, input);
   },
   calibrate: async (world: World, me: Agent, input: VerbIn<"calibrate">) => calibrate(world, me, input),

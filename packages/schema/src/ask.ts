@@ -197,6 +197,9 @@ export const ASK_CONTRACTS: Record<AskType, readonly ContractField[]> = {
     { name: "what-i-did", needs: "what the manager did under it", has: either("what I did", /\b(?:I|we)\s+(?:applied|did|decided|chose|kept|made|let|refused|treated|used)\b|\bapplied\b/i) },
     { name: "reversing-cost", needs: "what reversing it costs (\"Reversing it means …\")", has: either("reversing", /\brevers\w*|\bundo\w*|\bto change it\b/i) },
   ],
+  do: [
+    { name: "worth", hard: true, needs: "why it is worth the human leaving the queue (\"Worth leaving the queue: only a human can sign up; the uptime block waits on it.\")", has: either("worth", /\bworth\b|\bonly a human\b|\bno (?:button|agent)\b/i) },
+  ],
 };
 
 /** The fields `type`'s card is missing: one message per field, `<type> card needs <what>`. [] = it carries them all. */
@@ -212,6 +215,7 @@ export const ASK_CONTRACT_LINES: Record<AskType, string> = {
   credential: "the exact scope, and the fallback if refused",
   meeting: "the one question, and your recommended answer",
   policy: "the rule as a sentence, what you did under it, what reversing costs",
+  do: "the one act, why no button or agent can do it, and what is blocked until it is done",
 };
 
 /** Everything wrong with a card: its type's contract, then the lint rules. [] = it passes. */

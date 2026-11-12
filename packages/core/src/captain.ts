@@ -69,7 +69,7 @@ export function decideCaptain(world: World, actor: Agent, id: string, accept: bo
     type: "system", text: accept ? `${who} now captains "${goalText}"` : `${who}'s request to captain "${goalText}" was declined`,
     payload: { captainRequestId: id, goalId: req.goalId, userId: req.userId, accepted: accept },
   });
-  retireAsks(world, "captain", id, decided.text);
+  retireAsks(world, "captain", id, decided.text, decider);
   emitTownHall(world);
   return out;
 }

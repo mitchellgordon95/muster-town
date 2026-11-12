@@ -1,7 +1,7 @@
 /**
  * The ask card's contract per type and its enforcement (docs/legible-delegation.md §4-5, build step 3): what each type
- * must carry, and since 1:1 mt_ewxnhs90cq decision 5 (2026-11-10): missing structure is refused on submit_report's typed
- * asks, propose_grant and calibrate; style rules never refuse, they are filed as warnings in the ask's history.
+ * must carry, and since 1:1 mt_ewxnhs90cq decision 5 (2026-11-10): missing structure is refused on `ask`,
+ * propose_grant and calibrate; style rules never refuse, they are filed as warnings in the ask's history.
  */
 import { askStructure, askWarnings, checkAskContract } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
@@ -57,7 +57,7 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
 
   it("an author's card missing structure is refused every time; style rules file it with warnings in its history", async () => {
     const { world, admin, by } = seededWorld();
-    const mei = by("Mei"), noor = by("Noor");
+    const mei = by("Mei");
     world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
     world.permissions.grant({ kind: "agent", id: mei.id }, buildingRoleId(LAB, "manager"));
     const plan = (objective: string, kr = "The lab board shows its goal first") => ({ title: "Lab board shows its goal", keyResults: [{ text: kr, howToCheck: "Open the lab board" }], objective, steps: [{ title: "Step 1", description: "Do the work", size: "M" as const }], stopCondition: "two tries", askTokens: 200_000 });
@@ -96,16 +96,14 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     const withCard = await world.verbs.propose_grant(mei, { ...plan("Show the goal (see gr_abc123) first; then the grants"), ask: card });
     expect(asksFor(world, { kind: "grant", id: withCard.grantId })[0]).toMatchObject({ body: card.body, recommendation: card.recommendation, tags: [] });
 
-    // a rollup's typed ask missing its rule is refused every time; with the rule it is filed, its style rules as warnings
-    const report = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
-    const body = "## Shipped\nNone.\n\n## Decided\n- dc_a → approved\n\n## Key results\non track\n\n## Needs from Mitchell\n- Decide whether forks may redeploy.";
+    // a manager's ask (the `ask` verb) missing its rule is refused every time, nothing filed; with the rule it is filed, its style rules as warnings
     const bad = { type: "policy" as const, title: "May forks redeploy?", body: "Forks redeploy now (on green CI); keep it?", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" };
-    const roll = () => world.verbs.submit_report(mei, { title: "Rollup", body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] }, asks: [bad] });
-    for (let i = 0; i < 4; i++) await expect(roll()).rejects.toThrow(/asks\[0\] "May forks redeploy\?": contract rule/);
-    const filed = await world.verbs.submit_report(mei, { title: "Rollup", body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] }, asks: [{ ...bad, body: `Rule: ${bad.body}` }] });
-    expect(filed.note).toMatch(/style warning\(s\)[\s\S]*no-semicolons/);
-    const warned = world.asks.require(filed.asks![0]!.id);
-    expect(warned.tags).toEqual([]);
+    const before = world.asks.count();
+    for (let i = 0; i < 4; i++) await expect(world.verbs.ask(mei, bad)).rejects.toThrow(/lacks 1 required part[\s\S]*contract rule/);
+    expect(world.asks.count()).toBe(before);
+    const filed = await world.verbs.ask(mei, { ...bad, body: `Rule: ${bad.body}` });
+    const warned = world.asks.require(filed.askId);
+    expect(warned.tags.filter((t) => !t.startsWith("entry:"))).toEqual([]); // its only tag names its entry on the job's thread
     expect(warned.history.find((h) => h.action === "lint")!.note).toMatch(/no-semicolons[\s\S]*no-parentheses/);
     expect(world.events.list({ types: ["ask.refused"] })).toEqual([]);
 

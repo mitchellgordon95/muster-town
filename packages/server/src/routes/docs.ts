@@ -1,4 +1,4 @@
-import { AppError, bulletinNotesFor, markBulletinRead, markSeen, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
+import { entryOf, AppError, bulletinNotesFor, markBulletinRead, markSeen, canSeeDoc, findManual, postBulletin, takeDownBulletin, revisionsOf, searchDocs, editBoardNote, unpublishTownFyi, whereOf } from "@muster-town/core";
 import { CreateMeetingInput, DocState, DocType, MeetingFocusInput, MeetingPhase, MeetingPresentInput, MeetingSayInput, ArchiveInput, RequestAction, ReviewInput, VerbInputs } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -59,6 +59,8 @@ export async function docRoutes(app: FastifyInstance) {
   app.post<{ Params: Params }>("/api/docs/:id/review", async (req) => {
     const input = parse(ReviewInput, req.body);
     const r = await world.verbs.review(actorOf(world, req), { docId: req.params.id, ...input });
+    // an entry with no doc on a job's thread (en_…: plan dc_uwx045472m step 5): the answered entry, no doc
+    if (req.params.id.startsWith("en_")) return { entry: entryOf(world, req.params.id) ?? null, assignment: r.assignmentId ? world.assignments.get(r.assignmentId) ?? null : null };
     return {
       doc: world.docs.require(req.params.id, "doc"),
       assignment: r.assignmentId ? world.assignments.get(r.assignmentId) ?? null : null,

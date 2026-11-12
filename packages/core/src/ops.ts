@@ -13,6 +13,7 @@ import { humanOrigin, meetingOrigin } from "./origin.ts";
 import { BANK_MODEL, sessionView, unknownModels } from "./bank.ts";
 import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
+import { answerEntry } from "./jobs.ts";
 import { requestAnswerWake } from "./wakes.ts";
 import type { World } from "./world.ts";
 
@@ -510,7 +511,7 @@ export class Ops {
         need(["open"]);
         if (!body?.trim()) throw badRequest("Say why you withdraw it (note): it stays on the request.");
         patch = { requestStatus: "withdrawn", requestNote: body.trim(), requestDecidedById: h.id, ...viaFields };
-        if (doc.authorKind === "agent" && doc.authorId !== actor.id) sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)} withdrew your outbox request "${doc.title}" (${doc.id}): ${body.trim()}` });
+        if (doc.authorKind === "agent" && doc.authorId !== actor.id) sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)} withdrew your request "${doc.title}" (${doc.id}): ${body.trim()}` });
         break;
       }
       case "decline": {
@@ -519,7 +520,7 @@ export class Ops {
         need(["open"]);
         if (!body?.trim()) throw badRequest("Say why you decline it (note): the author hears it and it stays on the request.");
         patch = { requestStatus: "declined", requestNote: body.trim(), requestDecidedById: h.id, ...viaFields };
-        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)}${viaText} declined your outbox request "${doc.title}" (${doc.id}): ${body.trim()}` });
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)}${viaText} declined your request "${doc.title}" (${doc.id}): ${body.trim()}` });
         break;
       }
       case "delete": {
@@ -527,43 +528,38 @@ export class Ops {
         this.world.docs.delete(doc.id);
         const deleted = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `${this.world.nameOf(h.id)} deleted the request "${doc.title}"`, payload: { docId: doc.id, deleted: true, by: h.id } });
         retireAsks(this.world, "request", doc.id, deleted.text);
-        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `An admin deleted your outbox request "${doc.title}".` });
+        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `An admin deleted your request "${doc.title}".` });
         return { request: null, humanReport: null };
       }
-      case "claim":
-        if (h.kind !== "user") throw badRequest("Only humans can claim requests.");
-        need(["open"]);
-        patch = { requestStatus: "claimed", claimedByUserId: h.id, ...(body?.trim() ? { requestNote: body.trim() } : {}), ...viaFields };
-        // the author hears who took it on, with the human's words when they gave some ("use Wright's VPS")
-        if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `${this.world.nameOf(h.id)}${viaText} claimed your outbox request "${doc.title}" (${doc.id})${body?.trim() ? `: ${body.trim()}` : "."}` });
-        break;
+      // no Claim (1:1 mt_msnjkpgwdb decision 17): a human does it and reports back in one move, Done
       case "done":
         if (h.kind !== "user") throw badRequest("Only humans can complete requests.");
-        need(["claimed"]);
-        if (doc.claimedByUserId !== h.id && !this.world.permissions.isAdmin(actor)) throw new AppError("forbidden", "Only the human who claimed this request can complete it.");
-        if (!body?.trim()) throw badRequest("Completing a request needs a report body.");
+        need(["open", "claimed"]);
+        if (!body?.trim()) throw badRequest("Done needs your report back (note): what you did and what you saw. It is filed as a human report and the author hears it.");
         humanReport = createDoc(this.world, {
           type: "human-report", state: "library", title: `Re: ${doc.title}`, body, authorId: h.id, authorKind: "user",
           buildingId: doc.buildingId, tags: [`request:${doc.id}`], location: doc.location,
         }, `${this.world.nameOf(h.id)} reported back on "${doc.title}"`);
-        patch = { requestStatus: "done" };
+        patch = { requestStatus: "done", claimedByUserId: doc.claimedByUserId ?? h.id };
         if (doc.authorKind === "agent") sendMessage(this.world, { kind: "system", fromId: h.id, fromKind: "system", toId: doc.authorId, body: `A human answered your request "${doc.title}": see ${humanReport.id}.` });
         break;
     }
     const request = updateDoc(this.world, doc.id, patch);
-    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "done" && (action !== "claim" || !!body?.trim()) ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
+    const updated = this.world.events.append({ type: "doc.updated", buildingId: doc.buildingId, agentId: doc.authorKind === "agent" ? doc.authorId : null, text: `Request "${doc.title}" is ${request.requestStatus}${request.requestNote && action !== "done" ? ` (${this.world.nameOf(h.id)}${viaText}: ${request.requestNote.slice(0, 200)})` : ""}`, payload: { docId: doc.id, requestStatus: request.requestStatus, by: h.id, ...(via ?? {}), ...(humanReport ? { humanReportId: humanReport.id } : {}) } });
     // the request's ask (docs/legible-delegation.md §4) retires when a human claims or declines it, or it is withdrawn
-    retireAsks(this.world, "request", doc.id, updated.text);
+    retireAsks(this.world, "request", doc.id, updated.text, h.kind === "user" ? h.id : false);
+    // the request's entry on its job's thread is answered by whoever settled it (done, declined, withdrawn)
+    answerEntry(this.world, `en_${doc.id}`, h, action, humanReport ? `Done: see ${humanReport.id}. ${humanReport.body.trim().slice(0, 600)}` : (patch.requestNote ?? ""));
     // wakes step 5: the answer reaches the requester (interrupt if working, else a pending directed assignment)
     if (humanReport) requestAnswerWake(this.world, request, humanReport, updated);
     return { request, humanReport };
   }
 
-  /** Outbox: open and claimed requests (what humans can act on). */
+  /** The open requests (do asks a human can still act on); with `includeAll`, every request ever filed. */
   outbox(includeAll = false): Doc[] {
     return includeAll
       ? this.world.docs.where("type = 'request'", [], "ORDER BY createdAt DESC")
-      : this.world.docs.where("type = 'request' AND requestStatus IN ('open','claimed')", [], "ORDER BY createdAt DESC");
+      : this.world.docs.where("type = 'request' AND requestStatus = 'open'", [], "ORDER BY createdAt DESC");
   }
 
   // ---- meetings ----

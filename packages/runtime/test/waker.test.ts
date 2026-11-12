@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { intrayOf, World } from "@muster-town/core";
+import { intrayOf, openManagerEntries, World } from "@muster-town/core";
 import type { Event } from "@muster-town/schema";
 import { HostBackend, ruleFor, startRuntime, startWaker, WAKE_RULES, type WakeCtx, type WakeRule } from "../src/index.ts";
-import { init, result, setup } from "./helpers.ts";
+import { callVerb, init, result, setup } from "./helpers.ts";
 
 const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -100,44 +100,56 @@ describe("WAKE_RULES: each of the old onEvent branches is one rule, first match 
     expect(name(ev("doc.created", { docType: "flag" }))).toBe("manager-intray");
     expect(name(ev("doc.created", { docType: "note" }))).toBeNull();
     expect(name(ev("doc.created", { docType: "report" }, null))).toBeNull();
-    for (const t of ["grant.funded", "grant.closed", "kr.created", "kr.updated", "kr.deleted"]) expect(name(ev(t))).toBe("manager-intray-row");
+    for (const t of ["kr.created", "kr.updated", "kr.deleted"]) expect(name(ev(t))).toBe("key-result-entry");
+    // a grant's decisions are its history entries, written as the grant is saved: no rule of their own
+    for (const t of ["grant.funded", "grant.closed"]) expect(name(ev(t))).toBeNull();
+    // an entry with no doc wakes the manager only at level manager
+    expect(name(ev("entry.created", { level: "manager" }))).toBe("manager-entry");
+    expect(name(ev("entry.created", { level: "none" }))).toBeNull();
     expect(name(ev("agent.status", { status: "stopped" }))).toBe("stop");
     expect(name(ev("agent.status", { status: "idle" }))).toBeNull();
     expect(name(ev("agent.banned"))).toBe("stop");
     expect(name(ev("agent.told", { toId: mei.id }))).toBeNull();
-    expect(WAKE_RULES.filter((r) => r.replay).map((r) => r.name)).toEqual(["manager-intray-row"]);
+    expect(WAKE_RULES.filter((r) => r.replay).map((r) => r.name)).toEqual(["key-result-entry"]);
   });
 
-  test("a human's key-result edit while the server is down: the restarted runtime writes the in-tray row once and wakes the manager; the next restart writes none", async () => {
-    const env = setup(async function* () { yield init(); yield result(100, 0.01, "Noted."); });
+  test("a key result a human marks missed while the server is down: the restarted runtime writes its entry once and wakes the manager; the next restart writes none", async () => {
+    const env = setup(async function* (s) {
+      yield init();
+      for (const id of new Set(s.received[0].match(/en_[a-z0-9_]+/g) ?? [])) yield* callVerb(s, "review", { docId: id, decision: "approve" });
+      yield result(100, 0.01, "Noted.");
+    });
     const { world, runtime, lab, seed } = env;
     const admin = world.ops.ensureAvatar(seed.admin.id);
     for (const d of intrayOf(world, lab.id)) await world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
     const mei = env.by("Mei");
     world.ops.updateBuilding(admin, lab.id, { managerAgentId: mei.id });
     const kr = world.keyResults.require(world.grantDesk.create(admin, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const entries = () => (world.db.prepare("SELECT id, level FROM entries WHERE json_extract(moved, '$.keyResultId') = ? ORDER BY seq").all(kr.id) as { id: string; level: string }[]);
+    const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
+    // live: an edit is a record on the thread and wakes nobody
     world.grantDesk.updateKeyResult(admin, kr.id, { status: "on-track" });
     await settle(); await runtime.whenIdle();
-    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND tags LIKE '%manager-intray%'", [lab.id]);
-    const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
-    expect(rows()).toHaveLength(1);
+    expect(entries().map((e) => e.level)).toEqual(["none"]);
     const before = manages().length;
     await runtime.stop();
     // down: the event is in the log, nobody acts on it
-    world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal in one glance" });
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "missed", note: "the board is blank" });
     await settle();
-    expect(rows()).toHaveLength(1);
+    expect(entries()).toHaveLength(1);
     const boot = () => startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk: env.sdk, intervalMs: 0, exportDir: false, deskBackend: new HostBackend() });
     const r2 = boot();
     await settle(); await r2.whenIdle();
-    expect(rows()).toHaveLength(2);
-    expect(rows()[1]!.title).toMatch(new RegExp(`^Key result ${kr.id} edited by `));
+    expect(entries().map((e) => e.level)).toEqual(["none", "manager"]);
     expect(manages().length).toBe(before + 1);
+    expect(openManagerEntries(world, lab.id)).toEqual([]);
     await r2.stop();
     const r3 = boot();
     await settle(); await r3.whenIdle();
-    expect(rows()).toHaveLength(2);
+    expect(entries()).toHaveLength(2);
     expect(manages().length).toBe(before + 1);
     await r3.stop();
+    // no town-written report doc for any of it
+    expect(world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id])).toHaveLength(0);
   });
 });

@@ -86,7 +86,7 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 
 - a **grant proposal or checkpoint** belongs to its KR's goal;
 - a **goal proposal** belongs to its target or parent node;
-- a **rollup** belongs to the building's attachment;
+- a **report for the humans** (an unhomed visitor's; before 2026-11-12 a manager's rollup) or a retainer belongs to the building's attachment. Since 2026-11-12 rollups are retired: what a manager needs from a human is an ask, shown under Mine with the item it is about;
 - a **captain request** belongs to the goal asked about (the root too).
 
 There is no "town admins" fallback: the root's captain is a user like any other, so an item that ends at the root routes to that person. The Town Hall in-tray stays one queue: each human sees **"Mine"** (items routed to them, nothing else: an admin who captains nothing has an empty Mine) and **"All"**. Admin is permission, not routing: admins still decide and fund anywhere (`building.fund`, `goals.edit`). The first human to decide an item clears it for everyone, as the per-user review marker already does. With one human, every route ends at Mitchell and nothing changes. With several, the in-trays split by subtree, which answers the multi-human review question without a meeting.
@@ -94,7 +94,7 @@ There is no "town admins" fallback: the root's captain is a user like any other,
 **Permissions** (1:1 mt_kh0zaqui0w). An owner holds `goals.edit` scoped to their subtree: they can edit, accept proposals, mark met/missed, attach, and set owners below them. An owner also **decides and funds grants** whose KR sits in their subtree: `building.fund` scoped to the subtree, so funding is no longer admins-only. Funding by a plain member from their own input (kr_6f9c200vsx, gr_tvt32g9xly) is unchanged. Admins keep both powers everywhere. A captain can set the exploration cap on goals in their subtree, but caps combine as the minimum on the path to the root (docs/how-work-gets-done.md §8): a captain can tighten a cap set above them but never loosen it.
 
 **Steering the buildings under their goal** (gr_zsm1piyqyx). A captain steers each building attached to their goal or a goal below it like that building's reviewer does (core `Goals.captainsBuilding`, used beside the role checks, never instead of them):
-- **Rollups and reports**: they decide (review, archive) the building's rollups routed into their subtree; the Town Hall in-tray shows them on Mine with `canDecide` true.
+- **Rollups and reports**: they decide (review, archive) the building's rollups routed into their subtree (since 2026-11-12 rollups are retired: they decide the asks its manager files instead); the Town Hall in-tray shows them on Mine with `canDecide` true.
 - **1:1s and meetings**: they direct work there (core `canDirect`): they open 1:1s with the building's manager (or any of its agents), the 1:1 is a human source for directed work, and they call, start and end meetings there.
 - **Flags**: they plant flags in those buildings.
 - **In the web**: `GET /api/me` lists those buildings as `captainOf`; `store.can` honours it for `building.review` and `meeting.facilitate` (so the building panel shows "Talk to ★ <manager>" as staff and a report's decide box), and `store.canFlag` for flags (the building panel's "⚑ Plant a flag" and F on the map). Not `building.assign`: a captain doesn't cancel queued work or stop agents there.

@@ -13,10 +13,9 @@ async function answered(working: boolean) {
   const ingrid = s.by("Ingrid");
   s.world.setStatus(ingrid.id, "idle", "idle");
   if (working) s.world.ops.startSession(ingrid.id, { purpose: "work", model: "m" });
-  const { id } = await s.world.verbs.request_human(ingrid, { title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
+  const { id } = await s.world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Photograph thaw slump", body: "If you're near...", location: "Yukon" });
   const human = s.world.ops.createUser("Rando").user;
   const avatar = s.world.ops.ensureAvatar(human.id);
-  s.world.ops.requestAction(avatar, id, "claim");
   const { request, humanReport } = s.world.ops.requestAction(avatar, id, "done", "Photos attached; slump is 40 m wide.\nMore later.");
   const done = s.world.events.list({ types: ["doc.updated"], limit: 1000 }).at(-1)!;
   return { ...s, ingrid, human, request: request!, answer: humanReport!, done };
@@ -138,19 +137,16 @@ describe("rule mention", () => {
   });
 });
 
-describe("a claim's note (Mitchell, relay dc_fyox7jmhdh)", () => {
-  it("claiming with a note keeps the words on the request, tells the author and names them in the event; a bare claim tells the author too", async () => {
+describe("a decline's note reaches the author (the claim is gone: 1:1 mt_msnjkpgwdb decision 17)", () => {
+  it("declining keeps the words on the request, tells the author and names them in the event; Done needs the report back", async () => {
     const s = seededWorld();
     const ingrid = s.by("Ingrid");
-    const { id } = await s.world.verbs.request_human(ingrid, { title: "Make a repo", body: "Create one for us." });
-    const { id: id2 } = await s.world.verbs.request_human(ingrid, { title: "Make another", body: "Another." });
-    const avatar = s.world.ops.ensureAvatar(s.world.ops.createUser("Rando").user.id);
-    const { request } = s.world.ops.requestAction(avatar, id, "claim", "  use Wright's VPS ");
-    expect(request).toMatchObject({ requestStatus: "claimed", requestNote: "use Wright's VPS" });
+    const { id } = await s.world.verbs.request_human(ingrid, { worth: "Only a human can do this; the work waits on it.", title: "Make a repo", body: "Create one for us." });
+    const admin = s.world.ops.ensureAvatar(s.seed.admin.id);
+    const { request } = s.world.ops.requestAction(admin, id, "decline", "  use Wright's VPS ");
+    expect(request).toMatchObject({ requestStatus: "declined", requestNote: "use Wright's VPS" });
     expect(s.world.events.list({ types: ["doc.updated"], limit: 1000 }).at(-1)!.text).toContain("use Wright's VPS");
-    s.world.ops.requestAction(avatar, id2, "claim");
     const heard = s.world.messages.where("toId = ?", [ingrid.id], "ORDER BY createdAt, rowid").map((m) => m.body);
-    expect(heard).toContain(`Rando claimed your outbox request "Make a repo" (${id}): use Wright's VPS`);
-    expect(heard).toContain(`Rando claimed your outbox request "Make another" (${id2}).`);
+    expect(heard.some((m) => m.includes(`declined your request "Make a repo" (${id}): use Wright's VPS`))).toBe(true);
   });
 });

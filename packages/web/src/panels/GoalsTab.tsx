@@ -5,7 +5,7 @@
  */
 import { clipText } from "./showMore";
 import { useEffect, useState, type ReactNode } from "react";
-import { MAX_OBJECTIVES, grantName, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
+import { isJudgedKr, MAX_OBJECTIVES, grantName, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type ObjectiveView, type SpendNode } from "../api";
 import { store, useTown } from "../state";
 import { Act, ADJ, Empty, ErrorLine, Field, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
@@ -55,7 +55,7 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   const g = grants.data ?? [];
   const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k.id, g)} />;
   // met and missed key results are the record: they fold to their count under the open ones (gr_zak30564zh step 5)
-  const isOpen = (k: GoalKeyResult) => k.status !== "met" && k.status !== "missed";
+  const isOpen = (k: GoalKeyResult) => !isJudgedKr(k.status);
   const judged = all.filter((k) => !isOpen(k));
   const rows = (list: GoalKeyResult[]) => list.filter(isOpen).length ? <ol className="kr-rows">{list.filter(isOpen).map(row)}</ol> : null;
   return (
@@ -104,7 +104,7 @@ function GoalRow({ n, kr, word }: { n: number; kr: GoalKeyResult; word: KrGrantW
 
 /** One key result in the "How to check" fold: how to check, the status note, the postmortem, met / missed (building.fund) and delete (building.manage). */
 function GoalRowMore({ n, kr, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
-  const judged = kr.status === "met" || kr.status === "missed";
+  const judged = isJudgedKr(kr.status);
   const mark = (status: KeyResultStatus) => async () => {
     // missed asks why: the line is filed as the human's note and queues one postmortem (docs/goals.md "Postmortems on missed KRs")
     const why = status === "missed" ? window.prompt(`Why was key result ${n} missed? One line: it queues a postmortem on the building.`)?.trim() : "";

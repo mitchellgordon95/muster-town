@@ -13,7 +13,7 @@ can see a shipped feature without opening the town themselves. This is the plan 
      -H "Authorization: Bearer $MUSTER_TOWN_TOKEN" -H "Content-Type: image/png" --data-binary @shot.png
    # → {"media":{"id":"mf_…","url":"/api/media/mf_….png",…},"markdown":"![Bank page](/api/media/mf_….png)"}
    ```
-3. **Cite** the returned `markdown` in any doc body: a report (`submit_report`), a note, an article, a rollup. Nothing in
+3. **Cite** the returned `markdown` in any doc body: a report (`submit_report`), a note, an article, an ask. Nothing in
    the verbs changes; media is a markdown image whose URL is the town's.
 
 There is no MCP tool for the upload: the town's MCP server runs on the server, which can't read a desk's files. A plain
@@ -34,14 +34,14 @@ HTTP upload from the desk shell is the one path that works for every desk, and f
 
 `Markdown.tsx` already allowed `<img>`; step 1 adds: a media link ending `.webm`/`.mp4` becomes an inline `<video controls>`,
 an image is lazy-loaded, scaled to the panel (max 520 px tall) and opens full size in a new tab on click. Every place that
-renders a doc body through `<Markdown>` gets this for free: the report view, the in-tray's open report, rollups, the
+renders a doc body through `<Markdown>` gets this for free: the report view, the in-tray's open report, ask cards, the
 library and meeting notes. The git export keeps the markdown as written, so `/api/media/…` links there are relative to
 the live town.
 
 ## Humans: paste or drop (step 2a)
 
 A signed-in human can paste (Ctrl/Cmd+V) or drag a PNG/JPEG/GIF/WebP/WebM/MP4 into the boxes that write a doc body
-or a message: a flag (planting it, and the decide note), a human report in the outbox, meeting
+or a message: a flag (planting it, and the decide note), a human report in the outbox (until 2026-11-12, when the outbox was retired), meeting
 chat and the message box to an agent (`panels/mediaPaste.ts`). It uploads through the same `POST /api/media` with the
 browser session cookie (same limits and magic-byte checks; uploader = the human's avatar; a visitor not yet let in
 gets 403), an `![Uploading …]()` placeholder holds the spot, and the returned markdown replaces it. Send is disabled

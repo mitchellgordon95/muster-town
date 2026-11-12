@@ -49,7 +49,7 @@ function managerVerb(world: World, a: Agent, perms: Permission[] = MANAGER_PERMS
 }
 const ROLE_VERBS: Partial<Record<VerbName, (world: World, a: Agent) => boolean>> = {
   review: managerVerb, assign: managerVerb, schedule: managerVerb, stop_fork: managerVerb, cancel: managerVerb, fork_status: managerVerb,
-  propose_grant: managerVerb, close_grant: managerVerb, set_objective: managerVerb, withdraw_grant: managerVerb, propose_goal: managerVerb,
+  propose_grant: managerVerb, close_grant: managerVerb, set_objective: managerVerb, withdraw_grant: managerVerb, ask: managerVerb, propose_goal: managerVerb,
   promote: (w, a) => managerVerb(w, a, ["building.promote"]),
   ban: (w, a) => w.permissions.can(a, "town.ban"),
   calibrate: (w, a) => w.reorgs.isPlanner(a),

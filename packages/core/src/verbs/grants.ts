@@ -59,16 +59,16 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
 
 /**
  * `close_grant` (the manager): close a funded grant as done before it is spent (town hall mt_6830h8x5qk, decision 3). The
- * open key results go to claimed with the note; the unspent rest returns to the Bank; without reportId the manager's next
- * rollup this session links itself as the close report (`checkpointDocId`).
+ * open key results go to met (or met, unverified) with the note; the unspent rest returns to the Bank; `shipped` names
+ * what a human can now see or do, one notice each (there is no rollup).
  */
 export async function close_grant(world: World, me: Agent, input: VerbIn<"close_grant">) {
-  const g = world.grantDesk.closeDone(me, input.grantId, { note: input.note, reportId: input.reportId ?? null });
+  const g = world.grantDesk.closeDone(me, input.grantId, { note: input.note, reportId: input.reportId ?? null, shipped: input.shipped });
   const unspentTokens = g.history.at(-1)?.tokens ?? 0;
   return {
     grantId: g.id, status: g.status, outcome: g.outcome, spentTokens: g.spentTokens, grantTokens: g.grantTokens, unspentTokens,
     keyResults: g.keyResults.map((k) => ({ id: k.id, status: k.status })), checkpointDocId: g.checkpointDocId,
-    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${g.checkpointDocId ? "Linked. " : "Now submit_report with rollup: true: it links itself to this grant as the close report. "}Its open key results are marked met (a human can flip one to missed from the grant).`,
+    note: `Closed as done; ${unspentTokens.toLocaleString("en-US")} unspent tokens returned to the Bank. ${input.shipped?.length ? `${input.shipped.length} shipped notice${input.shipped.length === 1 ? "" : "s"} filed for the humans. ` : "You named nothing shipped: the humans see only the closed-loop notice. "}Its open key results are marked met (a human can flip one to missed from the grant).`,
   };
 }
 

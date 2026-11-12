@@ -21,9 +21,8 @@ export function CompactLine({ lead, title, at, pill, onOpen, selected }: { lead?
   );
 }
 
-/** A report's one pill: rollup, flag, visitor report, else its verdict. */
+/** A report's one pill: flag, visitor report, else its verdict. */
 export function reportPill(d: Pick<Doc, "type" | "tags" | "verdict">): ReactNode {
-  if (d.tags.includes("rollup")) return <Pill tone="ok">rollup</Pill>;
   if (d.type === "flag") return <Pill tone="warn">⚑ flag</Pill>;
   if (d.tags.includes("visitor")) return <Pill tone="warn">visitor report</Pill>;
   return d.verdict ? <Pill tone={VERDICT_TONE[d.verdict]}>{d.verdict}</Pill> : null;

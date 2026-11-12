@@ -16,7 +16,7 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 3. **The Waker's cursor: a first boot doesn't replay history; a durable event that arrived while the server was down is delivered once; kicks are not replayed.**
    - Test: `packages/runtime/test/waker.test.ts` › `a first boot starts at the end of the log: history is not replayed`
    - Test: `packages/runtime/test/waker.test.ts` › `a durable event that arrived while the waker was down is delivered once on boot; a kick is not replayed`
-   - Test: `packages/runtime/test/waker.test.ts` › `a human's key-result edit while the server is down: the restarted runtime writes the in-tray row once and wakes the manager; the next restart writes none`
+   - Test: `packages/runtime/test/waker.test.ts` › `a key result a human marks missed while the server is down: the restarted runtime writes its entry once and wakes the manager; the next restart writes none`
 4. **One event triggers at most one wake rule** (first match wins).
    - Test: `packages/runtime/test/waker.test.ts` › `events map to the rule that handled them before; a tell has none (relayWake runs in the tell verb)`
 5. **Running sessions never exceed `desks.maxRunning`**, and the queue starts the pending assignment with the lowest position.
@@ -25,10 +25,10 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 6. **At most one session per assignment, also after a restart.** A new runtime ends orphaned running sessions and re-queues their assignments, and the new session waits until the orphan is killed.
    - Test: `packages/runtime/test/v12.test.ts` › `a new runtime ends orphaned running sessions and re-queues their active assignments`
    - Test: `packages/runtime/test/v12.test.ts` › `the re-queued assignment's new desk session waits until the orphan is killed (one session per assignment)`
-7. **Every work session ends in a report**: the agent's own, or a fallback when it ends without `submit_report` or is stopped.
+7. **Every work session ends in an entry on its job's thread**: the agent's own report, or a `code` entry when it ends without `submit_report` or is stopped (no fallback report doc; `fileDeadSession` in `packages/core/src/jobs.ts`). The dead session's assignment is cancelled, never left active.
    - Test: `packages/runtime/test/work.test.ts` › `streams SDK messages into readable events, charges usage, ends idle with the report in the in-tray`
-   - Test: `packages/runtime/test/work.test.ts` › `fallback report when the session ends without submit_report`
-   - Test: `packages/runtime/test/work.test.ts` › `stopping an agent mid-session aborts it and writes a stopped fallback report`
+   - Test: `packages/runtime/test/work.test.ts` › `a session that ends without submit_report leaves a code entry on its job's thread for the manager, no report doc`
+   - Test: `packages/runtime/test/work.test.ts` › `stopping an agent mid-session aborts it and leaves a record on the thread (no report, nothing for the manager)`
 8. **Agent-to-agent chatter can't wake anyone without a human origin.** A tell or @mention without an origin only lands in the inbox; an origin is capped at 3 hops and 24 h; and `origin` is never a verb input, so an agent can't forge one.
    - Test: `packages/core/test/wakes-relay.test.ts` › `inbox only: a busy recipient, a tell with no origin, past the hop cap, or older than 24 h`
    - Test: `packages/core/test/wakes-step5.test.ts` › `inbox only: no origin, past the hop cap, older than 24 h, or a busy target`

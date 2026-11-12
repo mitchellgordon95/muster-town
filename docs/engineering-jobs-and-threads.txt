@@ -1,0 +1,92 @@
+# Jobs: one thread per piece of work
+
+(Draft. A follow-up to "Engineering human oversight with decision queues". Written by Claude Code from Mitchell's 1:1s and the jobs plan, for Mitchell to rewrite in his own voice. Draft notes are at the bottom.)
+
+The last post described the decision queue: one channel where every agent's request for human input lands, so that the cost of context switching becomes a property of the queue we can engineer.
+
+That post was about the human's side. This one is about the other side: the work that competes for the human's attention. For a long time Muster Town had no single name for it. There were grants, scheduled runs, explorations, flags, reports, rollups, in-tray rows and an outbox, and each had its own rules for who had to look at it next. This post describes the abstraction that replaced them, which I'm calling the job.
+
+## The job
+
+Every piece of work in Muster Town is a job. A grant is a job. So is a scheduled run, an exploration, a request a human planted in a building, and a building's own running business.
+
+A job has two things:
+
+- One budget rule. A grant has a ceiling. A scheduled run has an amount per run. An exploration has a small fixed chunk. A human's request draws on that human's pocket.
+- One record: a thread of entries. Every agent session appends exactly one entry, which says what moved and what is left. Every answer to an entry is also an entry.
+
+That is the whole model. A report is an entry. A human's decision on a grant is an entry. A crashed session is an entry. A message from a human to a manager is an entry.
+
+## One rule for who answers
+
+Each new entry is answered at the lowest level that can settle it:
+
+1. Code settles it when nothing needs judgment. It queues the next step of a plan, files the forecast, closes a finished run.
+2. The manager settles it when it needs judgment: a change of plan, a report that asks for something, the end of a grant, a session that died.
+3. The human settles it when it needs money, permission or a rule.
+
+If you have written software, this is exception handling. Each level catches what it can, and only what it cannot handle propagates up. Passing an entry up creates nothing new. It changes the level and carries a note.
+
+The decision queue from the last post is now easy to define. It is the top of this stack: the entries that reached the human level.
+
+## What we can engineer now
+
+The decision queue was useful because it gave us a list of things to tune. The job does the same for the work underneath it:
+
+- What an entry must carry (what moved, what is left)
+- Who answers each kind of entry, as one function we can read and test
+- What it costs to escalate
+- What each level sees: every queue is a view over unanswered entries at that level
+- How budget is checked, as a property of the job
+- How much each level settles, as a health metric
+
+The second item deserves a note. "Who answers this?" used to be spread across the code as special cases. It is now one pure function: facts about the entry go in, a level comes out. Because the inputs are a small set of facts, we test it against every combination of them, not a sample.
+
+## Things that turned out to be the same thing
+
+The last post said we started with reports that had an ask buried inside, and that the queue abstraction made the mistake visible. The job abstraction did the same for a family of mistakes. Each one was a second representation of something that is really an entry on a thread.
+
+**Approving to acknowledge.** Every report landed in the manager's in-tray, and the manager had to press approve, even when the report asked nothing and the next step was already queued. The approval was not a decision. It was a receipt. Now code answers those entries, and the manager's in-tray holds only what needs judgment.
+
+**Reports written by the town.** When a human countered a grant proposal, the town wrote a report into the manager's in-tray so that there was something to approve. The same happened for a relayed message, a mention, and an answer to a request. None of these were reports. Each is the human's own entry on the thread of the job it is about.
+
+**The crashed session.** A session that ended without a report got a fallback report written for it. Then we added a rule that every step report must say what is left, the fallback report could not say it, the rule refused it, and the step was stuck with no session and no report. The bug came from pretending a crash was a report. A crash is an entry written by code, and the manager answers it: retry, redirect, or drop.
+
+**Rollups.** Managers wrote a summary document for the human every few hours: what shipped, what was decided, what they needed. The first part is a notice, which comes from the entry that closed the work. The second part is already on the threads. The third part is an ask. Once each part has its own home, the rollup has nothing left to say.
+
+**The outbox.** A request for a human to do something in the real world lived in its own place, with its own states. It is an ask like any other, of a kind we try hard to avoid: one that asks the human to do, not to decide. It belongs in the decision queue, last in line, with the reason it is worth leaving the queue for.
+
+**"Is this key result really met?"** When a grant closed on code and tests alone, someone would ask the human to confirm that a key result was met. That is not a decision the human can make from a card. It is a fact about the evidence, so it became a status: met, unverified. The town shows it and nobody asks.
+
+## Asks are snapshots of a thread
+
+The last post said decision asks are rendered views on top of reports. With jobs we can be exact about it.
+
+An ask is data: a stored snapshot, rendered from a job's thread at one point in its life. It has to be stored. The secretary ranks asks, defers them, removes duplicates and closes the ones a later decision made moot, and none of that works on something recomputed on every page load. Rendering is also where the presentation rules from the last post are applied, and that takes judgment and tokens.
+
+What changes is where an ask comes from. Every ask now points at the entry that raised it. Its facts (the ceiling, what is spent, the steps left) are read from the job. Its words come from the entry that raised it, or from the secretary. It is rendered again when the thread moves under it.
+
+Before this, asks arrived three ways: from templates the town filled in, from cards a manager filed by hand next to a rollup, and from a parser that read "your call" lines out of rollup prose. All three could drift from the work they described. A snapshot of a thread cannot say something the thread does not.
+
+## The analogy, continued
+
+The last post compared the decision queue to scheduling work for a single-core CPU. The job extends the comparison without strain.
+
+- A job is a process. It has an owner, a budget, and a state.
+- The thread is its log.
+- An entry that code or a manager settles is a system call the kernel handles without waking the user.
+- An entry that reaches the human is an interrupt. The decision queue is the interrupt queue, and the secretary is the scheduler.
+
+The goal is the same as in an operating system: handle as much as possible below the level of the scarce resource, and make what does reach it cheap to service.
+
+Subscribe for updates (mailing list for every blog post)
+
+---
+
+Draft notes (not for publication):
+
+- Built in PR #443: the job thread, the one rule for who answers, the manager's queue as a view, the crashed-session entry, human decisions and messages as entries, "met, unverified", and the secretary's run after each human decision.
+- Built on branch claude/jobs-asks-rollups-outbox (stacked on PR #443): asks that point at the entry that raised them and are written again when the thread moves, the end of rollups (what shipped is named when a grant closes; a manager files an ask when one is needed), and the end of the outbox (a request is a "do" ask with Done and Decline). Check the sections "Rollups", "The outbox" and "Asks are snapshots of a thread" against what merged before publishing.
+- One place the draft says more than the code does: "its words come from the entry that raised it, or from the secretary". Today the town still writes the card for a proposal, a held grant and a retainer from the grant's own numbers; a manager's card replaces it when the manager files one, and the secretary can rewrite any card whose thread has moved.
+- Not planned yet: a secretary per captain (plan step 8).
+- The two real incidents to cite if you want them: the stuck step as_0rk272gsne on 2026-11-12 (the crashed-session bug), and your 1:1 with the Secretary that day, where 10 of 23 open cards turned out to be already overtaken by your own decisions.

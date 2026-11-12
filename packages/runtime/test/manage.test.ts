@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { intrayOf, managerIntrayRow, type World } from "@muster-town/core";
+import { intrayOf, jobThread, openManagerEntries, type World } from "@muster-town/core";
 import type { RuntimeOptions } from "../src/index.ts";
 import { RESUME_WINDOW_MS, resumableManage, resumePrompt } from "../src/manage.ts";
 import { callVerb, deferred, init, result, setup, type FakeSession, type Script } from "./helpers.ts";
 
-const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nNothing needed." });
+const report = (title: string) => ({ title, verdict: "stop" as const, body: "## What I did\nMeasured it.\n\n## Findings\n2.4 ± 0.1 ppm/yr.\n\n## What I need from you\nDecide whether it goes on the board.\n\nNothing else needed." });
 
 /** Seeded lab (marked blocked already, so the blocked wake stays out of the way) with Mei as its manager agent and the seed's reports decided; `script` drives every SDK session. */
 async function managed(script: Script, extra: Partial<RuntimeOptions> = {}) {
@@ -33,7 +33,7 @@ describe("manager team-lead session", () => {
       const next = await s.next(); // the second report, streamed in
       const second = next!.match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: second, decision: "approve" });
-      yield result(300, 0.05, "Both decided; no rollup due.");
+      yield result(300, 0.05, "Both decided.");
     });
     const { world, runtime, sdk, by, lab } = env;
     const mei = by("Mei"), noor = by("Noor");
@@ -69,79 +69,76 @@ describe("manager team-lead session", () => {
     expect(ended).toMatchObject({ status: "done", purpose: "manage", reportId: null, tokens: 300 });
     // no fallback report: the event log says what happened
     expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
-    expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports, no rollup/.test(e.text))).toBe(true);
+    expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports$/.test(e.text))).toBe(true);
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
-  test("a human's grant or key-result decision writes one town row in the in-tray and wakes the manager once; a replay or the manager's own edit doesn't", async () => {
+  test("a human's decision that needs a move (a counter) is an entry that wakes the manager once; one that needs none (a key-result edit, a continue) is a record and wakes nobody", async () => {
     const env = await managed(async function* (s) {
       yield init();
-      for (const id of new Set(s.received[0].match(/dc_[a-z0-9]+/g) ?? [])) yield* callVerb(s, "review", { docId: id, decision: "approve" });
+      // the entry is in the in-tray block of the first message; the manager answers it like a report
+      for (const id of new Set(s.received[0].match(/en_[a-z0-9_]+/g) ?? [])) yield* callVerb(s, "review", { docId: id, decision: "approve" });
       yield result(100, 0.01, "Acknowledged.");
     });
     const { world, runtime, by, lab } = env;
     const mei = by("Mei"), admin = world.ops.ensureAvatar(env.seed.admin.id);
     const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); await runtime.whenIdle(); };
-    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
+    const townRows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
     const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
     const kr = world.keyResults.require(draft.keyResultId!);
+    // a human edits the key result: a record on the thread (the waker's durable rule writes it), nobody is woken
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();
-    expect(rows()).toHaveLength(1);
-    expect(manages()).toHaveLength(1);
-    expect(world.docs.require(rows()[0]!.id).decision).toBe("approve");
-    // funding wakes the manager with its own assignment (Grants.decisionAssignment): no row; continuing at the checkpoint writes one
-    const g = world.grantDesk.decide(admin, world.grantDesk.propose(mei, draft.id).id, { action: "fund", tokens: 10_000_000 });
+    expect(manages()).toHaveLength(0);
+    // (the grant is still a draft, so it has no job yet: the record is on the building's own thread)
+    const record = jobThread(world, lab.id)!.entries.find((e) => e.moved.keyResultId === kr.id)!;
+    expect(record).toMatchObject({ authorKind: "human", level: "none", moved: { action: "edited" } });
+    // a counter is the manager's move: one entry, one team-lead session, which answers it
+    const g = world.grantDesk.propose(mei, draft.id);
+    world.grantDesk.decide(admin, g.id, { action: "counter", note: "half the tokens" });
     await settle();
-    expect(rows()).toHaveLength(1);
+    expect(manages()).toHaveLength(1);
+    expect(env.sdk.sessions.at(-1)!.received[0]).toMatch(/en_[a-z0-9_]+ COUNTER by .* on jb_gr_[a-z0-9]+: half the tokens/);
+    expect(openManagerEntries(world, lab.id)).toEqual([]);
+    // re-proposed and funded, then continued at its checkpoint: records, no wake
+    world.grantDesk.decide(admin, world.grantDesk.propose(mei, g.id).id, { action: "fund", tokens: 10_000_000 });
     world.grants.patch(g.id, { status: "checkpoint", checkpointsDone: [0.5] });
     world.grantDesk.decide(admin, g.id, { action: "continue" });
     await settle();
-    expect(rows()).toHaveLength(2);
-    expect(rows()[1]!.title).toBe(`Grant ${g.id} continued: 10,000,000 tokens`);
-    expect(manages()).toHaveLength(2);
-    // the same event delivered again writes nothing and wakes no one
-    const e = world.events.list({ buildingId: lab.id, types: ["grant.funded"], limit: 100 }).at(-1)!;
-    expect(managerIntrayRow(world, e)).toBeNull();
+    expect(manages()).toHaveLength(1);
     // the manager marking its own key result is not a human event
     world.grantDesk.updateKeyResult(mei, kr.id, { status: "on-track" });
     await settle();
-    expect(rows()).toHaveLength(2);
-    expect(manages()).toHaveLength(2);
+    expect(manages()).toHaveLength(1);
+    // the town wrote no report doc for any of it (kr_o8dbx2axii)
+    expect(townRows()).toHaveLength(0);
   });
 
-  test("a goal-directed building with no funded grant is not blocked (key results belong to grants): the tick doesn't wake its manager", async () => {
-    const env = await managed(async function* () { yield init(); yield result(100, 0.01, "Nothing to do."); });
-    const { world, runtime, by, lab } = env;
-    const mei = by("Mei");
-    world.setStatus(mei.id, "working"); // keep the scheduler from starting a wake: only its creation is under test
-    world.buildings.patch(lab.id, { blockedAt: null });
-    for (let i = 0; i < 3; i++) { await runtime.tickOnce(); await runtime.whenIdle(); }
-    expect(world.assignments.where("agentId = ? AND title LIKE 'Get human decisions%'", [mei.id])).toHaveLength(0);
-    expect(world.buildings.require(lab.id).blockedAt).toBeNull();
-  });
-
-  test("a rollup goes to the Town Hall and doesn't wake the manager again", async () => {
+  test("what only a human can settle is an ask on the thread, not a rollup: it reaches the decision queue and doesn't wake the manager again; the session ends with no report", async () => {
     const env = await managed(async function* (s) {
       yield init();
       const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: id, decision: "approve" });
-      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\n- Should the lab publish its growth rates weekly?`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
+      yield* callVerb(s, "ask", { type: "meeting", title: "Should the lab publish its growth rates weekly?", body: "Question: should the lab publish its growth rates every week?", branches: [{ label: "Weekly" }, { label: "Only on request" }], recommendation: "Weekly: the numbers are already measured." });
       yield result(200, 0.03);
     });
-    const { world, runtime, sdk, by } = env;
+    const { world, runtime, sdk, by, lab } = env;
     const mei = by("Mei");
     await world.verbs.submit_report(by("Noor").id, report("Growth rate"));
     await runtime.whenIdle();
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(sdk.sessions).toHaveLength(1);
-    const rollup = world.docs.first("authorId = ? AND type = 'report'", [mei.id])!;
-    expect(rollup.tags).toContain("rollup");
-    const th = world.buildings.first("kind = 'town-hall'")!;
-    expect(intrayOf(world, th.id).map((d) => d.id)).toContain(rollup.id);
-    expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done", reportId: rollup.id });
+    const ask = world.asks.first("buildingId = ? AND type = 'meeting'", [lab.id])!;
+    expect(ask).toMatchObject({ status: "open", title: "Should the lab publish its growth rates weekly?" });
+    const raised = jobThread(world, lab.id)!.entries.find((e) => e.moved.kind === "ask")!;
+    expect(raised).toMatchObject({ authorKind: "manager", authorId: mei.id, level: "human" });
+    expect(ask.sourceEntryId).toBe(raised.id);
+    // no report of the manager's, nothing in its own queue, and no rollup anywhere
+    expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
+    expect(openManagerEntries(world, lab.id)).toEqual([]);
+    expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done", reportId: null });
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 

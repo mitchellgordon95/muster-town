@@ -10,7 +10,7 @@
  * the tick's level-triggered sweeps (`wakeManagers`, `scheduleMeetings`, `scheduleWork`) already make up for a restart,
  * as before. Nothing here starts work past `canStart` / `ManageGate`: the starters it calls check them.
  */
-import { managerIntrayRow, type World } from "@muster-town/core";
+import { keyResultEntry, type World } from "@muster-town/core";
 import type { Event } from "@muster-town/schema";
 
 /** What a rule can reach in the runtime. */
@@ -70,10 +70,16 @@ export const WAKE_RULES: WakeRule[] = [
   { name: "manager-intray", who: "manager", kind: "T", replay: false,
     match: (e) => e.type === "doc.created" && (pl(e).docType === "report" || pl(e).docType === "flag") && !!e.buildingId,
     run: (w, e) => w.wakeManagers(e.buildingId!) },
-  // step 3: a human decided a grant or wrote a key result: one town-written in-tray row (core/src/wakes.ts), whose doc.created wakes the manager
-  { name: "manager-intray-row", who: "manager", kind: "T", replay: true,
-    match: (e) => e.type === "grant.funded" || e.type === "grant.closed" || e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted",
-    run: (w, e) => { managerIntrayRow(w.world, e); } },
+  // an entry with no doc landed on a job's thread at level manager (a dead session, a human's counter, reject, cut or
+  // missed key result, a tell, a mention, an outbox answer): the manager's team-lead session answers it
+  { name: "manager-entry", who: "manager", kind: "T", replay: false,
+    match: (e) => e.type === "entry.created" && pl(e).level === "manager" && !!e.buildingId,
+    run: (w, e) => w.wakeManagers(e.buildingId!) },
+  // a human wrote, edited, marked or removed a key result: one human entry on its grant's job (core/src/wakes.ts);
+  // only a missed one is at level manager, and its entry.created wakes the manager
+  { name: "key-result-entry", who: "manager", kind: "T", replay: true,
+    match: (e) => e.type === "kr.created" || e.type === "kr.updated" || e.type === "kr.deleted",
+    run: (w, e) => { keyResultEntry(w.world, e); } },
   // a grant was proposed: the cheap model estimates its cost (advisory; a restart that misses it leaves the history range)
   { name: "grant-estimate", who: "agent", kind: "T", replay: false,
     match: (e) => e.type === "grant.proposed" && !!pl(e).grantId,

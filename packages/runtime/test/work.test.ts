@@ -1,3 +1,4 @@
+import { entryOf } from "@muster-town/core";
 import { describe, expect, test, vi } from "vitest";
 import { callVerb, deferred, init, managerless, result, setup, TEST_TOKEN, text, toolUse, type FakeSession } from "./helpers.ts";
 import { cutFlaggedSessions } from "../src/work.ts";
@@ -88,7 +89,7 @@ describe("work session", () => {
     expect(seed.admin.id).toBeTruthy();
   });
 
-  test("fallback report when the session ends without submit_report", async () => {
+  test("a session that ends without submit_report leaves a code entry on its job's thread for the manager, no report doc", async () => {
     const { world, runtime, by } = setup(async function* (s) {
       yield init();
       yield* callVerb(s, "look", {});
@@ -98,11 +99,15 @@ describe("work session", () => {
     const tomas = by("Tomas");
     const asg = world.ops.createWork(null, tomas.id, { title: "Land sink size" });
     const session = await runtime.runWorkSession(tomas.id, asg.id);
-    const report = world.docs.require(world.sessions.require(session.id).reportId!);
-    expect(report).toMatchObject({ type: "report", verdict: "continue", decision: "pending", authorId: tomas.id, assignmentId: asg.id });
-    expect(report.body).toContain("2.4 ppm/yr");
-    expect(report.body).toContain("without `submit_report`");
-    expect(report).toMatchObject({ sessionId: session.id, tokens: 180, costUsd: 0.01, turns: 4 });
+    expect(world.sessions.require(session.id).reportId ?? null).toBeNull();
+    expect(world.docs.count("type = 'report' AND authorId = ?", [tomas.id])).toBe(0);
+    const entry = entryOf(world, `en_${session.id}`)!;
+    expect(entry).toMatchObject({ authorKind: "code", authorId: tomas.id, level: "manager", docId: null, assignmentId: asg.id, sessionId: session.id, tokens: 180, moved: { kind: "dead-session", stopped: false } });
+    expect(entry.note).toBe("Session ended without a report: Land sink size");
+    expect(entry.body).toContain("2.4 ppm/yr");
+    expect(entry.body).toContain("without `submit_report`");
+    // nothing stays active with no session behind it
+    expect(world.assignments.require(asg.id)).toMatchObject({ status: "cancelled", heldReason: "The session ended without a report." });
     expect(world.agents.require(tomas.id).status).toBe("idle");
     expect(world.events.list({ agentId: tomas.id, types: ["system"] }).some((e) => e.payload.fallback)).toBe(true);
   });
@@ -177,7 +182,7 @@ describe("work session", () => {
     expect(session.error).toBeNull();
   });
 
-  test("stopping an agent mid-session aborts it and writes a stopped fallback report", async () => {
+  test("stopping an agent mid-session aborts it and leaves a record on the thread (no report, nothing for the manager)", async () => {
     const gate = deferred();
     const { world, runtime, sdk, by } = setup(async function* (s) {
       yield init();
@@ -196,7 +201,8 @@ describe("work session", () => {
     expect(sdk.sessions[0].interrupted).toBe(true);
     expect(session.status).toBe("interrupted");
     expect(world.agents.require(ravi.id).status).toBe("stopped");
-    expect(world.docs.require(session.reportId!)).toMatchObject({ decision: "stop", tokens: 30, costUsd: 0.001, turns: 4 });
+    expect(session.reportId ?? null).toBeNull();
+    expect(entryOf(world, `en_${session.id}`)).toMatchObject({ authorKind: "code", level: "none", tokens: 30, moved: { kind: "dead-session", stopped: true } });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
   });
 });

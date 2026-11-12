@@ -139,8 +139,8 @@ describe("grants service", () => {
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
     const [k0, k1] = g.keyResults;
     world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed", note: "not shipped" }); // already marked: not open, left alone
-    world.grantDesk.closeDone(manager, g.id, { note: "the banner shows it" });
-    expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "met", statusNote: "the banner shows it" });
+    world.grantDesk.closeDone(manager, g.id, { note: "checked live: the banner shows it" });
+    expect(world.keyResults.require(k0!.id)).toMatchObject({ status: "met", statusNote: "checked live: the banner shows it" });
     expect(world.keyResults.require(k1!.id).status).toBe("missed");
   });
 

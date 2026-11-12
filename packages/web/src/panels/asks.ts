@@ -22,7 +22,7 @@ export function deltaOf(body: string): { delta: string; rest: string } {
 
 /**
  * What a branch button does, by the ask's target (§11 B): a grant decides through POST /api/grants/:id/decide, a retainer
- * through its retainer decide, a captain or access request through its own decide, an outbox request through claim or
+ * through its retainer decide, a captain or access request through its own decide, a request through done or
  * decline; anything else (policy, meeting, a question in words) records the label through POST /api/asks/:id/decide.
  * `form`: the button opens a field first (tokens for adjust, tokens and a note for a grant's counter, tokens per run, an end
  * date and a note for a retainer's counter, a note for a request).
@@ -33,8 +33,8 @@ export type BranchCall =
   | { kind: "retainer"; action: "approve" | "counter" | "reject"; form?: "retainer" }
   | { kind: "captain"; action: "accept" | "decline" }
   | { kind: "access"; grant: boolean }
-  /** an outbox request: Claim opens an optional note (the author hears it), Decline a required one (the server refuses a bare decline) */
-  | { kind: "request"; action: "claim" | "decline"; form: "note" }
+  /** a request for a human to act (a do ask; no Claim, 1:1 mt_msnjkpgwdb decision 17): Done takes the report back, Decline the reason; both are required */
+  | { kind: "request"; action: "done" | "decline"; form: "note" }
   | { kind: "ask"; decision: string }
   /** a branch the server refuses (continue at the ceiling): not drawn */
   | { kind: "none" };
@@ -75,7 +75,7 @@ export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["
       if (v === "decline") return { kind: "access", grant: false };
       break;
     case "request":
-      if (v === "claim") return { kind: "request", action: "claim", form: "note" };
+      if (v === "done") return { kind: "request", action: "done", form: "note" };
       if (v === "decline") return { kind: "request", action: "decline", form: "note" };
       break;
   }

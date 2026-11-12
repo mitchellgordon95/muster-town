@@ -37,7 +37,7 @@ export function circuitBreakerTick(world: World): CircuitCut[] {
     if (spent < SESSION_CIRCUIT_BREAKER || manage) {
       askToFileOnce(world, "circuitBreaker", s.id, s.agentId,
         manage
-          ? `This session has used ${fmt(spent)} adjusted tokens, far past a manager's usual turn. Don't start anything new: finish the decision in hand, then end the session (a rollup only if one is due).`
+          ? `This session has used ${fmt(spent)} adjusted tokens, far past a manager's usual turn. Don't start anything new: finish the decision in hand, then end the session (just stop: a team-lead session files no report).`
           : `This session has used ${fmt(spent)} adjusted tokens; the town ends any work session at ${fmt(SESSION_CIRCUIT_BREAKER)}. Don't start anything new: commit and push what you changed, write your draft and your wiki pages, then \`submit_report\` now (verdict continue if the work is unfinished, with what the next session needs in Findings).`,
         "The circuit breaker", { buildingId, text: `${name}'s ${manage ? "manage" : "work"} session reached ${Math.round(WARN_SHARE * 100)}% of the session circuit breaker and was asked to ${manage ? "finish and end" : "file"}`, payload: { sessionId: s.id, assignmentId: s.assignmentId, purpose: s.purpose, spentTokens: spent, limitTokens: SESSION_CIRCUIT_BREAKER } });
       continue;
