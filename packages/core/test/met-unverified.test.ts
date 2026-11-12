@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { isJudgedKr, krStatusWords, krVerdict } from "@muster-town/schema";
 import { buildingQueue, createBuilding, createResident, jobThread, keyResultEntry, namesLiveCheck, openManagerEntries, statusAtClose, updateBuilding } from "../src/index.ts";
-import { checkRollupAsks } from "../src/asks.ts";
+import { checkAskCards } from "../src/asks.ts";
 import { krCountsByGrant } from "../src/finance-spend.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -113,7 +113,7 @@ describe("a grant closed as done: met, or met, unverified", () => {
     const { world, pix, g, krs } = lab();
     world.grantDesk.closeDone(pix, g.id, { note: "Merged." });
     const kr = krs()[0]!;
-    expect(() => checkRollupAsks(world, "", [{ type: "click", targetId: kr.id, title: "Keep it met?", body: "Pix has waited since today.", branches: [{ label: "Keep met" }, { label: "Flip" }], recommendation: "Keep met" }]))
+    expect(() => checkAskCards(world, [{ type: "click", targetId: kr.id, title: "Keep it met?", body: "Pix has waited since today.", branches: [{ label: "Keep met" }, { label: "Flip" }], recommendation: "Keep met" }]))
       .toThrow(/is "met, unverified".*asks no human about it/);
   });
 

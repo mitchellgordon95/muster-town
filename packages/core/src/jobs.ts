@@ -373,6 +373,8 @@ export function appendEntry(world: World, e: NewEntry): Entry | null {
     note: e.note.slice(0, 2000), body: e.body ?? "", docId: e.docId ?? null, createdAt: e.createdAt ?? nowIso(),
   });
   const entry = entryOf(world, id)!;
+  // the thread moved: the asks rendered over it are written again from its object (asks.ts `rerenderAsks`, wired by World)
+  world.onEntry?.(e.jobId);
   // a doc-backed entry's doc.created already tells the feed and wakes the manager; this event is for the ones without a doc
   if (!entry.docId) {
     world.events.append({ type: "entry.created", agentId: null, buildingId: job.buildingId, text: `On the thread of ${e.jobId}: ${entry.note.slice(0, 160) || entry.id}`, payload: { entryId: id, jobId: e.jobId, level: e.level, authorKind: e.authorKind, answers: entry.answers, kind: entry.moved.kind ?? null } });
@@ -383,6 +385,11 @@ export function appendEntry(world: World, e: NewEntry): Entry | null {
 /** What the Bank booked for an entry's session, once it is settled (a dead session's entry is written before its charge). */
 export function bookEntryTokens(world: World, entryId: string, tokens: number): void {
   world.db.prepare("UPDATE entries SET tokens = MAX(tokens, ?) WHERE id = ?").run(Math.round(tokens), entryId);
+}
+
+/** The thread's length: its last entry's seq (0 for an empty or unknown thread). */
+export function threadSeq(world: World, jobId: string): number {
+  return (world.db.prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM entries WHERE jobId = ?").get(jobId) as { n: number }).n;
 }
 
 /** One entry by id. */

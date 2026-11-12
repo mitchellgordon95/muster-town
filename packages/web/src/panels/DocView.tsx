@@ -12,7 +12,6 @@ import { AttachButton } from "./AttachButton";
 import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { requestDecisionLine, requestTone } from "./requests";
-import { RollupReport, rollupCardsOf } from "./RollupCards";
 import { PageDoc } from "./PageView";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
@@ -124,7 +123,6 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
   const run = (fn: () => Promise<Doc>, msg: string) => async () => { const d = await fn(); store.putDocs([d]); store.toast(msg, "ok"); };
   const sources = doc.provenance.sourceIds;
   const cost = docCost(doc);
-  const cards = rollupCardsOf(doc);
   const author = useNameOf(doc.authorId);
   return (
     <article className="doc">
@@ -138,7 +136,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
-      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : doc.type === "page" ? <PageDoc doc={doc} /> : cards ? <RollupReport parsed={cards} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
+      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : doc.type === "page" ? <PageDoc doc={doc} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview && doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : null}
       {/* the buttons that act on the doc come after reading it, big (Mitchell's flag dc_4uiv48047s) */}
@@ -149,7 +147,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {canPromote && doc.state === "building" ? <Act run={run(() => api().promote(doc.id, "library"), "Promoted to the library")}>Promote to library</Act> : null}
       </div>
       {sources.length || doc.provenance.urls.length ? (
-        // folded (progressive disclosure, 1:1 mt_i50xwu4z2t): a rollup's covered reports are the record, not the read
+        // folded (progressive disclosure, 1:1 mt_i50xwu4z2t): a report's sources are the record, not the read
         <details className="provenance">
           <summary>Provenance · {sources.length + doc.provenance.urls.length} source{sources.length + doc.provenance.urls.length === 1 ? "" : "s"}</summary>
           <ul>

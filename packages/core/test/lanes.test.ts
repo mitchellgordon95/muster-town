@@ -348,11 +348,8 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const ev = world.events.recent({ types: ["grant.closed"] }).at(-1)!;
     expect(ev.payload).toMatchObject({ grantId: g.id, outcome: "done", spentTokens: 1_000_000, grantTokens: 4_000_000, unspentTokens: 3_000_000 });
     await expect(world.verbs.close_grant(mei, { grantId: g.id, note: "again" })).rejects.toThrow(/already closed/);
-    // the manager can't flip it to missed; the rollup links itself as the close report
+    // the manager can't flip it to missed
     expect(() => world.grantDesk.updateKeyResult(mei, krs[0]!.id, { status: "missed", note: "x" })).toThrow(/building.fund/);
-    const up = await world.verbs.submit_report(mei, { title: "Closed", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing.", verdict: "stop", rollup: true });
-    expect(world.docs.require(up.id).tags).toContain("grant-close");
-    expect(world.grants.require(g.id).checkpointDocId).toBe(up.id);
     // no Town Hall in-tray row and no deck slide for it: nothing to mark
     expect(world.ops.townHallIntray().grants.map((x) => x.id)).not.toContain(g.id);
     expect(reviewDeck(world).slides.some((sl) => sl.grantId === g.id)).toBe(false);

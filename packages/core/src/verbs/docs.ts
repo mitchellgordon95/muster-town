@@ -1,5 +1,5 @@
 import {
-  BOARD_TYPES, askLineFor, askStructure, askWarnings, parseRollup, rollupAsks, rollupAsksOnly, rollupNeedsIdsAll, ROLLUP_MAX_NEEDS, rollupNeedsCount, rollupNeedsRule, rollupNeedsIds, rollupWarnings, withNeedsLine, type Agent, type Doc, type LaneFields, type Schedule,
+  BOARD_TYPES, type Agent, type Doc, type LaneFields, type Schedule,
 } from "@muster-town/schema";
 import {
   applyDecision, canSeeDoc, visitorManagerRefusal, createAssignment, createDoc, grantsAwaitingDecision, homeOf, isTownHallItem, managerAgentOf, queueLabel, requirePendingReport, sendMessage,
@@ -20,10 +20,8 @@ import { answer, asksSomething } from "../answer.ts";
 import { answerEntry, appendEntry, entryOf, fileReportEntry, jobOf, refreshJob } from "../jobs.ts";
 import { passUpWithAsk, requireOpenEntry, reviewEntry } from "../review-entry.ts";
 import { linkPostmortem } from "../postmortems.ts";
-import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
-import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
+import { askForRequest } from "../asks.ts";
 import { fileNotice } from "../notices.ts";
-import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -297,74 +295,34 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const unhomedVisitor = me.kind === "visitor" && !me.homeBuildingId;
   const bid = unhomedVisitor ? world.buildings.first("kind = 'town-hall'")?.id ?? null : homeOf(me);
   const building = bid ? world.buildings.get(bid) : undefined;
-  // Town hall 2026-10-24, decision 1: a resident's report goes to the building in-tray, worked by the manager agent
-  // when there is one (else by humans). Town hall 2026-10-25, decision 6: only a rollup (a checkpoint report is one)
-  // goes to the Town Hall in-tray; the manager's own work report lands in its building's in-tray like a resident's,
-  // and the manager decides it in its next team-lead session.
+  // A report goes to its building's in-tray, worked by the manager agent when there is one (else by humans): town hall
+  // 2026-10-24, decision 1. Rollups are gone (plan dc_uwx045472m step 7; 1:1 mt_msnjkpgwdb decision 21): what shipped is
+  // given at `close_grant`, what only a human can settle is an ask (`ask`, or `review` with `ask`), and the rest is on
+  // the job threads.
   const isManager = !!building && building.kind !== "town-hall" && building.managerAgentId === me.id;
-  const townHall = isManager && !!input.rollup;
-  const manager = townHall ? undefined : managerAgentOf(world, building);
-  const sourceIds = input.provenance?.sourceIds ?? [];
+  if (input.rollup) throw badRequest("Rollups are retired. What shipped: give `shipped` when you `close_grant`. What only a human can settle: file it with `ask` (or pass an in-tray item up with `review` and `ask`). Everything else is already on the job's thread; end the session without a report.");
+  const manager = managerAgentOf(world, building);
   // a work session's report even while a 1:1 runs beside it (that conversation can't submit one: runtime ALONGSIDE_VERBS)
   const session = world.sessions.first("agentId = ? AND status = 'running'", [me.id], "ORDER BY (purpose = 'work') DESC, startedAt DESC");
   const assignmentId = me.currentAssignmentId ?? session?.assignmentId ?? undefined;
   const current = assignmentId ? world.assignments.get(assignmentId) : undefined;
-  // close_grant without a reportId: this session's rollup is the close report of the grants the manager closed as done in it
-  const closedGrants = input.rollup && isManager && session
-    ? world.grants.where("buildingId = ? AND status = 'closed' AND outcome = 'done' AND checkpointDocId IS NULL AND closedAt >= ?", [bid!, session.startedAt])
-      .filter((g) => g.history.at(-1)?.byId === me.id)
-    : [];
   if (unhomedVisitor && !bid) throw badRequest("The town has no Town Hall to file a visitor report in.");
-  if (input.rollup) {
-    if (!isManager) throw badRequest("Only a building's manager agent submits rollups.");
-    if (!sourceIds.length && !closedGrants.length) throw badRequest("A rollup lists the reports it covers in provenance.sourceIds.");
-    for (const id of sourceIds) {
-      const d = world.docs.get(id);
-      if (!d || d.type !== "report" || d.buildingId !== bid) throw badRequest(`Rollup source ${id} is not a report of your building.`);
-    }
-  }
-  // the rollup format (1:1 mt_vcn0e66r1t): the four headings are required; a Shipped item without its labels is only warned
-  const format = input.rollup ? parseRollup(input.body) : null;
-  if (format?.missingSections.length) {
-    const captain = world.captainName();
-    throw badRequest(`A rollup has four sections: ## Shipped, ## Decided, ## Key results, ## Needs from ${captain}. Missing: ${format.missingSections.map((s) => `## ${s === "Needs from Mitchell" ? `Needs from ${captain}` : s}`).join(", ")}.`);
-  }
-  const formatWarnings = [...(format ? rollupWarnings(format) : []), ...(timeWarn(input.body).warnings ?? [])];
-  // asks as a table (docs/legible-delegation.md §4): a rollup's typed `asks` list is checked against its prose (every id
-  // its Needs and real "Your call" lines name is a target in the list); without the list the prose is read as before
-  if (input.asks && !input.rollup) throw badRequest("`asks` goes with a rollup (rollup: true) only.");
-  const typedAsks = format && input.asks ? checkRollupAsks(world, input.body, input.asks) : null;
-  // adoption: a rollup that asks something in prose only is tagged "untyped-asks" and told how to file the list next time
-  const untyped = !!format && !typedAsks && (rollupAsks(format).length > 0 || rollupNeedsIdsAll(input.body, format).length > 0);
-  const untypedNote = untyped ? " Next rollup, also file what you ask the humans as `asks` (type, targetId, title, body, branches, recommendation): this time the town read your Needs and \"Your call\" lines from the prose." : "";
-  // Needs from Mitchell carries only what has no other channel (1:1 mt_uf1bwd3exq): naming an item that already waits
-  // for a human in the Town Hall in-tray or the outbox is refused; the town lists those itself (rollupWaitingLine)
-  if (format) {
-    // a close rollup asks about its own grant: that is what the rollup is for; a typed ask on an item folds into its own ask
-    const own = new Set([...closedGrants.map((g) => g.id), ...(typedAsks ?? []).flatMap((a) => a.targetId ? [a.targetId] : [])]);
-    const dup = rollupNeedsIds(input.body).filter((id) => !own.has(id)).flatMap((id) => { const why = waitingForHuman(world, id); return why ? [`${id} (${why})`] : []; });
-    if (dup.length) {
-      const captain = world.captainName();
-      throw badRequest(`Needs from ${captain} names what already waits for ${captain === "Mitchell" ? "him" : captain} elsewhere: ${dup.join(", ")}. Take it out and resubmit; the town appends an "Already waiting in your in-tray" line that lists it. The rule: ${rollupNeedsRule(captain)}`);
-    }
-    const needs = rollupNeedsCount(input.body);
-    if (needs > ROLLUP_MAX_NEEDS) formatWarnings.push(`${needs} Needs items; keep it to ${ROLLUP_MAX_NEEDS}`);
-  }
+  const formatWarnings = [...(timeWarn(input.body).warnings ?? [])];
   // grant C (gr_95svkzi4l6, kr_13txlz2pnc): a grant-lane fork files its key-result evidence and the top-up line with its
   // report, for its own grant only; the held grant's checkpoint card assembles from them (no manager checkpoint session)
   const krEvidence = input.keyResults ?? [];
   const lane = session?.lane ?? current?.lane;
   const laneGrantId = session?.grantId ?? current?.grantId;
   const evidenceGrant = krEvidence.length || input.topUp ? world.grantDesk.checkReportEvidence(lane, laneGrantId, krEvidence) : null;
-  if (!evidenceGrant && lane === "grant" && laneGrantId && !input.rollup) {
+  if (!evidenceGrant && lane === "grant" && laneGrantId) {
     formatWarnings.push(`a grant-lane report with no keyResults or topUp: if your work moved a key result of ${laneGrantId}, file it with keyResults [{id, status, evidence}] next time (the checkpoint card shows what the forks filed)`);
   }
-  const formatNote = formatWarnings.length ? ` Warnings (filed anyway${format ? "; unlabelled Shipped items show as plain text instead of cards" : ""}): ${formatWarnings.join("; ")}.${format ? ` Next rollup: each Shipped item gets **What it is:**, **What you'd see:** (one cropped picture) and **Your call:**; Needs keeps to ${ROLLUP_MAX_NEEDS} items.` : ""}` : "";
+  const formatNote = formatWarnings.length ? ` Warnings (filed anyway): ${formatWarnings.join("; ")}.` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
   // plan dc_uwx045472m step 4: a grant step's entry says what is left (`moved.left`), required when the step ends here
   const left = input.left?.trim() || undefined;
-  if (!left && !resumeWhen && !input.rollup && current?.grantId && current.grantStep != null) {
+  if (!left && !resumeWhen && current?.grantId && current.grantStep != null) {
     throw badRequest(`A grant step's report says what is left: add left: "<what is left of grant ${current.grantId}'s work after this step, one or two plain sentences>" and submit again.`);
   }
   const parks = (current?.parked ?? 0) + 1;
@@ -373,39 +331,18 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (parks > MAX_PARKS) throw badRequest(`This work has already parked ${MAX_PARKS} times in a row; submit the report without resumeWhen and say what you're waiting on.`);
     if ("assignment" in resumeWhen && resumeWhen.assignment === current.id) throw badRequest("resumeWhen can't wait on your own current assignment.");
   }
-  // 1:1 mt_ewxnhs90cq decision 5: a typed ask missing structure (two branches, a recommendation, its type's hard
-  // contract fields) is refused; style rules are filed as warnings in the ask's history and named in the answer
-  if (typedAsks?.length) refuseMissingStructure("rollup", typedAsks.flatMap((a, i) => askStructure(a.type, { ...a, targetKind: a.targetKind ?? null }).map((p) => `asks[${i}] "${a.title.slice(0, 60)}": ${p}`)));
-  const styleWarnings = (typedAsks ?? []).flatMap((a, i) => askWarnings(a.type, { ...a, targetKind: a.targetKind ?? null, dictionary: dictionaryPairs(world) }).map((p) => `asks[${i}] ${p}`));
-  const styleNote = styleWarnings.length ? ` Your typed asks are filed with ${styleWarnings.length} style warning(s), kept in each ask's history; next time: ${styleWarnings.join("; ").slice(0, 1500)}.` : "";
   const owner = unhomedVisitor && me.ownerUserId ? world.users.get(me.ownerUserId)?.name ?? null : null;
-  const filed = format ? withNeedsLine(input.body, rollupWaitingLine(world, bid!)) : input.body;
-  const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : filed;
+  const body = unhomedVisitor ? `${input.body.trimEnd()}\n\n_Visitor report from ${me.name}${owner ? `, ${owner}'s agent` : ""}; it has no home building._` : input.body;
   return world.transaction(() => {
     const doc = createDoc(world, {
       type: "report", state: "building", title: input.title, body, verdict: input.verdict, decision: "pending",
       authorId: me.id, authorKind: "agent", buildingId: bid, provenance: input.provenance,
       sessionId: session?.id, assignmentId: assignmentId ?? undefined,
-      tags: [...(input.rollup ? ["rollup"] : []), ...(untyped ? ["untyped-asks"] : []), ...(unhomedVisitor ? ["visitor"] : []), ...(closedGrants.length ? ["grant-close"] : []), ...(resumeWhen ? ["parked"] : [])],
-    }, `${me.name} submitted a ${input.rollup ? "rollup" : "report"}: ${input.title}`);
-    for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
+      tags: [...(unhomedVisitor ? ["visitor"] : []), ...(resumeWhen ? ["parked"] : [])],
+    }, `${me.name} submitted a report: ${input.title}`);
     // the entry (plan dc_uwx045472m step 4): what this session moved, on its job's thread; the report doc stays beside it
     const proposed = current?.lane === "exploration" ? (world.db.prepare("SELECT json_extract(payload, '$.grantId') AS g FROM events WHERE type = 'exploration.proposed' AND json_extract(payload, '$.assignmentId') = ? ORDER BY id DESC LIMIT 1").get(current.id) as { g: string | null } | undefined)?.g ?? undefined : undefined;
     if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
-    // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
-    // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
-    // its grant's report and stays.
-    // With a typed list, the same holds by target: every ask folded into an ask already open (and no Shipped items).
-    const rowIds = format && !closedGrants.length && !typedAsks ? waitingRowIds(world) : null;
-    let asked = rowIds ? [...rowIds].filter((id) => askLineFor(input.title, body, id)) : [];
-    let folded = asked.length && rollupAsksOnly(body, asked) ? foldRollup(world, doc, asked) : null;
-    const filedAsks = typedAsks ? fileRollupAsks(world, me, doc, typedAsks) : [];
-    if (format && typedAsks && !closedGrants.length && !format.items.length && filedAsks.length && filedAsks.every((f) => f.folded)) {
-      asked = [...new Set(filedAsks.map((f) => f.ask.targetId!))];
-      folded = foldRollup(world, doc, asked);
-    } else if (format && !typedAsks) asksFromRollupProse(world, folded ?? doc);
-    // legible delegation step 5: shipped notices, the closed loop of a grant it closes, archived when it asks nothing of its own
-    const archived = format ? settleRollup(world, folded ?? doc, closedGrants) : false;
     // decision 1d: humans aren't notified of reports a manager agent will consume; only Town Hall items reach them
     notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId, agentsOnly: !!manager });
     // a cancelled assignment (stopped/dismissed mid-session) stays cancelled; the report still lands
@@ -439,7 +376,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     // the one loop (plan step 5; core answer.ts): the code has done the mechanical part above (next step, forecast and its
     // resize ask, the proposal's credit); `answer` says who still owes this entry an answer. Nobody → the town
     // acknowledges the report itself, so the manager's in-tray holds only what needs judgment.
-    const forHumans = townHall || unhomedVisitor;
+    const forHumans = unhomedVisitor;
     const loop = answer({
       kind: "report", rule: current ? jobOf(current).rule : "building", verdict: input.verdict, step: current?.grantStep != null && !!current.grantId, nextStep: !!nextStep,
       parked: !!resumeWhen, needs: reportAsks(body), proposed: !!proposed, overCeiling: !!forecast?.overCeiling, forHumans, outsider: me.kind === "visitor",
@@ -461,22 +398,19 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = folded || archived || settled ? "approve" : "pending";
+    const decision: Doc["decision"] = settled ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
-    const intray = townHall ? "town-hall" : bid;
-    const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
-      : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
-      : townHall ? "the Town Hall in-tray (the humans decide on it)"
-      : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
+    const intray = unhomedVisitor ? "town-hall" : bid;
+    const where = unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
       : settled ? `the thread of job ${entryJob}; nobody needs to decide it (${loop.why}), so it is not in ${manager ? `${manager.name}'s` : "the"} in-tray`
-      : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
+      : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
     if (parked) {
-      return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}),
-        note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
+      return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: parked.assignmentId, nextStepId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}),
+        note: `Report submitted to ${where}.${formatNote} Your work is parked and resumes by itself after ${parked.waitingOn} (whoever works the in-tray can Stop or Redirect it there). Your session ends now.` };
     }
-    return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
+    return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
 }
 
@@ -487,31 +421,6 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
 function reportAsks(body: string): boolean {
   const sections = [NEED, "Questions for humans"].filter((h) => new RegExp(`^#{1,6}\\s*${h}\\s*$`, "im").test(body));
   return !sections.length || sections.some((h) => asksSomething(sectionOf(body, h)));
-}
-
-/** Why `id` already waits for a human outside a rollup's Needs (a grant in the Town Hall in-tray, an open outbox request, a pending rollup), or null. */
-function waitingForHuman(world: World, id: string): string | null {
-  if (id.startsWith("gr_")) {
-    const g = grantsAwaitingDecision(world).find((v) => v.id === id);
-    return !g || g.status === "countered" ? null : g.status === "proposed" ? "a grant proposal in the Town Hall in-tray" : "a grant decision in the Town Hall in-tray";
-  }
-  const d = world.docs.get(id);
-  if (d?.type === "request" && d.requestStatus === "open") return "an open outbox request";
-  if (d?.type === "report" && d.decision === "pending" && isTownHallItem(world, d)) return "a report in the Town Hall in-tray";
-  return null;
-}
-
-/**
- * The generated line under a rollup's Needs (1:1 mt_uf1bwd3exq): what of this building already waits for the humans,
- * computed at submit time. Not written by the manager.
- */
-function rollupWaitingLine(world: World, buildingId: string): string {
-  const proposals = world.grants.where("buildingId = ? AND status = 'proposed'", [buildingId], "ORDER BY createdAt, rowid").map((g) => g.id);
-  const requests = world.docs.where("type = 'request' AND requestStatus = 'open' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").map((d) => d.id);
-  const rollups = world.docs.where("type = 'report' AND decision = 'pending' AND buildingId = ? AND tags LIKE '%\"rollup\"%'", [buildingId], "ORDER BY createdAt, rowid").map((d) => d.id);
-  if (!proposals.length && !requests.length && !rollups.length) return "_Nothing else waiting in your in-tray._";
-  const part = (ids: string[], one: string) => `${ids.length} ${one}${ids.length === 1 ? "" : "s"}${ids.length ? ` (${ids.join(", ")})` : ""}`;
-  return `_Already waiting in your in-tray: ${part(proposals, "proposal")}, ${part(requests, "request")}, ${part(rollups, "rollup")}._`;
 }
 
 /** The lane fields of a verb input (`assign`, `review`), or undefined when none is given (a continuation inherits). */

@@ -33,7 +33,7 @@ describe("manager team-lead session", () => {
       const next = await s.next(); // the second report, streamed in
       const second = next!.match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: second, decision: "approve" });
-      yield result(300, 0.05, "Both decided; no rollup due.");
+      yield result(300, 0.05, "Both decided.");
     });
     const { world, runtime, sdk, by, lab } = env;
     const mei = by("Mei"), noor = by("Noor");
@@ -69,7 +69,7 @@ describe("manager team-lead session", () => {
     expect(ended).toMatchObject({ status: "done", purpose: "manage", reportId: null, tokens: 300 });
     // no fallback report: the event log says what happened
     expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
-    expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports, no rollup/.test(e.text))).toBe(true);
+    expect(world.events.list({ agentId: mei.id, limit: 500 }).some((e) => e.type === "system" && /in-tray session ended .*decided 2 reports$/.test(e.text))).toBe(true);
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 
@@ -115,26 +115,30 @@ describe("manager team-lead session", () => {
     expect(townRows()).toHaveLength(0);
   });
 
-  test("a rollup goes to the Town Hall and doesn't wake the manager again", async () => {
+  test("what only a human can settle is an ask on the thread, not a rollup: it reaches the decision queue and doesn't wake the manager again; the session ends with no report", async () => {
     const env = await managed(async function* (s) {
       yield init();
       const id = s.received[0].match(/(dc_[a-z0-9]+)/)![1];
       yield* callVerb(s, "review", { docId: id, decision: "approve" });
-      yield* callVerb(s, "submit_report", { title: "Rollup: carbon lab", body: `## Shipped\nNothing new.\n\n## Decided\n- ${id} → approved\n\n## Key results\nnone funded\n\n## Needs from Mitchell\n- Should the lab publish its growth rates weekly?`, verdict: "continue" as const, rollup: true, provenance: { sourceIds: [id] } });
+      yield* callVerb(s, "ask", { type: "meeting", title: "Should the lab publish its growth rates weekly?", body: "Question: should the lab publish its growth rates every week?", branches: [{ label: "Weekly" }, { label: "Only on request" }], recommendation: "Weekly: the numbers are already measured." });
       yield result(200, 0.03);
     });
-    const { world, runtime, sdk, by } = env;
+    const { world, runtime, sdk, by, lab } = env;
     const mei = by("Mei");
     await world.verbs.submit_report(by("Noor").id, report("Growth rate"));
     await runtime.whenIdle();
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(sdk.sessions).toHaveLength(1);
-    const rollup = world.docs.first("authorId = ? AND type = 'report'", [mei.id])!;
-    expect(rollup.tags).toContain("rollup");
-    const th = world.buildings.first("kind = 'town-hall'")!;
-    expect(intrayOf(world, th.id).map((d) => d.id)).toContain(rollup.id);
-    expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done", reportId: rollup.id });
+    const ask = world.asks.first("buildingId = ? AND type = 'meeting'", [lab.id])!;
+    expect(ask).toMatchObject({ status: "open", title: "Should the lab publish its growth rates weekly?" });
+    const raised = jobThread(world, lab.id)!.entries.find((e) => e.moved.kind === "ask")!;
+    expect(raised).toMatchObject({ authorKind: "manager", authorId: mei.id, level: "human" });
+    expect(ask.sourceEntryId).toBe(raised.id);
+    // no report of the manager's, nothing in its own queue, and no rollup anywhere
+    expect(world.docs.count("authorId = ? AND type = 'report'", [mei.id])).toBe(0);
+    expect(openManagerEntries(world, lab.id)).toEqual([]);
+    expect(world.sessions.first("agentId = ? AND purpose = 'manage'", [mei.id])).toMatchObject({ status: "done", reportId: null });
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 

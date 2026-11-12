@@ -3,21 +3,19 @@
  * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·
- *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4), asks to captain a goal and retainer asks · 5. rollups with a real "Your call" (one slide per such item), and other reports ·
- *   6. grants a human stopped (nothing to decide: who, why, spent and returned; gr_8i952perny) · then one "For the record"
- *   slide for rollups whose every call is None. A grant closed as done has no slide: its key results are met on close
- *   (town hall mt_v09cn7a8yr decision 2); its close rollup is an ordinary rollup slide.
+ *   4. grant proposals, oldest first, then goal proposals (docs/goals.md step 4), asks to captain a goal and retainer asks · 5. Town Hall reports (an unhomed visitor's) ·
+ *   6. grants a human stopped (nothing to decide: who, why, spent and returned; gr_8i952perny). A grant closed as done has
+ *   no slide: its key results are met on close (town hall mt_v09cn7a8yr decision 2). There are no rollup slides
+ *   (rollups are retired, plan dc_uwx045472m step 7).
  * Each slide says how long it has waited and how many assignments are parked on it, and carries one history line when
- * one applies (a grant's last human entry; the building's previous rollup decision; a meeting with a human its
- * provenance names).
+ * one applies (a grant's last human entry; a meeting with a human its provenance names).
  */
-import { isJudgedKr, krStatusWords, ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, isNoCall, parseRollup, rollupAsks, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type RollupAsk, askVerb, type ReviewSlide, type ReviewSlideKind, type RollupItem } from "@muster-town/schema";
+import { isJudgedKr, krStatusWords, ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
 import type { GoalNode, GoalProposalView } from "./goals.ts";
 import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
-import { rollupAsksFor } from "./rollup-asks.ts";
 import { describeRepeat } from "./schedules.ts";
 import { rankedAsks } from "./asks.ts";
 import { todaysSlate } from "./secretary.ts";
@@ -68,14 +66,6 @@ export function grantHistoryLine(world: World, g: GrantView, now: Date): string 
   return `${historyActor(e, (id) => world.nameOf(id))} ${ACTION_PAST[e.action] ?? e.action} ${waitedFor(e.at, now)} ago${note ? `: ${e.viaMeetingId ? oneLine(note) : `"${oneLine(note)}"`}` : ""}`;
 }
 
-/** The same building's previous decided rollup: its decision and note. */
-export function rollupHistoryLine(world: World, doc: Doc, now: Date): string {
-  if (!doc.buildingId) return "";
-  const prev = world.docs.first("type = 'report' AND buildingId = ? AND decision IS NOT NULL AND decision != 'pending' AND createdAt < ? AND id != ? AND tags LIKE '%\"rollup\"%'", [doc.buildingId, doc.createdAt, doc.id], "ORDER BY createdAt DESC, rowid DESC");
-  if (!prev) return "";
-  const verb = prev.decisionNote ? "replied to" : prev.decision === "approve" ? "approved" : `decided (${prev.decision})`;
-  return `${prev.decidedBy ? world.nameOf(prev.decidedBy) : "A human"} ${verb} the previous rollup "${oneLine(prev.title)}" ${prev.decidedAt ? `${waitedFor(prev.decidedAt, now)} ago` : ""}${prev.decisionNote ? `: "${oneLine(prev.decisionNote)}"` : ""}`.replace(/\s+$/, "");
-}
 
 const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/;
 function mediaSrc(world: World, id: string): string | null {
@@ -119,13 +109,8 @@ function evidenceLines(e: CheckpointEvidence): string {
   return e.keyResults.length ? e.keyResults.map((k, i) => `${i + 1}. ${evidenceKrLine(k)}`).join("\n") : "_No key results._";
 }
 
-/** The rollups' asks on an item, as the slide's first lines: "Workshop asks you to fund this: <line> (rollup dc_…)". */
-function asksLines(asks: RollupAsk[] | undefined, verb: string): string {
-  return (asks ?? []).map((a) => `**${a.buildingName} asks you to ${verb} this:** ${oneLine(a.line)} (rollup ${a.reportId})\n\n`).join("");
-}
 
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
-  const asks = asksLines(rollupAsksFor(world, g), askVerb(g.status));
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds; met on close as done, missed on a stop
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
@@ -137,7 +122,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
     const at = [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt;
     // evidence first (Mitchell 1:1 mt_7b4zc7yja3): what shipped per key result, spend, what a top-up buys; the plan below the fold
     const e = g.evidence;
-    if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: asks + [
+    if (e) return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: [
       `**What shipped** (${g.id}; its grant work is stopped until you decide):`,
       // grant C (gr_95svkzi4l6): the forks' key-result evidence, then the grant's own reports; the top-up only when filed
       ...(e.filed ? [] : [`_${NO_FORK_EVIDENCE}._`]),
@@ -149,7 +134,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
       `**Your call:** Continue, adjust (top up) or cut.`,
       `_The plan as funded (below the fold):_ ${kr}. Stops when: ${oneLine(g.stopCondition)}`,
     ].join("\n\n") };
-    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: asks + card({
+    return { ...base, kind: "checkpoint", group: 1, since: at, title: `${b}: checkpoint held — ${grantName(g)}`, body: card({
       whatItIs: `${g.objective} (${g.id}). ${kr}. Its grant work is stopped until you decide.`,
       whatYoudSee: testing,
       picture: proposalPicture(world, g),
@@ -159,7 +144,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const at = [...g.history].reverse().find((h) => h.action === "propose")?.at ?? g.updatedAt;
   // a proposal that names the earlier grant it continues (`continues`, 1:1 mt_z1b38bwg98): that grant's evidence first
   const earlier = g.evidence ? `**Continues the earlier grant ${g.evidence.grantId}** ("${oneLine(g.evidence.objective)}", spent ${fmt(g.evidence.spentTokens)} of ${fmt(g.evidence.grantTokens)}):\n\n${evidenceLines(g.evidence)}\n\n${topUpLine(g.evidence)}\n\n` : "";
-  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${grantName(g)}`, body: asks + earlier + card({
+  return { ...base, kind: "proposal", group: 4, since: at, title: `${b}: proposal — ${grantName(g)}`, body: earlier + card({
     whatItIs: `${g.objective} (${g.id}). ${kr}.${g.approach ? ` ${oneLine(g.approach)}` : ""}`,
     steps: grantStepLines(g),
     whatYoudSee: g.whatYoudSee || testing,
@@ -253,7 +238,7 @@ function retainerSlide(world: World, v: ScheduleView): Draft {
   return {
     kind: "retainer", group: 4, itemId: v.id, buildingId: v.buildingId, since: v.updatedAt, history: v.retainerNote && countered ? `Countered: ${oneLine(v.retainerNote)}` : "",
     title: `Retainer: ${b} asks for standing money for "${oneLine(v.title)}"`,
-    body: asksLines(rollupAsksFor(world, v), askVerb("asked")) + card({
+    body: card({
       whatItIs: `${retainerLine(world, v)} tokens. A retainer is standing money for a recurring job (${v.id}, ${describeRepeat(v)}), not a grant: it is claimed in the Bank while funded, each run may spend at most ${v.tokensPerRun.toLocaleString("en-US")} tokens and is asked to wrap up there, and what it doesn't spend goes back when the schedule ends. What it does: ${oneLine(v.description || v.title)}`,
       whatYoudSee: `Approving it puts "Retainers" on the Bank page up by ${v.askTokens.toLocaleString("en-US")} tokens and its runs start on the Schedule board; until then they stay held ("retainer not approved").`,
       picture: null,
@@ -267,7 +252,6 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const intray = townHallIntray(world);
   const waiters = decisionWaiters(world);
   const drafts: Draft[] = [];
-  const record: Doc[] = [];
 
   for (const g of grantsAwaitingDecision(world)) {
     if (g.status === "countered") continue; // waiting on the manager, not a human
@@ -289,31 +273,11 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   // read through its asks, so its own per-call slides would repeat them (the record stays one click down)
   const asks = rankedAsks(world);
   const askedIn = new Set(asks.flatMap((a) => [a.sourceDocId, ...a.sources.map((s) => s.docId)]).filter((id): id is string => !!id));
+  // the Town Hall's reports are visitor reports now (rollups are retired, plan dc_uwx045472m step 7): each its markdown with the plain buttons
   for (const d of intray.reports) {
     if (askedIn.has(d.id)) continue;
-    const rollup = d.tags.includes("rollup");
-    const parsed = rollup ? parseRollup(d.body) : null;
     const who = `${world.buildings.get(d.buildingId ?? "")?.name ?? "Town"}`;
-    const history = (rollup ? rollupHistoryLine(world, d, now) : "") || meetingLine(world, d.provenance.sourceIds);
-    const base = { itemId: d.id, buildingId: d.buildingId, since: d.createdAt, history, docIds: [d.id] };
-    if (parsed && parsed.items.length && !parsed.missingSections.length) {
-      const calls = parsed.items.map((it, i) => [it, i] as [RollupItem, number]).filter(([it]) => !isNoCall(it.yourCall));
-      // the Needs lines (a question in words, a decision reserved: rollupAsks leaves out "Nothing needed" and the generated waiting line) ride on the rollup's first slide, or make its one slide when no item asks a call
-      const needs = rollupAsks(parsed).filter((a) => a.n === null).map((a) => a.call);
-      const needsBlock = needs.length ? `**${who} also needs from you:**\n\n${needs.map((l) => `- ${oneLine(l)}`).join("\n")}` : "";
-      if (!calls.length && !needs.length) { record.push(d); continue; }
-      if (!calls.length) {
-        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: "needs", title: `${who} rollup: ${d.title}`, body: `_${d.title} (${d.id}) · its ${parsed.items.length} Shipped item${parsed.items.length === 1 ? " asks" : "s ask"} no call_\n\n${needsBlock.replace(" also needs", " needs")}` });
-        continue;
-      }
-      for (const [it, i] of calls) {
-        const first = i === calls[0]![1];
-        drafts.push({ ...base, kind: "rollup", group: 5, keySuffix: String(i + 1), title: `${who} rollup: ${it.title}`, body: `_${d.title} (${d.id}) · item ${i + 1} of ${parsed.items.length}_\n\n${card({ whatItIs: it.whatItIs, whatYoudSee: it.whatYoudSee, picture: null, pictures: it.pictures, yourCall: it.yourCall })}${first && needsBlock ? `\n\n${needsBlock}` : ""}` });
-      }
-    } else {
-      // an old-format rollup, a checkpoint or visitor report, an escalation: its markdown with the plain buttons
-      drafts.push({ ...base, kind: "report", group: 5, title: `${who}: ${d.title}`, body: d.body.replace(/^\s*#\s+[^\n]*\n+/, "") });
-    }
+    drafts.push({ itemId: d.id, buildingId: d.buildingId, since: d.createdAt, history: meetingLine(world, d.provenance.sourceIds), docIds: [d.id], kind: "report", group: 5, title: `${who}: ${d.title}`, body: d.body.replace(/^\s*#\s+[^\n]*\n+/, "") });
   }
 
   // what work is parked on comes right after the blocking groups, most waiters first
@@ -334,8 +298,8 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   ordered.push(...drafts.filter((d) => !used.has(d)));
 
   const slides: ReviewSlide[] = [];
-  const decisions = new Set(ordered.filter((d) => d.kind !== "stopped").map((d) => d.askId ?? d.itemId)).size + record.length;
-  const oldest = [...ordered.map((d) => d.since), ...record.map((d) => d.createdAt)].filter((s): s is string => !!s).sort()[0] ?? null;
+  const decisions = new Set(ordered.filter((d) => d.kind !== "stopped").map((d) => d.askId ?? d.itemId)).size;
+  const oldest = ordered.map((d) => d.since).filter((s): s is string => !!s).sort()[0] ?? null;
   // the first slide is today's money slate when the Secretary filed one, then the state of the town
   const slate = slateSlide(world, now);
   if (slate) slides.push(slate);
@@ -347,12 +311,6 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     slides.push({ text, notes: "", title: d.title, pictures: [...text.matchAll(new RegExp(IMAGE.source, "g"))].map((m) => ({ alt: m[1]!, src: m[2]! })),
       key: `${d.kind}:${d.itemId}${d.keySuffix ? `:${d.keySuffix}` : ""}`, kind: d.kind, itemId: d.itemId, group: d.group, buildingId: d.buildingId,
       since: d.since, waiters: w, history: d.history, ...(d.grantId ? { grantId: d.grantId } : {}), ...(d.docIds ? { docIds: d.docIds } : {}), ...(d.askId ? { askId: d.askId } : {}) });
-  }
-  if (record.length) {
-    const names = record.map((d) => `${world.buildings.get(d.buildingId ?? "")?.name ?? "?"}: ${d.title} (${d.id})`);
-    const title = "For the record (no decision)";
-    slides.push({ text: `## ${title}\n\nThese rollups ask nothing of you: every Shipped item's call is None.\n\n${names.map((n) => `- ${n}`).join("\n")}`, notes: "", title, pictures: [],
-      key: "record", kind: "record", itemId: null, group: 7, buildingId: null, since: record[0]!.createdAt, waiters: 0, history: "", docIds: record.map((d) => d.id) });
   }
   return { title: "Review deck", generatedAt: now.toISOString(), slides };
 }

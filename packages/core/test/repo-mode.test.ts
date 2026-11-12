@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { waitKindsFor, verbToolFor } from "@muster-town/schema";
 import { ROOT_GOAL_ID } from "@muster-town/schema";
-import { buildingRoleId, createBuilding, createResident, managerIntrayBlock, repoKey, townRoleId, updateBuilding, validateWait } from "../src/index.ts";
+import { createBuilding, createResident, managerIntrayBlock, repoKey, townRoleId, updateBuilding, validateWait } from "../src/index.ts";
 import { managerSystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -85,7 +85,7 @@ describe("waits follow the repo mode", () => {
 });
 
 describe("prompts follow the repo mode", () => {
-  it("none: no deploy/PR waits, no merge example, no Live line, the rollup trigger is decided reports", () => {
+  it("none: no deploy/PR waits, no merge example, no Live line", () => {
     const { world, b, pix, seed } = lab("none");
     const town = world.town.get();
     const work = workSystemPrompt(pix, b, town, { repo: world.repoMode() });
@@ -93,7 +93,6 @@ describe("prompts follow the repo mode", () => {
     expect(work).toMatch(/"Decide whether X\."/);
     const mgr = managerSystemPrompt(pix, b, town, { repo: world.repoMode() });
     expect(mgr).not.toMatch(/merge rights|"Live:" line/);
-    expect(mgr).toMatch(/Roll up when reports were decided since your last rollup/);
     world.host.commit = "fa73e88aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     expect(managerIntrayBlock(world, b, pix.id)).not.toMatch(/Live:/);
     expect(seed).toBeTruthy();
@@ -120,7 +119,7 @@ describe("prompts follow the repo mode", () => {
   });
 });
 
-describe("the captain the prompts and rollups address (1:1 mt_1vs893enaw decision 5)", () => {
+describe("the captain the prompts address (1:1 mt_1vs893enaw decision 5)", () => {
   function hosted() {
     const l = lab("none");
     const root = l.world.goalTree.get(ROOT_GOAL_ID)!;
@@ -133,23 +132,14 @@ describe("the captain the prompts and rollups address (1:1 mt_1vs893enaw decisio
     const { world, b, pix } = hosted();
     expect(world.captainName()).toBe("Ada");
     const mgr = managerSystemPrompt(pix, b, world.town.get(), { repo: world.repoMode(), captain: world.captainName() });
-    expect(mgr).toMatch(/## Needs from Ada`/);
-    expect(mgr).toMatch(/Rollups are how Ada hears from you/);
+    expect(mgr).toMatch(/How Ada hears from you\. There are no rollups/);
+    expect(mgr).toMatch(/Three things reach Ada, each when it happens/);
+    expect(mgr).toMatch(/Those go to Ada as an ask the moment they appear/);
+    expect(mgr).toMatch(/it becomes a card in Ada's queue/);
+    expect(mgr).toMatch(/Write each card diff-first from "## What Ada has seen"/);
     expect(mgr).not.toMatch(/Mitchell/);
     expect(managerIntrayBlock(world, b, pix.id)).not.toMatch(/Mitchell/);
     expect(managerIntrayBlock(world, b, pix.id)).toMatch(/you work it; Ada doesn't see these reports/);
-  });
-
-  it("a hosted rollup with \"## Needs from Ada\" files; a missing heading is named after Ada", async () => {
-    const { world, b, pix } = hosted();
-    world.permissions.grant({ kind: "agent", id: pix.id }, buildingRoleId(b.id, "manager"));
-    const res = createResident(world, { buildingId: b.id, name: "Res" });
-    const r = await world.verbs.submit_report(res, { title: "Done", body: "## What I did\nx", verdict: "stop" });
-    const prov = { sourceIds: [r.id], urls: [] };
-    await expect(world.verbs.submit_report(pix, { title: "x", body: "## Shipped\nx\n## Decided\nx\n## Key results\nx", verdict: "stop", rollup: true, provenance: prov }))
-      .rejects.toThrow(/Missing: ## Needs from Ada\./);
-    const ok = await world.verbs.submit_report(pix, { title: "R", body: "## Shipped\nNothing.\n## Decided\n- x\n## Key results\nx\n## Needs from Ada\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
-    expect(world.docs.require(ok.id).tags).toContain("rollup");
   });
 
   it("muster.town keeps Mitchell, word for word", () => {
@@ -158,8 +148,9 @@ describe("the captain the prompts and rollups address (1:1 mt_1vs893enaw decisio
     expect(world.captainName()).toBe("Mitchell");
     const mgr = managerSystemPrompt(pix, b, world.town.get(), { repo: "muster", captain: world.captainName() });
     expect(mgr).toBe(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" }));
-    expect(mgr).toMatch(/## Needs from Mitchell`/);
-    expect(mgr).toMatch(/How he reads one/);
+    expect(mgr).toMatch(/How Mitchell hears from you\. There are no rollups/);
+    expect(mgr).toMatch(/Three things reach him, each when it happens/);
+    expect(mgr).toMatch(/which Mitchell reads on the grant's page when he wants it/);
     expect(mgr).toMatch(/reaches him on its own/);
   });
 });

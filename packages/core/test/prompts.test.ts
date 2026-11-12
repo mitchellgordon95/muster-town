@@ -21,9 +21,10 @@ describe("the team-lead prompt is split for the provider's cache (docs/prompt-ca
     expect(after).not.toContain(r.id);
     expect(after).not.toContain("2.4 GtC/yr");
     expect(after).not.toContain("## Your in-tray (you work it");
-    // what it does carry: the fixed rules (decide, rollup format) and the pointer to the first message
+    // what it does carry: the fixed rules (decide, how the captain hears from it, the ask card) and the pointer to the first message
     expect(after).toContain("Working the in-tray.");
-    expect(after).toMatch(/rollup: true/);
+    expect(after).toContain("How Mitchell hears from you. There are no rollups");
+    expect(after).toContain("Asks. File one card per thing only a human can do");
     expect(after).toContain("opens the first message");
     expect(after).toContain("Read, Grep and Glob");
 
@@ -31,7 +32,8 @@ describe("the team-lead prompt is split for the provider's cache (docs/prompt-ca
     const state = managerStateBlock(world, mei, b, { now });
     expect(state.startsWith("Clock: it is 2026-11-02 20:00 UTC")).toBe(true);
     expect(state).toContain(`${r.id} "Ocean sink 2024" by Noor (verdict stop`);
-    expect(state).toContain("Last rollup: never; reports decided since: 0");
+    expect(state).toContain("Spend today by lane: exploration");
+    expect(state).not.toMatch(/Last rollup|reports decided since/);
     expect(state).toContain("## Your team (you are the manager of");
     expect(state).toContain("## Grants (this building is goal-directed)");
     // the wiki as an index (title, id, gist), never the page; the pages are `read` on demand
@@ -71,7 +73,7 @@ describe("no forced next step", () => {
     expect(REPORT_FORMAT).not.toMatch(/Proposal for next session/);
     expect(REPORT_FORMAT).toMatch(/Never invent follow-up work/);
   });
-  it("the manager's in-tray block lists the residents' pending reports, the escalation criteria and the rollup rule; only the manager gets it", async () => {
+  it("the manager's in-tray block lists the residents' pending reports, the escalation criteria and how the captain hears from it (no rollups: shipped at the close, asks); only the manager gets it", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
@@ -81,38 +83,34 @@ describe("no forced next step", () => {
     expect(block).toContain(`${r.id} "Ocean sink 2024" by Noor (verdict stop`);
     expect(block).toContain("needs: Merge PR #12.");
     expect(block).toMatch(/Decide yourself unless/);
-    expect(block).toMatch(/rollup: true/);
-    expect(block).toContain("Last rollup: never; reports decided since:");
+    expect(block).toMatch(/Those go to Mitchell as an ask the moment they appear \(`ask`, or `review` with `ask`/);
+    expect(block).toContain("How Mitchell hears from you. There are no rollups (`submit_report` with `rollup: true` is refused).");
+    expect(block).toMatch(/when you `close_grant`, give `shipped`/);
+    expect(block).toContain("Asks. File one card per thing only a human can do, when the need appears: `ask`");
+    expect(block).not.toMatch(/Last rollup|reports decided since|Roll up when/);
     expect(sessionMemory(world, mei, b).team).toContain("## Your in-tray");
     expect(sessionMemory(world, by("Noor"), b).team).toBeUndefined();
     await world.verbs.review(admin, { docId: r.id, decision: "approve" });
     const after = managerIntrayBlock(world, b, mei.id);
     expect(after).not.toContain(r.id);
-    expect(after).toContain("reports decided since: 1");
   });
-  it("the rollup rule is 'something new is live and decided, at least 4 h apart' and names the live commit (1:1 mt_7mhv73quu3)", async () => {
+  it("the in-tray's status line names the live commit and since when (1:1 mt_7mhv73quu3)", () => {
     const { world, by, admin } = musterWorld();
     const mei = by("Mei");
     const b = world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
     const now = Date.parse("2026-10-31T12:00:00Z");
-    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("Live: unknown (no runtime).");
+    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("Live: unknown (no runtime). Spend today by lane:");
     world.host.commit = "fa73e88aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     world.host.startedAt = "2026-10-31T07:12:00.000Z";
     const block = managerIntrayBlock(world, b, mei.id, now);
-    expect(block).toMatch(/Roll up when something new is live .* and the reports that cover it are decided, or when a covered report hit an escalation criterion; keep at least 4 h since your last rollup/);
-    expect(block).not.toMatch(/24 h/);
-    expect(block).toContain("Live: fa73e88 since 2026-10-31 07:12 UTC (4 h ago) (no rollup yet).");
-    const prov = { sourceIds: [(await world.verbs.submit_report(by("Noor"), { title: "x", body: "## What I did\nx", verdict: "stop" })).id], urls: [] };
-    await world.verbs.submit_report(mei, { title: "Rollup", body: "## Shipped\nNone.\n## Decided\nx\n## Key results\nx\n## Needs from Mitchell\nNothing needed.", verdict: "stop", rollup: true, provenance: prov });
-    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("(already live at your last rollup).");
-    world.host.startedAt = new Date(Date.now() + 60_000).toISOString();
-    expect(managerIntrayBlock(world, b, mei.id, now)).toContain("(newer than your last rollup).");
+    expect(block).toContain("Live: fa73e88 since 2026-10-31 07:12 UTC (4 h ago). Spend today by lane:");
+    expect(block).not.toMatch(/Roll up when|your last rollup|no rollup yet/);
   }, 30_000);
-  it("the team-lead session prompt keeps the manager to decisions and rollups: every task becomes an assignment, independent ones on forks in parallel, no reassign", () => {
+  it("the team-lead session prompt keeps the manager to decisions and asks: every task becomes an assignment, independent ones on forks in parallel, no reassign", () => {
     const { world } = seededWorld();
     const b = world.buildings.get("carbon-cycle")!;
     const p = managePrompt(b, [], (id) => world.nameOf(id));
-    expect(p).toMatch(/A manager does only decisions and rollups/);
+    expect(p).toMatch(/A manager does only decisions and asks here/);
     expect(p).toMatch(/becomes an assignment the moment it appears/);
     expect(p).toMatch(/run on forks in parallel/);
     expect(p).not.toMatch(/reassign/);
@@ -121,8 +119,9 @@ describe("no forced next step", () => {
     expect(p).toMatch(/arrive as en_ entries in the in-tray/);
     expect(p).not.toMatch(/assign a task to yourself/);
     expect(p).toMatch(/lands back in this in-tray/);
-    expect(p).toMatch(/Roll up when something new is live and decided \(at least 4 h apart\), or sooner on escalation/);
-    expect(p).not.toMatch(/One rollup per day/);
+    // the session ends by stopping: no report, no rollup; what shipped is said at the close, what a human must settle is an ask
+    expect(p).toContain("End the session by stopping: don't call `submit_report` (there are no rollups; an idle building is silent). What shipped you say at `close_grant`, what only a human can settle you file with `ask`.");
+    expect(p).not.toMatch(/Roll up when|One rollup per day/);
     expect(p).not.toMatch(/never your own next session/);
     const block = managerIntrayBlock(world, b, world.agents.first("name = 'Mei'")!.id);
     expect(block).toMatch(/Your own work reports .* land here too/);

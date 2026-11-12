@@ -34,7 +34,8 @@ The runtime tick calls `fireSchedules(world, now)` after `checkWaits`. For each 
    daily digest this way; the Town Hall accepts a schedule only with a takerId); else the building queue (the manager
    holds it until a fork takes it); a building with no manager agent has nobody, and the schedule ends. A due run with
    nothing to do is skipped before any session (`schedule.skipped`; today only the Secretary's digest: no new rollup,
-   or a card already filed that UTC day). Nothing is pinned to an agent before this moment.
+   or a card already filed that UTC day; since 2026-11-12 rollups are retired, and the Secretary's ranking run is skipped
+   when no ask arrived since the last ranking). Nothing is pinned to an agent before this moment.
 2. It creates one normal assignment (`createAssignment`, `createdBy` = the schedule id, the stored lane re-checked by
    `resolveLane`, its origin, pages, and the model on the building queue). Event `schedule.fired`.
 3. **No pile-up:** if the last fire's assignment is still pending or active (queued or running), the run is skipped

@@ -84,40 +84,6 @@ export function clipWords(text: string, max: number): string {
   return (space > max / 2 ? cut.slice(0, space) : t.slice(0, max)).replace(/[\s,:;.\-–—]+$/, "");
 }
 
-/** The longest title of an ask read from a rollup's prose, in characters. */
-const PROSE_ASK_TITLE_MAX = 160;
-
-/**
- * The title of an ask read from a rollup's prose (a "Your call" or a Needs line): its first whole sentence, markdown and
- * parenthesised asides dropped. A sentence that fits is never cut at a colon ("A 1:1 with Juno", "Optional: give …"
- * keep what follows). A first sentence longer than `max` is cut at its last clause boundary that fits: a semicolon, a colon or a dash before
- * a space, else a comma, else before a joining word ("so", "and", "but" …), else at a word;
- * a boundary in the first third is not taken, so the title is never a fragment of a few words.
- */
-export function proseAskTitle(call: string, max = PROSE_ASK_TITLE_MAX): string {
-  let s = call
-    .replace(/…/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*|__|`/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  // parenthesised asides (ids, examples, file:line) are no part of what is asked; innermost first
-  for (let prev = ""; prev !== s;) { prev = s; s = s.replace(/\s*\([^()]*\)/g, ""); }
-  s = s.replace(/[()]/g, "").replace(/ +([.,;:!?])/g, "$1").replace(/ {2,}/g, " ").trim();
-  // the first sentence: . ! ? before a space and a capital, a digit or a quote (so "AGENTS.md", "e.g. x" and "1:1" stay whole)
-  const end = /[.!?](?=\s+["“'A-Z0-9])/.exec(s);
-  if (end) s = s.slice(0, end.index);
-  s = s.replace(/[\s.,;:\-–—]+$/, "");
-  if (s.length <= max) return s;
-  const fits = (re: RegExp) => { let at = -1; for (const m of s.slice(0, max + 1).matchAll(re)) if (m.index! >= max / 3) at = m.index!; return at; };
-  for (const re of [/[;:](?= )| [–—](?= )/g, /,(?= )/g, / (?=(?:so|and|but|because|which|while|then|or) )/g]) {
-    const at = fits(re);
-    if (at > 0) return s.slice(0, at).replace(/[\s.,;:\-–—]+$/, "");
-  }
-  return clipWords(s, max);
-}
-
 /** A source's own words as an ask card carries them: every ellipsis dropped (the record keeps them). */
 export function withoutEllipsis(text: string): string {
   return text.replace(/[ \t]*…[ \t]*/g, " ").replace(/ +([.,;:!?])/g, "$1").replace(/[ \t]+$/gm, "").trim();

@@ -25,10 +25,10 @@ Three voices, kept apart:
  morning / evening review: the human funds, counters or rejects    │
         │                                                          │
         ▼                                                          │
- forks work the funded grant; checkpoints; the manager rolls up    │
+ forks work the funded grant; checkpoints; the manager files asks  │
         │                                                          │
         ▼                                                          │
- closing it as done marks its key results met (the rollup says what shipped) ┘
+ closing it as done marks its key results met (its close names what shipped) ┘
 ```
 
 Two things run the loop: **humans** at its top and bottom (what matters, what to fund, what was achieved), and **the runtime tick** in its middle (when there is money and a free desk, someone goes looking). Managers sit in between: they decide their forks' reports, roll up, and answer 1:1s. What they no longer do is decide whether to explore.
@@ -80,7 +80,7 @@ At most one exploration starts per building per tick. Over successive ticks a bu
 
 **The chunk is the session's ceiling.** The desk gets the chunk as its cap (the same per-session cap mechanism the key streams need, `docs/goals.md` "Sessions and keys"), so the fork stops cleanly and files before the chunk runs out. **When the session ends, the reservation closes**: what was spent is booked as exploration on the goal (Spend by goal already attributes by `goalId`), and **what is unspent returns** to free tokens. A session that dies without a report closes its reservation the same way.
 
-**Where the output goes.** The proposal goes straight to the Town Hall in-tray and the review deck, routed to the goal's captain as proposals already are. The fork's report goes to its manager's in-tray as any report does, and the manager folds it into the next rollup. **The manager isn't woken to start anything.** The "quiet-building wake" Pix floated in mt_wql34b8gkl is not needed.
+**Where the output goes.** The proposal goes straight to the Town Hall in-tray and the review deck, routed to the goal's captain as proposals already are. The fork's report goes to its manager's in-tray as any report does, and the code or the manager answers it on its job's thread (since 2026-11-12 there is no rollup to fold it into). **The manager isn't woken to start anything.** The "quiet-building wake" Pix floated in mt_wql34b8gkl is not needed.
 
 **What stays.** Directed work (a human asked) is unchanged and never waits for free tokens. Managers can still `assign` exploration with a goal or gap; that assignment draws a reservation like the tick's does.
 
@@ -143,6 +143,8 @@ Built (the deck, kr_2qg0ayfs1j; captains' "Mine"; the funder filter) and unchang
 ## 6. Funded work, checkpoints and rollups
 
 Built and unchanged (`docs/waterfall.md`, `docs/invariants/grants.md`):
+
+- **Since 2026-11-12:** rollups are retired. A manager names what shipped when it closes a grant (`close_grant` with `shipped`, one notice per item), files what only a human can settle as an ask when the need appears (`ask`, or `review` with `ask`), and writes nothing for the rest: it is the record on the job threads. A team-lead session ends by stopping, with no report. The two bullets below on rolling up and on a rollup's ask are the old rule. Also since then the outbox is retired. `request_human` files a do ask in the decision queue: Done (the note is the report back, and it wakes the author) or Decline (with a note). There is no Claim and no Outbox panel.
 
 - A funded grant's work runs on the building queue. Forks (copies of the manager, one per assignment, one per free desk) take it, in lane `grant`. The proposal carries its plan as 1-5 steps: funding queues step 1 there by itself, and each step's report (verdict not pivot) queues the next; there is no manager kickoff session (grant B gr_b5fyqibfx2).
 - **Effort is desks.** **Mitchell said** (mt_529jbnwvmi): "i think effort steering should basically be how many desks you assign to a goal subtree". More desks under a goal means more sessions at once, both for grants and for exploration.

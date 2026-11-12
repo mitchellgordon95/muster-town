@@ -146,7 +146,7 @@ const DRAIN_MANAGE_MS = 8 * 60_000;
 
 /** What the drain tells a team-lead session it waits on: wrap up (stop_fork's words); if cut anyway, it resumes after the restart. */
 export function drainNudgeManage(): string {
-  return `A redeploy is waiting (up to ${Math.round(DRAIN_MANAGE_MS / 60_000)} min) for this team-lead session to end before it restarts the server: finish the step you are on, write your pages, and end the session (submit_report only if a rollup is due). Don't start on new in-tray reports: they wait for the new server. If the restart cuts you anyway, this session resumes after it from where you stopped.`;
+  return `A redeploy is waiting (up to ${Math.round(DRAIN_MANAGE_MS / 60_000)} min) for this team-lead session to end before it restarts the server: finish the step you are on, write your pages, and end the session (just stop: a team-lead session files no report). Don't start on new in-tray reports: they wait for the new server. If the restart cuts you anyway, this session resumes after it from where you stopped.`;
 }
 
 /** What the drain tells a facilitator it waits on: close a meeting no human is in; otherwise carry on, it resumes after the restart. */

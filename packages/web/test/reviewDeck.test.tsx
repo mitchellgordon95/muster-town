@@ -20,14 +20,14 @@ describe("the review deck, as meetings present it (design dc_y7a8g257of §2)", (
     expect(landingSlide(after, "rollup:dc_r:1", 2)).toBe(2);
     expect(landingSlide(after.slice(0, 1), "record", 4)).toBe(1); // gone: clamp
   });
-  it("the slide shows its decision buttons under it: Approve all on For the record; a decided item says so", () => {
+  it("the slide shows its decision under it: a decided item says so (there is no For the record slide: rollups are retired)", () => {
     const html = renderToStaticMarkup(
       <DeckSlides deck={{ title: "Review deck", slides: SLIDES }} n={5} go={() => undefined}>
         <SlideDecision slide={SLIDES[4]!} n={5} grants={[]} reports={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />
       </DeckSlides>,
     );
     expect(html).toContain("5 / 5");
-    expect(html).toContain("Approve all");
+    expect(html).not.toContain("Approve all");
     expect(renderToStaticMarkup(<SlideDecision slide={SLIDES[1]!} n={2} grants={[]} reports={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />)).toContain("Already decided");
   });
 });

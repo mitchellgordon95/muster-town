@@ -128,7 +128,7 @@ describe("report state machine", () => {
     expect(world.assignments.require(pending.id).status).toBe("cancelled");
   });
 
-  it("a building with a manager agent: residents' reports and the manager's own work reports go to its in-tray without notifying humans; only rollups go to the Town Hall in-tray", async () => {
+  it("a building with a manager agent: residents' reports and the manager's own work reports go to its in-tray without notifying humans; a rollup is refused, and what the manager asks a human is an ask in the Town Hall queue", async () => {
     const { world, by, admin } = seededWorld();
     const mei = by("Mei"), noor = by("Noor");
     world.ops.updateBuilding(admin, "carbon-cycle", { managerAgentId: mei.id });
@@ -157,27 +157,14 @@ describe("report state machine", () => {
     await expect(world.verbs.review(noor, { docId: own.id, decision: "approve" })).rejects.toMatchObject({ code: "forbidden" });
     await world.verbs.review(mei, { docId: own.id, decision: "approve" });
     expect(world.docs.require(own.id)).toMatchObject({ decision: "approve", decidedBy: mei.id });
-    // a resident can't roll up; the manager's rollup needs covered reports of its building
-    await expect(world.verbs.submit_report(noor, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });
-    await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request" });
-    await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: ["dc_nope"], urls: [] } })).rejects.toMatchObject({ code: "bad_request" });
-    const sent: [string, number][] = [];
-    world.changes.subscribe((m) => { if (m.type === "building" && m.building.intray !== undefined) sent.push([m.building.id, m.building.intray]); });
-    const up = await world.verbs.submit_report(mei, { title: `Rollup: ${new Date().toISOString().slice(0, 10)}`, body: `## Shipped\nnothing\n## Decided\n- ${r.id}: approve\n## Key results\n(none)\n## Needs from ${mitchell.name}\n- Should the banner show today's spend? @${mitchell.name}`, verdict: "continue", rollup: true, provenance: { sourceIds: [r.id], urls: [] } });
-    expect(up).toMatchObject({ decision: "pending", intray: "town-hall", workedBy: "human" });
-    const rollup = world.docs.require(up.id);
-    expect(rollup).toMatchObject({ type: "report", buildingId: "carbon-cycle", tags: ["rollup", "untyped-asks"], provenance: { sourceIds: [r.id] } });
-    expect(isTownHallItem(world, rollup)).toBe(true);
-    expect(world.ops.intray("carbon-cycle").map((d) => d.id)).not.toContain(up.id);
-    expect(world.ops.intray(TOWN_HALL_ID).map((d) => d.id)).toEqual([up.id]);
-    expect(world.ops.townHallIntray()).toMatchObject({ reports: [{ id: up.id }], grants: [] });
-    expect(world.ops.intrayCount(TOWN_HALL_ID)).toBe(1);
-    expect(world.snapshot().buildings.find((b) => b.id === TOWN_HALL_ID)!.intray).toBe(1);
-    expect(sent).toContainEqual([TOWN_HALL_ID, 1]);
-    // the Town Hall item notifies the human; the manager can't decide its own rollup, the admin can
-    expect(world.messages.where("kind = 'mention' AND toId = ?", [admin.id])).toHaveLength(1);
-    await expect(world.verbs.review(mei, { docId: up.id, decision: "approve" })).rejects.toMatchObject({ code: "bad_request" });
-    await world.verbs.review(admin, { docId: up.id, decision: "approve" });
+    // nobody rolls up any more: a resident's or the manager's rollup is refused, and no report of theirs reaches the Town Hall
+    await expect(world.verbs.submit_report(noor, { title: "x", body: REPORT, verdict: "stop", rollup: true })).rejects.toMatchObject({ code: "bad_request", message: expect.stringMatching(/^Rollups are retired\./) });
+    await expect(world.verbs.submit_report(mei, { title: "x", body: REPORT, verdict: "stop", rollup: true, provenance: { sourceIds: [r.id], urls: [] } })).rejects.toMatchObject({ code: "bad_request", message: expect.stringMatching(/^Rollups are retired\./) });
+    expect(world.ops.intray(TOWN_HALL_ID)).toHaveLength(0);
+    expect(world.ops.townHallIntray()).toMatchObject({ reports: [], grants: [] });
+    // what the manager needs from a human is an ask in the humans' queue, not a report
+    const asked = await world.verbs.ask(mei, { type: "policy", title: "Should the banner show today's spend?", body: "Rule: the banner shows today's spend.\nI applied it on the lab banner this week.\nReversing it means the banner shows the balance only.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" });
+    expect(world.ops.townHallIntray().asks.map((a) => a.id)).toContain(asked.askId);
     expect(world.ops.intray(TOWN_HALL_ID)).toHaveLength(0);
     // a stopped manager hands the in-tray back to the humans
     world.setStatus(mei.id, "stopped");

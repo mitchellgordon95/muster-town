@@ -36,7 +36,7 @@ export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId" | "sourc
   for (const a of asks) {
     if (a.targetId) ids.add(a.targetId);
     if (a.sourceDocId) ids.add(a.sourceDocId);
-    for (const s of a.sources) ids.add(s.docId);
+    for (const s of a.sources) if (s.docId) ids.add(s.docId);
   }
   return ids;
 }
@@ -102,7 +102,7 @@ export function stepFrom(items: QueueItem[], id: string | null, by: 1 | -1): str
 export function kindWord(x: QueueItem): string {
   switch (x.kind) {
     case "ask": return x.ask.type;
-    case "report": return x.doc.type === "flag" ? "flag" : x.doc.tags.includes("rollup") ? "rollup" : "report";
+    case "report": return x.doc.type === "flag" ? "flag" : "report";
     case "grant": return x.grant.status === "checkpoint" ? "checkpoint" : "proposal";
     case "retainer": return "retainer";
     case "captain": return "captain ask";

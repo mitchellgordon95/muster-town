@@ -1,7 +1,7 @@
 /**
  * The manager's team-lead session (docs/waterfall.md §3.1–3.2 and §3.4, build steps 2 and 4): one host session per
  * building manager agent, woken by residents' reports landing in its in-tray or by a human opening a 1:1 with it.
- * It decides reports (`review`), assigns follow-ups (`assign`) and ends with a rollup (`submit_report rollup: true`)
+ * It decides reports (`review`), assigns follow-ups (`assign`), files asks for the humans (`ask`) and ends by stopping
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
@@ -59,7 +59,7 @@ export function resumableManage(world: World, agentId: string, claudeDir: string
 
 /** The first message of a resumed team-lead session. */
 export const resumePrompt = (cut: ResumableManage): string =>
-  `The server restarted (a redeploy) and cut this team-lead session (${cut.sessionId}); it resumes here. Check whether the step you were on when it was cut finished (e.g. \`read\` the report to see if your decision landed) and redo it if not, then carry on with your in-tray where you left off. End as before: a rollup only if one is due, else just stop.`;
+  `The server restarted (a redeploy) and cut this team-lead session (${cut.sessionId}); it resumes here. Check whether the step you were on when it was cut finished (e.g. \`read\` the report to see if your decision landed) and redo it if not, then carry on with your in-tray where you left off. End as before: just stop.`;
 
 interface ManageGate {
   /** no new sessions (a redeploy is draining) */
@@ -73,7 +73,7 @@ interface ManageGate {
 /**
  * Offer the building's new in-tray reports and its open 1:1s to its manager agent: stream them into its running manage
  * session, or start one if the manager is idle and can. A no-op for the Town Hall, buildings without a working manager
- * agent, and reports already offered. The manager's rollups are Town Hall items, never in `intrayOf(building)`, so a
+ * agent, and reports already offered. Nothing the manager files lands in its own queue, so a
  * manage session can't wake itself; its forks' reports and the town-written rows (tells, mentions, outbox answers,
  * grant counter/reject: wakes.ts `intrayRow`) are in it and wake the session. A 1:1 that ended is announced to the session it was fed
  * into (which then ends once no 1:1 is open). While draining, a 1:1 is still answered (and started) but new reports
@@ -326,11 +326,10 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   // no fallback report for this purpose: an idle building is silent; the event log says what the session did
   const s = out.session;
   const decided = world.docs.count("type = 'report' AND decidedBy = ? AND decidedAt >= ?", [agentId, s.startedAt]);
-  const rollup = s.reportId ? world.docs.get(s.reportId) : undefined;
   world.events.append({
     type: "system", agentId, buildingId: building.id,
-    text: `${agent.name}'s ${talks.length && managerAgentOf(world, building)?.id !== agentId ? "1:1" : "in-tray"} session ended (${s.status}): decided ${decided} report${decided === 1 ? "" : "s"}, ${rollup ? `rollup "${rollup.title}"` : "no rollup"}`,
-    payload: { sessionId: s.id, purpose: "manage", decided, rollupId: rollup?.id ?? null },
+    text: `${agent.name}'s ${talks.length && managerAgentOf(world, building)?.id !== agentId ? "1:1" : "in-tray"} session ended (${s.status}): decided ${decided} report${decided === 1 ? "" : "s"}`,
+    payload: { sessionId: s.id, purpose: "manage", decided },
   });
   return s;
 }

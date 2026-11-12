@@ -2,20 +2,18 @@
  * Asks as a table (docs/legible-delegation.md §4, build steps 1-2): created where their sources are created, deduped by
  * target, retired by the event that decides the target, decided only by a human, backfilled at boot.
  */
-import { parseRollup } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, decideAccess, decideCaptain, decideRetainer, newId, nowIso, requestAccess, requestCaptain, townHallIntray, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { asksFor, backfillAsks, createAsk, decideAsk, deferAsk, openAsks, rankedAsks, requestsToDoAsks } from "../src/asks.ts";
-import { overtakenReason, rollupCalls } from "../src/secretary.ts";
 import { askAt, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
-const later = () => new Promise((r) => setTimeout(r, 5));
-const rollup = (shipped: string, needs = "Nothing needed.") => `## Shipped\n${shipped}\n\n## Decided\n- dc_a → approved\n\n## Key results\non track\n\n## Needs from Mitchell\n${needs}`;
-const item = (n: number, title: string, call: string) => `**${n}. ${title}**\n**What it is:** a change.\n**What you'd see:** a page.\n**Your call:** ${call}\n`;
+/** A manager's money card on a funded grant: it carries the money type's structure. */
+const MONEY = "You funded this at 100k on Nov 1. It has spent 10k. One of its steps shipped.\nIf you continue: the deck ships.\nIf you cut: the work stops here.";
+const two = [{ label: "Continue" }, { label: "Cut" }];
 
-/** Mei manages the lab (manager agent + role); Noor is a resident whose report a rollup covers. */
+/** Mei manages the lab (manager agent + role); Noor is a resident. */
 async function setup() {
   const s = seededWorld();
   const { world, by, admin } = s;
@@ -33,15 +31,12 @@ async function setup() {
     });
     world.budget.charge(noor.id, 0, 0);
   };
-  const report = await world.verbs.submit_report(noor, { title: "Done", body: "## What I did\nx", verdict: "stop" });
-  const roll = (title: string, body: string, extra: Record<string, unknown> = {}) =>
-    world.verbs.submit_report(mei, { title, body, verdict: "stop", rollup: true, provenance: { sourceIds: [report.id], urls: [] }, ...extra });
   const member = (name: string) => {
     const { user } = world.ops.createUser(name);
     world.permissions.grant({ kind: "user", id: user.id }, townRoleId("member"));
     return user;
   };
-  return { ...s, mei, noor, propose, fund, spend, roll, member };
+  return { ...s, mei, noor, propose, fund, spend, member };
 }
 
 describe("the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17)", () => {
@@ -190,8 +185,8 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(world.events.list({ types: ["ask.reopened"] })).toHaveLength(2);
   }, 30_000);
 
-  it("backfill files the asks of everything already open, a pending rollup's calls included, and a second run creates nothing", async () => {
-    const { world, admin, noor, propose, roll, member } = await setup();
+  it("backfill files the asks of everything already open, and a second run creates nothing", async () => {
+    const { world, admin, noor, propose, member } = await setup();
     const g = propose();
     const countered = propose(50_000, "A second plan");
     world.grantDesk.decide(admin, countered.id, { action: "counter", note: "smaller" });
@@ -199,55 +194,44 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const ana = member("Ana");
     const cr = requestCaptain(world, ana.id, world.goalTree.create(admin, { parentId: "gl_trust", text: "Grant pages show sessions" }).id);
     const ar = requestAccess(world, upsertGithubUser(world, { id: 77, login: "newcomer" }).user.id);
-    const r = await roll("Rollup 5", rollup(item(1, "Deck", `Fund ${g.id} so the deck ships.`), "- Forks redeploy on green CI, unless you'd rather keep it manual."));
     // as if the asks table had just been added: everything open is there, no ask yet
     world.db.prepare("DELETE FROM asks").run();
-    expect(backfillAsks(world)).toBe(5);
+    expect(backfillAsks(world)).toBe(4);
     expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([expect.objectContaining({ type: "money", status: "open" })]);
-    // the rollup's call on the grant folded into the grant's own ask as a second source
-    expect(asksFor(world, { kind: "grant", id: g.id })[0]!.sources.map((s) => s.docId)).toEqual([g.id, r.id]);
+    expect(asksFor(world, { kind: "grant", id: g.id })[0]!.sources.map((s) => s.docId)).toEqual([g.id]);
     expect(asksFor(world, { kind: "grant", id: countered.id })).toEqual([]); // a countered proposal waits on its manager
     expect(asksFor(world, { kind: "request", id: req.id })).toHaveLength(1);
     expect(asksFor(world, { kind: "captain", id: cr.id })).toHaveLength(1);
     expect(asksFor(world, { kind: "access", id: ar.id })).toHaveLength(1);
-    expect(world.asks.where("sourceDocId = ? AND targetId IS NULL", [r.id])).toEqual([expect.objectContaining({ type: "policy", title: expect.stringContaining("unless you'd rather") })]);
     expect(backfillAsks(world)).toBe(0);
-    expect(world.asks.count()).toBe(5);
+    expect(world.asks.count()).toBe(4);
   }, 30_000);
 
-  it("a rollup's typed asks: refused when a Needs or Your call id is not a target; a money ask folds into its grant's ask; without the list it is tagged and reads the prose", async () => {
-    const { world, propose, roll } = await setup();
+  it("a manager's ask: refused when a money ask names no grant or retainer, or its target is not one of this town; a money ask folds into its grant's ask; one with no target is an ask of its own", async () => {
+    const { world, mei, propose } = await setup();
     const g = propose();
-    const body = rollup(item(1, "Deck", `Fund ${g.id}.`), "- Decide whether forks may redeploy.");
     const fundIt = { type: "money" as const, targetId: g.id, title: "Fund the deck grant", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships.", claims: [{ text: "The deck builds", check: { kind: "manual" as const } }], branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" };
     const redeploy = { type: "policy" as const, title: "May forks redeploy?", body: "Rule: forks may redeploy on green CI.\nI applied it twice this week.\nReversing it means a human redeploys each change.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" };
-    await expect(roll("R1", body, { asks: [redeploy] })).rejects.toThrow(new RegExp(`asks about ${g.id}.*no entry of \`asks\` has it`));
-    await expect(roll("R1", body, { asks: [] })).rejects.toThrow(/asks about/);
-    await expect(roll("R1", body, { asks: [{ ...fundIt, targetId: undefined }, redeploy] })).rejects.toThrow(/money ask: name the grant or retainer/);
-    await expect(roll("R1", body, { asks: [{ ...fundIt, targetId: "gr_nothere" }, redeploy] })).rejects.toThrow(/gr_nothere is not a grant/);
-    await expect(roll("R1", rollup("None.", "- Decide whether forks may redeploy."), { asks: [] })).rejects.toThrow(/asks "Decide whether forks may redeploy\." but `asks` is empty/);
     const grantAsk = asksFor(world, { kind: "grant", id: g.id })[0]!;
-    const filed = await roll("R1", body, { asks: [fundIt, redeploy] });
-    expect(filed.decision).toBe("pending"); // it has a Shipped card of its own
-    expect(filed.asks).toEqual([{ id: grantAsk.id, folded: true }, { id: expect.stringMatching(/^ak_/), folded: false }]);
-    expect(world.asks.require(grantAsk.id).sources.map((s) => s.docId)).toEqual([g.id, filed.id]);
-    expect(world.docs.require(filed.id).tags).not.toContain("untyped-asks");
-    // an ask-only rollup whose every ask folds is acknowledged on submit (the Needs line names the grant: allowed, it is a target)
-    const only = await roll("R2", rollup("Nothing new live.", `- Fund ${g.id}: it ships the deck.`), { asks: [fundIt] });
-    expect(only.decision).toBe("approve");
-    expect(world.docs.require(only.id).tags).toContain("folded");
-    // without the list: today's behaviour, a tag and a line in the note, and the prose read into asks; one asking nothing gets neither
-    const legacy = await roll("R3", rollup("None.", "- Decide whether the deck needs a dark theme."));
-    expect(legacy.note).toMatch(/Next rollup, also file what you ask the humans as `asks`/);
-    expect(world.docs.require(legacy.id).tags).toContain("untyped-asks");
-    const quiet = await roll("R4", rollup("None."));
-    expect(world.docs.require(quiet.id).tags).not.toContain("untyped-asks");
-    expect(quiet.note).not.toMatch(/as `asks`/);
-    expect(world.asks.where("sourceDocId = ?", [legacy.id])).toEqual([expect.objectContaining({ type: "click", targetId: null, title: "Decide whether the deck needs a dark theme" })]);
+    const before = world.asks.count();
+    await expect(world.verbs.ask(mei, { ...fundIt, targetId: undefined })).rejects.toThrow(/money ask: name the grant or retainer/);
+    await expect(world.verbs.ask(mei, { ...fundIt, targetId: "gr_nothere" })).rejects.toThrow(/gr_nothere is not a grant/);
+    expect(world.asks.count()).toBe(before);
+    // the grant's proposal already has a live ask: the manager's money ask on it is that ask, not a second one
+    const folded = await world.verbs.ask(mei, fundIt);
+    expect(folded).toMatchObject({ askId: grantAsk.id, folded: true });
+    expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
+    expect(world.asks.require(grantAsk.id).status).toBe("open");
+    // an ask with no target is a card of its own in the queue
+    const own = await world.verbs.ask(mei, redeploy);
+    expect(own).toMatchObject({ askId: expect.stringMatching(/^ak_/), folded: false });
+    expect(own.askId).not.toBe(grantAsk.id);
+    expect(world.asks.count()).toBe(before + 1);
+    expect(townHallIntray(world).asks.map((a) => a.id)).toEqual(expect.arrayContaining([grantAsk.id, own.askId]));
   }, 30_000);
 
-  it("every case overtakenReason detects is also retired by a hook", async () => {
-    const { world, admin, mei, propose, fund, spend, roll } = await setup();
+  it("the event that decides a target retires every live ask on it, a manager's own ask included", async () => {
+    const { world, admin, mei, propose, fund, spend } = await setup();
     const toFund = propose(100_000, "Fund case");
     const held = fund(100_000, "Checkpoint case");
     spend(held.id, 100_000);
@@ -257,28 +241,27 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const toStop = fund(100_000, "Stop case");
     const t0 = Date.now();
     const sc = (await world.verbs.schedule(mei, { title: "Sweep", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 3_000 })).scheduleId as string;
-    const body = rollup([
-      item(1, "Fund", `Fund ${toFund.id}.`),
-      item(2, "Checkpoint", `Raise ${held.id} at its checkpoint.`),
-      item(3, "Close", `${toClose.id} closed: mark its key results met.`),
-      item(4, "Key result", `Mark ${kr.id} met if you agree.`),
-      item(5, "Retainer", `Approve the retainer ${sc}.`),
-    ].join("\n"), `- Stop ${toStop.id} if the PR stays red.`);
-    const r = await roll("Overtaken cases", body);
-    const doc = world.docs.require(r.id);
+    const money = (targetId: string, title: string) => ({ type: "money" as const, targetId, title, body: MONEY, branches: two, recommendation: "Continue" });
+    // the manager asks about each: a proposal, a held grant and an asked retainer already have a live ask (its ask folds in); the rest are new asks
+    const asked = [
+      await world.verbs.ask(mei, { ...money(toFund.id, "Fund the fund case"), body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships." }),
+      await world.verbs.ask(mei, money(held.id, "Raise the checkpoint case")),
+      await world.verbs.ask(mei, money(toClose.id, "Keep the close case going")),
+      await world.verbs.ask(mei, { type: "click", targetId: kr.id, title: "Mark the key result met", body: "Noor has waited on this since Nov 6.\nIf you mark it met once, this never comes back.", branches: [{ label: "Met" }, { label: "Missed" }], recommendation: "Met" }),
+      await world.verbs.ask(mei, { ...money(sc, "Approve the sweep's retainer"), body: "You approved it last week. It has spent 9k.\nIf you approve: the sweep runs every six hours.\nIf you reject: it stays held." }),
+      await world.verbs.ask(mei, money(toStop.id, "Stop the stop case if the PR stays red")),
+    ];
+    expect(asked.map((a) => a.folded)).toEqual([true, true, false, false, true, false]);
     const targets = [["grant", toFund.id], ["grant", held.id], ["grant", toClose.id], ["keyResult", kr.id], ["retainer", sc], ["grant", toStop.id]] as const;
-    for (const [kind, id] of targets) expect(asksFor(world, { kind, id }).some((a) => a.status === "open" && a.sources.some((s) => s.docId === r.id))).toBe(true);
-    expect(rollupCalls(world, doc).every((c) => !c.overtaken)).toBe(true);
-    await later(); // the deciding events come after the rollup (overtakenReason compares times)
+    targets.forEach(([kind, id], i) => expect(asksFor(world, { kind, id }).filter((a) => a.status === "open").map((a) => a.id)).toEqual([asked[i]!.askId]));
     world.grantDesk.decide(admin, toFund.id, { action: "fund" });
     world.grantDesk.decide(admin, held.id, { action: "adjust", tokens: 150_000 });
     world.grantDesk.closeDone(mei, toClose.id, { note: "shipped" });
     world.grantDesk.updateKeyResult(admin, kr.id, { status: "met", note: "seen live" });
     decideRetainer(world, admin, sc, { action: "approve", note: "" });
     world.grantDesk.stop(admin, toStop.id, { reason: "PR stayed red" });
-    // the digest's regex calls every one overtaken; the hooks retired every ask on those targets
-    for (const it of parseRollup(doc.body).items) expect(overtakenReason(world, it, doc)).not.toBeNull();
-    expect(rollupCalls(world, doc).every((c) => c.overtaken)).toBe(true);
+    // the hooks retired every ask on those targets
     for (const [kind, id] of targets) expect(asksFor(world, { kind, id }).filter((a) => a.status === "open" || a.status === "deferred")).toEqual([]);
+    for (const a of asked) expect(world.asks.require(a.askId)).toMatchObject({ status: "retired", retiredBy: expect.any(String) });
   }, 30_000);
 });

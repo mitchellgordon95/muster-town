@@ -1075,7 +1075,7 @@ export const Schedule = z.object({
 });
 export type Schedule = z.infer<typeof Schedule>;
 /** A schedule as the API shows it: plus its retainer's runs left, ask (tokensPerRun × runs left), drawn so far and live claim on the Bank. */
-export interface ScheduleView extends Schedule { runsLeft: number; askTokens: number; drawnTokens: number; claimTokens: number; buildingName?: string; /** the Town Hall in-tray only: rollups asking about this retainer */ asks?: RollupAsk[] }
+export interface ScheduleView extends Schedule { runsLeft: number; askTokens: number; drawnTokens: number; claimTokens: number; buildingName?: string; }
 /** POST /api/schedules/:id/retainer: a human approves, counters (per-run amount and/or end date, with a note) or rejects a retainer ask. */
 export const RetainerDecisionInput = z.object({
   action: z.enum(["approve", "counter", "reject"]),
@@ -1950,15 +1950,6 @@ export type ReportTopUp = z.infer<typeof ReportTopUp>;
 export const topUpLine = (e: Pick<CheckpointEvidence, "topUpTokens" | "whatTopUpBuys">) =>
   e.topUpTokens && e.whatTopUpBuys.trim() ? `A top-up of ${e.topUpTokens.toLocaleString("en-US")} tokens buys: ${e.whatTopUpBuys.replace(/\s+/g, " ").trim()}` : "A top-up: not stated";
 
-/**
- * A manager's rollup asking about an item that has its own Town Hall in-tray row (1:1 mt_7b4zc7yja3): the row shows
- * "<building> asks you to <verb> this: <line>" with a link to the rollup. `folded`: the rollup asked nothing else, so it
- * was acknowledged on submit and is no card of its own.
- */
-export const RollupAsk = z.object({
-  reportId: Id, buildingId: Id.nullable(), buildingName: z.string(), title: z.string(), line: z.string(), at: Iso, folded: z.boolean(),
-});
-export type RollupAsk = z.infer<typeof RollupAsk>;
 
 // ---------- asks (docs/legible-delegation.md §4, build step 1) ----------
 /**
@@ -1989,10 +1980,11 @@ export const AskClaim = z.object({
 });
 export type AskClaim = z.infer<typeof AskClaim>;
 /** One place the ask was raised: a record (a rollup, a grant, a request…), its building, its own line, when. */
-export const AskSource = z.object({ docId: Id, buildingId: Id.nullable(), line: z.string(), at: Iso });
+/** `entryId`: the entry on a job's thread that raised it there (migration 115); `docId` is null for a source that is only an entry. */
+export const AskSource = z.object({ docId: Id.nullable(), entryId: z.string().nullable().optional(), buildingId: Id.nullable(), line: z.string(), at: Iso });
 export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled", /* a prose ask read as money only because its line named a grant: retyped a click */ "retyped"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* the Secretary rewrote the card from its thread */ "rewritten", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled", /* a prose ask read as money only because its line named a grant: retyped a click */ "retyped"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**
@@ -2009,6 +2001,13 @@ export const Ask = z.object({
   buildingId: Id.nullable().default(null),
   /** the record it came from: a rollup or request doc, a grant, a schedule, a captain or access request */
   sourceDocId: z.string().nullable().default(null),
+  /**
+   * The entry on a job's thread that raised it (migration 115; plan dc_uwx045472m step 6): an ask is a snapshot of that
+   * thread. Its facts come from the job's object, its words from that entry or the Secretary. Null on asks filed before.
+   */
+  sourceEntryId: z.string().nullable().default(null),
+  /** the thread's length (its last entry's seq) when the card was last written: a thread longer than this has moved under the card */
+  renderedSeq: z.number().int().nullable().default(null),
   title: z.string(),
   body: z.string().default(""),
   branches: z.array(AskBranch).default([]),
@@ -2037,10 +2036,10 @@ export const Ask = z.object({
 });
 export type Ask = z.infer<typeof Ask>;
 /**
- * One ask a manager files with its rollup (`submit_report` `asks`): the server stores it, dedupes it by target and
+ * One card a manager files (`ask`, `review` with `ask`): the server stores it, dedupes it by target and
  * retires it on the target's event. Money asks name their grant or retainer (targetId) and fold into that item's own ask.
  */
-export const RollupAskInput = z.object({
+export const AskCardInput = z.object({
   type: AskType,
   targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting)"),
   targetId: z.string().trim().min(1).optional().describe("the grant, retainer, request, key result, rule or meeting it is about; required for money"),
@@ -2050,7 +2049,7 @@ export const RollupAskInput = z.object({
   recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
   claims: z.array(AskClaim.omit({ result: true })).max(3).optional().describe("the 1-2 load-bearing claims, each with how to check it"),
 });
-export type RollupAskInput = z.infer<typeof RollupAskInput>;
+export type AskCardInput = z.infer<typeof AskCardInput>;
 /** Where one step of a funded grant's plan stands: its latest assignment (a parked step's continuation keeps the step). */
 /**
  * A step's latest assignment (`grantStep`), and (gr_3na7vdmd52, kr_5j25451emh) what the step spent so far over all its
@@ -2074,8 +2073,6 @@ export const GrantView = Grant.extend({
   holdAtTokens: z.number().int().nonnegative().nullable().optional(),
   /** a checkpoint grant's evidence, or a proposal's earlier stopped grant's (null: none) */
   evidence: CheckpointEvidence.nullable().optional(),
-  /** the Town Hall in-tray only: rollups asking about this grant (RollupAsk) */
-  asks: z.array(RollupAsk).optional(),
   /** one entry per `steps` item: its latest assignment (`Assignment.grantStep`), null while none was queued (grant B gr_b5fyqibfx2) */
   stepStates: z.array(GrantStepState.nullable()).optional(),
 });
@@ -2287,8 +2284,7 @@ export const VerbInputs = {
     keyResults: z.array(ReportKrEvidence).min(1).max(5).optional().describe("lane grant only, your session's own grant: the key results your work moved, each with its status (at most claimed) and the evidence a human checks; the held grant's checkpoint card shows them"),
     topUp: ReportTopUp.optional().describe("lane grant only, your session's own grant: what a top-up of `tokens` more would deliver (the latest one filed shows on the checkpoint card)"),
     left: z.string().max(1000).optional().describe("required on a grant step's report (not when you park): what is left of the grant's work after this step, in one or two plain sentences (e.g. \"Steps 3-4: the answer loop and the building thread; KR kr_x is not started.\"); it goes on your entry in the grant's job thread"),
-    rollup: z.boolean().default(false).describe("Managers only: this report rolls up the residents' reports listed in provenance.sourceIds (required) for the Town Hall in-tray. Four sections (## Shipped, ## Decided, ## Key results, ## Needs from Mitchell; refused without them); each Shipped item has **What it is:**, **What you'd see:** (one cropped picture) and **Your call:** (warned without them). Needs never names an open proposal, outbox request or Town Hall in-tray report (refused); the town appends an \"Already waiting in your in-tray\" line. A rollup whose only ask is on an item with its own in-tray row (a proposal, checkpoint or retainer it names) is folded into that row on submit: the row shows your line about it, and the rollup is no card of its own."),
-    asks: z.array(RollupAskInput).max(8).optional().describe("rollup only: what you ask the humans, typed, one entry per ask (the prose Needs and \"Your call\" lines stay as the record). Each: type (money, click, credential, meeting, policy), targetId (the gr_/sc_/dc_/cr_/ar_/kr_/mt_ it is about; required for money, which folds into that grant's or retainer's own ask), title, body, branches (button labels), recommendation, claims (each with a check). Every id your Needs section names, and every id a real \"Your call\" names, must be the targetId of one of these (refused otherwise). A second ask on the same target adds your line to the open one instead of a new card."),
+    rollup: z.boolean().default(false).describe("Retired: rollups are gone and `rollup: true` is refused. What shipped is named at `close_grant` (shipped); what only a human can settle is filed with `ask`"),
   }),
   request_human: z.object({
     title: z.string(), body: z.string(), location: z.string().optional(), kind: z.enum(["observation", "data", "contact", "other"]).default("observation"),
@@ -2313,7 +2309,7 @@ export const VerbInputs = {
   review: z.object({ docId: Id.describe("the report or flag (dc_…), or an entry with no report on a job's thread (en_…: a session that ended without a report, a human's counter, reject, cut or missed key result, a tell, a mention, an outbox answer)"), decision: ReviewDecision.describe("approve = acknowledge only; continue = next assignment from the report's Proposal; redirect = next assignment from your note (required); stop = stop the agent. For an en_… entry: approve = taken in (a dead session's work is dropped); continue = a dead session's work goes back on the queue as it was; redirect = your note becomes the next assignment. A flag (a human's quick request): continue = its text becomes assigneeId's directed assignment verbatim, redirect = your note does"), note: z.string().default(""),
     assigneeId: Id.optional().describe("a flag (continue/redirect): leave it out to queue it to the building (a fork of the manager runs it); or a visitor of the building (naming the manager queues it to the building too)"),
     waitFor: WaitFor.optional().describe("continue/redirect: the new assignment waits for this before it starts"),
-    ask: RollupAskInput.optional().describe("pass it up instead of deciding it (with decision approve): the one thing only a human can settle, as a card (type, title, body, branches, recommendation; targetId when it is about a grant, retainer or key result). It goes to the Town Hall queue; the item leaves your in-tray and the human's decision comes back to you on the same job's thread"),
+    ask: AskCardInput.optional().describe("pass it up instead of deciding it (with decision approve): the one thing only a human can settle, as a card (type, title, body, branches, recommendation; targetId when it is about a grant, retainer or key result). It goes to the Town Hall queue; the item leaves your in-tray and the human's decision comes back to you on the same job's thread"),
     ...LaneFields.shape }),
   assign: z.object({ agentId: Id.optional().describe("leave it out to queue it to the building (a fork of the manager runs it); or a visitor's id to offer it to them (your own id queues it to the building too: a manager never runs a work session)"),
     title: z.string(), description: z.string(),
@@ -2348,10 +2344,20 @@ export const VerbInputs = {
       claims: z.array(AskClaim.omit({ result: true })).min(1).max(2).describe("the 1-2 claims that would change the decision if wrong, each with its check (pr, url, api, kr or manual)"),
     }).optional().describe("the money ask's card (docs/legible-delegation.md §5). Left out, the town writes one from your objective, steps and ask. A card missing structure (a recommendation, the prior decision, spent, steps) is refused; style rules are filed as warnings"),
   }),
+  ask: z.object({
+    ...AskCardInput.shape,
+    jobId: Id.optional().describe("the job whose thread the ask belongs to (jb_…, or a grant, schedule or assignment id); left out: the grant or retainer it targets, else your building's own thread"),
+    note: z.string().trim().max(600).default("").describe("one line for the thread: why this needs a human"),
+  }),
   close_grant: z.object({
     grantId: Id.describe("a funded (or checkpoint) grant of my building whose work is done"),
     note: z.string().trim().min(1).max(2000).describe("the evidence that the work is done: what a human can check in the live town; it becomes its key results' claimed note"),
-    reportId: Id.optional().describe("an already filed report with the evidence; leave it out when you close first and then submit_report with rollup: true in this session (that report links itself as the close report)"),
+    reportId: Id.optional().describe("an already filed report with the evidence, when there is one"),
+    shipped: z.array(z.object({
+      title: z.string().trim().min(1).max(160).describe("what a human now sees or can do, in plain words"),
+      whatYoudSee: z.string().trim().min(1).max(400).describe("where to look in the live town and what is there (the live numbers); say so when it is API-only"),
+      picture: z.string().trim().max(300).optional().describe("one uploaded picture, as /api/media/<id>.png"),
+    })).max(5).optional().describe("what this grant shipped, one entry per thing a human can now see or do: each becomes a notice in the humans' feed and a line of the grant's closed-loop notice. There is no rollup: this is where shipped work is told"),
   }),
   act_in_1on1: z.object({
     meetingId: Id.describe("the 1:1 you are in (you its agent, the human the one who said it)"),
@@ -2396,7 +2402,7 @@ export const VerbInputs = {
   }),
   // ---- legible delegation step 5: the Secretary's ranking and weekly pattern runs (core secretary.ts) ----
   rank: z.object({
-    week: z.boolean().optional().describe("the weekly pattern run: read the last 7 days of asks, rollups and events instead of the open asks"),
+    week: z.boolean().optional().describe("the weekly pattern run: read the last 7 days of asks, shipped notices and events instead of the open asks"),
     order: z.array(Id).max(200).optional().describe("every open ask id, most urgent first: sets each one's rank (1 = first); an open ask you leave out loses its rank"),
     slate: z.object({
       fund: z.array(z.object({ askId: Id, why: z.string().trim().min(1).max(300) })).max(30).default([]).describe("money asks to fund now, and why"),
@@ -2404,6 +2410,12 @@ export const VerbInputs = {
       skip: z.array(z.object({ askId: Id, why: z.string().trim().min(1).max(300).describe("the overlap or reason") })).max(30).default([]).describe("money asks to skip, and why"),
     }).optional().describe("the money slate: filed as one notice (kind slate) citing the ask ids; it funds nothing"),
     defer: z.array(z.object({ askId: Id, until: Id.describe("the ask (ak_…) or item id it is moot without") })).max(30).optional().describe("park an open ask behind another ask or item it is moot without"),
+    rewrite: z.array(z.object({
+      askId: Id.describe("an open ask whose card no longer matches its thread, or breaks the presentation rules"),
+      title: z.string().trim().min(1).max(160).optional(),
+      body: z.string().trim().min(1).max(4000).optional().describe("the card again, diff-first from the human's last decision, from the thread as it stands now"),
+      recommendation: z.string().trim().min(1).max(400).optional(),
+    })).max(20).optional().describe("write an ask's card again from its job's thread (the read marks a card whose thread moved since it was written): its words only; never its type, branches or target"),
     overtaken: z.array(z.object({
       askId: Id.describe("an open click or policy ask a human's decision made moot"),
       because: z.string().trim().min(3).max(300).describe("the human's decision that overtook it: the decided ask (ak_…) or item (gr_…, sc_…, …) by id, or the 1:1 (mt_…) and their words"),
@@ -2452,7 +2464,8 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
-  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Then submit_report with rollup: true (it links itself as the close report; say what shipped there). A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
+  ask: "(manager) Ask the humans the one thing only they can settle (money, permission, a credential, a rule, a meeting): a card in their decision queue with its branches and your recommendation. It is one entry on a job's thread, and their decision comes back to you on that thread. This replaces a rollup's Needs: file it when the need appears, one ask per decision. To pass up an item already in your in-tray use `review` with `ask`; for a real-world act use `request_human`.",
+  close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Say what shipped in `shipped` (what a human can now see or do): each item is a notice for the humans. There is no rollup. A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
@@ -3211,7 +3224,6 @@ export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 
 export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
-export * from "./rollup.ts";
 export * from "./ask.ts";
 export * from "./grant-title.ts";
 export * from "./deck.ts";

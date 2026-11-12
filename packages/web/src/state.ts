@@ -313,7 +313,7 @@ class Store {
 
   /**
    * Discord-style check against the roles in AuthMe, plus captain steering rights (gr_zsm1piyqyx): in a building under a
-   * goal I captain (`me.captainOf`), review (decide its rollups and reports) and facilitate (1:1s as staff, meetings).
+   * goal I captain (`me.captainOf`), review (decide its reports) and facilitate (1:1s as staff, meetings).
    */
   can(perm: Permission, buildingId?: string | null): boolean {
     const me = this.state.me;

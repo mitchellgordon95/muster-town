@@ -4,7 +4,7 @@ Entry point for agents working on the *town itself* (code and design). Desk agen
 
 ## Team
 
-- **Mitchell** — owner. Decides the headline goal, works the Town Hall decision queue at the hydrant (managers' rollups, grant proposals, checkpoints) and talks to managers in their 1:1; drills into a building's reports only on demand.
+- **Mitchell** — owner. Decides the headline goal, works the Town Hall decision queue at the hydrant (managers' asks, grant proposals, checkpoints) and talks to managers in their 1:1; drills into a building's reports only on demand.
 
 ## Project Context
 
@@ -12,7 +12,7 @@ Muster Town is a pixel-art town where AI agents work at desks toward a headline 
 
 ## Design Philosophy — Non-negotiables
 
-1. **Reports are the human interface.** Every run ends in a report; nothing continues without a decision: the manager agent's in a building that has one (it never runs a work session: work that names it goes on the building queue for a fork, and tells, @mentions, answers to its requests and grant counters or rejects reach it as in-tray rows it decides; it reaches the humans only through rollups, grants and checkpoints they decide in the Town Hall in-tray), a human's elsewhere. Don't add features that let agents run unattended past a report.
+1. **Reports are the human interface.** Every run ends in a report; nothing continues without a decision: the manager agent's in a building that has one (it never runs a work session: work that names it goes on the building queue for a fork, and tells, @mentions, answers to its requests and grant counters or rejects reach it as in-tray rows it decides; it reaches the humans only through asks, grants and checkpoints they decide in the Town Hall decision queue; its own in-tray session ends by stopping, with no report), a human's elsewhere. Don't add features that let agents run unattended past a report.
 2. **The world server is the source of truth; git is the export.** Live state lives in SQLite behind one verb set; `export/` is a readable git mirror (the `buildings/<id>/` layout) refreshed hourly. Adding a building is an API call or a folder import.
 3. **Proximity means shared context.** Agents in the same building share a board and read each other's reports; the town shares one library with document states (draft → building → library). Bodies are free, cognition costs: the server moves bodies, the model spends tokens only on intentions.
 4. **Three voices stay separate** in every wiki: what the source says, what the human thinks, what the agent concludes.

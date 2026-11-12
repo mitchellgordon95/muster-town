@@ -1,12 +1,12 @@
 import {
   type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict, parseRollup,
+  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict,
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, isJudgedKr, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
 import { syncJob } from "./jobs.ts";
 import { statusAtClose } from "./kr-evidence.ts";
-import { closedLoopNotice, verifiedNotice } from "./notices.ts";
+import { shippedAtClose, type ShippedItem, closedLoopNotice, verifiedNotice } from "./notices.ts";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
 import { checkForkModel, interruptFork } from "./forks.ts";
@@ -160,7 +160,7 @@ export class Grants {
       spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
       topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
       reportId: report ? report.id : null,
-      shipped: report ? parseRollup(report.body).items.map((i) => i.title) : [],
+      shipped: this.world.notices.where("kind = 'shipped' AND refs LIKE ?", [`%"${g.id}"%`]).map((n) => n.title),
       reports, filed: krs.some((k) => !!k.statusBy && !!this.world.agents.get(k.statusBy)),
     };
   }
@@ -862,11 +862,11 @@ export class Grants {
    * The manager's `close_grant` (and POST /api/grants/:id/close with outcome "done"): the work is done before the grant is spent, so the manager
    * closes a funded (or checkpoint) grant as `closed`, outcome `done` (Mitchell, town hall mt_6830h8x5qk decision 3), and its open
    * key results go straight to `met` with the note as evidence, archived under their goal (town hall mt_v09cn7a8yr decision 2:
-   * no human met/missed step; what shipped goes in the rollup). The unspent rest goes back to the Bank by construction:
+   * no human met/missed step; what shipped is named at the close, `shipped`). The unspent rest goes back to the Bank by construction:
    * reservations only count live grants. A human can still flip a key result to missed from the grant (PATCH /api/key-results/:id).
-   * `reportId` links the close report (`checkpointDocId`); without it the manager's next rollup this session links itself.
+   * `reportId` links a close report (`checkpointDocId`), when there is one.
    */
-  closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null }): GrantView {
+  closeDone(actor: Actor, grantId: string, input: { note: string; reportId?: string | null; shipped?: ShippedItem[] }): GrantView {
     const g = this.world.grants.require(grantId, "grant");
     // the manager (close_grant) or a human who can fund the building (the web "Close grant" button)
     if (actor && !this.world.permissions.can(actor, "building.manage", g.buildingId) && !this.canFund(actor, g)) throw forbidden("building.manage");
@@ -899,7 +899,9 @@ export class Grants {
         this.world.grants.upsert({ ...at, history: [...at.history.slice(0, -1), { ...last, note: `${last.note} Key results: ${closedKrs.length - unverified.length} met, ${unverified.length} met, unverified (${unverified.map((k) => k.id).join(", ")}): no live check named.` }] });
       }
       this.event("grant.closed", next, actor, `Closed (done): ${grantName(next)}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
-      // the closed loop (docs/legible-delegation.md §8): funded on, for, closed at, what it bought (rewritten once the close report lands)
+      // what it shipped, as its manager names it now (plan dc_uwx045472m step 7: no rollup), then the closed loop
+      // (docs/legible-delegation.md §8): funded on, for, closed at, what it bought
+      shippedAtClose(this.world, next, input.shipped ?? []);
       closedLoopNotice(this.world, next, spentTokens);
       this.notifyFunders(next, actor, `${human ? this.world.nameOf(actor.id) : "The manager"} closed the grant "${grantName(next)}" as done: ${note} It spent ${fmt(spentTokens)} of ${fmt(grantTokens)} tokens and ${returned}. Its key results are marked met; flip one to missed from the grant if it did not ship.`);
       return this.view(next);

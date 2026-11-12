@@ -86,6 +86,7 @@ Subscribe for updates (mailing list for every blog post)
 Draft notes (not for publication):
 
 - Built in PR #443: the job thread, the one rule for who answers, the manager's queue as a view, the crashed-session entry, human decisions and messages as entries, "met, unverified", and the secretary's run after each human decision.
-- In progress on branch claude/jobs-asks-rollups-outbox: asks that point at their source entry, the end of rollups, and the end of the outbox. The sections "Rollups", "The outbox" and "Asks are snapshots of a thread" describe that work as if finished. Check them against what merged before publishing.
+- Built on branch claude/jobs-asks-rollups-outbox (stacked on PR #443): asks that point at the entry that raised them and are written again when the thread moves, the end of rollups (what shipped is named when a grant closes; a manager files an ask when one is needed), and the end of the outbox (a request is a "do" ask with Done and Decline). Check the sections "Rollups", "The outbox" and "Asks are snapshots of a thread" against what merged before publishing.
+- One place the draft says more than the code does: "its words come from the entry that raised it, or from the secretary". Today the town still writes the card for a proposal, a held grant and a retainer from the grant's own numbers; a manager's card replaces it when the manager files one, and the secretary can rewrite any card whose thread has moved.
 - Not planned yet: a secretary per captain (plan step 8).
 - The two real incidents to cite if you want them: the stuck step as_0rk272gsne on 2026-11-12 (the crashed-session bug), and your 1:1 with the Secretary that day, where 10 of 23 open cards turned out to be already overtaken by your own decisions.

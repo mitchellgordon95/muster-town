@@ -91,7 +91,7 @@ export { piecesFor, validateLayout, resolveFurniture, movedOnly, type Piece, typ
 export { WorldMap } from "./world/map.ts";
 export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.ts";
 export { Emitter, newId, newToken, nowIso, chebyshev, slugify, parseFrontmatter, stringifyFrontmatter, extractSection, firstLine } from "./util.ts";
-export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine, rollupHistoryLine } from "./review-deck.ts";
+export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine } from "./review-deck.ts";
 export { rankRunView, pressRank } from "./secretary.ts";
 export { listNotices } from "./notices.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";

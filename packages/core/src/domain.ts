@@ -12,7 +12,6 @@ import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
-import { withAsks } from "./rollup-asks.ts";
 import { rankedAsks } from "./asks.ts";
 
 /** Doc as shown in lists (board, search). */
@@ -399,7 +398,8 @@ export function intrayWorker(world: World, building: Building | undefined): "man
 }
 
 /**
- * A team-lead report is for the humans: a rollup (which a checkpoint report also is, tagged `rollup` by `submit_report`)
+ * Rollups are retired (plan dc_uwx045472m step 7): an old one still pending is closed at boot (`retireRollups`), so what
+ * follows about them is history. A team-lead report was for the humans: a rollup (tagged `rollup` by `submit_report`)
  * lands in the Town Hall in-tray. Routed by what the report is, not by who wrote it (town hall 2026-10-25, decision 6):
  * a manager's own work report, from an assignment it gave itself or got from a meeting, is an ordinary report in its
  * building's in-tray, which the manager decides in its next team-lead session and folds into its rollup. An unhomed
@@ -412,6 +412,18 @@ export function isTownHallItem(world: World, doc: Doc): boolean {
   // an unhomed visitor's report is filed under the Town Hall itself (submit_report): the humans work it
   if (doc.tags.includes("visitor")) return b.kind === "town-hall";
   return doc.tags.includes("rollup") && b.kind !== "town-hall";
+}
+
+/**
+ * Boot repair (idempotent): rollups are retired (plan dc_uwx045472m step 7; Mitchell, 1:1 mt_msnjkpgwdb decision 21: "most
+ * of them are rollups. in theory we're getting rid of rollups, right?"). Every rollup still pending in the Town Hall
+ * queue is acknowledged by the town, with a code answer on its job's thread. What it really asked is already its own
+ * ask (filed when it was submitted), and stays in the queue. Returns the ids it closed.
+ */
+export function retireRollups(world: World): string[] {
+  const pending = world.docs.where("type = 'report' AND decision = 'pending' AND tags LIKE '%\"rollup\"%'", [], "ORDER BY createdAt, rowid");
+  for (const d of pending) applyDecision(world, d.id, "approve", "Rollups are retired (1:1 mt_msnjkpgwdb decision 21): what this one asked is its own ask in the decision queue; what it reported is on the job threads.", { kind: "system", id: "system" });
+  return pending.map((d) => d.id);
 }
 
 const GRANT_INTRAY_STATUSES = ["proposed", "countered", "checkpoint"] as const;
@@ -474,9 +486,8 @@ function stoppedGrants(world: World, now = Date.now()): GrantView[] {
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
 export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
-  // a rollup's ask about a grant or retainer shows on that item's own row (`asks`, 1:1 mt_7b4zc7yja3; rollup-asks.ts);
   // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world).map((g) => withAsks(world, g)), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world).map((r) => withAsks(world, r)), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
 }
 
 /** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */

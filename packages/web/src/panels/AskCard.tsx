@@ -121,7 +121,7 @@ function SourceLine({ s, onOpenRecord }: { s: AskView["sources"][number]; onOpen
   return (
     <li>
       <b>{name}</b>: {s.line} <span className="muted">· {timeAgo(s.at)}</span>
-      {onOpenRecord ? <> <button className="link" title={s.docId} onClick={() => onOpenRecord(s.docId)}>read it →</button></> : null}
+      {onOpenRecord && s.docId ? <> <button className="link" title={s.docId} onClick={() => onOpenRecord(s.docId!)}>read it →</button></> : null}
     </li>
   );
 }
@@ -159,7 +159,7 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       {ask.sources.length ? (
         <details className="ask-sources">
           <summary>Asked in {ask.sources.length} place{ask.sources.length === 1 ? "" : "s"}</summary>
-          <ul>{ask.sources.map((s, i) => <SourceLine key={`${s.docId}-${i}`} s={s} onOpenRecord={onOpenRecord} />)}</ul>
+          <ul>{ask.sources.map((s, i) => <SourceLine key={`${s.docId ?? s.entryId}-${i}`} s={s} onOpenRecord={onOpenRecord} />)}</ul>
         </details>
       ) : null}
       {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}

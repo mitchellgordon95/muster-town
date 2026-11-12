@@ -5,7 +5,7 @@
  * and Archive; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
 import { type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
-import { api, type AskView, type FunderWeekView, type GoalProposalView } from "../api";
+import type { AskView, FunderWeekView, GoalProposalView } from "../api";
 import { AskButtons } from "./AskCard";
 import { fundedSlides, type IntrayView } from "./funderFilter";
 import { store } from "../state";
@@ -13,9 +13,8 @@ import { clampSlide } from "./DeckView";
 import { ReportActions } from "./DocView";
 import { CaptainRow, GrantRow, RetainerRow } from "./Places";
 import { GoalProposalItem } from "./GoalTreePanel";
-import { Act } from "./ui";
 
-/** After deciding on slide `n`: the key of the first later slide about another item (a rollup's other items go with it). */
+/** After deciding on slide `n`: the key of the first later slide about another item (an item's other slides go with it). */
 export function nextSlideKey(slides: ReviewSlide[], n: number): string | null {
   const cur = slides[n - 1];
   return slides.slice(n).find((s) => !cur || s.itemId !== cur.itemId || s.kind === "record")?.key ?? null;
@@ -63,16 +62,6 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   if (slide.kind === "captain") {
     const r = captains.find((x) => x.id === slide.itemId);
     return r ? <div className="review-decide"><CaptainRow req={r} route={routes[r.id]} onDecided={onDecided} /></div> : <div className="review-decide muted">Already decided.</div>;
-  }
-  if (slide.kind === "record") {
-    const ids = slide.docIds ?? [];
-    const approveAll = async () => {
-      const done = await Promise.all(ids.map((id) => api().archive(id, n, meetingId)));
-      store.putDocs(done.map((r) => r.doc));
-      store.toast(`Approved ${ids.length} rollup${ids.length === 1 ? "" : "s"} for the record.`, "ok");
-      onDecided();
-    };
-    return <div className="review-decide actions"><Act tone="ok" disabled={!ids.length} run={approveAll} title="Archive every rollup on this slide: they ask nothing of you">Approve all</Act></div>;
   }
   if (slide.kind === "blocked" && slide.buildingId) {
     const id = slide.buildingId;

@@ -3,7 +3,7 @@
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
 import { useEffect, useMemo, useState } from "react";
-import { BOARD_TYPES, DocType, grantName, isJudgedKr, krStatusWords, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
+import { BOARD_TYPES, DocType, grantName, isJudgedKr, krStatusWords, estimateRangeOf, type AccessRequestView, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type ThreadEntry } from "../api";
 import { unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
@@ -182,24 +182,6 @@ function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   return a ? <img src={portraitUrl(a.sprite, 1)} alt={name} title={name} /> : null;
 }
 
-/**
- * A rollup's ask on this row (1:1 mt_7b4zc7yja3): "Workshop asks you to fund this: <line>" and a link to the rollup.
- * A rollup that asked nothing else was folded into this row on submit (no card of its own).
- */
-function RollupAsks({ asks, verb, onOpenDoc }: { asks?: RollupAsk[]; verb: string; onOpenDoc?: (id: string) => void }) {
-  if (!asks?.length) return null;
-  return (
-    <div className="rollup-asks">
-      {asks.map((a) => (
-        <div key={a.reportId} className="intray-proposal rollup-ask">
-          <b>{a.buildingName} asks you to {verb} this:</b> <DocText text={a.line} />{" "}
-          {onOpenDoc ? <button className="link" title={a.title} onClick={() => onOpenDoc(a.reportId)}>{a.folded ? "the rollup" : "the rollup (also in Manager reports)"} →</button> : <span className="muted">({a.reportId})</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** "→ Lena via <goal>": who a waiting item is routed to (docs/goals.md "Routing"). */
 export function RoutedTo({ route }: { route?: IntrayRoute }) {
   if (!route) return null;
@@ -270,7 +252,7 @@ export function CaptainRow({ req, route, onDecided }: { req: CaptainRequestView;
  * <title>, N tokens × M runs to <date> = T". Approve (claimed in the Bank), Counter (note, per-run amount and/or end
  * date; the manager's `schedule` edit asks again) or Reject. Countered ones wait on the manager and show no buttons.
  */
-export function RetainerRow({ x, route, onDecided, deckSlide, onOpenDoc }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
+export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
   useTown((s) => s.me);
   const canDecide = (route ? route.canDecide : store.can("building.fund", x.buildingId)) && x.retainer === "asked";
   const [note, setNote] = useState("");
@@ -292,7 +274,6 @@ export function RetainerRow({ x, route, onDecided, deckSlide, onOpenDoc }: { x: 
       </div>
       <div className="doc-row-title">{x.title}</div>
       <RoutedTo route={route} />
-      {deckSlide ? null : <RollupAsks asks={x.asks} verb={askVerb(x.retainer)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         <span title="Bank tokens (Opus 5.5 output tokens)"><b>{n(x.tokensPerRun)}</b> tokens × {x.runsLeft} run{x.runsLeft === 1 ? "" : "s"}{x.endsAt ? ` to ${x.endsAt.slice(0, 10)}` : ""} = <b>{n(x.askTokens)}</b></span>
         {x.drawnTokens ? <span>drawn so far {n(x.drawnTokens)}</span> : null}
@@ -579,7 +560,6 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
       {onPage ? null : <div className="doc-row-title" title={g.objective}>{grantName(g)}</div>}
       <RoutedTo route={route} />
       {/* on a deck slide the slide text carries the ask */}
-      {deckSlide ? null : <RollupAsks asks={g.asks} verb={askVerb(g.status)} onOpenDoc={onOpenDoc} />}
       <div className="doc-row-meta">
         {stop
           ? <span title={breakdownTitle(g.spentCounts)}>{stopMoneyLine(g, stop)}</span>
@@ -646,7 +626,7 @@ function CheckpointEvidenceBlock({ e, onOpenDoc, earlier }: { e: CheckpointEvide
       ) : null}
       {earlier ? <div>Spent {fmtTokens(e.spentTokens)} of {fmtTokens(e.grantTokens)} {ADJ} granted.</div> : null}
       {topUp ? <div>{topUpLine(e)}</div> : null}
-      {e.shipped.length ? <div>Shipped in the {e.reportId ? <button className="link" onClick={() => onOpenDoc(e.reportId!)}>checkpoint report</button> : "checkpoint report"}: {e.shipped.join(" · ")}</div> : null}
+      {e.shipped.length ? <div>Shipped: {e.shipped.join(" · ")}</div> : null}
     </div>
   );
 }
