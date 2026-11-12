@@ -7,7 +7,8 @@ import type { World } from "@muster-town/core";
  * 5 minutes (the free plan allows 10 requests a minute; one every 5 minutes is far under). With no key, or when the API
  * fails, there is no number (pct null, source "unknown"); the restart gaps still show. They come from the server's own
  * events: the last event before each "Server started" boot marker (capacity.ts markBoot) to that marker.
- * UPTIMEROBOT_STATUS_URL is the public status page the block links. Never log either secret's value.
+ * UPTIMEROBOT_STATUS_URL (or UPTIME_STATUS_URL, the name it was saved under at Town Hall → Secrets on 2026-11-12) is the
+ * public status page the block links. Never log either secret's value.
  */
 const DAY_MS = 24 * 3600_000;
 const MIN_MS = 60_000;
@@ -18,7 +19,7 @@ const FAIL_CACHE_MS = MIN_MS;
 const FETCH_TIMEOUT_MS = 10_000;
 const API_URL = "https://api.uptimerobot.com/v2/getMonitors";
 const KEY_SECRET = "UPTIMEROBOT_API_KEY";
-const STATUS_URL_SECRET = "UPTIMEROBOT_STATUS_URL";
+const STATUS_URL_SECRETS = ["UPTIMEROBOT_STATUS_URL", "UPTIME_STATUS_URL"] as const;
 
 interface UptimeDay { date: string; up: number; down: number; unknown: number; pct: number | null }
 interface Outage { from: string; to: string; minutes: number }
@@ -34,7 +35,7 @@ interface UptimeSummary {
   up: number; down: number; unknown: number;
   source: "uptimerobot" | "unknown";
   sources: string[];
-  /** the public status page (UPTIMEROBOT_STATUS_URL), null when unset */
+  /** the public status page (UPTIMEROBOT_STATUS_URL or UPTIME_STATUS_URL), null when neither is set */
   statusUrl: string | null;
   /** when the server last read UptimeRobot successfully */
   lastProbeAt: string | null;
@@ -99,7 +100,7 @@ export class Uptime {
       up, down, unknown,
       source: has ? "uptimerobot" : "unknown",
       sources: has ? ["uptimerobot"] : [],
-      statusUrl: this.secret(STATUS_URL_SECRET),
+      statusUrl: STATUS_URL_SECRETS.map((n) => this.secret(n)).find((v) => v) ?? null,
       lastProbeAt: m ? iso(r.at) : null,
       error: r.error,
       byDay,
