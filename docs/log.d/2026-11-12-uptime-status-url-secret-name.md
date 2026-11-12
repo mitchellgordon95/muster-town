@@ -1,0 +1,1 @@
+- 2026-11-12 (Cleo 1, gr_hbz0twkfp9): /api/uptime was live on 6185b997 with source "uptimerobot" and 30-day pct 100 (matches the UptimeRobot status page) but statusUrl null: the status page secret was saved as `UPTIME_STATUS_URL`, not `UPTIMEROBOT_STATUS_URL`. The server now reads either name.

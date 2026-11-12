@@ -96,6 +96,9 @@ describe("Uptime", () => {
     expect(none).toMatchObject({ pct: null, source: "unknown", statusUrl: "https://stats.uptimerobot.com/abc", error: "no UPTIMEROBOT_API_KEY secret", outages: [] });
     expect(none.byDay.every((d) => d.pct === null)).toBe(true);
 
+    secrets = { UPTIME_STATUS_URL: "https://stats.uptimerobot.com/live" };
+    expect((await up(fakeFetch(robot(Array(30).fill(100), 100))).summary()).statusUrl).toBe("https://stats.uptimerobot.com/live");
+
     secrets = { UPTIMEROBOT_API_KEY: "k" };
     const fail = await up(fakeFetch({ stat: "fail", error: { type: "invalid_parameter", message: "api_key is wrong" } })).summary();
     expect(fail).toMatchObject({ pct: null, source: "unknown", error: "UptimeRobot: api_key is wrong" });
