@@ -167,7 +167,7 @@ export class SandboxBackend implements DeskBackend {
         if (!frozen) void this.api.quick(name, `rm -f ${envFile}`, 10).catch(() => {});
         const left = (this.active.get(name) ?? 1) - 1;
         if (left <= 0) this.active.delete(name); else this.active.set(name, left);
-        if (frozen) this.stopNow(name, handle.agentId);
+        if (frozen) this.stopNow(name, handle.agentId, "exec failure");
         else if (left <= 0) this.scheduleIdleStop(name);
       }
     })();
@@ -215,11 +215,16 @@ export class SandboxBackend implements DeskBackend {
     if (t) { clearTimeout(t); this.idleTimers.delete(name); }
   }
 
+  /** The agent's desk went silent (an adopted session lost after a restart): stop it so its next session starts it fresh. */
+  stopFrozen(agentId: string, why: string): void {
+    this.stopNow(this.deskOf(agentId).sandboxName, agentId, why);
+  }
+
   /** Stop a desk whose exec failed (a frozen guest), whatever else runs in it: those sessions are stuck on it too. */
-  private stopNow(name: string, agentId: string): void {
+  private stopNow(name: string, agentId: string, why: string): void {
     this.cancelIdleStop(name);
     if (this.stopping.has(name)) return;
-    this.onEvent(`Desk ${name} stopped after exec failure`, { desk: name, agentId, deskStopped: "exec-failure" });
+    this.onEvent(`Desk ${name} stopped after ${why}`, { desk: name, agentId, deskStopped: why === "exec failure" ? "exec-failure" : "adopted-silent" });
     const p = this.api.stop(name)
       .catch((e) => console.warn(`[runtime] stopping sandbox ${name} after exec failure failed: ${e instanceof Error ? e.message : String(e)}`))
       .finally(() => { if (this.stopping.get(name) === p) this.stopping.delete(name); });

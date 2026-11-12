@@ -53,6 +53,12 @@ export interface DeskBackend {
   remove?(agentId: string, opts?: { purge?: boolean }): Promise<void>;
   /** remove a desk slot's sandbox by name (its home volume stays), e.g. to recreate it on a new image */
   removeSandbox?(name: string): Promise<void>;
+  /**
+   * stop the agent's desk now (its next session starts it fresh): an adopted session that went silent left it frozen, and the
+   * re-queued work would start on it within a second and die with exit -1 (11-12: three 0-token deaths that way). Sync: the
+   * stop must be registered before the next ensure().
+   */
+  stopFrozen?(agentId: string, why: string): void;
 }
 
 /** In-process work sessions (today's `runAgentSession` path). Always available; no code tools. */
