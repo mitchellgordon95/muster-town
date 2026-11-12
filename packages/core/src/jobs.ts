@@ -115,6 +115,12 @@ function jobRows(world: World, only?: string): Job[] {
 
 const authorOfDoc = (authorId: string, authorKind: string, managerId: string | null): EntryAuthorKind =>
   authorId === "system" ? "code" : authorKind === "user" ? "human" : authorId === managerId ? "manager" : "fork";
+/**
+ * Who answers a report's entry (answer.ts): the code when the town settled it (decided by "system": a step queued, a
+ * park, a meeting decision superseding it), the humans for a rollup or a visitor's report, else the manager.
+ */
+const reportLevel = (r: { decision: string | null; decidedBy: string | null; townHall: number }): Entry["level"] =>
+  r.decision && r.decision !== "pending" && r.decidedBy === "system" ? "code" : r.townHall ? "human" : "manager";
 const authorOfDecider = (id: string | null | undefined): EntryAuthorKind => (!id || id === "system" ? "code" : id.startsWith("us_") ? "human" : "manager");
 
 /** Every entry the town's records give a job (or every job when `only` is left out), by job id, not yet ordered. */
@@ -127,11 +133,12 @@ function entryRows(world: World, only?: string): Map<string, EntryRow[]> {
   const pocketOf = new Map((db.prepare("SELECT id, pocketRef FROM jobs").all() as { id: string; pocketRef: string | null }[]).map((j) => [j.id, j.pocketRef]));
 
   // a session report: one entry, answered (level manager) once a decision exists
-  const reports = db.prepare(`SELECT * FROM (SELECT d.id, d.title, CASE WHEN EXISTS (SELECT 1 FROM entries WHERE id = 'en_' || d.id) THEN '' ELSE d.body END AS body, d.authorId, d.authorKind, d.verdict, d.decision, d.createdAt, d.assignmentId,
+  const reports = db.prepare(`SELECT * FROM (SELECT d.id, d.title, CASE WHEN EXISTS (SELECT 1 FROM entries WHERE id = 'en_' || d.id) THEN '' ELSE d.body END AS body, d.authorId, d.authorKind, d.verdict, d.decision, d.decidedBy, d.createdAt, d.assignmentId,
+      CASE WHEN d.tags LIKE '%"rollup"%' OR d.tags LIKE '%"visitor"%' THEN 1 ELSE 0 END AS townHall,
       b.managerAgentId, ${JOB_OF_REPORT} AS job,
       a.grantStep AS step
     FROM docs d LEFT JOIN assignments a ON a.id = d.assignmentId LEFT JOIN buildings b ON b.id = d.buildingId
-    WHERE d.type = 'report' AND d.state <> 'draft' AND d.buildingId IS NOT NULL) ${filter}`).all(...args) as { id: string; title: string; body: string; authorId: string; authorKind: string; verdict: string | null; decision: string | null; createdAt: string; assignmentId: string | null; step: number | null; managerAgentId: string | null; job: string }[];
+    WHERE d.type = 'report' AND d.state <> 'draft' AND d.buildingId IS NOT NULL) ${filter}`).all(...args) as { id: string; title: string; body: string; authorId: string; authorKind: string; verdict: string | null; decision: string | null; decidedBy: string | null; townHall: number; createdAt: string; assignmentId: string | null; step: number | null; managerAgentId: string | null; job: string }[];
   // what the Bank booked for each report's sessions (adjusted output tokens) and its last session
   const booked = new Map<string, { tokens: number; sessionId: string; startedAt: string }>();
   for (const se of world.sessions.where("reportId IN (SELECT value FROM json_each(?))", [JSON.stringify(reports.map((r) => r.id))])) {
@@ -145,7 +152,7 @@ function entryRows(world: World, only?: string): Map<string, EntryRow[]> {
     add({
       id: `en_${r.id}`, jobId: r.job, authorKind: authorOfDoc(r.authorId, r.authorKind, r.managerAgentId), authorId: r.authorId, assignmentId: r.assignmentId, sessionId: booked.get(r.id)?.sessionId ?? null,
       pocket: pocketOf.get(r.job) ?? null, tokens: booked.get(r.id)?.tokens ?? 0, moved: r.step !== null ? { stepsDone: [r.step] } : {}, proposes: r.verdict, answers: null,
-      level: r.decision ? "manager" : "none", note: r.title, body: r.body, docId: r.id, createdAt: r.createdAt,
+      level: reportLevel(r), note: r.title, body: r.body, docId: r.id, createdAt: r.createdAt,
     });
   }
   // the decision on a report: an answer entry on the report's job
@@ -192,8 +199,9 @@ function sync(world: World, only?: string): { jobs: number; entries: number } {
     const maxSeq = db.prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM entries WHERE jobId = ?");
     const insert = db.prepare(`INSERT INTO entries (id, jobId, seq, authorKind, authorId, assignmentId, sessionId, pocket, tokens, moved, proposes, answers, level, note, body, docId, createdAt)
       VALUES (@id, @jobId, @seq, @authorKind, @authorId, @assignmentId, @sessionId, @pocket, @tokens, @moved, @proposes, @answers, @level, @note, @body, @docId, @createdAt)`);
-    // an entry written live keeps its moved; its level follows the decision, its tokens what the Bank booked since
-    const refresh = db.prepare("UPDATE entries SET level = @level, tokens = MAX(tokens, @tokens) WHERE id = @id AND (level <> @level OR tokens < @tokens)");
+    // an entry written live keeps its moved and the level its answer gave it (answer.ts); a back-filled one follows the
+    // decision; its tokens follow what the Bank booked since
+    const refresh = db.prepare("UPDATE entries SET level = CASE WHEN level = 'none' OR (level = 'manager' AND @level = 'code') THEN @level ELSE level END, tokens = MAX(tokens, @tokens) WHERE id = @id AND ((level <> @level AND (level = 'none' OR (level = 'manager' AND @level = 'code'))) OR tokens < @tokens)");
     for (const [jobId, rows] of entryRows(world, only)) {
       if (!known.has(jobId) && !db.prepare("SELECT 1 FROM jobs WHERE id = ?").get(jobId)) continue;
       let seq = (maxSeq.get(jobId) as { n: number }).n;

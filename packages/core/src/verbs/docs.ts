@@ -17,6 +17,7 @@ import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { fileForecast } from "../grant-forecast.ts";
 import { fileReportEntry, refreshJob } from "../jobs.ts";
+import { answerReport, isFallbackReport } from "../answer.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
@@ -352,7 +353,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
   // plan dc_uwx045472m step 4: a grant step's entry says what is left (`moved.left`), required when the step ends here
   const left = input.left?.trim() || undefined;
-  if (!left && !resumeWhen && !input.rollup && current?.grantId && current.grantStep != null) {
+  // a dead session's fallback report (runtime work.ts) can't say: it goes to the manager as a code entry instead
+  if (!left && !resumeWhen && !input.rollup && current?.grantId && current.grantStep != null && !isFallbackReport(input.title)) {
     throw badRequest(`A grant step's report says what is left: add left: "<what is left of grant ${current.grantId}'s work after this step, one or two plain sentences>" and submit again.`);
   }
   const parks = (current?.parked ?? 0) + 1;
@@ -430,16 +432,22 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
     // the job's row follows its work: a chunk or a pocket whose last assignment just reported closes
     if (entryJob) refreshJob(world, entryJob);
+    // one loop (plan dc_uwx045472m step 5): the entry is answered at the lowest level that can; code settles what needs no judgment
+    const answered = bid && !folded && !archived ? answerReport(world, {
+      doc, jobId: entryJob, assignment: current ? world.assignments.get(current.id) ?? null : null, verdict: input.verdict, nextStep, parked,
+      townHall: townHall || unhomedVisitor, managed: !!manager, ownReport: manager?.id === me.id,
+    }) : null;
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = folded || archived ? "approve" : "pending";
+    const decision: Doc["decision"] = folded || archived || answered?.settled ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
     const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
       : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
       : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
+      : answered?.settled ? `your job's thread, settled by code (${answered.note}): it needs no review, so it is not in the ${building!.name} in-tray`
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
