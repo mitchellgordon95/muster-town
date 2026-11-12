@@ -47,7 +47,11 @@ export function createBuilding(
   const goalId = inp.goalId ?? ROOT_GOAL_ID;
   const goal = world.goals.get(goalId);
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
-  if (opts.kind !== "town-hall") world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
+  if (opts.kind !== "town-hall") {
+    // one building per chain (docs/goals.md): no lab at, above or under the goal already
+    world.goalTree.requireChainFree(goalId);
+    world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
+  }
   return world.transaction(() => {
     const building = world.buildings.upsert({
       ...inp, ...text, ...defaults, name: inp.name || world.goalTree.defaultName(goalId), goalId, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
@@ -262,6 +266,8 @@ export function adoptGoal(world: World, agentId: string, goalId: string): { buil
   if (managed) throw new AppError("conflict", `${me.name} already manages ${managed.name}; a visitor manages one building.`);
   const lab = labOnChain(world, goalId);
   if (lab) throw new AppError("conflict", `${lab.name} already works on ${lab.goalId === goalId ? "this goal" : "a goal above it"}, so it has desks to join: register a visitor on goal ${goalId} (goalId) instead of adopting it.`);
+  // a lab under the goal: one building per chain (createBuilding below would refuse it too; this says why first)
+  world.goalTree.requireChainFree(goalId);
   return world.transaction(() => {
     const b = createBuilding(world, { goalId, headcount: 1 }, me.ownerUserId ?? null);
     world.buildings.upsert({ ...b, managerAgentId: me.id });

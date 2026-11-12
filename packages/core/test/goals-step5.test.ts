@@ -86,7 +86,8 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
 
   it("proposals carry reorgId; under-review key results are kept, moved or archived by a human", async () => {
     const { world, admin, mei, goal, kr, tree } = setup();
-    const other = createBuilding(world, { name: "Other", goalId: goal.id }, null);
+    // two labs on one goal: a state from before the chain rule (createBuilding refuses it now), set straight in the table
+    const other = world.buildings.upsert({ ...createBuilding(world, { name: "Other" }, null), goalId: goal.id });
     const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: goal.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
     const k2 = krOf(other.id, "k2");
     const k3 = krOf(LAB, "k3");

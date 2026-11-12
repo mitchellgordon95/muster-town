@@ -137,8 +137,8 @@ describe("a member's 1:1 needs direct work under the building's goal (gr_cuobjln
     world.goalTree.attach(null, other.id, world.goalTree.create(null, { parentId: "gl_town", text: "Other goal" }).id);
     world.agents.patch(by("Noor").id, { homeBuildingId: other.id, buildingId: other.id });
     world.ops.updateBuilding(admin, other.id, { managerAgentId: by("Noor").id });
-    const subLab = world.ops.createBuilding(admin, { name: "Sub lab" });
-    world.goalTree.attach(null, subLab.id, sub);
+    // a lab under the carbon lab's goal: a state from before the chain rule (attach refuses it now), set straight in the table
+    const subLab = world.buildings.upsert({ ...world.ops.createBuilding(admin, { name: "Sub lab" }), goalId: sub });
     world.agents.patch(by("Ravi").id, { homeBuildingId: subLab.id, buildingId: subLab.id });
     world.ops.updateBuilding(admin, subLab.id, { managerAgentId: by("Ravi").id });
     const user = (name: string, role: "member" | "visitor") => {

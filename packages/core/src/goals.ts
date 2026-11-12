@@ -337,7 +337,15 @@ export class Goals {
     this.requireEdit(actor, parent.id);
     const last = this.world.goals.first("parentId = ?", [parent.id], "ORDER BY position DESC");
     const next = this.world.goals.upsert({ ...g, parentId: parent.id, position: last ? last.position + 1 : 0, editedBy: actor ? holderOf(actor).id : null, updatedAt: nowIso() });
-    this.event("goal.moved", actor, `Goal moved under "${clip(parent.text, 60)}": ${g.text}`, { goalId: g.id, parentId: parent.id, fromParentId: g.parentId });
+    // a move a human makes or accepts may put two labs on one chain: allowed, and recorded here so the chain audit names
+    // it as accepted by that human on this date (docs/goals.md "One building per chain")
+    const sub = this.subtreeIds(g.id);
+    const labs = this.world.buildings.where("kind = 'lab'", [], "ORDER BY createdAt, rowid");
+    const above = new Set(this.ancestors(parent.id).map((a) => a.id).filter((id) => id !== ROOT_GOAL_ID));
+    const chainOverlaps = labs.filter((l) => sub.has(this.attachmentOf(l))).flatMap((lower) =>
+      labs.filter((u) => above.has(this.attachmentOf(u))).map((upper) => ({ upperId: upper.id, lowerId: lower.id })));
+    const overlapText = chainOverlaps.length ? ` (puts ${chainOverlaps.map((o) => `${this.world.buildings.get(o.lowerId)?.name} under ${this.world.buildings.get(o.upperId)?.name}`).join(", ")} on one chain)` : "";
+    this.event("goal.moved", actor, `Goal moved under "${clip(parent.text, 60)}": ${g.text}${overlapText}`, { goalId: g.id, parentId: parent.id, fromParentId: g.parentId, ...(chainOverlaps.length ? { chainOverlaps } : {}) });
     return next;
   }
 
@@ -405,6 +413,84 @@ export class Goals {
     }
   }
 
+  // ---- the chain rule (docs/goals.md "One building per chain", gr_2r17x8egrc step 1) ----
+  /**
+   * The first lab that already works on `goalId`'s chain: attached at the goal itself, at a goal above it, or at a goal
+   * under it (`exceptBuildingId` left out). Labs only: the Town Hall is not a work building. The root is shared: a lab
+   * attached at the root sits on no chain (a new collective's first building and the seed's labs start there), and a
+   * goal at the root has no chain of its own. Undefined when the chain is free.
+   */
+  chainConflict(goalId: string, exceptBuildingId?: string): Building | undefined {
+    if (goalId === ROOT_GOAL_ID) return undefined;
+    const chain = new Set([...this.ancestors(goalId).map((g) => g.id), ...this.subtreeIds(goalId)]);
+    chain.delete(ROOT_GOAL_ID);
+    return this.world.buildings.where("kind = 'lab'", [], "ORDER BY createdAt, rowid")
+      .find((b) => b.id !== exceptBuildingId && chain.has(this.attachmentOf(b)));
+  }
+
+  /** 409 when `chainConflict` finds a lab on the goal's chain: one building per chain (createBuilding, attach, adopt). */
+  requireChainFree(goalId: string, exceptBuildingId?: string): void {
+    const b = this.chainConflict(goalId, exceptBuildingId);
+    if (!b) return;
+    const at = this.attachmentOf(b);
+    const where = at === goalId ? "this goal" : this.ancestors(goalId).some((g) => g.id === at) ? "a goal above it" : "a goal under it";
+    throw new AppError("conflict", `${b.name} (${b.id}) already works on ${where} ("${clip(this.get(at)?.text ?? at, 80)}"): one building per chain. Register a visitor there, or pick a goal on a chain no building works on.`);
+  }
+
+  /**
+   * Every pair of labs on one chain (the upper one attached at or above the lower one's goal, the root left out). A pair
+   * is an accepted exception when a human moved a goal between them (on the lower lab's path, below the upper lab's
+   * goal) to where it is now: a goal move a human accepts is allowed (Mitchell, ask ak_pzu7q469my, 2026-11-12: UI / UX
+   * stays under Steer) and its `goal.moved` event names who and when. Any other pair is a violation. Reads only.
+   */
+  chainAudit(): { violations: ChainPair[]; accepted: ChainPair[] } {
+    const labs = this.world.buildings.where("kind = 'lab'", [], "ORDER BY createdAt, rowid").filter((b) => this.attachmentOf(b) !== ROOT_GOAL_ID);
+    const out = { violations: [] as ChainPair[], accepted: [] as ChainPair[] };
+    for (const lower of labs) {
+      const path = this.ancestors(this.attachmentOf(lower));
+      for (const upper of labs) {
+        if (upper.id === lower.id) continue;
+        const at = path.findIndex((g) => g.id === this.attachmentOf(upper));
+        // same goal: report each pair once (the older lab is the upper one)
+        if (at < 0 || (at === 0 && labs.indexOf(upper) > labs.indexOf(lower))) continue;
+        const pair: ChainPair = { upper: { id: upper.id, name: upper.name, goalId: this.attachmentOf(upper) }, lower: { id: lower.id, name: lower.name, goalId: this.attachmentOf(lower) } };
+        const move = path.slice(0, at).map((g) => this.humanMoveOf(g)).find(Boolean);
+        if (move) out.accepted.push({ ...pair, acceptedBy: move });
+        else out.violations.push(pair);
+      }
+    }
+    return out;
+  }
+
+  /** The human who moved the goal under its current parent (its latest `goal.moved` event), or undefined. */
+  private humanMoveOf(g: Goal): ChainPair["acceptedBy"] | undefined {
+    if (!g.parentId) return undefined;
+    const row = this.world.db.prepare(
+      "SELECT ts, payload FROM events WHERE type = 'goal.moved' AND json_extract(payload, '$.goalId') = ? ORDER BY id DESC LIMIT 1",
+    ).get(g.id) as { ts: string; payload: string } | undefined;
+    if (!row) return undefined;
+    const p = JSON.parse(row.payload) as { parentId?: string; by?: string };
+    const user = p.by ? this.world.users.get(p.by) : undefined;
+    if (p.parentId !== g.parentId || !user) return undefined;
+    return { goalId: g.id, userId: user.id, userName: user.name, at: row.ts };
+  }
+
+  /** The boot audit (server main.ts): one `system` event naming every violation and accepted exception. Changes nothing. */
+  logChainAudit(): { violations: ChainPair[]; accepted: ChainPair[] } {
+    const audit = this.chainAudit();
+    const name = (p: ChainPair) => `${p.lower.name} under ${p.upper.name}`;
+    const parts = [
+      ...audit.violations.map((p) => `violation: ${name(p)}`),
+      ...audit.accepted.map((p) => `accepted: ${name(p)} (goal ${p.acceptedBy!.goalId} moved by ${p.acceptedBy!.userName} ${p.acceptedBy!.at})`),
+    ];
+    const n = audit.violations.length, m = audit.accepted.length;
+    this.world.events.append({
+      type: "system", text: `chain audit: ${n} violation${n === 1 ? "" : "s"}, ${m} accepted exception${m === 1 ? "" : "s"}${parts.length ? `: ${parts.join("; ")}` : ""}`,
+      payload: { chainAudit: true, violations: audit.violations, accepted: audit.accepted },
+    });
+    return audit;
+  }
+
   /** Attach a building to a goal (its one attachment; never unset): `goals.edit` on both the old and the new goal. */
   attach(actor: Actor, buildingId: string, goalId: string): Building {
     const b = this.world.buildings.require(buildingId, "building");
@@ -417,7 +503,8 @@ export class Goals {
       this.requireEdit(actor, this.attachmentOf(b));
       this.requireEdit(actor, to.id);
     }
-    // moving in brings its desks: the totals on the new path must hold them
+    // one building per chain (labs only), then moving in brings its desks: the totals on the new path must hold them
+    if (b.kind === "lab") this.requireChainFree(to.id, b.id);
     this.requireDesksFit(b.id, to.id, b.headcount);
     return this.setAttachment(actor, b, to.id);
   }
@@ -684,6 +771,13 @@ export class Goals {
   private event(type: "goal.created" | "goal.edited" | "goal.moved" | "goal.retired" | "goal.owned", actor: Actor, text: string, payload: Record<string, unknown>): void {
     this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: null, text, payload: { ...payload, by: actor ? holderOf(actor).id : "system" } });
   }
+}
+
+/** Two labs on one chain (`chainAudit`): `acceptedBy` is the human goal move that put them there, when there is one. */
+export interface ChainPair {
+  upper: { id: string; name: string; goalId: string };
+  lower: { id: string; name: string; goalId: string };
+  acceptedBy?: { goalId: string; userId: string; userName: string; at: string };
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

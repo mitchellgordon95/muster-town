@@ -72,6 +72,11 @@ async function main() {
     ensureCalibrationSchedule(world);
     if (sec) console.log(`[server] Secretary ${sec.id}${sched ? `, ranking schedule ${sched.id} (retainer ${sched.retainer})` : ""}${weekly ? `, pattern schedule ${weekly.id} (retainer ${weekly.retainer})` : ""}`);
   } catch (e) { console.warn(`[server] Secretary not set up: ${(e as Error).message}`); }
+  // the chain audit (docs/goals.md "One building per chain"): one system event naming violations and accepted exceptions; changes nothing
+  try {
+    const audit = world.goalTree.logChainAudit();
+    console.log(`[server] chain audit: ${audit.violations.length} violations, ${audit.accepted.length} accepted exceptions`);
+  } catch (e) { console.warn(`[server] chain audit failed: ${(e as Error).message}`); }
   const desksOverride = desksFromEnv(townEnv("DESKS"));
   if (desksOverride) {
     world.town.setDesks({ ...world.town.desks(), ...desksOverride });
