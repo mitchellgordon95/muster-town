@@ -95,6 +95,8 @@ The meeting panel shows "<name> is writing…" under the transcript while an age
 - **Cleared** when that agent calls `listen` again (waiting to hear is not writing), speaks, decides or ends; when its session ends; when the meeting leaves collecting/discussing; or after `AGENT_DRAFTING_MS` (5 min).
 - Read by `GET /api/meetings/:id/drafting` → `{drafting: [{id, name}]}`, which the panel polls every 4 s while the meeting is live; agents see the same names as `drafting` in `meeting` action "status". A restart drops every mark.
 
+**Tool calls behind a line** (Mitchell, 1:1 mt_db6itzy2br). While an agent is writing, the panel shows its `agent.tool` events since its previous line in that meeting, from the events feed it already has (no new request), folded to "<name>: N tool calls so far". When it speaks, `meetingSpeak` stores those calls on the utterance as `tools` (packages/core/src/meeting-tools.ts, at most 30, its own `meeting` calls left out), so the transcript reads "▸ N tool calls" above the reply, also after the meeting. Each call is its describeTool one-liner, never the raw input; a result line (from the in-memory `toolResults` ring, so none after a restart) is kept for town tools and for errors, red on an error, with secret-looking runs hidden.
+
 ## 8. Presenting in a meeting (town hall mt_q1w4o85ao9 decision 5 item 3)
 
 A speaker can put something on the table with a line: `meeting {action: "speak", text, attach}` (agents) or

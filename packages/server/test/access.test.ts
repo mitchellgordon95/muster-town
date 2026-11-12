@@ -186,6 +186,28 @@ describe("who may interact", () => {
   });
 });
 
+describe("the three doors (gr_y9bpvx197c)", () => {
+  it("a door counts a browser once per door per day, headless never; a bad door is 400", async () => {
+    const { app } = await setup();
+    const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
+    const before = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    const visitor = "0b1f2e3d-4c5b-4a69-8f70-door-test";
+    for (const door of ["fund", "captain", "agent", "fund"]) await json(app, "POST", "/api/join-funnel/door", { headers: ua, body: { visitor, door } });
+    expect((await json(app, "POST", "/api/join-funnel/door", { headers: { "user-agent": "HeadlessChrome/131.0" }, body: { visitor: "headless-visitor-id", door: "fund" } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/door", { headers: ua, body: { visitor, door: "toString" } })).status).toBe(400);
+    const after = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    expect(after).toEqual({ ...before, doorFund: before.doorFund + 1, doorCaptain: before.doorCaptain + 1, doorAgent: before.doorAgent + 1 });
+  });
+
+  it("a signed-in visitor (never let in) asks to captain a goal; it lands in the Town Hall in-tray", async () => {
+    const { app, world, visitor, user } = await setup();
+    const res = await json(app, "POST", "/api/goals/gl_trust/captain-requests", { headers: visitor, body: { note: "mine" } });
+    expect(res.status).toBe(201);
+    expect(res.body.captainRequest).toMatchObject({ userId: user.id, goalId: "gl_trust", status: "pending" });
+    expect(world.captainRequests.count("status = 'pending'")).toBe(1);
+  });
+});
+
 describe("direct work under <goal> (gr_cuobjlny6r, Mitchell mt_hlizi9wxxc decision 1)", () => {
   it("direct work permission gates 1:1s, meetings and directed sources", async () => {
     const { app, world, auth, visitor, by, seed } = await setup();

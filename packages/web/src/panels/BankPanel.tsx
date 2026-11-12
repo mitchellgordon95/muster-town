@@ -5,7 +5,7 @@
  * exploration" line (its sum in the sidebar; per-goal free tokens are in the goal editor), Next 30 days, top contributors.
  * Inputs (ledger desk): Tokens, Bank inputs, Plans paid for (BankFees.tsx), Streams, Sources. Spending (spending board): a drill-down, buildings → grants →
  * assignments, the clicked row's detail (a building's own funding among it) in the sidebar with drift, out-of-tokens deaths and the
- * cap (BankSpending.tsx); Spend by goal (1:1 mt_n25udpflus decision 5) behind its "By goal" toggle. Hosting (server rack): Fly.io in dollars. The funding sections are BankFunding's, the finance ones
+ * cap (BankSpending.tsx); Spend by goal (1:1 mt_n25udpflus decision 5) behind its "By goal" toggle. Hosting (server rack): the public Uptime block (Uptime.tsx), then Fly.io in dollars. The funding sections are BankFunding's, the finance ones
  * BankFinance's, each over its own endpoint.
  */
 import { useState, type ReactNode } from "react";
@@ -14,6 +14,7 @@ import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { FreeTokensSum } from "./FreeTokens";
+import { UptimeBlock } from "./Uptime";
 import { PlansPaidFor } from "./BankFees";
 import { BankSpendingTab, SPEND_PICK, SpendSelected, SpendingHealth } from "./BankSpending";
 import { ADJ, Act, Loading, NumberInput, Section, breakdownTitle, fmtTokens } from "./ui";
@@ -89,7 +90,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: Vi
     </>
   );
   if (tab === "Spending") return <BankSpendingTab sp={fin?.spend ?? null} picked={picked} onPick={onPick} />;
-  if (tab === "Hosting") return fin?.fly ? <FlyView fly={fin.fly} /> : null;
+  if (tab === "Hosting") return <><Section title="Uptime"><UptimeBlock /></Section>{fin?.fly ? <FlyView fly={fin.fly} /> : null}</>;
   return (
     <>
       <Section title="Balance">

@@ -1,0 +1,1 @@
+- 2026-11-11: onboarding sweep 13 (checked through 2cf292b0 -> 02c955dd): manual gains the Town health tab (user stats) and the public Uptime block (Bank rack, signed-out landing); 1899 words.

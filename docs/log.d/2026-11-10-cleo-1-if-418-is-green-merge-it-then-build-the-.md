@@ -1,0 +1,1 @@
+- 2026-11-10: public Uptime block (Cleo 1, grant gr_rcj8nkbkbt, kr_ay5wb5wfhd): packages/web/src/panels/Uptime.tsx shows GET /api/uptime's 30-day %, a 30-cell day strip (grey = not measured, never green) and the outages at the Bank server rack (Hosting tab, above Fly.io) and on the signed-out landing (home.ts `#uptime`, mounted by home/main.tsx; a no-JS link to /api/uptime).

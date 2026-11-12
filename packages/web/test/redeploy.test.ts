@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { Event } from "@muster-town/schema";
-import { blockedByRedeploy, cacheMissAlert, redeployLine, redeployStatus, SHOW_FINISHED_MS } from "../src/redeploy";
+import { blockedByRedeploy, cacheMissAlert, redeployChanges, redeployLine, redeployStatus, SHOW_FINISHED_MS } from "../src/redeploy";
 
 let id = 0;
 const ev = (run: Record<string, unknown> | null, ts = "2026-10-20T18:00:00.000Z", text = "Redeploy: x"): Event =>
@@ -50,5 +50,22 @@ describe("cache-miss alert in the HUD (gr_lwgus14rd2 step 2)", () => {
     const old = { ...cm("2026-10-20T00:00:30.000Z"), payload: { alert: "cache-miss", reasons: ["share"], sessions: 1 } } as Event;
     expect(cacheMissAlert([old], at)).toBeNull();
     expect(cacheMissAlert([], at, [old])).toBeNull();
+  });
+});
+
+describe("redeploy changes on the HUD card (1:1 mt_db6itzy2br)", () => {
+  const changes = [{ sha: "327109b", subject: "Hydrant: one stream (#414)" }, { sha: "aacc9fe", subject: "Schema image (#247)" }];
+  test("a finished run lists its changes, each linked to its commit", () => {
+    const s = redeployStatus([ev(run("done", { commits: 5, changes, repoUrl: "https://github.com/o/r" }))], at)!;
+    expect(redeployChanges(s)).toEqual([
+      { sha: "327109b", subject: "Hydrant: one stream (#414)", href: "https://github.com/o/r/commit/327109b" },
+      { sha: "aacc9fe", subject: "Schema image (#247)", href: "https://github.com/o/r/commit/aacc9fe" },
+    ]);
+  });
+  test("no repo: lines without links; failed or interrupted: no lines (the steps come first); old events: none", () => {
+    expect(redeployChanges(redeployStatus([ev(run("restarting", { changes }))], at)!).map((c) => c.href)).toEqual([undefined, undefined]);
+    expect(redeployChanges(redeployStatus([ev(run("failed", { changes, repoUrl: "https://github.com/o/r" }))], at)!)).toEqual([]);
+    expect(redeployChanges(redeployStatus([ev(run("aborted", { changes }))], at)!)).toEqual([]);
+    expect(redeployChanges(redeployStatus([ev(run("done"))], at)!)).toEqual([]);
   });
 });

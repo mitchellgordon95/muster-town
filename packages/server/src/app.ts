@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, isAppError, isAutomatedClient, engagement, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, DOORS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -21,6 +21,8 @@ import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
 import { directoryRoutes } from "./routes/directory.ts";
+import { uptimeRoutes } from "./routes/uptime.ts";
+import { Uptime } from "./uptime.ts";
 import { docRoutes } from "./routes/docs.ts";
 import { goalRoutes } from "./routes/goals.ts";
 import { askRoutes } from "./routes/asks.ts";
@@ -230,6 +232,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const v = visitorOf(req.body);
     return { counted: !!v && countVisitor(opts.world, "homeViews", v) };
   });
+  // the three doors (gr_y9bpvx197c): the guest card or You're-in card pings which door this browser opened, once per door per UTC day
+  app.post(`${prefix}/api/join-funnel/door`, async (req) => {
+    if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    const door = typeof req.body === "object" && req.body ? (req.body as { door?: unknown }).door : null;
+    const step = typeof door === "string" && Object.hasOwn(DOORS, door) ? DOORS[door as keyof typeof DOORS] : null;
+    if (!step) throw new AppError("bad_request", "door must be fund, captain or agent");
+    const v = visitorOf(req.body);
+    return { counted: !!v && countVisitor(opts.world, step, v) };
+  });
   app.get(`${prefix}/api/join-funnel`, async () => {
     const own = { slug: prefix ? prefix.slice(1) : opts.collective ?? "workshop", world: opts.world };
     const hosted = prefix ? [] : (opts.hub?.list("active") ?? []).flatMap((h) => { const w = opts.hub!.world(h.slug); return w ? [{ slug: h.slug, world: w }] : []; });
@@ -241,6 +252,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   // community engagement in this collective only (flag dc_r7u6bkaei4): what its signed-in humans did here, counts only
   app.get(`${prefix}/api/engagement`, async () => engagement(opts.world));
+  // town health in this collective only (gr_8bxoy2heif): paperwork share, cache hits, overrun past holds, tokens per report; counts only
+  app.get(`${prefix}/api/health-stats`, async () => townHealth(opts.world));
 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
@@ -302,6 +315,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
+    // public uptime from outside probes (gr_rcj8nkbkbt): every root town; empty until a pinger posts
+    await app.register(uptimeRoutes(new Uptime(opts.world)));
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
   if (opts.monitor) { const c = opts.monitor.counters; app.addHook("onResponse", async (_req, reply) => { c.response(reply.statusCode); }); }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideCaptain, holderOf, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
+import { accessRequestOf, canInteract, decideCaptain, requestAccess, holderOf, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks, the goal's current captain decides.
@@ -21,9 +21,26 @@ function setup() {
 }
 
 describe("captain requests (gr_bwm0iz7rwl)", () => {
-  it("only a member can ask; one pending ask per (goal, user)", () => {
-    const { world, ana, vic, child, parent } = setup();
-    expect(() => requestCaptain(world, vic.user.id, child.id)).toThrow(/Only a member/);
+  it("any signed-in user can ask, a non-captain can't decide, and accepting lets a non-member in (gr_y9bpvx197c)", () => {
+    const { world, admin, bo, vic, child, th } = setup();
+    expect(canInteract(world, vic.user.id)).toBe(false);
+    const join = requestAccess(world, vic.user.id, "hi");
+    const r = requestCaptain(world, vic.user.id, child.id, "I'll run it");
+    expect(r.status).toBe("pending");
+    expect(townHallIntray(world).captains.map((c) => c.id)).toContain(r.id);
+    // a plain member who captains nothing above it can't decide, nor can the asker
+    expect(() => decideCaptain(world, bo.avatar, r.id, true)).toThrow(/current captain/);
+    expect(() => decideCaptain(world, vic.avatar, r.id, true)).toThrow(/current captain/);
+    const before = intrayCount(world, th.id);
+    decideCaptain(world, admin, r.id, true);
+    expect(world.goalTree.require(child.id).ownerId).toBe(vic.user.id);
+    expect(canInteract(world, vic.user.id)).toBe(true);
+    expect(accessRequestOf(world, vic.user.id)).toMatchObject({ id: join.id, status: "granted", decidedBy: holderOf(admin).id });
+    expect(intrayCount(world, th.id)).toBe(before - 2);
+  });
+
+  it("one pending ask per (goal, user)", () => {
+    const { world, ana, child, parent } = setup();
     const r = requestCaptain(world, ana.user.id, child.id, "  I run this work  ");
     expect(r).toMatchObject({ status: "pending", goalId: child.id, userId: ana.user.id, note: "I run this work" });
     expect(() => requestCaptain(world, ana.user.id, child.id)).toThrow(/already asked/);

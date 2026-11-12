@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { townRoleId } from "@muster-town/core";
 import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
-import { drainNudge, drainNudgeManage, imageTags } from "../src/redeploy.ts";
+import { drainNudge, drainNudgeManage, imageTags, parseChanges, repoWebUrl } from "../src/redeploy.ts";
 import { result, setup } from "./helpers.ts";
 
 const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
@@ -114,6 +114,7 @@ describe("redeploy", () => {
       "git pull --rebase origin main",
       "git rev-list --count abc123..HEAD",
       "git diff --name-only abc123 HEAD -- package-lock.json",
+      "git log --first-parent -n50 --format=%h%x1f%s%x1f%b%x1e abc123..HEAD",
       // the no-op guard reads HEAD after the pull (the runtime's live commit is this checkout's HEAD, not abc123)
       "git rev-parse HEAD",
       "npm run build --workspace packages/web",
@@ -484,5 +485,40 @@ describe("redeploy status for the UI", () => {
       await h.r.done();
       expect(h.exit).toHaveBeenCalledWith(75);
     });
+  });
+});
+
+describe("redeploy change list (1:1 mt_db6itzy2br: the card lists what went live)", () => {
+  const runs = (world: ReturnType<typeof setup>["world"]) => world.events.recent({ limit: 200 })
+    .map((e) => (e.payload as { run?: Record<string, unknown> }).run).filter(Boolean);
+  const log = (...recs: [string, string, string?][]) => recs.map(([h, s, b = ""]) => `${h}\x1f${s}\x1f${b}\x1e`).join("\n");
+
+  test("parseChanges: subjects, a merged PR by its title and number", () => {
+    expect(parseChanges(log(["aacc9fe", "Merge pull request #247 from mitchellgordon95/agent/mara-1/x", "\nTest databases start from a schema image\n\nmore"], ["327109b", "Hydrant: one stream (#414)"]))).toEqual([
+      { sha: "aacc9fe", subject: "Test databases start from a schema image (#247)" },
+      { sha: "327109b", subject: "Hydrant: one stream (#414)" },
+    ]);
+    expect(parseChanges("")).toEqual([]);
+  });
+
+  test("repoWebUrl: https page, credentials and .git dropped; scp and ssh forms", () => {
+    expect(repoWebUrl("https://x-access-token:secret@github.com/mitchellgordon95/muster-town.git")).toBe("https://github.com/mitchellgordon95/muster-town");
+    expect(repoWebUrl("git@github.com:mitchellgordon95/muster-town.git")).toBe("https://github.com/mitchellgordon95/muster-town");
+    expect(repoWebUrl("ssh://git@github.com/o/r")).toBe("https://github.com/o/r");
+    expect(repoWebUrl("/srv/repo")).toBeUndefined();
+    expect(repoWebUrl(undefined)).toBeUndefined();
+  });
+
+  test("the run carries the pulled changes (both pulls, newest first) to the restarted server's done event", async () => {
+    const root = mkdtempSync(join(tmpdir(), "redeploy-"));
+    const logs = [log(["bbb2222", "Second (#2)"], ["aaa1111", "First (#1)"]), log(["ccc3333", "Pushed while draining (#3)"])];
+    const h = harness([["git log --first-parent", () => ok(logs.shift() ?? "")], ...base([1])], [], { repoRoot: root });
+    h.world.host.repoUrl = "git@github.com:o/r.git";
+    h.r.redeploy({ image: false, requestedBy: "CI" });
+    await h.r.done();
+    const want = [{ sha: "ccc3333", subject: "Pushed while draining (#3)" }, { sha: "bbb2222", subject: "Second (#2)" }, { sha: "aaa1111", subject: "First (#1)" }];
+    expect(runs(h.world).at(-1)).toMatchObject({ state: "restarting", commits: 4, changes: want, repoUrl: "https://github.com/o/r" });
+    makeRedeployer({ world: h.world, repoRoot: root, collective: "climate", image: "x", isWorking: () => false, run: h.runner.run, exit: vi.fn() });
+    expect(runs(h.world).at(-1)).toMatchObject({ state: "done", commits: 4, changes: want, repoUrl: "https://github.com/o/r" });
   });
 });
