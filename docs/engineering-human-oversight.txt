@@ -58,6 +58,7 @@ If decision asks are rendered views, what makes them better than reports? A few 
 - Reports assume content from referenced documents; asks repeat the content when necessary
 - Reports don't assume anything about the reader; asks can reformat based on user activity
 - Reports don't necessarily recommend default action; asks always have a default action recommended (aka completed staff work)
+- Reports have no affordances; asks programmatically perform small tasks to keep users deciding, not doing
 
 
 CPU scheduling metaphor
