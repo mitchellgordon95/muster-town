@@ -12,7 +12,8 @@ import type { World } from "./world.ts";
 /**
  * `error`: the first line of what git said when a git step failed (null when git ran clean), so export.done shows why `commit` is null.
  * Publish to GitHub (gr_30f8obzab8): `pushedAt`/`pushCommit` when this run pushed to the collective's repo, `pushError` when the
- * push failed (git's first line, tokens masked); all three null when no push was due (no repo set, or the repo already has HEAD).
+ * push (or the fetch before it) failed (git's first line, tokens masked); all three null when no push was due (no repo set, or the repo
+ * already has this export). `pushCommit` is HEAD, or the commit built on top of the repo's own commits (pushExport).
  */
 export interface ExportResult {
   dir: string; commit: string | null; changed: boolean; files: number; error: string | null;
@@ -21,8 +22,8 @@ export interface ExportResult {
 
 /**
  * Where an export pushes (gr_30f8obzab8): the World's own `Town.publish.repoUrl`, its runtime-owned token (null: push without
- * auth, e.g. a file:// remote in tests) and the commit its last push landed (a run pushes when HEAD differs from it, so a run
- * after a failed push catches up even when nothing changed locally).
+ * auth, e.g. a file:// remote in tests) and the commit its last push landed (shown in the Publish block; every run fetches the
+ * repo and pushes what it lacks, so a run after a failed push catches up even when nothing changed locally).
  */
 export interface PublishTarget { repoUrl: string; token: string | null; lastPushCommit: string | null }
 
@@ -76,9 +77,9 @@ const STALE_LOCK_MS = 10 * 60_000;
  * ownership"), and the export dir on the Fly volume may predate the server's uid; never prompt for anything.
  * A failure throws an Error whose message is `git <cmd>: <first line git printed>` (not node's "Command failed: …").
  */
-function git(cwd: string, args: string[], env: Record<string, string> = {}): string {
+function git(cwd: string, args: string[], env: Record<string, string> = {}, input?: string): string {
   try {
-    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } }).trim();
+    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"], input, maxBuffer: 256 * 1024 * 1024, encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } }).trim();
   } catch (e) {
     const err = e as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
     const said = `${String(err.stderr ?? "")}\n${String(err.stdout ?? "")}\n${err.message}`.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("Command failed:"));
@@ -94,20 +95,74 @@ export function maskTokens(text: string, secrets: string[] = []): string {
 }
 
 /**
- * Push HEAD to the collective's repo as `main`. The token rides in the environment of this one git call as an
- * `http.extraheader` (GIT_CONFIG_COUNT/KEY/VALUE): never in argv, never in the remote URL, never in .git/config
- * (no `git remote add`). A failure is returned, never thrown: the local commit already landed.
+ * The paths the export owns at the top of the mirror: everything it writes lives under one of them. In a published repo
+ * these are overwritten by every export (a hand edit there is lost); anything else in the repo (a LICENSE, .gitignore,
+ * .github/) is kept.
+ */
+const EXPORT_PATHS = ["README.md", "town.json", "index.json", "agents.json", "buildings", "library", "town-hall", "meetings", "events"];
+const PUBLISH_REF = "refs/publish/main";
+const COMMITTER = ["-c", "user.name=Muster Town", "-c", "user.email=export@muster-town.local"];
+
+/**
+ * Push the export to the collective's repo as `main`, never forcing. It fetches the remote's main first: when the remote
+ * is empty or HEAD already contains it, HEAD is pushed as it is; when the remote has commits of its own (GitHub's "add a
+ * README", a hand commit), the push is one new commit on top of the remote head whose tree is the remote's files outside
+ * EXPORT_PATHS plus HEAD's files inside them (so the town stays the source of truth and foreign files survive). No push
+ * when the remote already has that content. The token rides in the environment of each git call as an
+ * `http.extraheader` (GIT_CONFIG_COUNT/KEY/VALUE): never in argv, the remote URL or .git/config (no `git remote add`).
+ * A failure is returned, never thrown: the local commit already landed.
  */
 function pushExport(dir: string, commit: string, p: PublishTarget): Pick<ExportResult, "pushedAt" | "pushCommit" | "pushError"> {
   const header = p.token ? Buffer.from(`x-access-token:${p.token}`).toString("base64") : null;
   const env: Record<string, string> = header ? { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraheader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${header}` } : {};
+  const none = { pushedAt: null, pushCommit: null, pushError: null };
   try {
-    git(dir, ["push", "-q", "--", p.repoUrl, "HEAD:refs/heads/main"], env);
-    return { pushedAt: new Date().toISOString(), pushCommit: commit, pushError: null };
+    let remote: string | null = null;
+    try {
+      git(dir, ["fetch", "-q", "--no-tags", "--", p.repoUrl, `+refs/heads/main:${PUBLISH_REF}`], env);
+      remote = git(dir, ["rev-parse", PUBLISH_REF]);
+    } catch (e) {
+      // an empty repo (no main yet) is the first push; anything else (auth, network) is the push's error
+      if (!/couldn't find remote ref/i.test((e as Error).message)) throw e;
+    }
+    let target = commit;
+    if (remote === commit) return none;
+    if (remote && !isAncestor(dir, remote, commit)) {
+      const built = onTopOf(dir, remote, commit);
+      if (!built) return none;
+      target = built;
+    }
+    git(dir, ["push", "-q", "--", p.repoUrl, `${target}:refs/heads/main`], env);
+    return { pushedAt: new Date().toISOString(), pushCommit: target, pushError: null };
   } catch (e) {
     const pushError = maskTokens((e as Error).message, [p.token ?? "", header ?? ""]);
     console.log("[core] export: push failed:", pushError);
     return { pushedAt: null, pushCommit: null, pushError };
+  }
+}
+
+function isAncestor(dir: string, a: string, b: string): boolean {
+  try { git(dir, ["merge-base", "--is-ancestor", a, b]); return true; } catch { return false; }
+}
+
+/**
+ * One commit on top of `remote`: its tree is `remote`'s files outside EXPORT_PATHS plus `head`'s files inside them, built in
+ * a scratch index (the export's own index and working tree are untouched). Null when that tree is `remote`'s already.
+ */
+function onTopOf(dir: string, remote: string, head: string): string | null {
+  const index = join(dir, ".git", "publish-index");
+  rmSync(index, { force: true });
+  const env = { GIT_INDEX_FILE: index };
+  try {
+    git(dir, ["read-tree", remote], env);
+    git(dir, ["rm", "-r", "-q", "-f", "--cached", "--ignore-unmatch", "--", ...EXPORT_PATHS], env);
+    const ours = git(dir, ["ls-tree", "-r", "--full-tree", head, "--", ...EXPORT_PATHS]);
+    if (ours) git(dir, ["update-index", "--index-info"], env, ours + "\n");
+    const tree = git(dir, ["write-tree"], env);
+    if (tree === git(dir, ["rev-parse", `${remote}^{tree}`])) return null;
+    return git(dir, [...COMMITTER, "commit-tree", tree, "-p", remote, "-m", `export ${new Date().toISOString()} (on top of ${remote.slice(0, 7)})`]);
+  } finally {
+    rmSync(index, { force: true });
   }
 }
 
@@ -226,7 +281,8 @@ export function writeExport(src: ExportSource, dirIn: string, publish: PublishTa
   write("library/README.md", indexPage(src, "# Library\n\nDocs promoted to the town library, newest first.", "library", library));
   write("README.md", [
     `# ${town.name} — export`, "",
-    "Generated by Muster Town from the live world (the server is the source of truth; this is its readable mirror). Docs link to each other by relative path; `index.json` maps every doc id (`dc_…`) to its file.", "",
+    "**The town is the source of truth; this repo is its mirror.** Every hourly export overwrites `README.md`, `town.json`, `index.json`, `agents.json` and everything under `buildings/`, `library/`, `town-hall/`, `meetings/` and `events/`, so a hand edit there is lost; files outside those paths (a LICENSE, `.gitignore`, `.github/`) are kept.", "",
+    "Generated by Muster Town from the live world. Docs link to each other by relative path; `index.json` maps every doc id (`dc_…`) to its file.", "",
     "## Layout", "",
     "- `buildings/<id>/README.md` — the building's index; `buildings/<id>/docs/<type>/<YYYY-MM>/<YYYY-MM-DD>-<slug>-<id8>.md` — its published docs",
     "- `library/` — docs promoted to the library, same `<type>/<YYYY-MM>/` layout",
@@ -271,15 +327,15 @@ export function writeExport(src: ExportSource, dirIn: string, publish: PublishTa
     git(dir, ["add", "-A"]);
     changed = git(dir, ["status", "--porcelain"]).length > 0;
     if (changed) {
-      git(dir, ["-c", "user.name=Muster Town", "-c", "user.email=export@muster-town.local", "commit", "-q", "-m", `export ${new Date().toISOString()}`]);
+      git(dir, [...COMMITTER, "commit", "-q", "-m", `export ${new Date().toISOString()}`]);
     }
     try { commit = git(dir, ["rev-parse", "HEAD"]); } catch { commit = null; }
   } catch (e) {
     error = (e as Error).message;
     console.log("[core] export: git unavailable or failed:", error);
   }
-  // Publish to GitHub (gr_30f8obzab8): push when the repo doesn't have HEAD yet (a new commit, or an earlier push failed)
-  const pushed = publish && commit && !error && commit !== publish.lastPushCommit ? pushExport(dir, commit, publish) : { pushedAt: null, pushCommit: null, pushError: null };
+  // Publish to GitHub (gr_30f8obzab8): every run reconciles with the repo (pushExport fetches it and pushes only what it lacks)
+  const pushed = publish && commit && !error ? pushExport(dir, commit, publish) : { pushedAt: null, pushCommit: null, pushError: null };
   return { dir, commit, changed, files, error, ...pushed };
 }
 
