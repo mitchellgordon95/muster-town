@@ -12,7 +12,7 @@ import { parse, requireUser } from "./context.ts";
 const PER_HOUR = 10;
 const HOUR_MS = 3600_000;
 
-export const SubscribeInput = z.object({
+const SubscribeInput = z.object({
   email: z.string().max(400),
   source: z.string().max(100).optional(),
   /** the honeypot: a hidden field people leave empty */
@@ -28,9 +28,9 @@ export function normalizeEmail(raw: string): string | null {
 
 const SOURCE = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
-export interface Subscriber { email: string; createdAt: string; source: string }
+interface Subscriber { email: string; createdAt: string; source: string }
 
-export class MailingList {
+class MailingList {
   constructor(private readonly world: World, private readonly now: () => number = Date.now) {}
 
   /** Add an address (already normalized); a repeat is ignored. True when it is new. */
