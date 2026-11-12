@@ -1,4 +1,4 @@
-import { AppError, badRequest, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures } from "@muster-town/core";
+import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -409,7 +409,8 @@ export async function townRoutes(app: FastifyInstance) {
     }
     // chains: fork-authored reports' place on their assignment chain (the in-tray row's chain badge)
     const reports = world.ops.intray(b.id);
-    return { reports, chains: reportChains(world, reports) };
+    // entries: what waits for the building's manager on a job's thread with no report behind it (plan dc_uwx045472m step 5)
+    return { reports, chains: reportChains(world, reports), entries: openManagerEntries(world, b.id) };
   });
 
   /**

@@ -13,7 +13,6 @@ import { attachablePages } from "./schedules.ts";
 import type { EventType } from "./events.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import type { Actor } from "./ops.ts";
-import { intrayRow } from "./wakes.ts";
 import { freeTokens, goalFunding, grantGoalOf } from "./free-tokens.ts";
 import { estimateGrant, estimateVsActual, type EstimateVsActual } from "./grant-estimate.ts";
 import { holderOf } from "./permissions.ts";
@@ -648,9 +647,9 @@ export class Grants {
         this.requireStatus(g, ["proposed"], "countered");
         if (!inp.note.trim()) throw badRequest("A counter needs a note saying what to change.");
         next = this.save(g, actor, { ...edits, status: "countered", ...(inp.tokens && { askTokens: inp.tokens }) }, "counter", inp.tokens ?? null, inp.note, via);
-        const countered = this.event("grant.countered", next, actor, `Countered: ${grantName(next)}`, deck);
+        // the counter is a human entry at level manager on the proposal's job (jobs.ts, written as the grant is saved): the manager's move
+        this.event("grant.countered", next, actor, `Countered: ${grantName(next)}`, deck);
         this.notifyManager(next, actor, `A human countered your proposal "${grantName(next)}": ${inp.note}`);
-        this.decisionAssignment(next, actor, "countered", inp.note, countered);
         break;
       }
       case "reject":
@@ -658,9 +657,8 @@ export class Grants {
         next = this.save(g, actor, { status: "rejected", closedAt: nowIso() }, "reject", null, inp.note, via);
         // a rejected proposal's key results archive with it (goals keep no open ones)
         for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.world.keyResults.upsert({ ...k, archivedAt: nowIso(), statusNote: `grant ${g.id} rejected`, updatedAt: nowIso() });
-        const rejected = this.event("grant.rejected", next, actor, `Rejected: ${grantName(next)}`, deck);
+        this.event("grant.rejected", next, actor, `Rejected: ${grantName(next)}`, deck);
         this.notifyManager(next, actor, `A human rejected your proposal "${grantName(next)}"${inp.note ? `: ${inp.note}` : "."}`);
-        this.decisionAssignment(next, actor, "rejected", inp.note, rejected);
         break;
       case "continue":
         this.requireStatus(g, ["checkpoint"], "continued");
@@ -845,9 +843,18 @@ export class Grants {
   }
 
   /** Cancel a stopped grant's queued work (pending, any lane naming it), the reason kept as the row's `heldReason`. Returns the ids. */
-  private cancelQueued(grantId: string, reason: string): string[] {
+  private cancelQueued(grantId: string, reason: string, what = "Grant stopped"): string[] {
     return this.world.assignments.where("grantId = ? AND status = 'pending'", [grantId])
-      .map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `Grant stopped: ${reason}`.slice(0, 500) }).id);
+      .map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `${what}: ${reason}`.slice(0, 500) }).id);
+  }
+
+  /**
+   * Boot repair (idempotent): work still queued on a grant that is closed or rejected can never start (as_0rk272gsne
+   * sat pending on a grant closed as done). It is cancelled with the reason. Returns the ids.
+   */
+  cancelOrphanedWork(): string[] {
+    const rows = this.world.assignments.where("status = 'pending' AND grantId IN (SELECT id FROM grants WHERE status IN ('closed', 'rejected'))", []);
+    return rows.map((a) => setAssignmentStatus(this.world, a.id, "cancelled", { heldReason: `Grant ${a.grantId} is ${this.world.grants.get(a.grantId!)?.status ?? "closed"}: its queued work was cancelled` }).id);
   }
 
   /**
@@ -879,6 +886,8 @@ export class Grants {
     return this.world.transaction(() => {
       const next = this.save(g, actor, { status: "closed", outcome: "done", closedAt: nowIso(), ...(input.reportId && { checkpointDocId: input.reportId }) }, "close", unspentTokens,
         `${note} (spent ${fmt(spentTokens)} of ${fmt(grantTokens)}; ${returned})`);
+      // work still queued on it has no grant to run on: cancelled with the reason (a running session finishes and books)
+      this.cancelQueued(g.id, "closed as done", "Grant closed");
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) this.updateKeyResult(actor, k.id, { status: "met", note }, { closing: true });
       this.event("grant.closed", next, actor, `Closed (done): ${grantName(next)}; ${returned}`, { outcome: "done", spentTokens, grantTokens, unspentTokens, ...this.estimateVsActual(next) });
       // the closed loop (docs/legible-delegation.md §8): funded on, for, closed at, what it bought (rewritten once the close report lands)
@@ -930,34 +939,6 @@ export class Grants {
       released.push(next);
     }
     return released;
-  }
-
-  /**
-   * A human's decision on a proposal reaches the manager as a pending row in its building's in-tray (work routing step 2,
-   * 1:1 mt_lsyqj98z0w; continue / adjust / cut already are, `managerIntrayRow`): it is decided in the team-lead session,
-   * never as a fork's job. Countered → how to answer (`propose_grant` with grantId); rejected → read the note. None when
-   * the building has no manager agent: a human works its in-tray. Funding writes no row: it queues the plan's step 1
-   * itself (`queueStep`, grant B gr_b5fyqibfx2).
-   */
-  private decisionAssignment(g: Grant, actor: Actor, decision: "countered" | "rejected", note: string, e: Event): void {
-    const who = actor?.kind === "human" ? this.world.nameOf(actor.id) : "A human";
-    const krs = this.krLines(g);
-    const said = note.trim() ? `The note: ${note.trim()}` : "No note was given.";
-    if (decision === "countered") {
-      intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-countered", title: `Answer the counter on "${grantName(g)}"`.slice(0, 160),
-        what: `${who} countered proposal ${g.id}`,
-        summary: `${who} countered your proposal ${g.id} "${grantName(g)}" (ask now ${fmt(g.askTokens)} tokens).\n\n${said}\n\nIt is your move: nothing on it runs until this is settled.\n\nKey results (the grant's own):\n${krs}`,
-        footer: `To answer: read the note and the proposal (${g.id}: objective, key results, approach, stop condition, ask); revise what the note asks for and re-propose it with \`propose_grant\` and grantId ${g.id} (the revised plan, key results included, rewrites this proposal under the same id and sends it back to the Town Hall in-tray; your other open proposals are untouched); or, if the counter means the plan is wrong, \`withdraw_grant\` it and say what you'd propose instead. Then acknowledge this row with \`review\` approve.`,
-      });
-    } else {
-      intrayRow(this.world, g.buildingId, e, {
-        rule: "grant-rejected", title: `Grant ${g.id} rejected: read the note`.slice(0, 160),
-        what: `${who} rejected proposal ${g.id}`,
-        summary: `${who} rejected your proposal ${g.id} "${grantName(g)}" (${fmt(g.askTokens)} tokens asked).\n\n${said}\n\nIts key results (they close with it):\n${krs}`,
-        footer: "Read the note and the proposal, then decide what follows: a different plan (`propose_grant` with its own key results), exploration first (`assign` lane exploration with a gap), or nothing until your next 1:1 or rollup. Acknowledge this row with `review` approve.",
-      });
-    }
   }
 
   /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */

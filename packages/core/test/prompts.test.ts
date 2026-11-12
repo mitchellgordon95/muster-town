@@ -118,7 +118,7 @@ describe("no forced next step", () => {
     expect(p).not.toMatch(/reassign/);
     // work routing (1:1 mt_lsyqj98z0w): every task goes to the building; the manager never runs a work session
     expect(p).toMatch(/Every task goes to the building: you never run a work session/);
-    expect(p).toMatch(/arrive as in-tray rows/);
+    expect(p).toMatch(/arrive as en_ entries in the in-tray/);
     expect(p).not.toMatch(/assign a task to yourself/);
     expect(p).toMatch(/lands back in this in-tray/);
     expect(p).toMatch(/Roll up when something new is live and decided \(at least 4 h apart\), or sooner on escalation/);

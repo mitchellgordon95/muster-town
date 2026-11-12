@@ -457,29 +457,28 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [not-started] ${KRS[0]!.text}`);
   });
 
-  it("countered: an 'Answer the counter' in-tray row with the note and how to answer; rejected: 'read the note' (work routing step 2)", () => {
+  it("countered and rejected: each is the human's entry on the proposal's job, waiting for the manager; no town-written report, no job (plan dc_uwx045472m step 5)", async () => {
     const { world, admin, mei } = setup();
     const g = propose(world, mei);
-    const rows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report' AND decision = 'pending' AND tags LIKE '%wake:grant-%'", [LAB], "ORDER BY createdAt, rowid");
+    const { openManagerEntries } = await import("../src/index.ts");
+    const townRows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [LAB]);
+    const before = townRows().length;
     world.grantDesk.decide(admin, g.id, { action: "counter", tokens: 2_000_000, note: "half, and a sharper plan" });
-    const [c] = rows();
-    expect(c).toMatchObject({ state: "building", title: 'Answer the counter on "Visitors can tell what the lab is for"' });
-    expect(c!.body).toContain("The note: half, and a sharper plan");
-    expect(c!.body).toContain("ask now 2,000,000 tokens");
-    expect(c!.body).toContain(`\`propose_grant\` and grantId ${g.id}`);
+    const [c] = openManagerEntries(world, LAB);
+    expect(c).toMatchObject({ jobId: `jb_${g.id}`, authorKind: "human", level: "manager", note: "half, and a sharper plan", moved: { kind: "decision", action: "counter", tokens: 2_000_000 } });
     // no job: neither the manager's own queue nor the building's
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
-    // the manager answers: the same proposal goes back; a rejection writes one more row
+    // the manager answers: the same proposal goes back, and it acknowledges the entry; a rejection is one more entry
     world.grantDesk.update(mei, g.id, { note: "sharpened" });
     world.grantDesk.propose(mei, g.id);
+    await world.verbs.review(mei, { docId: c!.id, decision: "approve", note: "re-proposed" });
+    expect(openManagerEntries(world, LAB)).toEqual([]);
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "not this quarter" });
-    expect(rows()).toHaveLength(2);
-    const r = rows()[1]!;
-    expect(r.title).toBe(`Grant ${g.id} rejected: read the note`);
-    expect(r.body).toContain("The note: not this quarter");
-    expect(r.body).toContain(`Its key results (they close with it):\n- ${g.keyResultId} [not-started]`);
+    const [r] = openManagerEntries(world, LAB);
+    expect(r).toMatchObject({ jobId: `jb_${g.id}`, level: "manager", note: "not this quarter", moved: { action: "reject" } });
     expect(world.keyResults.require(g.keyResultId!).archivedAt).toBeTruthy();
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
+    expect(townRows()).toHaveLength(before);
   });
 
   it("no manager agent: nothing is queued (a human works the in-tray)", () => {

@@ -3,7 +3,7 @@
  * Lives in core so the server can brief desks (`composeWorkBrief`) and the runtime can brief in-process sessions.
  */
 import { grantName, ASK_CONTRACT_LINES, ASK_LINT_RULES, ROLLUP_MAX_ITEMS, ROLLUP_MAX_PICTURES, ROLLUP_MAX_WHAT_WORDS, rollupNeedsRule, grantPricingOf, type Agent, type Assignment, type Building, type DeskBrief, type DeskWorkspace, type Doc, type Event, type GrantView, type KeyResult, type Meeting, type RepoMode, type Town, type Workspace } from "@muster-town/schema";
-import { intrayCounts, intrayOf } from "./domain.ts";
+import { intrayCounts, intrayOf, isEntry, managerQueue, type QueueItem } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
@@ -15,7 +15,7 @@ import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
 import { clockLine, fromNow, stamp, whenFor } from "./time.ts";
 import type { World } from "./world.ts";
 import { EXPLORE_CEILING_SHARE } from "./explore.ts";
-import { jobOf } from "./jobs.ts";
+import { jobOf, type Entry } from "./jobs.ts";
 import { policyLedgerBlock } from "./secretary.ts";
 import { dictionaryBlock } from "./dictionary.ts";
 
@@ -391,8 +391,9 @@ export function managerIntrayBlock(world: World, building: Building, managerId: 
  * message of a team-lead session (`managerStateBlock`), never in the cached system prompt (docs/prompt-caching.md).
  */
 function managerIntrayRows(world: World, building: Building, managerId: string, now = Date.now()): string {
-  const pending = intrayOf(world, building.id);
+  const pending = managerQueue(world, building.id);
   const rows = pending.map((d) => {
+    if (isEntry(d)) return `- ${entryLine(d, world.nameOf.bind(world))} (${fromNow(d.createdAt, now)})`;
     if (d.type === "flag") return `- ${d.id} FLAG by ${world.nameOf(d.authorId)} (${fromNow(d.createdAt, now)})${flagWhere(d)}: ${oneLine(d.body, 200)}`;
     const need = sectionOf(d.body, NEED);
     return `- ${d.id} "${oneLine(d.title, 100)}" by ${world.nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}, ${fromNow(d.createdAt, now)}${d.tags.includes("parked") ? ", parked" : ""})${need ? `: needs: ${oneLine(need, 160)}` : ""}`;
@@ -413,7 +414,7 @@ ${world.repoMode() === "muster" ? `${liveLine(world, lastRollup?.createdAt, now)
  */
 function managerIntrayRules(mode: RepoMode, captain = "Mitchell"): string {
   const he = captain === "Mitchell" ? "he" : captain;
-  return `Working the in-tray. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for offering it to a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${escalationCriteria(mode, captain)}
+  return `Working the in-tray. It holds only what needs your judgment. Every session's report is one entry on its job's thread (a grant's, a retainer's, an exploration's, a human's request, or your building's own; GET /api/jobs/<id>), and each entry is answered at the lowest level that can settle it. The town settles by itself, and you never see, a report that needs nobody: a grant step that says continue with the next step queued behind it, finished work that asks nothing, a parked report, an exploration that ended in a proposal. What reaches you: a pivot, a report whose "What I need from you" asks something, work that says continue with nothing queued behind it, the last step of a grant's plan (closing it is yours: \`close_grant\`), a visitor's report, a flag, and entries that have no report (their ids start en_). Those are: a session that ended without a report (\`review\` continue = the same work goes back on the queue as it was, redirect = your note becomes the work, approve = drop it); a human's counter, reject or cut of your grant, or a key result marked missed (make your move first: \`propose_grant\` with grantId answers a counter, \`withdraw_grant\` drops it, \`assign\` gives work; then approve); a human's tell, @mention or outbox answer addressed to you (reply with \`tell\`, \`assign\` what it calls for, then approve). \`read\` an en_ id for its full text. What only a human can settle about one item (money, permission, a credential, a rule, an act in the real world): pass it up with \`review\` approve and \`ask\` (type, title, body, branches, recommendation): it becomes a card in ${captain}'s queue, the item leaves your in-tray, and the decision comes back to you on the same thread. Decide each report with \`review\` (\`read\` it first): approve = acknowledge finished work (the default; idle is fine), continue = its proposal becomes the author's next assignment, redirect = your note becomes it, stop = the author stops. A FLAG is a quick request a human planted in this building. One that stands on the map: walk to it first (\`go\` to flag:<its id>), which picks it up and gives you its text; then decide it with \`review\`: continue = the flag's text becomes a directed assignment on the building queue verbatim (a fork of you runs it), redirect = your note does, with the flag as context; leave assigneeId out (it is only for offering it to a visitor); approve only when nothing needs doing. It is directed work (a human asked): it runs when tokens are free under your goal, like exploration. Your own work reports (from work you assigned yourself) land here too: decide them the same way and fold them into your rollup; only rollups reach the Town Hall. Decide yourself whether to wait for more reports or roll up; undecided reports stay here. ${escalationCriteria(mode, captain)}
 
 Rollups are how ${captain} hears from you: \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. How ${he} reads one: the in-tray opens it on a "Your call" block (every Shipped item's real call and the Needs lines, nothing else), then the Shipped cards, with Decided, Key results and provenance folded under one click each; the review deck shows one slide per item with a real call. So the calls and the cards are the read; write them to stand alone. The format, one screen: an optional one-line intro${mode === "muster" ? " (the live commit)" : ""}, then
 - \`## Shipped\`: at most ${ROLLUP_MAX_ITEMS} numbered items (\`**1. Title**\`, plain words: what a human now sees or can do), each with \`**What it is:**\` (two or three sentences, under ${ROLLUP_MAX_WHAT_WORDS} words, plain words first and ids after; the detail is in the covered reports), \`**What you'd see:**\` (where in the UI, the live numbers), one cropped picture (\`![alt](/api/media/…)\`, ≤300 px tall, at most ${ROLLUP_MAX_PICTURES} in the rollup; API-only changes say so instead) and \`**Your call:**\` (one line that names the choice and stands alone, or "None"; the top block quotes it without the card).
@@ -519,26 +520,41 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
  * The prompt of a manager's team-lead session (purpose `manage`, docs/waterfall.md §3.1–3.2): no assignment, the
  * in-tray block is in the system prompt. Reports that land while it runs arrive as \`managerNewReport\` messages.
  */
-export function managePrompt(building: Building, fresh: Doc[], nameOf: (id: string) => string): string {
+export function managePrompt(building: Building, fresh: QueueItem[], nameOf: (id: string) => string): string {
   const rows = fresh.map(intrayLine(nameOf)).join("\n");
-  return `This is a team-lead session, not a work session: you have no assignment. It started because ${fresh.some((d) => d.type === "flag") ? "items" : "reports"} landed in the ${building.name} in-tray ("## Your in-tray" above):
+  return `This is a team-lead session, not a work session: you have no assignment. It started because ${fresh.some((d) => isEntry(d) || d.type === "flag") ? "items" : "reports"} landed in the ${building.name} in-tray ("## Your in-tray" above):
 ${rows || "(see the in-tray)"}
 
-\`read\` each report and decide it with \`review\` (a flag: continue or redirect queues it to the building); give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears: \`assign\` without agentId puts it on the building queue, where a fork of you runs it; independent tasks are separate \`assign\`s and run on forks in parallel. Drop queued work that is no longer needed with \`cancel\`. Work for a later time (a check at 20:00, a nightly job) goes on the building's schedule with \`schedule\` (runsAt, optional repeat), not on the queue now: it lands on the building queue when it fires. Every task goes to the building: you never run a work session, and \`assign\` with your own agent id queues it to the building too (a fork of you runs it). Its report lands back in this in-tray for you to decide and fold into your rollup. A tell, an @mention or an outbox answer addressed to you, and a human's counter or reject of your grant, arrive as in-tray rows: decide them like reports. Roll up when something new is live and decided (at least ${ROLLUP_MIN_GAP_HOURS} h apart), or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
+\`read\` each report and decide it with \`review\` (a flag: continue or redirect queues it to the building); give follow-up work with \`assign\` when a decision alone doesn't say it. You can't do the work yourself here (no code or web tools). A manager does only decisions and rollups here: any task that appears (verifying, writing, fixing, checking something live) becomes an assignment the moment it appears: \`assign\` without agentId puts it on the building queue, where a fork of you runs it; independent tasks are separate \`assign\`s and run on forks in parallel. Drop queued work that is no longer needed with \`cancel\`. Work for a later time (a check at 20:00, a nightly job) goes on the building's schedule with \`schedule\` (runsAt, optional repeat), not on the queue now: it lands on the building queue when it fires. Every task goes to the building: you never run a work session, and \`assign\` with your own agent id queues it to the building too (a fork of you runs it). Its report lands back in this in-tray for you to decide and fold into your rollup. A tell, an @mention or an outbox answer addressed to you, a human's counter, reject or cut of your grant, and a session that ended without a report arrive as en_ entries in the in-tray: answer them with \`review\` on the en_ id. Roll up when something new is live and decided (at least ${ROLLUP_MIN_GAP_HOURS} h apart), or sooner on escalation. If more reports land while you work, they arrive as messages in this session; decide them too or leave them for later.
 
 End the session in one of two ways. If a rollup is due (the rule in "## Your in-tray"), \`submit_report\` with \`rollup: true\` and the covered reports' ids in provenance.sourceIds. Otherwise don't call \`submit_report\` at all: just stop, and the session ends quietly (an idle building is silent). The "Finish with submit_report" rule above is for work sessions, not this one.`;
+}
+
+/**
+ * One doc-less entry of a manager's queue, as a line: what it is, on which job, who caused it, its first words.
+ * (A dead session, a human's decision on a grant or key result, a human's words: core answer.ts.)
+ */
+function entryLine(e: Entry, nameOf: (id: string) => string): string {
+  const kind = String(e.moved.kind ?? "");
+  const what = kind === "dead-session" ? `SESSION ENDED WITHOUT A REPORT (${String(e.moved.by ?? nameOf(e.authorId))}${e.moved.error ? `; error: ${oneLine(String(e.moved.error), 120)}` : ""})`
+    : kind === "decision" && e.moved.decision === "ask-decided" ? "ANSWER TO YOUR ASK"
+    : kind === "decision" || e.moved.action ? `${String(e.moved.action ?? "decision").toUpperCase()}${e.moved.status ? ` ${String(e.moved.status)}` : ""} by ${nameOf(e.authorId)}`
+    : e.moved.decision === "ask-decided" ? "ANSWER TO YOUR ASK"
+    : "MESSAGE";
+  return `${e.id} ${what} on ${e.jobId}${e.note.trim() ? `: ${oneLine(e.note, 200)}` : ""}`;
 }
 
 /** Where a flag stands on the map, for the manager's prompts: walk there (`go flag:<id>`) to pick it up. */
 const flagWhere = (d: Doc) => d.pickedUpAt ? ", picked up" : d.flagPos ? `, standing on the map at (${d.flagPos.x}, ${d.flagPos.y}): go to flag:${d.id} to pick it up` : "";
 
 /** One in-tray line for the team-lead prompts: a report with its verdict, or a flag with its note. */
-const intrayLine = (nameOf: (id: string) => string) => (d: Doc) => d.type === "flag"
+const intrayLine = (nameOf: (id: string) => string) => (d: QueueItem) => isEntry(d) ? `- ${entryLine(d, nameOf)}` : d.type === "flag"
   ? `- ${d.id} FLAG by ${nameOf(d.authorId)}${flagWhere(d)}: ${oneLine(d.body, 200)}`
   : `- ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"})`;
 
 /** A report (or a human's flag) that landed while the manager's team-lead session runs (streamed into it). */
-export function managerNewReport(d: Doc, nameOf: (id: string) => string): string {
+export function managerNewReport(d: QueueItem, nameOf: (id: string) => string): string {
+  if (isEntry(d)) return `A new entry landed in your in-tray: ${entryLine(d, nameOf)}. \`read\` ${d.id} for its full text and answer it with \`review\` (docId ${d.id}), or leave it for later. End as before: a rollup only if one is due, else just stop.`;
   if (d.type === "flag") return `${nameOf(d.authorId)} planted a flag in your building (${d.id})${flagWhere(d)}: ${oneLine(d.body, 300)}\n${d.flagPos && !d.pickedUpAt ? `Walk to it and pick it up first (\`go\` to flag:${d.id}), then delegate it` : "Delegate it"} with \`review\` (continue or redirect: it goes to the building queue, a fork of you runs it), or approve it if nothing needs doing. End as before: a rollup only if one is due, else just stop.`;
   return `A new report landed in your in-tray: ${d.id} "${oneLine(d.title, 100)}" by ${nameOf(d.authorId)} (verdict ${d.verdict ?? "?"}). Decide it with the others, or leave it pending. End as before: a rollup only if one is due, else just stop.`;
 }

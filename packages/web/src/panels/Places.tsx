@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, grantName, askVerb, estimateRangeOf, type AccessRequestView, type RollupAsk, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
-import { api, type Board, type BulletinNote } from "../api";
+import { api, type Board, type BulletinNote, type ThreadEntry } from "../api";
 import { unfundableReason } from "./keyResults";
 import { store, useTown, roleOf } from "../state";
 import { DocRow, DocSheet, DocView } from "./DocView";
@@ -72,6 +72,7 @@ export function IntrayPanel({ buildingId }: { buildingId: string }) {
           {reports.map((d) => <CompactLine key={d.id} selected={sel === d.id} lead={<ReportLead doc={d} forkOf={list.data?.chains?.[d.id]?.forkOf} />} title={d.title} at={d.createdAt} pill={reportPill(d)} onOpen={() => openFromList(d.id)} />)}
         </div>
       )}
+      <ThreadEntries entries={list.data?.entries ?? []} canReview={canReview} onDecided={() => list.reload()} />
     </PanelShell>
   );
 }
@@ -132,6 +133,43 @@ export function PlantFlag({ targets, onClose }: { targets: { id: string; name: s
         <Act small tone="primary" disabled={!text.trim() || media.uploading > 0} run={plant}>Plant</Act>
       </div>
     </div>
+  );
+}
+
+/** What an entry with no report is, in two words, for its pill. */
+function entryKind(e: ThreadEntry): string {
+  if (e.moved.kind === "dead-session") return "session ended";
+  if (e.moved.decision === "ask-decided") return "answer to an ask";
+  if (e.moved.kind === "message") return "message";
+  return `${String(e.moved.action ?? "decision")}${e.moved.status ? ` ${String(e.moved.status)}` : ""}`;
+}
+
+/**
+ * The in-tray's entries that have no report behind them (plan dc_uwx045472m step 5): a session that ended without a
+ * report, a human's counter, reject, cut or missed key result, a human's words for the manager. Each opens in place;
+ * whoever may review the building answers it: Retry puts a dead session's work back on the queue, Acknowledge takes it in.
+ */
+function ThreadEntries({ entries, canReview, onDecided }: { entries: ThreadEntry[]; canReview: boolean; onDecided: () => void }) {
+  if (!entries.length) return null;
+  const answer = (e: ThreadEntry, decision: "approve" | "continue") => async () => { await api().reviewEntry(e.id, { decision, note: "" }); onDecided(); };
+  return (
+    <Section title={`On the threads (${entries.length})`}>
+      <div className="doc-list">
+        {entries.map((e) => (
+          <details key={e.id} className="doc-row">
+            <summary title={e.jobId}><Pill tone="warn">{entryKind(e)}</Pill> {e.note || e.id} <span className="muted">{timeAgo(e.createdAt)}</span></summary>
+            {e.body ? <DocText text={e.body} /> : null}
+            <div className="muted">Job {e.jobId} · entry {e.id}</div>
+            {canReview ? (
+              <div className="row">
+                {e.moved.kind === "dead-session" && e.assignmentId ? <Act small run={answer(e, "continue")} title="Put the same work back on the queue">Retry</Act> : null}
+                <Act small run={answer(e, "approve")} title={e.moved.kind === "dead-session" ? "Drop the work" : "Taken in: nothing follows"}>{e.moved.kind === "dead-session" ? "Drop" : "Acknowledge"}</Act>
+              </div>
+            ) : null}
+          </details>
+        ))}
+      </div>
+    </Section>
   );
 }
 

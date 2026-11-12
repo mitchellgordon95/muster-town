@@ -1,6 +1,6 @@
 import { isGone, Doc, QUEUE_ORDER, type Agent, type Ask, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
-import { openJob } from "./jobs.ts";
+import { answerEntry, appendEntry, flagJobId, openJob, openManagerEntries, type Entry } from "./jobs.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
@@ -182,7 +182,9 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   if (report.type === "flag") return decideFlag(world, report, decision, note, decider, opts);
   const doc = updateDoc(world, docId, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
   const author = world.agents.get(report.authorId);
-  world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
+  const decided = world.events.append({ type: "doc.decision", agentId: author?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]}: "${doc.title}"${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId, decision, note, decidedBy: decider.id } });
+  // the one loop: the decision is the answer to the report's entry on its job's thread (the id the back-fill would give it)
+  answerEntry(world, `en_${docId}`, decider, decision, note, { id: `en_ev${decided.id}` });
   let assignment: Assignment | null = null;
   if (!author || decision === "approve") return { doc, assignment };
   // grant B: the next plan step this report queued by itself (submit_report) waits on the review: stop and redirect cancel it
@@ -244,10 +246,13 @@ export function plantFlag(world: World, actor: Agent, buildingId: string, text: 
   const holder = world.holderOf(actor);
   // it stands where the planter stands (dc_r40dq3znse), until the building's manager walks there and picks it up
   const flagPos = world.layout.isWalkable(actor.pos.x, actor.pos.y) ? { x: actor.pos.x, y: actor.pos.y } : undefined;
-  return createDoc(world, {
+  const flag = createDoc(world, {
     type: "flag", state: "building", title: truncate(firstLine(body) || body, 120), body, decision: "pending",
     authorId: holder.id, authorKind: holder.kind, buildingId, flagPos,
   }, `${actor.name} planted a flag in ${building.name}: ${truncate(firstLine(body) || body, 80)}`);
+  // plan step 5: a flag opens its own pocket job; its first entry is the human's, and the manager delegates it
+  appendEntry(world, { id: `en_${flag.id}`, jobId: flagJobId(buildingId, flag.id), authorKind: "human", authorId: holder.id, level: "manager", note: flag.title, body, docId: flag.id, moved: { kind: "flag" }, createdAt: flag.createdAt });
+  return flag;
 }
 
 /** The place id an agent walks to (`go`) to pick up a flag standing on the map. */
@@ -299,7 +304,8 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
     }
   }
   const doc = updateDoc(world, flag.id, { decision, decisionNote: note || undefined, decidedBy: decider.id, decidedAt: nowIso() });
-  world.events.append({ type: "doc.decision", agentId: assignee?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]} flag "${doc.title}"${assignee ? ` → ${assignee.name}` : ""}${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId: flag.id, decision, note, decidedBy: decider.id, assigneeId: assignee?.id ?? null } });
+  const decided = world.events.append({ type: "doc.decision", agentId: assignee?.id ?? null, buildingId: doc.buildingId, text: `${DECISION_VERB[decision]} flag "${doc.title}"${assignee ? ` → ${assignee.name}` : ""}${note ? ` (${truncate(note, 80)})` : ""}`, payload: { docId: flag.id, decision, note, decidedBy: decider.id, assigneeId: assignee?.id ?? null } });
+  answerEntry(world, `en_${flag.id}`, decider, decision, note, { id: `en_ev${decided.id}` });
   if (!assignee) return { doc, assignment: null };
   const by = world.nameOf(flag.authorId);
   const title = decision === "continue" ? flag.title : truncate(firstLine(note) || note, 120);
@@ -307,7 +313,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
     ? `${by} planted a flag in your building (${flag.id}):\n\n${flag.body}${note ? `\n\nYour manager's note: ${note}` : ""}`
     : `Your manager ${world.nameOf(decider.id)} gave you ${by}'s flag (${flag.id}):\n\n${note}\n\nThe flag said:\n\n${flag.body}`;
   // the manager named (or not) → its building queue when it forks (createAssignment); a visitor gets an offer and a message
-  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: DIRECTED });
+  const assignment = createAssignment(world, { agentId: assignee.id, title, description, createdBy: decider, fromReportId: flag.id, waitFor: opts.waitFor, laneOverride: { ...DIRECTED, sourceId: flag.id } });
   if (assignment.queue === "agent") sendMessage(world, { kind: "system", fromId: decider.id, fromKind: "system", toId: assignee.id, body: `New assignment from ${world.nameOf(decider.id)} (${by}'s flag): ${title}${opts.waitFor ? ` (starts after ${describeWait(world, opts.waitFor)})` : ""}` });
   if (assignee.status === "stopped") world.setStatus(assignee.id, "idle");
   return { doc, assignment };
@@ -423,6 +429,22 @@ export function intrayOf(world: World, buildingId: string): Doc[] {
   return world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId = ?", [buildingId], "ORDER BY createdAt, rowid").filter((d) => !isTownHallItem(world, d));
 }
 
+/** One row of a manager's queue: a pending in-tray doc (a report, a flag), or an entry with no doc that waits for the manager. */
+export type QueueItem = Doc | Entry;
+export const isEntry = (x: QueueItem): x is Entry => "jobId" in x;
+
+/**
+ * A building's queue for whoever works its in-tray (plan dc_uwx045472m A2: "queues are views"): the pending reports and
+ * flags the code did not settle (`intrayOf`), and the unanswered entries at level manager that have no doc (a dead
+ * session, a human's counter, reject, cut or missed key result, a tell, a mention, an outbox answer). Oldest first.
+ * Not the Town Hall's: the humans' queue is the asks.
+ */
+export function managerQueue(world: World, buildingId: string): QueueItem[] {
+  const b = world.buildings.get(buildingId);
+  if (!b || b.kind === "town-hall") return b ? intrayOf(world, buildingId) : [];
+  return [...intrayOf(world, buildingId), ...openManagerEntries(world, buildingId)].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+}
+
 /**
  * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
  * grants. A grant closed as done is not one: its key results are met on close (town hall mt_v09cn7a8yr decision 2).
@@ -463,7 +485,7 @@ const openGoalProposals = (world: World) => world.goalProposals.count("status = 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
 export function intrayCount(world: World, buildingId: string): number {
   const b = world.buildings.get(buildingId);
-  return intrayOf(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world) : 0);
+  return managerQueue(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world) : 0);
 }
 
 /**
@@ -478,6 +500,11 @@ export function intrayCounts(world: World): Map<string, number> {
   const bump = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
   for (const d of world.docs.where("type IN ('report', 'flag') AND decision = 'pending' AND buildingId IS NOT NULL")) {
     if (isTownHallItem(world, d)) { if (th) bump(th.id); } else if (d.buildingId !== th?.id) bump(d.buildingId!);
+  }
+  // entries with no doc that wait for a building's manager count in that building's in-tray
+  for (const r of world.db.prepare(`SELECT j.buildingId AS b, COUNT(*) AS n FROM entries e JOIN jobs j ON j.id = e.jobId
+    WHERE e.level = 'manager' AND e.docId IS NULL AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.answers = e.id) GROUP BY j.buildingId`).all() as { b: string; n: number }[]) {
+    if (r.b !== th?.id) counts.set(r.b, (counts.get(r.b) ?? 0) + r.n);
   }
   if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world); i > 0; i--) bump(th.id);
   return counts;

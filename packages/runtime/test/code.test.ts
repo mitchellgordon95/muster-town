@@ -118,7 +118,7 @@ describe("the manager's read-only code checkout", () => {
     for (const d of intrayOf(world, lab.id)) await world.verbs.review(admin.id, { docId: d.id, decision: "approve" });
     world.buildings.patch(lab.id, { blockedAt: new Date().toISOString() });
     world.ops.updateBuilding(admin, lab.id, { managerAgentId: by("Mei").id });
-    await world.verbs.submit_report(by("Noor").id, { title: "Growth", verdict: "stop", body: "## What I did\nX.\n\n## Findings\nY.\n\n## What I need from you\nNothing needed." });
+    await world.verbs.submit_report(by("Noor").id, { title: "Growth", verdict: "stop", body: "## What I did\nX.\n\n## Findings\nY.\n\n## What I need from you\nRead the method before it ships." });
     await runtime.whenIdle();
     const s = sdk.sessions.find((x) => x.agentId === by("Mei").id)!;
     expect(s.options.tools).toEqual([...CODE_TOOLS]);

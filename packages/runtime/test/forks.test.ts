@@ -1,7 +1,7 @@
 import { ROOT_GOAL_ID } from "@muster-town/schema";
 /** Manager forks step 2 (dc_mymt27yz25 §2, §5.3): the scheduler spawns forks from the building queue, retires them at session end, routes messages. */
 import { describe, expect, test, vi } from "vitest";
-import { buildingQueue, updateBuilding } from "@muster-town/core";
+import { entryOf, openManagerEntries, buildingQueue, updateBuilding } from "@muster-town/core";
 import type { DeskBackend } from "../src/index.ts";
 import { callVerb, creditBank, init, result, setup, type FakeSession } from "./helpers.ts";
 
@@ -148,9 +148,10 @@ describe("manager forks: spawn and retire", () => {
     await runtime.tickOnce();
     await runtime.whenIdle();
     expect(world.agents.require(fork.id).status).toBe("retired");
-    // the next pass forks again for the requeued work
+    // the next pass forks again for the requeued work; that session ends without a report: an entry for the manager, the work ended
     await pass(runtime);
-    expect(world.assignments.require(a).status).toBe("done");
+    expect(world.assignments.require(a).status).toBe("cancelled");
+    expect(openManagerEntries(world, lab.id).map((e) => e.assignmentId)).toEqual([a]);
   });
 });
 
@@ -268,7 +269,7 @@ describe("manager forks: stop_fork (agent teams step 4)", () => {
     expect(stopEvents(world, forkId)).toEqual(["requested", "hard"]);
     const s = world.sessions.first("agentId = ? AND purpose = 'work'", [forkId])!;
     expect(s.status).toBe("interrupted");
-    expect(world.docs.require(s.reportId!)).toMatchObject({ title: expect.stringContaining("Session ended without a report"), decision: "stop" });
+    expect(entryOf(world, `en_${s.id}`)).toMatchObject({ note: expect.stringContaining("Session ended without a report"), level: "none", moved: { stopped: true } });
     expect(world.assignments.require(a).status).toBe("cancelled");
     expect(world.agents.require(forkId).status).toBe("retired");
     // a retired fork can't be asked again

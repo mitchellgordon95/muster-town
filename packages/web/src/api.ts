@@ -406,8 +406,13 @@ export interface HealthRead { ok?: boolean; commit?: string | null; funding?: To
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
 export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
 
-/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall */
-export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
+/**
+ * An entry on a job's thread that waits for a building's manager and has no report behind it (core jobs.ts): a session
+ * that ended without a report, a human's counter, reject, cut or missed key result, a tell, a mention, an outbox answer.
+ */
+export interface ThreadEntry { id: string; jobId: string; authorKind: string; authorId: string; level: string; note: string; body: string; moved: Record<string, unknown>; assignmentId: string | null; createdAt: string }
+/** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall; `entries` only for a building */
+export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; entries?: ThreadEntry[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -644,6 +649,8 @@ export interface Api {
   doc(id: string): Promise<Doc>;
   writeDoc(input: WriteDocInput): Promise<Doc>;
   review(docId: string, input: In<typeof ReviewInput>): Promise<Doc>;
+  /** Answer an entry with no report (en_…) in a building's in-tray: approve, continue (retry a dead session) or redirect. */
+  reviewEntry(entryId: string, input: In<typeof ReviewInput>): Promise<void>;
   /** POST /api/buildings/:id/flags — plant a flag (a short request) in a building; it lands in the manager's in-tray as a pending `flag` doc */
   plantFlag(buildingId: string, text: string): Promise<Doc>;
   /** Upload one image or video as the signed-in human (docs/multimedia.md); returns its paste-ready markdown. */
@@ -956,6 +963,7 @@ class HttpApi implements Api {
   async takeDownBulletin(id: string) { return unwrap<Doc>(await this.post(`/api/bulletin/${id}/take-down`, {}), "doc"); }
   async editBoardNote(id: string, i: { title: string; body: string }) { return unwrap<Doc>(await this.call("PATCH", `/api/docs/${id}`, i), "doc"); }
   async review(id: string, i: In<typeof ReviewInput>) { return unwrap<Doc>(await this.post(`/api/docs/${id}/review`, i), "doc"); }
+  async reviewEntry(id: string, i: In<typeof ReviewInput>) { await this.post(`/api/docs/${id}/review`, i); }
   async plantFlag(buildingId: string, text: string) { return unwrap<Doc>(await this.post(`/api/buildings/${buildingId}/flags`, { text }), "doc"); }
   /** Open a session transcript (docs/transcripts.md) in a new tab: fetched with the bearer token, shown as text. */
   async openTranscript(url: string) {

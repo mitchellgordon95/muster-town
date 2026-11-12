@@ -4,7 +4,8 @@ import { blockedBy, buildingRoleId, buildingStats, newId, nowIso, createSchedule
 import { creditBank, fundGoalOf, musterWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
-const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
+// it asks its reader for something, so it waits in the in-tray (a report that asks nothing is settled by the town: answer.test.ts)
+const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nDecide whether this ships.";
 
 describe("blockedBy", () => {
   it("waits: a colleague's assignment (line to them), a deploy (the building's door, with the live sha), a decision (the in-tray); a time (parked work) is not a block", async () => {

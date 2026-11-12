@@ -308,7 +308,9 @@ export class World {
     retypeProseAsks(this);
     // one rollup line filed twice (an older boot re-filed it after its title or target changed): one ask; idempotent
     foldTwinProseAsks(this);
-    // jobs and entries (plan dc_uwx045472m step 3): read only, derived from grants, retainers, chains, sources and buildings; idempotent
+    // work left queued on a grant that closed (before a close cancelled it) can never start: cancelled; idempotent
+    this.grantDesk.cancelOrphanedWork();
+    // jobs and entries (plan dc_uwx045472m step 3): derived from grants, retainers, chains, sources, flags and buildings; idempotent
     backfillJobs(this);
   }
 

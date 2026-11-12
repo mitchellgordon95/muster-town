@@ -703,6 +703,8 @@ export class MockApi implements Api {
     return clone(this.sim.putDoc({ ...d, title, body, updatedAt: now() }));
   }
   async review(docId: string, i: In<typeof ReviewInput>) { await wait(); return clone(this.sim.review(docId, i.decision, i.note ?? "", i.assigneeId)); }
+  /** The mock town's in-trays hold no entries without a report, so there is none to answer. */
+  async reviewEntry(entryId: string) { await wait(); throw new ApiError(`No entry ${entryId} in the mock town.`, "not_found", 404); }
   async plantFlag(buildingId: string, text: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.plantFlag(buildingId, text)); }
   async archive(docId: string) { await wait(); this.need(this.sim.docs.get(docId), "doc"); return clone(this.sim.archive(docId)); }
   async uploadMedia(file: Blob, alt = "") {

@@ -1,4 +1,5 @@
 /** v1.2 runtime: startup reconcile, dismissal hook. */
+import { entryOf } from "@muster-town/core";
 import { describe, expect, test, vi } from "vitest";
 import type { Agent } from "@muster-town/schema";
 import { DockerBackend, HostBackend, startRuntime, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult } from "../src/index.ts";
@@ -99,7 +100,7 @@ describe("dismissal", () => {
     expect(s.status).toBe("interrupted");
     expect(desk.removed).toEqual([{ agentId: noor.id, purge: false }]);
     expect(world.agents.require(noor.id).status).toBe("retired");
-    expect(world.docs.require(s.reportId!).decisionNote).toMatch(/dismissed/);
+    expect(entryOf(world, `en_${s.id}`)).toMatchObject({ level: "none", body: expect.stringMatching(/dismissed/) });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
   });
 

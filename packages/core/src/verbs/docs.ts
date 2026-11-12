@@ -12,14 +12,17 @@ import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
 import { scheduleView } from "../retainers.ts";
 import { actOrigin } from "../origin.ts";
-import { ftsQuery, oneLine } from "../text.ts";
+import { ftsQuery, NEED, oneLine, sectionOf } from "../text.ts";
 import { whereOf } from "../table.ts";
 import { nowIso } from "../util.ts";
 import { fileForecast } from "../grant-forecast.ts";
-import { fileReportEntry, refreshJob } from "../jobs.ts";
+import { answer, asksSomething } from "../answer.ts";
+import { answerEntry, entryOf, fileReportEntry, jobOf, refreshJob } from "../jobs.ts";
+import { passUpWithAsk, requireOpenEntry, reviewEntry } from "../review-entry.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { foldRollup, waitingRowIds } from "../rollup-asks.ts";
 import { askForRequest, asksFromRollupProse, checkRollupAsks, fileRollupAsks, refuseMissingStructure } from "../asks.ts";
+import { fileNotice } from "../notices.ts";
 import { settleRollup } from "../secretary.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -147,6 +150,15 @@ export async function search(world: World, me: Agent, input: VerbIn<"search">) {
 }
 
 export async function read(world: World, me: Agent, input: VerbIn<"read">) {
+  // an entry on a job's thread (en_…): what a manager's in-tray lists when no report is behind it
+  if (input.id.startsWith("en_")) {
+    const e = entryOf(world, input.id);
+    if (!e) throw new AppError("not_found", `No entry ${input.id} on any job's thread.`);
+    if (e.docId) return { ...e, note: `${e.note}`, readNote: `This is the entry of ${e.docId}: \`read\` that for the report itself.` };
+    const answers = world.db.prepare("SELECT id, authorKind, authorId, note, createdAt FROM entries WHERE answers = ? ORDER BY seq").all(e.id) as { id: string; authorKind: string; authorId: string; note: string; createdAt: string }[];
+    const job = world.db.prepare("SELECT id, title, status, rule, pocketRef FROM jobs WHERE id = ?").get(e.jobId) as Record<string, unknown> | undefined;
+    return { ...e, author: world.nameOf(e.authorId), job, answeredBy: answers.map((a) => ({ ...a, author: world.nameOf(a.authorId) })), readNote: e.level === "manager" && !answers.length ? `It waits for the manager: answer it with \`review\` (docId ${e.id}).` : `GET /api/jobs/${e.jobId} shows its whole thread.` };
+  }
   const d = world.docs.get(input.id);
   if (!d || !canSeeDoc(world.holderOf(me), d)) throw new AppError("not_found", `No document ${input.id} (or it's someone's draft).`);
   if (input.file !== undefined && d.type !== "skill") throw badRequest("`file` is only for skills (type \"skill\").");
@@ -379,10 +391,6 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     for (const g of closedGrants) world.grants.upsert({ ...g, checkpointDocId: doc.id, updatedAt: nowIso() });
     // the entry (plan dc_uwx045472m step 4): what this session moved, on its job's thread; the report doc stays beside it
     const proposed = current?.lane === "exploration" ? (world.db.prepare("SELECT json_extract(payload, '$.grantId') AS g FROM events WHERE type = 'exploration.proposed' AND json_extract(payload, '$.assignmentId') = ? ORDER BY id DESC LIMIT 1").get(current.id) as { g: string | null } | undefined)?.g ?? undefined : undefined;
-    const entryJob = bid ? fileReportEntry(world, {
-      docId: doc.id, buildingId: bid, title: input.title, body, verdict: input.verdict, authorId: me.id, manager: isManager, assignment: current ?? null, session: session ?? null,
-      moved: { stepsDone: current?.grantStep != null ? [current.grantStep] : undefined, krClaimed: evidenceGrant ? krEvidence : undefined, left, topUp: evidenceGrant ? input.topUp : undefined, proposed },
-    }) : null;
     if (evidenceGrant) world.grantDesk.fileReportEvidence(me, evidenceGrant, doc.id, krEvidence, input.topUp);
     // 1:1 mt_7b4zc7yja3: a rollup whose only asks are on items with their own in-tray rows (a proposal, a checkpoint, a
     // retainer) is no card of its own: acknowledged now, its ask shown on those rows. A close rollup is
@@ -427,19 +435,40 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
       ? world.grantDesk.queueNextStep(world.assignments.get(current.id)!, doc.id, input.verdict) : null;
     // gates at step reports (docs/legible-delegation.md §7.3): every step's report files the grant's forecast
     const doneStep = !resumeWhen && current?.grantStep != null && current.grantId ? world.assignments.get(current.id) : undefined;
-    if (doneStep?.status === "done") fileForecast(world, doneStep.grantId!, doc.id);
+    const forecast = doneStep?.status === "done" ? fileForecast(world, doneStep.grantId!, doc.id) : null;
+    // the one loop (plan step 5; core answer.ts): the code has done the mechanical part above (next step, forecast and its
+    // resize ask, the proposal's credit); `answer` says who still owes this entry an answer. Nobody → the town
+    // acknowledges the report itself, so the manager's in-tray holds only what needs judgment.
+    const forHumans = townHall || unhomedVisitor;
+    const loop = answer({
+      kind: "report", rule: current ? jobOf(current).rule : "building", verdict: input.verdict, step: current?.grantStep != null && !!current.grantId, nextStep: !!nextStep,
+      parked: !!resumeWhen, needs: reportAsks(body), proposed: !!proposed, overCeiling: !!forecast?.overCeiling, forHumans, outsider: me.kind === "visitor",
+      // the building's manager gave it (assign, review continue / redirect, a delegated flag), not the plan, the town or a human
+      byManager: !!current && current.createdByKind === "agent" && current.createdBy === manager?.id,
+    });
+    const entryJob = bid ? fileReportEntry(world, {
+      docId: doc.id, buildingId: bid, title: input.title, body, verdict: input.verdict, authorId: me.id, manager: isManager, assignment: current ?? null, session: session ?? null, level: loop.level,
+      moved: { stepsDone: current?.grantStep != null ? [current.grantStep] : undefined, krClaimed: evidenceGrant ? krEvidence : undefined, left, topUp: evidenceGrant ? input.topUp : undefined, proposed },
+    }) : null;
+    const settled = !!entryJob && !forHumans && loop.acts.includes("acknowledge");
+    if (settled) applyDecision(world, doc.id, "approve", `Settled by the town: ${loop.why}.`, { kind: "system", id: "system" });
+    // a human's own request that ended with nobody left to tell them: the close is their notice (shipped), with the report behind it
+    if (settled && loop.acts.includes("close-job") && current && jobOf(current).rule === "pocket") {
+      fileNotice(world, { kind: "shipped", buildingId: bid, goalId: building?.goalId ?? null, title: `Done: ${current.title}`.slice(0, 200), body: oneLine(input.title, 400), picture: null, refs: [doc.id, ...(current.sourceId ? [current.sourceId] : [])] });
+    }
     // the job's row follows its work: a chunk or a pocket whose last assignment just reported closes
     if (entryJob) refreshJob(world, entryJob);
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";
     // Hub semantics: the report goes to the building's in-tray and the agent goes idle. It only works again
     // when someone gives it an assignment (a decision on the report, meeting decision, mention).
-    const decision: Doc["decision"] = folded || archived ? "approve" : "pending";
+    const decision: Doc["decision"] = folded || archived || settled ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = townHall ? "town-hall" : bid;
     const where = folded ? `the Town Hall, folded: its only ask${asked.length === 1 ? " is" : "s are"} on ${asked.join(", ")}, whose in-tray row${asked.length === 1 ? " shows" : "s show"} it ("${building!.name} asks you to …: <your line>"), so it was acknowledged instead of becoming a card of its own`
       : archived ? "the Town Hall, archived: it asks nothing of its own (every ask folded into one already open, or none), so it is no card; its Shipped items are notices in the feed"
       : townHall ? "the Town Hall in-tray (the humans decide on it)"
       : unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
+      : settled ? `the thread of job ${entryJob}; nobody needs to decide it (${loop.why}), so it is not in ${manager ? `${manager.name}'s` : "the"} in-tray`
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session and fold it into your rollup`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
     const workedBy = manager ? "manager" : "human";
@@ -449,6 +478,15 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     }
     return { id: doc.id, decision, intray, workedBy, jobId: entryJob, nextAssignmentId: null, ...(formatWarnings.length ? { warnings: formatWarnings } : {}), ...(filedAsks.length ? { asks: filedAsks.map((f) => ({ id: f.ask.id, folded: f.folded })) } : {}), nextStepId: nextStep?.id ?? null, note: `Report submitted to ${where}.${formatNote}${styleNote}${untypedNote}${stepNote} Your session ends now; you'll get a new assignment if there's more to do.` };
   });
+}
+
+/**
+ * Whether a report asks its reader for something (answer.ts `needs`): its "What I need from you" (or "Questions for
+ * humans") says more than "Nothing needed". A report with neither section is taken to ask: someone should read it.
+ */
+function reportAsks(body: string): boolean {
+  const sections = [NEED, "Questions for humans"].filter((h) => new RegExp(`^#{1,6}\\s*${h}\\s*$`, "im").test(body));
+  return !sections.length || sections.some((h) => asksSomething(sectionOf(body, h)));
 }
 
 /** Why `id` already waits for a human outside a rollup's Needs (a grant in the Town Hall in-tray, an open outbox request, a pending rollup), or null. */
@@ -481,6 +519,23 @@ const laneOf = (i: LaneFields): LaneFields | undefined =>
   i.lane || i.grantId || i.gap || i.sourceId ? { lane: i.lane, grantId: i.grantId, gap: i.gap, sourceId: i.sourceId } : undefined;
 
 export async function review(world: World, me: Agent, input: VerbIn<"review">) {
+  if (input.ask && input.decision !== "approve") throw badRequest("`ask` passes the item up to the humans: use it with decision approve (you are not deciding it yourself).");
+  // an entry with no doc (a dead session, a human's decision or words on a job's thread): plan step 5, core review-entry.ts
+  if (input.docId.startsWith("en_")) {
+    const e = requireOpenEntry(world, input.docId);
+    if (!world.permissions.can(me, "building.review", e.buildingId) && !world.goalTree.captainsBuilding(me, e.buildingId)) throw forbidden("building.review");
+    const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+    return world.transaction(() => {
+      if (input.ask) {
+        const up = passUpWithAsk(world, me, e, e.buildingId, input.ask, input.note);
+        const answered = answerEntry(world, e.id, world.holderOf(me), "pass-up", `Passed up to the humans as ask ${up.askId}${input.note.trim() ? `: ${input.note.trim()}` : ""}`);
+        return { docId: e.id, decision: "pass-up" as const, assignmentId: null, askId: up.askId, entryId: answered?.id ?? null };
+      }
+      const res = reviewEntry(world, e.id, input.decision, input.note, world.holderOf(me), { waitFor, lane: laneOf(input) });
+      const a = res.assignment;
+      return { docId: e.id, decision: input.decision, assignmentId: a?.id ?? null, entryId: res.entry.id, ...(a?.queue === "building" ? { queue: "building" as const, to: queueLabel(world, a.buildingId, a.agentId) } : {}) };
+    });
+  }
   const doc = requirePendingReport(world, input.docId);
   if (!world.permissions.can(me, "building.review", doc.buildingId) && !world.goalTree.captainsBuilding(me, doc.buildingId)) throw forbidden("building.review");
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
@@ -489,8 +544,16 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
     throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup or visitor report; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
-  const res = world.transaction(() => applyDecision(world, doc.id, input.decision, input.note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }));
+  const entry = entryOf(world, `en_${doc.id}`);
+  if (input.ask && (!entry || !doc.buildingId)) throw badRequest(`${doc.id} has no entry on a job's thread to pass up.`);
+  const res = world.transaction(() => {
+    // pass up: the manager's card is the human's ask; the report is acknowledged here and its entry waits at level human
+    const up = input.ask ? passUpWithAsk(world, me, entry!, doc.buildingId!, input.ask, input.note) : null;
+    const note = up ? `Passed up to the humans as ask ${up.askId}${input.note.trim() ? `: ${input.note.trim()}` : ""}` : input.note;
+    return { ...applyDecision(world, doc.id, input.decision, note, world.holderOf(me), { waitFor, assigneeId: input.assigneeId ?? null, lane: laneOf(input) }), askId: up?.askId ?? null };
+  });
   const a = res.assignment;
+  if (res.askId) return { docId: doc.id, decision: "pass-up" as const, assignmentId: null, askId: res.askId };
   return { docId: doc.id, decision: input.decision, assignmentId: a?.id ?? null, ...(a?.queue === "building" ? { queue: "building" as const, to: queueLabel(world, a.buildingId, a.agentId) } : {}) };
 }
 

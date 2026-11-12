@@ -17,6 +17,7 @@ import { queueClaimChecks, urlOfHowToCheck } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
+import { askDecidedOnThread } from "./review-entry.ts";
 import { holderOf } from "./permissions.ts";
 import { scheduleView, retainerLine } from "./retainers.ts";
 import { onAskDecided, rollupCalls } from "./secretary.ts";
@@ -187,6 +188,8 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   onAskDecided(world, next);
   // step 9: a rule ask carrying the Planner's table change, decided "Adopt", applies it (planner.ts)
   onRuleAskDecided(world, actor!, next);
+  // an ask passed up from an entry: the human's words are their entry on that thread, and the manager moves on it
+  askDecidedOnThread(world, next, by, said);
   // the building that filed it hears the human's words (the event alone reaches no one's inbox)
   const manager = managerAgentOf(world, a.buildingId ? world.buildings.get(a.buildingId) : undefined);
   if (manager) sendMessage(world, { kind: "system", fromId: by, fromKind: "user", toId: manager.id, body: `${world.nameOf(by)} decided your ask "${oneLine(a.title, 120)}" (${a.id}): ${said.slice(0, 2000)}` });

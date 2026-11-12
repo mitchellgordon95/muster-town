@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, codeWorkspace, createDoc, fallbackReportBody, fixedParts, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, bookEntryTokens, codeWorkspace, fallbackReportBody, fileDeadSession, fixedParts, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
 import { isGone, countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, webFor, type Ctx } from "./session.ts";
 
@@ -137,19 +137,17 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
       const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
       const body = fallbackReportBody(o.finalText ?? "", error, assignment);
       const title = `${FALLBACK_REPORT_PREFIX} ${assignment?.title ?? "work session"}`.slice(0, 200);
-      if (stopped) {
-        const doc = createDoc(world, {
-          type: "report", state: "building", title, body, verdict: "continue", decision: "stop", decidedBy: "system", decidedAt: new Date().toISOString(),
-          decisionNote: `${agentNow.name} was ${agentNow.status === "banned" || agentNow.status === "stopped" ? agentNow.status : agentNow.status === "retired" ? "dismissed" : "stopped"} during the session.`,
-          authorId: agentId, authorKind: "agent", buildingId: bid, sessionId, assignmentId: session.assignmentId ?? undefined,
-        }, `${agentNow.name}'s session was stopped; fallback report written`);
-        world.sessions.patch(sessionId, { reportId: doc.id });
-        if (session.assignmentId && world.assignments.get(session.assignmentId)?.status === "active") setAssignmentStatus(world, session.assignmentId, "cancelled", { reportId: doc.id });
+      // plan dc_uwx045472m step 5: no stub report. The dead session is one `code` entry on its job's thread: a record
+      // when someone stopped the agent (that decision is the answer), else it waits for the manager (retry, redirect or
+      // drop with `review`). Either way the assignment ends here, so nothing stays active with no session behind it.
+      const why = stopped ? `${agentNow.name} was ${agentNow.status === "banned" || agentNow.status === "stopped" ? agentNow.status : agentNow.status === "retired" ? "dismissed" : "stopped"} during the session.` : "The session ended without a report.";
+      const entry = bid ? world.transaction(() => {
+        const e = fileDeadSession(world, { session, assignment: assignment ?? null, buildingId: bid, agentName: agentNow.name, title, body: stopped ? `${body}\n${why}` : body, stopped, error });
+        if (assignment && world.assignments.get(assignment.id)?.status === "active") setAssignmentStatus(world, assignment.id, "cancelled", { heldReason: why });
         world.agents.patch(agentId, { currentAssignmentId: null });
-      } else {
-        await world.verbs.submit_report(agentId, { title, body, verdict: "continue" });
-        world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session ended without a report; fallback report written`, payload: { sessionId, fallback: true } });
-      }
+        return e;
+      }) : null;
+      world.events.append({ type: "system", agentId, buildingId: bid, text: `${agentNow.name}'s session ${stopped ? "was stopped" : "ended without a report"}; ${entry ? `entry ${entry.id} is on its job's thread${entry.level === "manager" ? " for the manager" : ""}` : "no thread to file it on"}`, payload: { sessionId, fallback: true, entryId: entry?.id ?? null, jobId: entry?.jobId ?? null } });
     } catch (e) {
       world.events.append({ type: "system", agentId, buildingId: bid, text: `Runtime error after session: ${e instanceof Error ? e.message : String(e)}`, payload: { sessionId } });
     }
@@ -171,6 +169,8 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: adjusted, costUsd: usage.costUsd, turns: usage.turns });
+  // a session that ended without a report: its entry (en_<session>) carries what the session cost
+  if (!report) bookEntryTokens(world, `en_${sessionId}`, adjusted);
   // the resident's log: one line per work session, written for it (its wiki is its own job)
   if (session.purpose === "work" && agentNow.kind === "resident") {
     try {

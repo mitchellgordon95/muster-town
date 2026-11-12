@@ -55,7 +55,7 @@ describe("jobs and entries, read only", () => {
     expect(t.job).toMatchObject({ id: `jb_${g.id}`, rule: "ceiling", status: "open", pocketRef: g.id, closedAs: null });
     const reports = t.entries.filter((e) => e.docId && !e.answers);
     expect(reports.map((e) => e.docId)).toEqual([one.r.id, two.r.id]);
-    expect(reports[0]).toMatchObject({ id: `en_${one.r.id}`, authorKind: "fork", assignmentId: one.a.id, proposes: "continue", moved: { stepsDone: [0], left: "Two more steps." }, pocket: g.id, level: "manager" });
+    expect(reports[0]).toMatchObject({ id: `en_${one.r.id}`, authorKind: "fork", assignmentId: one.a.id, proposes: "continue", moved: { stepsDone: [0], left: "Two more steps." }, pocket: g.id, level: "code" });
     expect(reports[1].moved).toEqual({ stepsDone: [1], left: "Two more steps." });
     // the human's propose and fund came first; seq is 1, 2, 3… in time order
     expect(t.entries.slice(0, 2).map((e) => e.moved.action)).toEqual(["propose", "fund"]);
@@ -63,10 +63,16 @@ describe("jobs and entries, read only", () => {
     expect(t.entries.map((e) => e.seq)).toEqual(t.entries.map((_, i) => i + 1));
     // an assignment id reads its job too
     expect(jobThread(world, one.a.id)!.job.id).toBe(`jb_${g.id}`);
-    // the manager's decision on a report answers its entry
-    applyDecision(world, one.r.id, "approve", "", world.holderOf(pix));
-    const answered = jobThread(world, g.id)!.entries.find((e) => e.answers === `en_${one.r.id}`);
-    expect(answered).toMatchObject({ authorKind: "manager", moved: { decision: "approve" }, docId: one.r.id });
+    // a step that says continue with a step behind it is settled by the code: its answer is on the thread, written live
+    const settled = jobThread(world, g.id)!.entries.find((e) => e.answers === `en_${one.r.id}`);
+    expect(settled).toMatchObject({ authorKind: "code", moved: { decision: "approve" }, docId: one.r.id });
+    expect(one.r.decision).toBe("approve");
+    // the plan's last step waits for the manager; its decision answers the entry
+    const three = await runNext("continue", { left: "Nothing." });
+    expect(three.r.decision).toBe("pending");
+    applyDecision(world, three.r.id, "approve", "", world.holderOf(pix));
+    const answered = jobThread(world, g.id)!.entries.find((e) => e.answers === `en_${three.r.id}`);
+    expect(answered).toMatchObject({ authorKind: "manager", moved: { decision: "approve" }, docId: three.r.id });
   });
 
   it("every building has a job; directed sources and exploration chains get their own; back-fill is idempotent", async () => {

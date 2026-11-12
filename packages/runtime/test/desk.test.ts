@@ -5,7 +5,7 @@ import type { Agent, Building } from "@muster-town/schema";
 import { assertOneCredential, deskAuth, DockerBackend, fundingFor, type DeskBackend, type DeskChild, type DeskHandle, type DockerRunner, type RunResult, type SpawnedChild } from "../src/index.ts";
 import { killTreeCommand } from "../src/desk/backend.ts";
 import { result, setup, TEST_TOKEN } from "./helpers.ts";
-import { NO_KEY_HOLD, type Credential } from "@muster-town/core";
+import { entryOf, NO_KEY_HOLD, type Credential } from "@muster-town/core";
 
 // ---------- DockerBackend command lines ----------
 function fakeRunner(answers: (args: string[]) => RunResult) {
@@ -155,7 +155,7 @@ describe("desk work sessions", () => {
     expect(runtime.isWorking(noor.id)).toBe(false);
   });
 
-  test("session-end without a report writes the fallback report", async () => {
+  test("session-end without a report leaves a code entry for the manager", async () => {
     const { world, runtime, desk, by } = deskSetup();
     const tomas = by("Tomas");
     const asg = world.ops.createWork(null, tomas.id, { title: "Land sink" });
@@ -165,9 +165,11 @@ describe("desk work sessions", () => {
     await runtime.finishWorkSession(sid, { tokens: 10, costUsd: 0, turns: 1, finalText: "Found 2.4 ppm/yr", reportSubmitted: false });
     desk.execs[0].exit(0);
     const s = await running;
-    const report = world.docs.require(s.reportId!);
-    expect(report).toMatchObject({ decision: "pending", assignmentId: asg.id });
-    expect(report.body).toContain("2.4 ppm/yr");
+    expect(s.reportId ?? null).toBeNull();
+    const entry = entryOf(world, `en_${s.id}`)!;
+    expect(entry).toMatchObject({ level: "manager", assignmentId: asg.id, docId: null });
+    expect(entry.body).toContain("2.4 ppm/yr");
+    expect(world.assignments.require(asg.id).status).toBe("cancelled");
     expect(world.agents.require(tomas.id).status).toBe("idle");
   });
 
@@ -182,7 +184,7 @@ describe("desk work sessions", () => {
     const s = await running;
     expect(desk.execs[0].killed).toBe(true);
     expect(s.status).toBe("interrupted");
-    expect(world.docs.require(s.reportId!).decision).toBe("stop");
+    expect(entryOf(world, `en_${s.id}`)).toMatchObject({ level: "none", moved: { stopped: true } });
     expect(world.assignments.require(asg.id).status).toBe("cancelled");
     expect(world.agents.require(ravi.id).status).toBe("stopped");
   });
@@ -196,7 +198,7 @@ describe("desk work sessions", () => {
     desk.execs[0].exit(1);
     const s = await running;
     expect(s).toMatchObject({ status: "error", error: "desk exited 1" });
-    expect(world.docs.require(s.reportId!)).toMatchObject({ decision: "pending" });
+    expect(entryOf(world, `en_${s.id}`)).toMatchObject({ level: "manager", moved: { kind: "dead-session", error: "desk exited 1" } });
     expect(world.agents.require(mei.id).status).toBe("idle");
   });
 

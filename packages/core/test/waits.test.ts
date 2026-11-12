@@ -4,7 +4,8 @@ import { WAIT_TTL_MS } from "@muster-town/schema";
 import { blockedBy, checkWaits, nextPending, setAssignmentStatus } from "../src/index.ts";
 import { musterWorld } from "./helpers.ts";
 
-const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nNothing needed.";
+// it asks its reader for something, so it waits in the in-tray (a report that asks nothing is settled by the town: answer.test.ts)
+const REPORT = "## What I did\nx\n\n## Findings\ny\n\n## What I need from you\nDecide whether this ships.";
 
 describe("assignments that wait (P1)", () => {
   it("the scheduler skips a waiting assignment until checkWaits finds it met; then it unblocks with an event", () => {

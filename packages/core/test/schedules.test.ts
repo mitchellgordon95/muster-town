@@ -91,8 +91,7 @@ describe("schedules", () => {
     expect(fireSchedules(world, new Date(Date.now() + 2 * H)).fired).toEqual([]);
     expect(world.schedules.require(r.scheduleId).endedReason).toMatch(/lane no longer holds/);
     expect(world.docs.first("type = 'report' AND buildingId = ? AND tags LIKE '%schedule-ended%'", [b.id])?.title).toBe("Schedule ended: Explore it");
-    expect(made()).toEqual([]); // no schedule run; the reject itself is an in-tray row (work routing step 2), not a job
-    expect(world.docs.first("type = 'report' AND buildingId = ? AND tags LIKE '%wake:grant-rejected%'", [b.id])?.title).toMatch(/rejected: read the note/);
+    expect(made()).toEqual([]); // no schedule run; the reject itself is an entry on the proposal's job (plan step 5), not a job
   });
   it("step 2: daily times fire twice a day; a run is skipped while the last is running; ends after `times` runs", async () => {
     const { world, me, made } = lab();

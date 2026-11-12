@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, inForce, humanDecisionsBlock, humanTyping, intrayOf, managePrompt, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, inForce, humanDecisionsBlock, humanTyping, managePrompt, managerQueue, type QueueItem, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, skillsBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -89,7 +89,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
   const mgr = building.kind === "town-hall" ? undefined : forkableManagerOf(world, building);
   const out: Promise<Session>[] = [];
   const add = (p: Promise<Session> | null) => { if (p) out.push(p); };
-  if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, intrayOf(world, building.id).filter((d) => !st.offered.has(d.id))));
+  if (mgr && homeOf(world, mgr.id) === building.id) add(wakeTalker(ctx, st, gate, mgr, managerQueue(world, building.id).filter((d) => !st.offered.has(d.id))));
   // residents a human opened a 1:1 with (a report's "Talk to <author>", core/src/meetings.ts createOneOnOne): they
   // answer it the same way, in a host session of their own, with no in-tray to offer
   // (and those whose fed 1:1 just ended, so their session hears it and can end)
@@ -114,7 +114,7 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
  * The conversation is its manage session, or, while a work session (host or desk) is live, a 1:1-only session alongside
  * it in `ctx.talking` (1:1 mt_ufwllf4wmt decision 1): a human gets an answer while the work keeps going.
  */
-function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, fresh: Doc[]): Promise<Session> | null {
+function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, fresh: QueueItem[]): Promise<Session> | null {
   const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
   const talks = openOneOnOnes(world, agent.id);
@@ -282,7 +282,7 @@ export function closeQuietOneOnOnes(ctx: Ctx): void {
  * open 1:1s `talks` (the first is the prompt; the rest and the reports arrive as the next messages). Resolves with the
  * ended session.
  */
-async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: Doc[], talks: Meeting[] = [], work?: LiveSession, resume?: ResumableManage | null): Promise<Session> {
+async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fresh: QueueItem[], talks: Meeting[] = [], work?: LiveSession, resume?: ResumableManage | null): Promise<Session> {
   const { world } = ctx;
   const agent = world.agents.require(agentId, "agent");
   const building = world.buildings.require(homeOf(world, agentId)!, "building");

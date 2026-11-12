@@ -11,7 +11,7 @@ import { oneLine } from "./text.ts";
 import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
-import { decisionWakes } from "./wakes.ts";
+import { decisionEntries, decisionWakes } from "./wakes.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
@@ -586,6 +586,8 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
   const decided = world.events.append({ type: "meeting.decisions", buildingId: m.buildingId, text: `${m.title}: ${made.length} decision(s)${late ? " (recorded after close)" : ""}`, payload: { meetingId: m.id, decisions: made, late } });
   // wakes step 5: an amended active assignment reaches its session (interrupt) or, with none running, the queue
   decisionWakes(world, decided);
+  // plan step 5b: each decision is on the thread of the job it made or amended work for (else the building's own)
+  decisionEntries(world, decided);
   if (late && m.notesDocId) {
     // the notes were written at close; append what came in during the grace window so nothing is lost
     const notes = world.docs.get(m.notesDocId);
