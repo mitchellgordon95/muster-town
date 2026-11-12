@@ -269,7 +269,10 @@ down, and sends one "recovered" message when health answers again. It forwards t
 `monitor.alerts`) on change only: once when a key turns red, every 6 h while it stays red, once when it clears. It is the
 only thing that texts or emails about muster.town. It only alerts: it posts nothing to the town and needs no town token.
 The public uptime number (`GET /api/uptime`, the Uptime block) is measured by UptimeRobot's free plan (grant
-gr_hbz0twkfp9), not by the pinger. An old `MUSTER_PINGER_TOKEN` line in its env file is ignored and can be deleted.
+gr_hbz0twkfp9), not by the pinger: one HTTP(s) monitor on `/api/health` every 5 min. The server reads its `getMonitors`
+API with the read-only key in the collective secret `UPTIMEROBOT_API_KEY` (Town Hall → Secrets), at most once every
+5 min, and links the public status page in `UPTIMEROBOT_STATUS_URL`. No key or an API error: the block says "Not
+measured yet" and `/api/uptime` shows `source: "unknown"` and the `error`; restart gaps still come from the server's events. An old `MUSTER_PINGER_TOKEN` line in its env file is ignored and can be deleted.
 Tests: `python3 -m unittest discover -s deploy/pinger` (CI runs them).
 
 Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):

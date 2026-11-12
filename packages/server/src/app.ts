@@ -321,7 +321,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts)
     await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null }));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
-    // public uptime (gr_hbz0twkfp9): every root town; restart gaps now, UptimeRobot's numbers next
+    // public uptime (gr_hbz0twkfp9): every root town; UptimeRobot's numbers and the restart gaps
     await app.register(uptimeRoutes(new Uptime(opts.world)));
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
