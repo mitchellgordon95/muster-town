@@ -1,6 +1,6 @@
 # Invariants: assignments and lanes
 
-What must always hold for assignments and their lanes (`packages/core/src/domain.ts` for `createAssignment`, `nextStartable` and the queue; `packages/core/src/lanes.ts` for `resolveLane` and the lane gate `laneBlock`; `packages/core/src/waits.ts` for `waitFor`). Each invariant names the test that proves it. The design is in [docs/goal-directed-budgets.md](../goal-directed-budgets.md), and the map is in [docs/architecture.md](../architecture.md#map-the-system-in-10-minutes).
+What must always hold for assignments and their lanes (`packages/core/src/domain.ts` for `createAssignment`, `nextStartable` and the queue; `packages/core/src/lanes.ts` for `resolveLane` and the lane gate `ruleBlock`; `packages/core/src/waits.ts` for `waitFor`). Each invariant names the test that proves it. The design is in [docs/goal-directed-budgets.md](../goal-directed-budgets.md), and the map is in [docs/architecture.md](../architecture.md#map-the-system-in-10-minutes).
 
 Citation format: the same as in [grants.md](grants.md): a `- Test:` line with the test file, then the `it` (or `test`) text copied exactly. `npm run check:docs` fails if either is missing.
 
@@ -48,6 +48,6 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
 
 ## How it connects
 
-- **Grants → the gate.** `resolveLane` and `laneBlock` read the grant's status (funded runs; checkpoint holds all but the manager's checkpoint assignment; anything else holds or is refused) and exploration's free tokens and optional cap from `Grants.exploration` (an explorer the explore tick queued runs on its own open reservation, `assignments.reservationId`, core explore.ts). Grant decisions write assignments back into this subsystem. See [grants.md](grants.md).
-- **Bank and budget → the gate.** `laneBlock` is the lane half of `Budget.canStart`; the other half is the building's remaining tokens (no daily caps since 2026-10-31; `packages/core/src/budget.ts`). `nextStartable` returns only an assignment that `canStart` allows.
+- **Grants → the gate.** `resolveLane` and `ruleBlock` read the grant's status (funded runs; checkpoint holds all but the manager's checkpoint assignment; anything else holds or is refused) and exploration's free tokens and optional cap from `Grants.exploration` (an explorer the explore tick queued runs on its own open reservation, `assignments.reservationId`, core explore.ts). Grant decisions write assignments back into this subsystem. See [grants.md](grants.md).
+- **Bank and budget → the gate.** `ruleBlock` is the lane half of `Budget.canStart`; the other half is the building's remaining tokens (no daily caps since 2026-10-31; `packages/core/src/budget.ts`). `nextStartable` returns only an assignment that `canStart` allows.
 - **Runtime and wakes.** The runtime starts only what `nextStartable` returns, and the wakes create pending assignments here (a human's tell, a relayed @mention, a decision). See [runtime-wakes.md](runtime-wakes.md).

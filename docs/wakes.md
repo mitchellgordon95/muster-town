@@ -9,7 +9,7 @@ A **wake** is anything that makes an idle agent spend tokens: it starts a sessio
 that is already running. Today there are four kinds of wake, each wired separately:
 
 - **Q, the queue.** Something creates a pending assignment. `scheduleWork` (runtime/index.ts ~299) polls every 5 s and starts
-  the first one that `Budget.canStart` allows (lane gate `laneHold`, waits, budget, slots). Only the scheduler starts work.
+  the first one that `Budget.canStart` allows (lane gate `ruleHold`, waits, budget, slots). Only the scheduler starts work.
 - **T, the in-tray.** `wakeManager` (runtime/manage.ts:48) starts or feeds the manager's manage session when there is an
   unoffered in-tray report or an open 1:1. It runs on `doc.created` (report or flag), on 1:1 meeting events and on every tick.
 - **M, meetings.** `meeting.created`/`meeting.phase` start summary and facilitation sessions. An @mention in a live
@@ -43,7 +43,7 @@ Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes an
 | Lab becomes blocked (no funded grant) | nobody | nothing: `Grants.blocked` returns null (goals keep no key results), and the old "Get human decisions" assignment is gone | — |
 | `waitFor` met (deploy, assignment, decision, pr, after) | the parked assignee | Q: `checkWaits` on the tick clears the wait. A `{pr: N}` wait holds until the PR's CI finished (passed or failed) or the PR is merged or closed; a PR that conflicts with its base gets no CI run, so it reads as failed ("merge conflict: CI did not run"): the runtime reads it from GitHub about once a minute (runtime `pr-checks.ts`), so a fork waiting on CI parks on `{pr}`, never on an `{after}` guess (Mitchell, 1:1 mt_3jtclcoxl2). An assignment wait follows the awaited work's park continuations (`chainTip`): a parked report does not release it, only the chain ending done or cancelled. After 24 h, T gets a `wait-expired` report | — |
 | Redeploy | running agents; parked work | I (notice); Q for `deploy` waits; T resumes the 1:1 (meetings.md §6) | — |
-| Exploration allowance reset (UTC midnight) / daily budget reset | held agents | Q: `laneHold` is re-evaluated on every tick; `resetDaily` and `resumeEligible` set agents back to idle | Nothing is announced, but the work resumes |
+| Exploration allowance reset (UTC midnight) / daily budget reset | held agents | Q: `ruleHold` is re-evaluated on every tick; `resetDaily` and `resumeEligible` set agents back to idle | Nothing is announced, but the work resumes |
 | A human answers `request_human` | requester | step 5 rule `request-answer`: a forking manager → T, a pending in-tray row; a retired fork → Q, a directed job on its building queue, chained to the work that asked; else an interrupt if the requester is working, else a pending directed assignment | — |
 | Agent stopped or banned | that agent | `abortWork` (a negative wake) | — |
 

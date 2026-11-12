@@ -213,7 +213,7 @@ describe("a work session's prompt is split for the provider's cache (gr_9kt5t7w5
       expect(two.prompt.startsWith("Clock: it is 2026-11-05 21:40 UTC")).toBe(true);
       const at = (s: string) => two.prompt.indexOf(s);
       expect(at(`You are ${two.agent.name} (agent id ${two.agent.id}), a fork of Pix.`)).toBeGreaterThan(0);
-      expect(at("This session: exploration on gap: no Bank tab")).toBeGreaterThan(at("You are "));
+      expect(at(", exploration on gap: no Bank tab")).toBeGreaterThan(at("You are "));
       expect(at("## What Pix knows")).toBeGreaterThan(at("This session:"));
       expect(two.prompt).toContain("wiki v2");
       expect(two.prompt).toContain("Desk page: ffmpeg");
@@ -223,9 +223,25 @@ describe("a work session's prompt is split for the provider's cache (gr_9kt5t7w5
       expect(at(`## Your branch\nYour checkout at /home/agent/work/agent-town is on branch \`${two.workspace!.branch}\``)).toBeGreaterThan(at("## Pix's log"));
       expect(at("Your assignment (")).toBeGreaterThan(at("## Your branch"));
       expect(one.prompt).toContain("wiki v1");
-      expect(one.prompt).toContain("This session: exploration on gap: the HUD is wrong");
+      expect(one.prompt).toContain(", exploration on gap: the HUD is wrong");
       void pix;
     } finally { vi.useRealTimers(); }
+  });
+
+  it("the session's job, rule and pocket (plan dc_uwx045472m step 4) are in the first message; the system prompt only explains jobs", async () => {
+    const { world, fork } = forky();
+    const s1 = await fork("Fix the HUD", { gap: "the HUD is wrong" });
+    const s2 = await fork("Write the Bank tab", { gap: "no Bank tab" });
+    const one = composeWorkBrief(world, s1.id);
+    const two = composeWorkBrief(world, s2.id);
+    expect(two.system).toBe(one.system);
+    expect(one.system).toContain("your report is also filed as one entry on that job's thread");
+    for (const x of [one, two]) {
+      const a = world.assignments.require(world.sessions.require(x === one ? s1.id : s2.id).assignmentId!);
+      const line = `This session: job jb_${a.chainId} (rule chunk), exploration on gap: ${a.gap}`;
+      expect(x.prompt).toContain(line);
+      expect(x.system).not.toContain(`jb_${a.chainId}`);
+    }
   });
 
   it("two work sessions of one manager get a byte-identical system prompt; the in-tray, team, grants, board and the wiki index are in the first message", async () => {

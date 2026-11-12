@@ -4,6 +4,7 @@ import {
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
+import { syncJob } from "./jobs.ts";
 import { closedLoopNotice, verifiedNotice } from "./notices.ts";
 import { sessionTokens } from "./bank.ts";
 import { createAssignment, managerAgentOf, sendMessage, setAssignmentStatus } from "./domain.ts";
@@ -1092,6 +1093,8 @@ export class Grants {
     const e = this.world.events.append({ type, agentId: actor?.id ?? null, buildingId: g.buildingId, text, payload: { grantId: g.id, status: g.status, action, ...extra } });
     // asks (docs/legible-delegation.md §4): a proposal files its money ask; a decision, close, withdraw or stop retires it
     onGrantEvent(this.world, g, e);
+    // plan dc_uwx045472m step 4: the grant's ceiling job follows it (a proposal is a proposed job; a draft has none yet)
+    if (g.status !== "draft") syncJob(this.world, `jb_${g.id}`);
     return e;
   }
 

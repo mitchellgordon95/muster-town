@@ -67,7 +67,7 @@ describe("calibration: spent over size per size, collective-wide and per buildin
       const { fork } = forkManager(world, b.id, a.id);
       world.assignments.patch(a.id, { status: "active" });
       world.sessions.upsert({ id: newId("se"), agentId: fork.id, assignmentId: a.id, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m", sdkSessionId: null, output: tokens, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: g.id } as never);
-      await world.verbs.submit_report(fork, { title: "r", body: REPORT, verdict: "continue" });
+      await world.verbs.submit_report(fork, { title: "r", body: REPORT, verdict: "continue", left: "The rest of the plan." });
       retireFork(world, fork.id);
     }
     const c = stepCalibration(world);

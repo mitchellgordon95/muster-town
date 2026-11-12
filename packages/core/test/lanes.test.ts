@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createAssignment, fixedParts, workStateBlock, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
-import { laneBlock, resolveLane } from "../src/lanes.ts";
+import { ruleBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
 import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
 
@@ -128,7 +128,7 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: no free tokens under its goal/);
     expect(world.budget.canStart(noor.id, dir)).toBe(false);
     expect(world.assignments.require(dir.id).heldReason).toMatch(/^held: no free tokens under its goal for directed work/);
-    expect(laneBlock(world, dir)?.kind).toBe("directed");
+    expect(ruleBlock(world, dir)?.kind).toBe("directed");
     creditBank(world, 5000);
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
     expect(world.budget.canStart(noor.id, dir)).toBe(true);
@@ -160,7 +160,7 @@ describe("goal-directed budgets: the canStart gate", () => {
     for (const a of [gr, ex, dir]) {
       expect(world.budget.canStart(noor.id, a)).toBe(false);
       expect(world.assignments.require(a.id).heldReason).toMatch(/^held: the Bank's balance is within the operating reserve \(11,000 tokens kept for manager sessions/);
-      expect(laneBlock(world, a)?.kind).toBe("reserve");
+      expect(ruleBlock(world, a)?.kind).toBe("reserve");
     }
     // the manager's own sessions without an assignment (team-lead wake, 1:1, meeting) run on the reserve
     expect(world.budget.canStart(mei.id)).toBe(true);
@@ -175,9 +175,9 @@ describe("goal-directed budgets: the canStart gate", () => {
     fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1 });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     spend(noor.id, 50, "exploration");
-    expect(laneBlock(world, ex)?.kind).toBe("exploration");
+    expect(ruleBlock(world, ex)?.kind).toBe("exploration");
     const hall = world.buildings.first("kind = 'town-hall'")!;
-    expect(laneBlock(world, { ...ex, buildingId: hall.id })).toBeNull();
+    expect(ruleBlock(world, { ...ex, buildingId: hall.id })).toBeNull();
   });
 });
 
@@ -427,10 +427,10 @@ describe("goal-directed budgets: the Key results block", () => {
     const block = keyResultsBlock(world, world.buildings.require(LAB), a);
     expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [not-started] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
     expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResultId} [not-started] The board shows the lab's goal first (how to check: Open the lab board)`);
-    expect(block).toContain(`This session: grant ${g.id} (first key result ${krs[0]!.id} "A visitor can see today's spend on the banner")`);
+    expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id} (first key result ${krs[0]!.id} "A visitor can see today's spend on the banner")`);
     expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
-    expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain("This session: exploration on gap: Visitors can't find the board");
+    expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain(", exploration on gap: Visitors can't find the board");
     const b = world.buildings.require(LAB);
     const parts = sessionMemory(world, noor, b, a);
     expect(workSystemPrompt(noor, b, world.town.get(), fixedParts(parts))).not.toContain("Goals and grants");
@@ -511,7 +511,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     world.sessions.upsert({ ...world.sessions.where("agentId = ?", [mei.id])[0]!, id: newId("se"), lane: "directed" });
     expect(world.grantDesk.directed(LAB).spentTodayTokens).toBe(1000);
     expect(world.grantDesk.laneBudgets().find((b) => b.buildingId === LAB)).toMatchObject({ exploration: { spentTodayTokens: 1000, cap: { tokensPerDay: 1000, goalId: capGoal, spentTodayTokens: 1000 } }, directed: { spentTodayTokens: 1000 } });
-    expect(keyResultsBlock(world, world.buildings.require(LAB), a)).toMatch(/Directed today: 1,000 tokens[\s\S]*This session: directed \(a human asked for it: dc_/);
+    expect(keyResultsBlock(world, world.buildings.require(LAB), a)).toMatch(/Directed today: 1,000 tokens[\s\S]*This session: job jb_\S+ \(rule pocket, pocket dc_\w+\), directed \(a human asked for it: dc_/);
     // a review continue may name the lane too
     expect((await world.verbs.assign(mei, { ...base(mei.id), sourceId: flag.id })).lane).toBe("directed");
   });
@@ -542,6 +542,6 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     expect(world.budget.canStart(mei.id, a)).toBe(true);
     world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 }).id);
     expect(world.budget.canStart(mei.id, a)).toBe(true);
-    expect(laneBlock(world, a)).toBeNull();
+    expect(ruleBlock(world, a)).toBeNull();
   });
 });

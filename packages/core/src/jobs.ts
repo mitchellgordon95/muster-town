@@ -1,13 +1,15 @@
 /**
- * Jobs and entries, read only (plan dc_uwx045472m step 3; grant gr_9mp6v6vv8k step 1). A job is one piece of work with one
+ * Jobs and entries (plan dc_uwx045472m steps 3-4; grant gr_9mp6v6vv8k steps 1-2). A job is one piece of work with one
  * budget rule: a grant (`ceiling`), a retainer (`per-run`), an exploration chain (`chunk`), a human's directed source in a
  * building (`pocket`), and each building's own thread (`building`). Its record is a thread of entries: one per session
  * report, plus the answers to it (a manager's review, a human's grant or retainer decision).
  *
- * Nothing writes jobs or entries yet: `backfillJobs` derives both from today's objects at boot, idempotently (ids are
- * deterministic, a job's row follows its object, an entry already in a thread keeps its seq and new ones are appended).
- * `jobThread` re-syncs the one job it reads, so GET /api/jobs/:id is current between boots.
+ * Written live: `createAssignment` opens its job (`openJob`), a grant's events sync its job (a proposal is a `proposed`
+ * ceiling job), and `submit_report` appends the session's entry (`fileReportEntry`, with what it moved). `backfillJobs`
+ * still derives both from today's objects at boot, idempotently (ids are deterministic, a job's row follows its object,
+ * an entry already in a thread keeps its seq and new ones are appended), and `jobThread` re-syncs the job it reads.
  */
+import type { Assignment, Session } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import type { World } from "./world.ts";
 
@@ -37,6 +39,18 @@ const JOB_OF_ASSIGNMENT = `CASE
   WHEN a.lane = 'exploration' THEN 'jb_' || COALESCE(a.chainId, a.id)
   WHEN a.lane = 'directed' AND a.sourceId IS NOT NULL THEN 'jb_' || a.buildingId || '_' || a.sourceId
   ELSE 'jb_' || a.buildingId END`;
+
+/**
+ * `JOB_OF_ASSIGNMENT` without the database: the job id, budget rule and pocket of an assignment (also one not stored yet).
+ * The rule replaces the lane (`ruleBlock` in lanes.ts keys its checks by it); a test holds the two in step.
+ */
+export function jobOf(a: Pick<Assignment, "id" | "buildingId" | "lane" | "grantId" | "sourceId" | "chainId" | "reservationId">): { id: string; rule: JobRule; pocketRef: string | null } {
+  if (a.grantId) return { id: `jb_${a.grantId}`, rule: "ceiling", pocketRef: a.grantId };
+  if (a.lane === "retainer" && a.sourceId?.startsWith("sc_")) return { id: `jb_${a.sourceId}`, rule: "per-run", pocketRef: a.sourceId };
+  if (a.lane === "exploration") return { id: `jb_${a.chainId ?? a.id}`, rule: "chunk", pocketRef: a.reservationId ?? null };
+  if (a.lane === "directed" && a.sourceId) return { id: `jb_${a.buildingId}_${a.sourceId}`, rule: "pocket", pocketRef: a.sourceId };
+  return { id: `jb_${a.buildingId}`, rule: "building", pocketRef: null };
+}
 
 /** A report doc's job: its assignment's, else (a rollup, a town-written in-tray row, a manager's own report) its building's. */
 const JOB_OF_REPORT = `CASE WHEN a.id IS NULL THEN 'jb_' || d.buildingId ELSE ${JOB_OF_ASSIGNMENT} END`;
@@ -178,20 +192,70 @@ function sync(world: World, only?: string): { jobs: number; entries: number } {
     const maxSeq = db.prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM entries WHERE jobId = ?");
     const insert = db.prepare(`INSERT INTO entries (id, jobId, seq, authorKind, authorId, assignmentId, sessionId, pocket, tokens, moved, proposes, answers, level, note, body, docId, createdAt)
       VALUES (@id, @jobId, @seq, @authorKind, @authorId, @assignmentId, @sessionId, @pocket, @tokens, @moved, @proposes, @answers, @level, @note, @body, @docId, @createdAt)`);
-    const setLevel = db.prepare("UPDATE entries SET level = ? WHERE id = ? AND level <> ?");
+    // an entry written live keeps its moved; its level follows the decision, its tokens what the Bank booked since
+    const refresh = db.prepare("UPDATE entries SET level = @level, tokens = MAX(tokens, @tokens) WHERE id = @id AND (level <> @level OR tokens < @tokens)");
     for (const [jobId, rows] of entryRows(world, only)) {
       if (!known.has(jobId) && !db.prepare("SELECT 1 FROM jobs WHERE id = ?").get(jobId)) continue;
       let seq = (maxSeq.get(jobId) as { n: number }).n;
       // answers sort after what they answer when stamped in the same millisecond
       rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || Number(!!a.answers) - Number(!!b.answers) || a.id.localeCompare(b.id));
       for (const e of rows) {
-        if (have.get(e.id)) { setLevel.run(e.level, e.id, e.level); continue; }
+        if (have.get(e.id)) { refresh.run({ id: e.id, level: e.level, tokens: e.tokens }); continue; }
         insert.run({ ...e, seq: ++seq, moved: JSON.stringify(e.moved) });
         added++;
       }
     }
   })();
   return { jobs: jobs.length, entries: added };
+}
+
+/** Write one job's row (and append what its thread lacks): a grant's event, a new assignment's job. No-op for an unknown id. */
+export function syncJob(world: World, jobId: string): void {
+  sync(world, jobId);
+}
+
+/** A new assignment's job: picked when it exists, else created (a chunk for a new explorer, a pocket for a new source). */
+export function openJob(world: World, a: Assignment): string {
+  const { id } = jobOf(a);
+  if (!world.db.prepare("SELECT 1 FROM jobs WHERE id = ? AND status <> 'closed'").get(id)) {
+    const row = jobRows(world, id)[0];
+    if (row) world.db.prepare(`INSERT INTO jobs (id, buildingId, goalId, title, status, closedAs, rule, pocketRef, createdBy, createdAt)
+      VALUES (@id, @buildingId, @goalId, @title, @status, @closedAs, @rule, @pocketRef, @createdBy, @createdAt)
+      ON CONFLICT(id) DO UPDATE SET status = excluded.status, closedAs = excluded.closedAs, pocketRef = excluded.pocketRef, title = excluded.title`).run(row);
+  }
+  return id;
+}
+
+/** What a session's report moved (the entry's `moved`): steps done, key results claimed, what is left, a top-up, a proposal. */
+interface ReportMoved {
+  stepsDone?: number[]; krClaimed?: { id: string; status: string; evidence: string }[]; left?: string;
+  topUp?: { tokens: number; buys: string }; proposed?: string;
+}
+
+/**
+ * `submit_report`'s entry (plan step 4): one per report, on its assignment's job (else the building's), id `en_<report>`
+ * so the back-fill never writes it twice. Its job's row is re-read after, so a chunk whose last session reported closes.
+ */
+export function fileReportEntry(world: World, r: { docId: string; buildingId: string; title: string; body: string; verdict: string; authorId: string; manager: boolean; assignment: Assignment | null; session: Session | null; moved: ReportMoved }): string {
+  const db = world.db;
+  const jobId = r.assignment ? openJob(world, r.assignment) : `jb_${r.buildingId}`;
+  if (!db.prepare("SELECT 1 FROM jobs WHERE id = ?").get(jobId)) sync(world, jobId);
+  const seq = (db.prepare("SELECT COALESCE(MAX(seq), 0) AS n FROM entries WHERE jobId = ?").get(jobId) as { n: number }).n + 1;
+  const moved = Object.fromEntries(Object.entries(r.moved).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)));
+  const pocket = (db.prepare("SELECT pocketRef FROM jobs WHERE id = ?").get(jobId) as { pocketRef: string | null } | undefined)?.pocketRef ?? null;
+  db.prepare(`INSERT OR IGNORE INTO entries (id, jobId, seq, authorKind, authorId, assignmentId, sessionId, pocket, tokens, moved, proposes, answers, level, note, body, docId, createdAt)
+    VALUES (@id, @jobId, @seq, @authorKind, @authorId, @assignmentId, @sessionId, @pocket, @tokens, @moved, @proposes, NULL, 'none', @note, @body, @docId, @createdAt)`).run({
+    id: `en_${r.docId}`, jobId, seq, authorKind: r.manager ? "manager" : "fork", authorId: r.authorId, assignmentId: r.assignment?.id ?? null, sessionId: r.session?.id ?? null,
+    pocket, tokens: r.session ? sessionTokens(r.session) : 0, moved: JSON.stringify(moved), proposes: r.verdict, note: r.title, body: r.body, docId: r.docId,
+    createdAt: world.docs.require(r.docId, "doc").createdAt,
+  });
+  return jobId;
+}
+
+/** Re-read a job's row from its object (a chunk closes when its last assignment is done). */
+export function refreshJob(world: World, jobId: string): void {
+  const row = jobRows(world, jobId)[0];
+  if (row) world.db.prepare("UPDATE jobs SET status = @status, closedAs = @closedAs, pocketRef = @pocketRef, title = @title WHERE id = @id").run(row);
 }
 
 /** Boot: back-fill every job and its thread from grants, retainers, exploration chains, directed sources and buildings. */
