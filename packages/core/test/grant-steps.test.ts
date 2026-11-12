@@ -147,9 +147,26 @@ describe("grant B step 2: the card and the deck show the steps (kr_snardl39qh)",
     expect(world.grantDesk.get(g.id).stepStates!.map((x) => x?.status ?? null)).toEqual(["pending", null, null]);
     const { a, r } = await runStep("continue");
     const st = world.grantDesk.get(g.id).stepStates!;
-    expect(st[0]).toEqual({ assignmentId: a.id, status: "done", reportId: r.id });
+    expect(st[0]).toEqual({ assignmentId: a.id, status: "done", reportId: r.id, spentTokens: 0, priceTokens: 150_000 });
     expect(st[1]?.status).toBe("pending");
     expect(st[2]).toBeNull();
+  });
+
+  it("each step carries what it spent over all its assignments, a parked continuation included, and its table price (gr_3na7vdmd52)", async () => {
+    const { world, pix, fund, runStep } = lab();
+    const g = fund();
+    const book = (assignmentId: string, output: number) => {
+      const s = world.ops.startSession(pix.id, { purpose: "work", model: "claude-opus-5-5", assignmentId, lane: "grant" });
+      world.ops.endSession(s.id, { status: "done", counts: { input: 0, output, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 } });
+    };
+    const parked = await runStep("continue", { after: new Date(Date.now() + 3_600_000).toISOString() });
+    world.assignments.patch(parked.r.nextAssignmentId!, { waitFor: null });
+    await runStep("continue");
+    book(parked.a.id, 1_000);
+    book(parked.r.nextAssignmentId!, 500);
+    const st = world.grantDesk.get(g.id).stepStates!;
+    expect(st[0]).toMatchObject({ assignmentId: parked.r.nextAssignmentId, status: "done", spentTokens: 1_500, priceTokens: 150_000 });
+    expect(st[1]).toMatchObject({ status: "pending", spentTokens: 0, priceTokens: 150_000 });
   });
 });
 

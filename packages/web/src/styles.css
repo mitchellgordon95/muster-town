@@ -1143,3 +1143,5 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
   .ask-head .muted, .notice-head .muted { margin-left: 0; }
   .pricing-table { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* a step past 1.5× its price (gr_3na7vdmd52): its box on the step strip */
+.step-box.over { border-color: var(--bad); color: var(--bad); }

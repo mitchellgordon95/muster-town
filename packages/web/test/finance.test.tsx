@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, SpendNode } from "../src/api";
-import { approxUsd, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, stepLine, stepsCheckLine, stepsSentence, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
+import { StepStrip, stepSpend } from "../src/panels/StepStrip";
 import { LaneKind, ManagerWakesLines, wakeLine, spendLevel, spendPick, spendTrail } from "../src/panels/BankSpending";
 import { HiddenToggle, pickRow } from "../src/panels/BankFunding";
 import { FreeTokensSum, freeBreakdown } from "../src/panels/FreeTokens";
@@ -328,6 +329,55 @@ describe("finance page: what each grant bought (gr_dt1l35tydx)", () => {
     expect(html).not.toContain("Grants: ");
     expect(grantsSentence(sp)).toBeNull();
     expect(grantsCheckLine(sp)).toBeNull();
+  });
+});
+
+// gr_3na7vdmd52: gr_a is step-priced, its 500 split into an M step at its price, an L step past 1.5× and an Off-step row
+const stepRow = (index: number, size: "S" | "M" | "L", tokens: number, price: number, ratio: number, status: "done" | "active" = "done"): SpendNode => ({
+  kind: "step", id: `step-${index + 1}`, name: `Step ${index + 1}: S${index + 1}`, tokens, share: 0, sessions: 1, step: { index, size, price, ratio, status },
+  children: [{ kind: "assignment", id: `as_s${index + 1}`, name: `S${index + 1}`, tokens, share: 0, sessions: 1 }],
+});
+const spS: FinanceSpend = {
+  ...sp,
+  rows: sp.rows.map((r) => r.id !== "workshop" ? r : { ...r, children: r.children!.map((c) => c.kind !== "grant" ? c : { ...c, children: [
+    stepRow(0, "M", 150_000, 150_000, 1, "done"), stepRow(1, "L", 640_000, 400_000, 1.6, "active"),
+    { kind: "off-step", id: null, name: "Off-step: work on this grant outside its planned steps", tokens: 10, share: 0, sessions: 1 },
+  ] }) }),
+  steps: { since: "2026-10-13T00:00:00.000Z", days: 30, minSample: 3, buildings: {}, lines: [],
+    sizes: { S: { ratio: null, sample: 0 }, M: { ratio: 1.2, sample: 8 }, L: { ratio: 0.9, sample: 1 } } },
+  stepPrices: { S: 50_000, M: 150_000, L: 400_000 },
+  stepsCheck: { ok: true, diff: 0, grants: 1, identity: "Σ step rows + off-step rows = Σ step-priced grant rows (every building)" },
+};
+
+describe("finance page: what every step cost against its price (gr_3na7vdmd52)", () => {
+  it("a step row names size, price, spent and the ratio, red past 1.5× its price", () => {
+    expect(stepLine(stepRow(0, "M", 150_000, 150_000, 1))).toEqual({ text: "M step · price 150,000 · spent 150,000", ratio: "1.00× its price · done", over: false });
+    expect(stepLine(stepRow(1, "L", 640_000, 400_000, 1.6, "active"))).toEqual({ text: "L step · price 400,000 · spent 640,000", ratio: "1.60× its price · running", over: true });
+    expect(stepLine(grantRow({}))).toBeNull();
+    const html = centreOf(spendAt("spend:workshop/gr_a", spS));
+    expect(html).toContain("<th>Step</th>");
+    expect(html).toContain(`<span class="spend-grant-line spend-step-line muted">L step · price 400,000 · spent 640,000 · <span class="spend-over">1.60× its price · running</span></span>`);
+    expect(html).toContain("Off-step: work on this grant outside its planned steps");
+    expect(html).toContain("✓ The server checked that the step rows and Off-step rows add up to their grant rows, on all 1 step-priced grant rows.");
+    // a step opens into its assignments
+    expect(centreOf(spendAt("spend:workshop/gr_a/step-2", spS))).toContain("as_s2");
+    expect(stepsCheckLine({ ...spS, stepsCheck: { ...spS.stepsCheck!, ok: false, diff: 4 } })!.ok).toBe(false);
+  });
+  it("the sidebar states how steps ran against their price across the collective", () => {
+    expect(stepsSentence(spS)).toBe("Steps against their price, median spent ÷ price over the steps done in the last 30 days: S (price 50,000) no step done yet · M (price 150,000) 1.20× over 8 steps · L (price 400,000) 0.90× over 1 step.");
+    expect(sideOf(spendAt(null, spS))).toContain("Steps against their price");
+    expect(stepsSentence(sp)).toBeNull();
+    expect(stepsCheckLine(sp)).toBeNull();
+  });
+  it("a step box's tooltip says what it spent against its price; past 1.5× the box is red", () => {
+    expect(stepSpend({ assignmentId: "as_1", status: "done", reportId: null, spentTokens: 240_000, priceTokens: 150_000 })).toEqual({ text: "spent 240k of its 150k price (1.60×)", over: true });
+    expect(stepSpend({ assignmentId: "as_1", status: "done", reportId: null, spentTokens: 90_000, priceTokens: null })).toEqual({ text: "spent 90k", over: false });
+    expect(stepSpend({ assignmentId: "as_1", status: "done", reportId: null })).toBeNull();
+    const html = renderToStaticMarkup(<StepStrip grant={{ status: "funded", spentTokens: 330_000, grantTokens: 600_000, askTokens: 600_000, forecast: null,
+      steps: [{ title: "A", size: "M", description: "d" }, { title: "B", size: "M", description: "d" }],
+      stepStates: [{ assignmentId: "as_1", status: "done", reportId: null, spentTokens: 240_000, priceTokens: 150_000 }, { assignmentId: "as_2", status: "active", reportId: null, spentTokens: 90_000, priceTokens: 150_000 }] }} />);
+    expect(html).toContain(`class="step-box size-M done over" title="Step 1 · M · done: A · spent 240k of its 150k price (1.60×)"`);
+    expect(html).toContain(`class="step-box size-M running" title="Step 2 · M · running: B · spent 90k of its 150k price (0.60×)"`);
   });
 });
 

@@ -1035,9 +1035,10 @@ export class MockApi implements Api {
     // two toy grants splitting the building's spend: one done within its funding, one cut past it (gr_dt1l35tydx)
     const done = Math.round((used + notFunded) * 0.6), cut = used + notFunded - done;
     const toyGrants = [
-      { kind: "grant" as const, id: "gr_toy_done", name: "The Bank shows its spending", objective: "The Bank shows its spending", tokens: done, sessions: 1, grantTokens: Math.round(done * 1.1), status: "closed", outcome: "done", outcomeGroup: "done" as const, krCounts: { met: 1, missed: 0, claimed: 0, open: 0 } },
+      { kind: "grant" as const, id: "gr_toy_done", name: "The Bank shows its spending", objective: "The Bank shows its spending", tokens: done, sessions: 1, grantTokens: Math.round(done * 1.1), status: "closed", outcome: "done", outcomeGroup: "done" as const, krCounts: { met: 1, missed: 0, claimed: 0, open: 0 }, children: toySteps(done) },
       { kind: "grant" as const, id: "gr_toy_cut", name: "A tour of the Bank", objective: "A tour of the Bank", tokens: cut, sessions: 1, grantTokens: Math.round(cut * 0.6), status: "closed", outcome: "cut", outcomeGroup: "cut" as const, krCounts: { met: 0, missed: 0, claimed: 2, open: 0 } },
     ];
+    const toyStepsCheck = { ok: true, diff: 0, grants: used ? 1 : 0, identity: "Σ step rows + off-step rows = Σ step-priced grant rows (every building)" };
     const grants: FinanceSpend["grants"] = used ? {
       count: 2, funded: toyGrants[0].grantTokens + toyGrants[1].grantTokens, spent: done + cut,
       byOutcome: { done: { count: 1, tokens: done }, cut: { count: 1, tokens: cut }, open: { count: 0, tokens: 0 } },
@@ -1049,7 +1050,7 @@ export class MockApi implements Api {
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), noGrant: toyNoGrant(), noGrantCheck: { ok: true, diff: 0, identity: "Σ lane rows = Σ \"Not under a grant\" rows (every building)" }, at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), noGrant: toyNoGrant(), noGrantCheck: { ok: true, diff: 0, identity: "Σ lane rows = Σ \"Not under a grant\" rows (every building)" }, steps: clone(stepCalibration), stepPrices: { ...TOY_STEP_PRICES }, stepsCheck: toyStepsCheck, at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -1346,4 +1347,24 @@ function toyNoGrant(): NonNullable<FinanceSpend["noGrant"]> {
     exploration: { assignments: 0, proposals: 0, funded: 0, rejected: 0, withdrawn: 0, open: 0 },
     directed: { assignments: 0, withSource: 0, withAsker: 0 },
   };
+}
+
+/** The toy's step-size table (the collective default). */
+const TOY_STEP_PRICES = { S: 50_000, M: 150_000, L: 400_000 } as const;
+/**
+ * The toy done grant's step rows (gr_3na7vdmd52): an M step at about its price, an L step past 1.5× its price (so the row
+ * reads red) and an Off-step row with the rest; they sum to the grant row. Ratios are against the table, not the toy's scale.
+ */
+function toySteps(total: number): NonNullable<FinanceSpend["rows"][number]["children"]> {
+  const a = Math.round(total * 0.5), b = Math.round(total * 0.4), off = total - a - b;
+  const row = (index: number, size: "S" | "M" | "L", tokens: number, title: string) => ({
+    kind: "step" as const, id: `step-${index + 1}`, name: `Step ${index + 1}: ${title}`, tokens, share: 0, sessions: 1, usd: toyUsd(tokens),
+    step: { index, size, price: TOY_STEP_PRICES[size], ratio: index === 0 ? 0.95 : 1.62, status: "done" as const },
+    children: [{ kind: "assignment" as const, id: `as_toy_step${index + 1}`, name: title, tokens, share: 0, sessions: 1, usd: toyUsd(tokens) }],
+  });
+  return [
+    row(0, "M", a, "Build the Spending tab"),
+    row(1, "L", b, "Check it live"),
+    { kind: "off-step" as const, id: null, name: "Off-step: work on this grant outside its planned steps (follow-ups the manager assigned, sessions with no step recorded)", tokens: off, share: 0, sessions: 1, usd: toyUsd(off) },
+  ];
 }

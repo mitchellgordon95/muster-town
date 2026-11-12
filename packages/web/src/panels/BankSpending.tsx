@@ -13,7 +13,7 @@ import { ROOT_GOAL_ID } from "@muster-town/schema";
 import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type ManagerWakeLine, type ManagerWakes, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
 import { useTown } from "../state";
 import { BuildingFunding, pickRow } from "./BankFunding";
-import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, noGrantCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine } from "./BankFinance";
+import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, noGrantCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine, stepLine, stepsCheckLine } from "./BankFinance";
 import { IdLink } from "./Markdown";
 import { SpendByGoal, laneLine } from "./GoalSpend";
 import { ADJ, Loading, Section, fmtTokens, useLoad } from "./ui";
@@ -52,7 +52,15 @@ export function spendLevel(rows: SpendNode[], trail: SpendNode[]): { crumbs: Spe
 }
 
 /** The table's first column header: what the rows under the deepest crumb are. */
-const levelName = (crumb: SpendNode | undefined) => !crumb ? "Building" : crumb.kind === "building" ? "Grant" : crumb.kind === "no-grant" ? "Lane" : "Assignment";
+const levelName = (crumb: SpendNode | undefined) => !crumb ? "Building" : crumb.kind === "building" ? "Grant" : crumb.kind === "no-grant" ? "Lane"
+  : crumb.kind === "grant" && crumb.children?.some((c) => c.kind === "step") ? "Step" : "Assignment";
+
+/** A step row's muted line (gr_3na7vdmd52): size, price, spent and spent ÷ price, red past 1.5× its price. */
+function StepLine({ r }: { r: SpendNode }) {
+  const sl = stepLine(r);
+  if (!sl) return null;
+  return <span className="spend-grant-line spend-step-line muted">{sl.text} · <span className={sl.over ? "spend-over" : undefined}>{sl.ratio}</span></span>;
+}
 
 const PROPOSAL_STATE = { funded: "funded", rejected: "rejected", withdrawn: "withdrawn", open: "still open" } as const;
 const SOURCE_WORD = { meeting: "in", doc: "in", tell: "by a tell" } as const;
@@ -103,8 +111,9 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
   const path = crumbs.map(keyOf);
   const today = (node: SpendNode) => (node.kind === "building" && node.id ? buildings.find((b) => b.id === node.id)?.budget?.tokensToday : undefined);
   const usd = sp.rows.some((r) => r.usd !== undefined);
-  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp), grantsCheck = grantsCheckLine(sp), laneCheck = noGrantCheckLine(sp);
+  const check = spendCheckLine(sp), usdCheck = spendUsdCheckLine(sp), grantsCheck = grantsCheckLine(sp), laneCheck = noGrantCheckLine(sp), stepsCheck = stepsCheckLine(sp);
   const inNoGrant = crumbs[crumbs.length - 1]?.kind === "no-grant";
+  const inSteps = rows.some((r) => r.kind === "step");
   const sum = rows.reduce((t, r) => t + r.tokens, 0);
   return (
     <Section title="Spending" right={toggle}>
@@ -127,7 +136,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
             const t = today(r);
             return (
               <tr key={key} {...pick} className={[pick.className, `spend-${r.kind}`].join(" ")} title={NOTE_TITLE[r.kind] ? "Explained in the sidebar when picked" : r.id ?? undefined}>
-                <td className="spend-name">{r.name}{r.children?.length ? <span className="muted spend-more" aria-hidden> ›</span> : null}{gl ? <GrantLine g={gl} /> : null}<LaneLine r={r} /></td>
+                <td className="spend-name">{r.name}{r.children?.length ? <span className="muted spend-more" aria-hidden> ›</span> : null}{gl ? <GrantLine g={gl} /> : null}<LaneLine r={r} /><StepLine r={r} /></td>
                 <td>{r.sessions ? n(r.sessions) : "–"}</td>
                 {top ? <td>{t === undefined ? "–" : fmtTokens(t)}</td> : null}
                 <td className="spend-tokens">{n(r.tokens)}</td>
@@ -144,6 +153,7 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
         {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
         {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
       </> : null}
+      {(top || inSteps) && stepsCheck ? <div className={stepsCheck.ok ? "finance-check ok spend-steps-check" : "error-line"} role="status">{stepsCheck.ok ? "✓ " : "✗ "}{stepsCheck.text}</div> : null}
       {(top || inNoGrant) && laneCheck ? <div className={laneCheck.ok ? "finance-check ok spend-lane-check" : "error-line"} role="status">{laneCheck.ok ? "✓ " : "✗ "}{laneCheck.text}</div> : null}
       {crumbs.length === 1 && crumbs[0].kind === "building" ? <ManagerWakesLines mw={sp.managerWakes} buildingId={crumbs[0].id ?? "none"} /> : null}
       {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
@@ -166,6 +176,9 @@ export function SpendSelected({ sp, picked, bank, rev }: { sp: FinanceSpend; pic
   const today = node.kind === "building" && node.id ? buildings.find((b) => b.id === node.id)?.budget?.tokensToday : undefined;
   const held = node.kind === "building" && node.id ? bank?.buildings.find((b) => b.buildingId === node.id)?.heldTokens : undefined;
   const gl = grantLine(node);
+  const sl = stepLine(node);
+  // an assignment's grant: its parent, or its step's parent under a step-priced grant
+  const grantOf = [...trail].reverse().find((x) => x.kind === "grant");
   return (
     <div className="spend-selected">
       <b>{node.name}</b>
@@ -176,8 +189,10 @@ export function SpendSelected({ sp, picked, bank, rev }: { sp: FinanceSpend; pic
           <tr><td>Sessions</td><td>{n(node.sessions)}</td></tr>
           {today !== undefined ? <tr><td>Spent today</td><td>{fmtTokens(today)}</td></tr> : null}
           {held ? <tr><td>Donated to it, unspent</td><td>{fmtTokens(held)}</td></tr> : null}
+          {node.step ? <tr><td>Price ({node.step.size})</td><td>{n(node.step.price)} {ADJ}</td></tr> : null}
+          {node.step ? <tr><td>Spent ÷ price</td><td className={sl?.over ? "spend-over" : undefined}>{node.step.ratio.toFixed(2)}×</td></tr> : null}
           {node.kind === "grant" && node.grantTokens !== undefined ? <tr><td>Granted</td><td>{node.grantTokens == null ? "not funded yet" : n(node.grantTokens)}</td></tr> : null}
-          {node.children?.length ? <tr><td>{node.kind === "building" ? "Grants and other rows" : node.kind === "no-grant" ? "Lanes" : "Assignments and other rows"}</td><td>{n(node.children.length)}</td></tr> : null}
+          {node.children?.length ? <tr><td>{node.kind === "building" ? "Grants and other rows" : node.kind === "no-grant" ? "Lanes" : node.kind === "grant" && node.children.some((c) => c.kind === "step") ? "Steps and other rows" : "Assignments and other rows"}</td><td>{n(node.children.length)}</td></tr> : null}
         </tbody>
       </table>
       {node.source || node.proposal !== undefined ? <p><LaneLine r={node} /></p> : null}
@@ -185,7 +200,9 @@ export function SpendSelected({ sp, picked, bank, rev }: { sp: FinanceSpend; pic
       {gl ? <p>{gl.spent} · {gl.outcome}{gl.over ? <> · <span className="spend-over">{gl.over}</span></> : null}{gl.krs ? <><br />{gl.krs}</> : null}</p> : null}
       {node.kind === "grant" && node.id ? <p>{node.objective ? <span className="muted">{node.objective} </span> : null}<a href={`#/grant/${node.id}`}>Open the grant page</a></p> : null}
       {node.kind === "building" && node.id ? <><BuildingLanes id={node.id} /><BuildingFunding rev={rev} buildingId={node.id} /></> : null}
-      {node.kind === "assignment" && node.id && parent?.kind === "grant" && parent.id ? <AssignmentSessions grantId={parent.id} assignmentId={node.id} /> : null}
+      {sl ? <p className="muted">{sl.text} · {sl.ratio}. The price is today&apos;s table price for its size; a running step&apos;s ratio still grows.</p> : null}
+      {node.kind === "off-step" ? <p className="muted">Sessions on this grant whose assignment belongs to none of its planned steps: follow-ups its manager assigned under the grant, and work with no step recorded. With the step rows it adds up to the grant row.</p> : null}
+      {node.kind === "assignment" && node.id && grantOf?.id && (parent?.kind === "grant" || parent?.kind === "step" || parent?.kind === "off-step") ? <AssignmentSessions grantId={grantOf.id} assignmentId={node.id} /> : null}
       {note ? <div className="bank-note">{typeof note === "string" ? <p className="muted">{note}</p> : note}</div> : null}
     </div>
   );
