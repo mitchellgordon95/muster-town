@@ -58,6 +58,8 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...grantChecks(s),
     // what the non-grant half bought (gr_utygatbi85): the lane rows close on each building's "Not under a grant" row
     ...noGrantChecks(s),
+    // what every step bought (gr_3na7vdmd52): each step-priced grant's step + off-step rows close on the grant row
+    ...stepChecks(s),
     // paid in cash, last 30 days (gr_qggxximtru step 2): the parts add up, the ratio is list value / cash
     ...cashChecks(f.cash, f.cashCheck),
   ];
@@ -118,6 +120,29 @@ function noGrantChecks(s: Json): Check[] {
     flag("lanes by lane", laneNames.every((l) => Number(ng.byLane?.[l]?.tokens) === byLane(l)), laneNames.map((l) => `${l} ${fmt(ng.byLane?.[l]?.tokens)} = rows ${fmt(byLane(l))}`).join(", ")),
     flag("directed sources", dir.every((r: Json) => r.source && "askedBy" in r.source), `${dir.length} directed rows carry source (${dir.filter((r: Json) => r.source?.id).length} with a source id, ${dir.filter((r: Json) => r.source?.askedById).length} with who asked)`),
     flag("exploration proposals", exp.every((r: Json) => r.proposal !== undefined) && exp.filter((r: Json) => r.proposal).length === ng.exploration?.proposals, `${exp.length} exploration rows carry proposal (${exp.filter((r: Json) => r.proposal).length} with one = noGrant.exploration.proposals ${ng.exploration?.proposals})`),
+  ];
+}
+
+/**
+ * Each step-priced grant row (it has step children) against its step + Off-step rows; each step row's ratio = spent ÷
+ * price (2 decimals) and price = the table's for its size; `steps` per size has a ratio iff it has a sample.
+ */
+function stepChecks(s: Json): Check[] {
+  if (!s.stepsCheck) return [flag("steps present", false, "GET /api/finance/spend has no stepsCheck (server older than gr_3na7vdmd52)")];
+  const grants = grantRows(s).filter((g) => (g.children ?? []).some((c: Json) => c.kind === "step"));
+  const kids = grants.flatMap((g) => (g.children ?? []).filter((c: Json) => c.kind === "step" || c.kind === "off-step"));
+  const bad = grants.filter((g) => sum((g.children ?? []).map((c: Json) => c.tokens)) !== g.tokens || (g.children ?? []).some((c: Json) => c.kind !== "step" && c.kind !== "off-step")).length;
+  const steps = kids.filter((c: Json) => c.kind === "step");
+  const prices = s.stepPrices ?? {};
+  const badRatio = steps.filter((c: Json) => c.step?.price !== prices[c.step?.size] || c.step?.ratio !== Math.round((c.tokens / c.step.price) * 100) / 100).map((c: Json) => c.name);
+  const sizes = s.steps?.sizes ?? {};
+  const cal = ["S", "M", "L"].map((k) => `${k} ${sizes[k]?.ratio ?? "–"} over ${sizes[k]?.sample ?? "?"}`).join(", ");
+  return [
+    flag("steps check", s.stepsCheck.ok, `ok ${s.stepsCheck.ok}, diff ${fmt(s.stepsCheck.diff)} on ${s.stepsCheck.grants} grant rows (${s.stepsCheck.identity})`),
+    eq("steps sum to the grant rows", "Σ step + off-step rows", sum(kids.map((c: Json) => c.tokens)), "Σ step-priced grant rows", sum(grants.map((g) => g.tokens))),
+    flag("steps per grant", bad === 0 && grants.length === s.stepsCheck.grants, `${grants.length - bad} of ${grants.length} step-priced grant rows equal their step + off-step rows (${steps.length} step rows, ${kids.length - steps.length} off-step)`),
+    flag("step ratios", badRatio.length === 0, badRatio.length ? `ratio or price off on: ${badRatio.join("; ")}` : `${steps.length} step rows: price = table (${["S", "M", "L"].map((k) => `${k} ${fmt(prices[k])}`).join(", ")}), ratio = spent ÷ price`),
+    flag("step calibration", !!s.steps && ["S", "M", "L"].every((k) => (sizes[k]?.ratio === null) === (sizes[k]?.sample === 0)), `steps done in ${s.steps?.days ?? "?"} days, median spent ÷ price: ${cal}`),
   ];
 }
 

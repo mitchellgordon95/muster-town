@@ -2042,7 +2042,12 @@ export const RollupAskInput = z.object({
 });
 export type RollupAskInput = z.infer<typeof RollupAskInput>;
 /** Where one step of a funded grant's plan stands: its latest assignment (a parked step's continuation keeps the step). */
-export const GrantStepState = z.object({ assignmentId: Id, status: AssignmentStatus, reportId: Id.nullable() });
+/**
+ * A step's latest assignment (`grantStep`), and (gr_3na7vdmd52, kr_5j25451emh) what the step spent so far over all its
+ * assignments (parked continuations included), in adjusted tokens, and its price from the size table today (null: an
+ * unsized step, planned before sizes). Both optional: an older server sends neither.
+ */
+export const GrantStepState = z.object({ assignmentId: Id, status: AssignmentStatus, reportId: Id.nullable(), spentTokens: z.number().nonnegative().optional(), priceTokens: z.number().int().nonnegative().nullable().optional() });
 export type GrantStepState = z.infer<typeof GrantStepState>;
 /** A step's state in plain words: "queued", "running", "done", "cancelled"; "" while none was queued. */
 export function grantStepWord(s: GrantStepState | null | undefined): string {

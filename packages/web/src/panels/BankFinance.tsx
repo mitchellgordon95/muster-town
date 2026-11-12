@@ -18,6 +18,7 @@ import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
 import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
 import { HiddenToggle, creditsLeftLine, pickRow } from "./BankFunding";
+import { STEP_OVER } from "./StepStrip";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -94,6 +95,48 @@ export function grantLine(node: SpendNode): { spent: string; outcome: string; ov
   const krs = !k || !total ? null
     : `key results ${n(k.met)} of ${n(total)} met${k.missed ? `, ${n(k.missed)} missed` : ""}${k.claimed ? ` (${n(k.claimed)} claimed, waiting for a human)` : ""}`;
   return { spent, outcome: OUTCOME_WORD[node.outcomeGroup], over: f != null && node.tokens > f ? `over by ${n(node.tokens - f)}` : null, krs };
+}
+
+/** A step's state on its row. */
+const STEP_STATE = { pending: "queued", active: "running", done: "done", cancelled: "cancelled" } as const;
+
+/**
+ * A step row's one line (gr_3na7vdmd52, kr_jap500c8u3): "M step · price 150,000 · spent 210,000 · 1.40× its price · done";
+ * `over` when it spent more than 1.5× its price. Null for any other row.
+ */
+export function stepLine(node: SpendNode): { text: string; ratio: string; over: boolean } | null {
+  const st = node.step;
+  if (node.kind !== "step" || !st) return null;
+  return {
+    text: `${st.size} step · price ${n(st.price)} · spent ${n(node.tokens)}`,
+    ratio: `${st.ratio.toFixed(2)}× its price${st.status ? ` · ${STEP_STATE[st.status]}` : ""}`,
+    over: st.ratio > STEP_OVER,
+  };
+}
+
+/**
+ * The "Steps against their price" line (gr_3na7vdmd52, kr_5j25451emh) from GET /api/finance/spend `steps`: per size the
+ * median spent ÷ price over the steps done in the last 30 days and how many, e.g. "Steps against their price, done in
+ * the last 30 days: S no step done yet · M 1.20× over 8 steps · L 0.90× over 3 steps." Null on an older server.
+ */
+export function stepsSentence(sp: FinanceSpend): string | null {
+  const c = sp.steps;
+  if (!c) return null;
+  const parts = (["S", "M", "L"] as const).map((k) => {
+    const r = c.sizes[k];
+    const price = sp.stepPrices ? ` (price ${n(sp.stepPrices[k])})` : "";
+    return r.ratio === null ? `${k}${price} no step done yet` : `${k}${price} ${r.ratio.toFixed(2)}× over ${n(r.sample)} step${r.sample === 1 ? "" : "s"}`;
+  });
+  return `Steps against their price, median spent ÷ price over the steps done in the last ${c.days} days: ${parts.join(" · ")}.`;
+}
+
+/** The ✓ line in a step-priced grant: its step rows and the Off-step row add up to the grant rows (`stepsCheck`). */
+export function stepsCheckLine(sp: FinanceSpend): { ok: boolean; text: string } | null {
+  const c = sp.stepsCheck;
+  if (!c || !c.grants) return null;
+  return c.ok
+    ? { ok: true, text: `The server checked that the step rows and Off-step rows add up to their grant rows, on all ${n(c.grants)} step-priced grant rows.` }
+    : { ok: false, text: `Does not add up (off by ${n(c.diff)}): the step and Off-step rows differ from their ${n(c.grants)} step-priced grant rows.` };
 }
 
 /** The Spending tab's opening sentence from `grants`: spend by outcome and how many grants spent past their funding; null on an older server. */
@@ -228,10 +271,12 @@ export function SpendingAbout({ sp }: { sp: FinanceSpend }) {
   const kinds = new Set(sp.rows.map((r) => r.kind));
   const grants = grantsSentence(sp);
   const noGrant = noGrantLine(sp);
+  const steps = stepsSentence(sp);
   return (
     <>
       <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Click a building for its grants, a grant for its assignments; the breadcrumb above the table goes back. The clicked row&apos;s detail shows here. &ldquo;By goal&rdquo; switches to spend by goal.</p>
       {grants ? <p className="spend-grants muted">{grants}</p> : null}
+      {steps ? <p className="spend-steps muted">{steps} Open a step-priced grant for its steps: each names its size, price, what it spent and the ratio.</p> : null}
       {noGrant ? <p className="spend-no-grant muted">{noGrant} Open a building&apos;s &ldquo;Not under a grant&rdquo; row for its lanes: directed work names who asked, exploration the proposal it ended in.</p> : null}
       {(["unattributed", "weight-mismatch", "not-funded"] as const).filter((k) => kinds.has(k) && notes[k]).map((k) => (
         <div key={k} className="bank-note"><b>{NOTE_TITLE[k]}</b>{typeof notes[k] === "string" ? <p className="muted">{notes[k]}</p> : notes[k]}</div>

@@ -161,8 +161,8 @@ export interface FinanceCash {
 }
 /** One row of `GET /api/finance/spend`: a building, grant or assignment, or a synthetic row (no grant, no assignment, unattributed, weight mismatch, not funded). */
 export interface SpendNode {
-  kind: "building" | "grant" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
-  /** null for the synthetic rows (a lane row's id is its lane) */
+  kind: "building" | "grant" | "step" | "off-step" | "no-grant" | "lane" | "assignment" | "no-assignment" | "unattributed" | "weight-mismatch" | "not-funded";
+  /** null for the synthetic rows (a lane row's id is its lane, a step row's "step-N") */
   id: string | null;
   /** a grant row's name is its short title (first clause, at most 60 characters) */
   name: string;
@@ -186,8 +186,12 @@ export interface SpendNode {
   source?: { id: string | null; kind: "meeting" | "doc" | "tell" | null; askedById: string | null; askedBy: string | null };
   /** exploration assignment rows: the proposal its fork filed, or null = no proposal */
   proposal?: { id: string; title: string; state: "funded" | "rejected" | "withdrawn" | "open" } | null;
+  /** step rows under a step-priced grant (gr_3na7vdmd52): the step's number (0-based), size, table price, spent ÷ price and its latest assignment's status */
+  step?: SpendStep;
   children?: SpendNode[];
 }
+/** A step row's price and ratio (`SpendNode.step`). */
+export interface SpendStep { index: number; size: "S" | "M" | "L"; price: number; ratio: number; status: "pending" | "active" | "done" | "cancelled" | null }
 /** The lane rows under a building's "Not under a grant" row. */
 export type NoGrantLane = "directed" | "exploration" | "retainer" | "manager" | "before";
 /** `noGrant` of `GET /api/finance/spend`: every building's "Not under a grant" row summed and split by lane. */
@@ -260,6 +264,12 @@ export interface FinanceSpend {
   noGrant?: SpendNoGrant;
   /** Σ lane rows vs Σ "Not under a grant" rows */
   noGrantCheck?: { ok: boolean; diff: number; identity: string };
+  /** how steps ran against their price across the collective (core `stepCalibration`, gr_3na7vdmd52); null/absent on an older server */
+  steps?: StepCalibration | null;
+  /** the size table the step rows are priced at */
+  stepPrices?: Record<"S" | "M" | "L", number> | null;
+  /** Σ step rows + off-step rows vs Σ the step-priced grant rows */
+  stepsCheck?: { ok: boolean; diff: number; grants: number; identity: string };
   at: string;
   /** the window's lane × token-kind table (optional here: an older server sends none) */
   byLaneKind?: SpendByLaneKind;

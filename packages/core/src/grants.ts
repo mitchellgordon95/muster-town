@@ -97,12 +97,25 @@ export class Grants {
     };
   }
 
-  /** Per step of the plan, its latest assignment (`grantStep`): queued, running, done or cancelled; null while none was queued. */
+  /** Per step of the plan, its latest assignment (`grantStep`): queued, running, done or cancelled, what the step spent and its table price; null while none was queued. */
   stepStates(g: Grant): (GrantStepState | null)[] {
     if (!g.steps.length) return [];
     const out: (GrantStepState | null)[] = g.steps.map(() => null);
-    for (const a of this.world.assignments.where("grantId = ? AND grantStep IS NOT NULL", [g.id], "ORDER BY createdAt, rowid")) {
-      if (a.grantStep! < out.length) out[a.grantStep!] = { assignmentId: a.id, status: a.status, reportId: a.reportId };
+    const steps = this.world.assignments.where("grantId = ? AND grantStep IS NOT NULL", [g.id], "ORDER BY createdAt, rowid");
+    // what each step spent over all its assignments (gr_3na7vdmd52): a parked continuation carries the same grantStep
+    const spentBy = new Map<string, number>();
+    if (steps.length) {
+      for (const s of this.world.sessions.where("assignmentId IN (SELECT id FROM assignments WHERE grantId = ? AND grantStep IS NOT NULL)", [g.id])) {
+        spentBy.set(s.assignmentId!, (spentBy.get(s.assignmentId!) ?? 0) + sessionTokens(s));
+      }
+    }
+    const spent = g.steps.map(() => 0);
+    const table = grantPricingOf(this.world.town.get()).stepSizes;
+    for (const a of steps) {
+      if (a.grantStep! >= out.length) continue;
+      spent[a.grantStep!] += spentBy.get(a.id) ?? 0;
+      const size = g.steps[a.grantStep!]!.size;
+      out[a.grantStep!] = { assignmentId: a.id, status: a.status, reportId: a.reportId, spentTokens: Math.round(spent[a.grantStep!]!), priceTokens: size ? table[size] : null };
     }
     return out;
   }

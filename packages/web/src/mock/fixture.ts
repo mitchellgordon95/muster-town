@@ -185,7 +185,8 @@ export const grants: GrantView[] = [
     objective: "HUD works on narrow screens", stopCondition: "Stop when both KRs are met.",
     // sized steps and the forecast filed at the last step report: projected past the ceiling (§7.3 gates at step reports)
     steps: [{ title: "Fold the HUD below 700px", size: "L", description: "The PR" }, { title: "Dock the meeting panel", size: "M", description: "The PR" }, { title: "Check it live", size: "S", description: "At 650px" }],
-    stepStates: [{ assignmentId: "as_hud1", status: "done", reportId: "dc_keel_s1" }, { assignmentId: "as_hud2", status: "done", reportId: "dc_keel_s2" }, null],
+    // what each step spent against its price (gr_3na7vdmd52): step 2 ran past 1.5× its M price, so its box is red
+    stepStates: [{ assignmentId: "as_hud1", status: "done", reportId: "dc_keel_s1", spentTokens: 380_000, priceTokens: 400_000 }, { assignmentId: "as_hud2", status: "done", reportId: "dc_keel_s2", spentTokens: 240_000, priceTokens: 150_000 }, null],
     forecast: { at: ago(26), stepsDone: 2, stepsLeft: { S: 1, M: 0, L: 0 }, spent: 2_010_000, ceiling: 2_000_000, spentOverSize: 3.65, projected: 2_190_000, overCeiling: true, shortfall: 190_000 },
     ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 100%." }],
