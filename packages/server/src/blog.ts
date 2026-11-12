@@ -100,7 +100,7 @@ function signup(source: string): string {
 </form>
 <script>(function(){var f=document.querySelector("form.signup");if(!f)return;f.addEventListener("submit",function(e){e.preventDefault();var b=f.querySelector("button"),err=f.querySelector(".err");b.disabled=true;err.hidden=true;
 fetch("/api/blog/subscribe",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email:f.email.value,website:f.website.value,source:f.getAttribute("data-source")})})
-.then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})}).then(function(r){if(!r.ok)throw new Error(r.j&&r.j.error||"Something went wrong. Try again.");var p=document.createElement("p");p.textContent="Thanks, you're on the list.";f.replaceWith(p)})
+.then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})}).then(function(r){if(!r.ok)throw new Error(r.j&&r.j.error||"Something went wrong. Try again.");var p=document.createElement("p");p.textContent=r.j&&r.j.confirm?"Almost there: check your inbox and click the link to confirm.":"Thanks, you're on the list.";f.replaceWith(p)})
 .catch(function(x){err.textContent=x.message||"Something went wrong. Try again.";err.hidden=false;b.disabled=false})})})();</script>`;
 }
 

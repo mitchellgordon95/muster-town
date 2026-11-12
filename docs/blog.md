@@ -35,7 +35,7 @@ The root app (muster.town, not hosted collectives) serves a blog from markdown f
 
 ## The email signup
 
-Every post page and the index end with a one-field signup form ("New posts by email. Nothing else."), `signup()` in `blog.ts`. It posts JSON to `POST /api/blog/subscribe` (`packages/server/src/mailing-list.ts`): public, no sign-in; the address is trimmed, lowercased and checked (one @, a dot in the domain, no spaces, at most 254 characters, else 400); a repeat answers ok like the first time; a filled hidden `website` field (the honeypot) is dropped silently; each client IP may post 10 times an hour (then 429 `rate_limited`). There is no confirmation email: the town has no mail sender.
+Every post page and the index end with a one-field signup form ("New posts by email. Nothing else."), `signup()` in `blog.ts`. It posts JSON to `POST /api/blog/subscribe` (`packages/server/src/mailing-list.ts`): public, no sign-in; the address is trimmed, lowercased and checked (one @, a dot in the domain, no spaces, at most 254 characters, else 400); a repeat answers ok like the first time; a filled hidden `website` field (the honeypot) is dropped silently; each client IP may post 10 times an hour (then 429 `rate_limited`). With the mail sender on (below) it is double opt-in.
 
 The list is the `mailing_list` table (migration 112) in the town's SQLite database, so it is in Prod's backups with everything else. An admin reads it:
 
@@ -44,4 +44,20 @@ curl -H "Authorization: Bearer $TOKEN" https://muster.town/api/blog/subscribers 
 curl -H "Authorization: Bearer $TOKEN" "https://muster.town/api/blog/subscribers?format=csv" -o subscribers.csv
 ```
 
-`source` is the post slug the form was on, or `index`. There is no unsubscribe link yet; to take someone off, set `unsubscribedAt` on their row.
+`source` is the post slug the form was on, or `index`. `confirmed` (CSV `yes`/`no`) says whether the address has confirmed; the JSON also has the `confirmed` count.
+
+## Confirmation and unsubscribe emails (Resend)
+
+`packages/server/src/mail.ts` sends through Resend's HTTP API (`POST https://api.resend.com/emails`, fetch, no SDK). Two host secrets, read at boot (docs/secrets.md):
+
+- `RESEND_API_KEY`: a Resend key with **Sending access** only, restricted to the sending domain.
+- `BLOG_MAIL_FROM`: the From line, on the domain verified in Resend, e.g. `Muster Town <blog@mail.muster.town>` (default `Muster Town <blog@muster.town>`).
+
+**Without `RESEND_API_KEY`** nothing is sent and a signup is confirmed at once (single opt-in), as before.
+
+**With it** (migration 114 added `confirmedAt`, `confirmToken`, `unsubscribeToken`; rows from before it were back-filled as confirmed):
+
+- A new address is stored unconfirmed and gets one email, "Confirm your signup to the Muster Town blog", with `GET /api/blog/confirm?token=…`. The form then says "check your inbox". A repeat while unconfirmed sends the same link again; a repeat of a confirmed address sends nothing. If Resend refuses or is down, the signup answers 500 and the row stays, so a retry sends the link.
+- The confirm link marks the row confirmed and shows a plain "You're in" page; a used or unknown token is a 404 page.
+- Every email carries `GET /api/blog/unsubscribe?token=…` in its body and in a `List-Unsubscribe` header with `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, so a mail client's unsubscribe button POSTs to the same URL (RFC 8058). One click sets `unsubscribedAt`; signing up again needs a new confirmation.
+- Sending posts to the list is not built yet: a send must include each row's unsubscribe link.

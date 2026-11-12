@@ -9,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { blogRoutes } from "./blog.ts";
+import { mailFromEnv, type MailSender } from "./mail.ts";
 import { mailingListRoutes } from "./mailing-list.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { townEnv } from "@muster-town/schema";
@@ -72,6 +73,8 @@ export interface BuildAppOptions {
   healthRefreshMs?: number;
   /** MUSTER_TOWN_RUNTIME=off (throwaway.ts): a drill town; `GET /api/health` says `throwaway: true` */
   throwaway?: boolean;
+  /** the blog mailing list's mail sender (mail.ts); default: Resend from the env, off without RESEND_API_KEY */
+  mail?: MailSender;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -317,9 +320,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     // the blog (blog/posts/*.md, read per request; docs/blog.md)
-    await app.register(blogRoutes((townEnv("PUBLIC_URL") ?? "https://muster.town").replace(/\/+$/, "")));
-    // its mailing list: the signup at the foot of each blog page (mailing-list.ts)
-    await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null }));
+    const origin = (townEnv("PUBLIC_URL") ?? "https://muster.town").replace(/\/+$/, "");
+    await app.register(blogRoutes(origin));
+    // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set
+    await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null, origin, mail: opts.mail ?? mailFromEnv() }));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
     // public uptime (gr_hbz0twkfp9): every root town; UptimeRobot's numbers and the restart gaps
     await app.register(uptimeRoutes(new Uptime(opts.world)));
