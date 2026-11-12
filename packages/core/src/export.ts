@@ -76,9 +76,9 @@ const STALE_LOCK_MS = 10 * 60_000;
  * ownership"), and the export dir on the Fly volume may predate the server's uid; never prompt for anything.
  * A failure throws an Error whose message is `git <cmd>: <first line git printed>` (not node's "Command failed: …").
  */
-function git(cwd: string, args: string[], env: Record<string, string> = {}): string {
+function git(cwd: string, args: string[], env: Record<string, string> = {}, input?: string): string {
   try {
-    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } }).trim();
+    return execFileSync("git", ["-c", "safe.directory=*", ...args], { cwd, input, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"], encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env } }).trim();
   } catch (e) {
     const err = e as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
     const said = `${String(err.stderr ?? "")}\n${String(err.stdout ?? "")}\n${err.message}`.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("Command failed:"));
@@ -94,7 +94,20 @@ export function maskTokens(text: string, secrets: string[] = []): string {
 }
 
 /**
- * Push HEAD to the collective's repo as `main`. The token rides in the environment of this one git call as an
+ * The top-level names the export owns in its repo (rebuilt from the live world every run, so a hand edit to them is
+ * overwritten by the next export); anything else at the repo's top level (a LICENSE, .gitignore, .github/) is foreign and kept.
+ */
+const EXPORT_OWNED = ["README.md", "town.json", "index.json", "agents.json", "buildings", "library", "town-hall", "meetings", "events"] as const;
+
+/** The ref a push fetches the remote's main into (keeps its objects, so a later fetch transfers only what is new). */
+const REMOTE_MAIN = "refs/publish/main";
+
+/**
+ * Push HEAD to the collective's repo as `main`, never forced (decision 5 of 1:1 mt_msnjkpgwdb). It fetches the remote's main
+ * first: an empty repo, or one whose main HEAD already contains, gets HEAD itself (a fast-forward); a main with commits the
+ * export doesn't have (GitHub's "initialise with README", a hand commit) gets a new commit on top of it whose tree is HEAD's
+ * plus the remote's top-level entries outside EXPORT_OWNED, so foreign files survive and the export's own paths match the
+ * town. Nothing is pushed when that tree already is the remote's. The token rides in the environment of the git calls as an
  * `http.extraheader` (GIT_CONFIG_COUNT/KEY/VALUE): never in argv, never in the remote URL, never in .git/config
  * (no `git remote add`). A failure is returned, never thrown: the local commit already landed.
  */
@@ -102,13 +115,46 @@ function pushExport(dir: string, commit: string, p: PublishTarget): Pick<ExportR
   const header = p.token ? Buffer.from(`x-access-token:${p.token}`).toString("base64") : null;
   const env: Record<string, string> = header ? { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "http.extraheader", GIT_CONFIG_VALUE_0: `Authorization: Basic ${header}` } : {};
   try {
-    git(dir, ["push", "-q", "--", p.repoUrl, "HEAD:refs/heads/main"], env);
-    return { pushedAt: new Date().toISOString(), pushCommit: commit, pushError: null };
+    const remote = fetchRemoteMain(dir, p.repoUrl, env);
+    const publish = remote ? onTopOf(dir, commit, remote) : commit;
+    if (publish === remote) return { pushedAt: null, pushCommit: null, pushError: null }; // the repo already shows this export
+    git(dir, ["push", "-q", "--", p.repoUrl, `${publish}:refs/heads/main`], env);
+    return { pushedAt: new Date().toISOString(), pushCommit: publish, pushError: null };
   } catch (e) {
     const pushError = maskTokens((e as Error).message, [p.token ?? "", header ?? ""]);
     console.log("[core] export: push failed:", pushError);
     return { pushedAt: null, pushCommit: null, pushError };
   }
+}
+
+/** The remote's main, fetched into REMOTE_MAIN; null when the repo has no main yet (a new empty repo). */
+function fetchRemoteMain(dir: string, repoUrl: string, env: Record<string, string>): string | null {
+  try {
+    git(dir, ["fetch", "-q", "--no-tags", "--", repoUrl, `+refs/heads/main:${REMOTE_MAIN}`], env);
+  } catch (e) {
+    if (/couldn't find remote ref/i.test((e as Error).message)) return null;
+    throw e;
+  }
+  return git(dir, ["rev-parse", REMOTE_MAIN]);
+}
+
+/**
+ * What to push over `remote`: `commit` itself when the remote is already in its history (a fast-forward), else a commit
+ * with `remote` as its parent and HEAD's tree plus the remote's foreign top-level entries; `remote` itself when that tree
+ * is the remote's already (nothing to push).
+ */
+function onTopOf(dir: string, commit: string, remote: string): string {
+  try { git(dir, ["merge-base", "--is-ancestor", remote, commit]); return commit; } catch { /* the remote has commits the export doesn't */ }
+  const owned = new Set<string>(EXPORT_OWNED);
+  const entries = (rev: string) => git(dir, ["ls-tree", "-z", rev]).split("\0").filter(Boolean);
+  const name = (line: string) => line.slice(line.indexOf("\t") + 1);
+  const ours = entries(commit);
+  for (const line of ours) owned.add(name(line));
+  const tree = git(dir, ["mktree", "-z"], {}, [...ours, ...entries(remote).filter((l) => !owned.has(name(l)))].map((l) => l + "\0").join(""));
+  if (tree === git(dir, ["rev-parse", `${remote}^{tree}`])) return remote;
+  const message = git(dir, ["log", "-1", "--format=%B", commit]);
+  const who = { GIT_AUTHOR_NAME: "Muster Town", GIT_AUTHOR_EMAIL: "export@muster-town.local", GIT_COMMITTER_NAME: "Muster Town", GIT_COMMITTER_EMAIL: "export@muster-town.local" };
+  return git(dir, ["commit-tree", tree, "-p", remote, "-m", message], who);
 }
 
 /** What an export reads: the World's repos on the main thread, or a read-only connection of its own in the export worker. */
@@ -226,7 +272,8 @@ export function writeExport(src: ExportSource, dirIn: string, publish: PublishTa
   write("library/README.md", indexPage(src, "# Library\n\nDocs promoted to the town library, newest first.", "library", library));
   write("README.md", [
     `# ${town.name} — export`, "",
-    "Generated by Muster Town from the live world (the server is the source of truth; this is its readable mirror). Docs link to each other by relative path; `index.json` maps every doc id (`dc_…`) to its file.", "",
+    "**The town is the source of truth and this repo is its mirror:** a hand edit to an exported file is overwritten by the next hourly export; files outside the export's paths (a LICENSE, `.gitignore`, `.github/`) are kept.", "",
+    "Generated by Muster Town from the live world. Docs link to each other by relative path; `index.json` maps every doc id (`dc_…`) to its file.", "",
     "## Layout", "",
     "- `buildings/<id>/README.md` — the building's index; `buildings/<id>/docs/<type>/<YYYY-MM>/<YYYY-MM-DD>-<slug>-<id8>.md` — its published docs",
     "- `library/` — docs promoted to the library, same `<type>/<YYYY-MM>/` layout",
