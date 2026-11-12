@@ -52,7 +52,16 @@ describe("blog", () => {
     expect(html).toContain('<meta name="twitter:card" content="summary">');
     expect(html).toContain(`<link rel="alternate" type="application/atom+xml" title="Muster Town blog" href="${ORIGIN}/blog/feed.xml">`);
     expect(html).toContain("Hello <strong>world</strong>.");
-    expect(html).toContain("<!-- signup:");
+    expect(html).toContain(`<form class="signup"`);
+  });
+
+  it("puts the email signup at the foot of each post and of the index, tagged with where it was", async () => {
+    const app = await blogApp({ "older.md": post("title: Older post\ndate: 2026-11-01") });
+    const html = (await app.inject("/blog/older")).body;
+    expect(html).toContain('<form class="signup" method="post" action="/api/blog/subscribe" data-source="older">');
+    expect(html).toContain("New posts by email. Nothing else.");
+    expect(html.indexOf('class="signup"')).toBeGreaterThan(html.indexOf("</article>"));
+    expect((await app.inject("/blog")).body).toContain('data-source="index"');
   });
 
   it("serves a draft at its URL but leaves it out of the index and the feed", async () => {
