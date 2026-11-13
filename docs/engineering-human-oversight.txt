@@ -76,3 +76,4 @@ Subscribe for updates (mailing list for every blog post)
 Future post: 
 - the operating layers (jobs + decision queues for work as normal, crons, meetings for real time debugging)
 - using Bend 2 
+- Adjusted output token units
