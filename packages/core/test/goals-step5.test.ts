@@ -86,8 +86,10 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
 
   it("proposals carry reorgId; under-review key results are kept, moved or archived by a human", async () => {
     const { world, admin, mei, goal, kr, tree } = setup();
-    const other = createBuilding(world, { name: "Other", goalId: goal.id }, null);
-    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: goal.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    // one building per goal: Other nests on a goal under the lab's
+    const sub = tree.create(admin, { parentId: goal.id, text: "Sub" });
+    const other = createBuilding(world, { name: "Other", goalId: sub.id }, null);
+    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: buildingId === LAB ? goal.id : sub.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
     const k2 = krOf(other.id, "k2");
     const k3 = krOf(LAB, "k3");
     const c = world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });

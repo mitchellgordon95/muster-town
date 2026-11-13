@@ -2,6 +2,7 @@ import { isJudgedKr,
   CreateGoalInput, DecideGoalProposalInput, ProposeGoalInput, ROOT_GOAL_ID, RetireGoalInput, UpdateGoalInput,
   Event, type Agent, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
+import { answererOf } from "./chain-of-command.ts";
 import { sendMessage } from "./domain.ts";
 import { desksTotalAt, freeTokensAll, goalFunding } from "./free-tokens.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
@@ -115,10 +116,11 @@ export class Goals {
    * and repaired by `ensure()`), so this is always a user; a root without one (a town with no admin yet) throws.
    */
   ownerOf(goalId: string): { goalId: string; userId: string } {
-    for (const g of this.ancestors(goalId)) if (g.ownerId) return { goalId: g.id, userId: g.ownerId };
-    const userId = this.firstAdminId();
+    // the chain-of-command rule is one pure function (chain-of-command.ts); the World only supplies the goals
+    const a = answererOf(goalId, (id) => this.get(id), ROOT_GOAL_ID);
+    const userId = a.userId ?? this.firstAdminId();
     if (!userId) throw badRequest("The town goal has no captain: the town has no admin user yet.");
-    return { goalId: ROOT_GOAL_ID, userId };
+    return { goalId: a.answererGoalId, userId };
   }
 
   /**
@@ -226,15 +228,18 @@ export class Goals {
       return names.get(id)!;
     };
     const free = freeTokensAll(this.world);
-    const node = (g: Goal, inherited: { goalId: string; userId: string }): GoalNode => {
-      const owner = g.ownerId ? { goalId: g.id, userId: g.ownerId } : inherited;
+    const byId = new Map(goals.map((g) => [g.id, g]));
+    const rootOwner = this.ownerOf(ROOT_GOAL_ID);
+    const node = (g: Goal): GoalNode => {
+      const a = answererOf(g.id, (id) => byId.get(id), ROOT_GOAL_ID);
+      const owner = a.userId ? { goalId: a.answererGoalId, userId: a.userId } : rootOwner;
       const kids = (byParent.get(g.id) ?? []).sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
       return {
         ...g, owner: { ...owner, name: ownerName(owner.userId) }, buildings: attached.get(g.id) ?? [], keyResults: krs.get(g.id) ?? [],
-        funding: goalFunding(this.world, g.id, free.get(g.id)), children: kids.map((c) => node(c, owner)),
+        funding: goalFunding(this.world, g.id, free.get(g.id)), children: kids.map((c) => node(c)),
       };
     };
-    return node(this.root(), this.ownerOf(ROOT_GOAL_ID));
+    return node(this.root());
   }
 
   // ---- editing (admins, or the owner within their subtree) ----
@@ -366,6 +371,10 @@ export class Goals {
       to = this.requireActive(inp.moveTo);
       if (to.parentId !== g.parentId || to.id === g.id) throw badRequest(`${inp.moveTo} is not a sibling of the goal being retired: pick one under "${clip(this.get(g.parentId!)?.text ?? "", 60)}".`);
       this.requireEdit(actor, to.id);
+      // the buildings move onto the sibling: one building per goal holds there too
+      const labs = attached.filter((b) => b.kind === "lab");
+      if (labs.length > 1) throw new AppError("conflict", `Retiring "${clip(g.text, 80)}" would put ${labs.length} buildings (${labs.map((b) => b.name).join(", ")}) on "${clip(to.text, 80)}": one building per goal. Attach all but one elsewhere first.`);
+      if (labs.length) this.requireGoalFree(to.id, labs[0].id);
     } else if (open.length || attached.length) {
       throw new AppError("conflict", `Retiring "${clip(g.text, 80)}" would orphan ${[open.length && `${open.length} open key result${open.length === 1 ? "" : "s"} (${open.map((k) => k.id).join(", ")})`, attached.length && `${attached.length} attached building${attached.length === 1 ? "" : "s"} (${attached.map((b) => b.name).join(", ")})`].filter(Boolean).join(" and ")}: pick a sibling to move them to (moveTo), or move or close them first.`);
     }
@@ -417,7 +426,8 @@ export class Goals {
       this.requireEdit(actor, this.attachmentOf(b));
       this.requireEdit(actor, to.id);
     }
-    // moving in brings its desks: the totals on the new path must hold them
+    // one building per goal (labs only), then moving in brings its desks: the totals on the new path must hold them
+    if (b.kind === "lab") this.requireGoalFree(to.id, b.id);
     this.requireDesksFit(b.id, to.id, b.headcount);
     return this.setAttachment(actor, b, to.id);
   }
@@ -432,13 +442,34 @@ export class Goals {
     return next;
   }
 
-  /** The first building attached at the goal or the nearest goal above it. */
-  private buildingNear(goalId: string): string | null {
+  // ---- one building per goal (docs/goals.md "One building per goal"; 1:1 mt_msnjkpgwdb decision 13) ----
+  /** The lab attached directly at the goal, oldest first (labs only: the Town Hall is not a work building). */
+  buildingOn(goalId: string, exceptBuildingId?: string): Building | undefined {
+    return this.world.buildings.where("goalId = ? AND kind = 'lab'", [goalId], "ORDER BY createdAt, rowid").find((b) => b.id !== exceptBuildingId);
+  }
+
+  /**
+   * The nearest building up the chain: the lab on the goal itself, else on the nearest goal above it; undefined when
+   * the chain has none. It owns the goal and everything under it (a parent building has no authority over a child
+   * building: nesting is legal). The one shared lookup: a visitor's registration and adopt read it.
+   */
+  nearestBuilding(goalId: string): Building | undefined {
     for (const g of this.ancestors(goalId)) {
-      const b = this.world.buildings.first("goalId = ? AND kind != 'town-hall'", [g.id], "ORDER BY createdAt, rowid");
-      if (b) return b.id;
+      const b = this.buildingOn(g.id);
+      if (b) return b;
     }
-    return null;
+    return undefined;
+  }
+
+  /**
+   * One building per goal: 409 when a lab already sits directly on `goalId` (createBuilding, attach, adopt, retire's
+   * move, and import through createBuilding). Nesting stays legal (a building on a goal under another building's goal,
+   * UI / UX under Steer). The root is exempt: it is where a building with no goal picked lands (seeds, imports, tests).
+   */
+  requireGoalFree(goalId: string, exceptBuildingId?: string): void {
+    if (goalId === ROOT_GOAL_ID) return;
+    const b = this.buildingOn(goalId, exceptBuildingId);
+    if (b) throw new AppError("conflict", `${b.name} (${b.id}) already works on "${clip(this.get(goalId)?.text ?? goalId, 80)}": one building per goal. Register a visitor there, or attach to a goal under it (nesting is allowed).`);
   }
 
   // ---- proposals (managers and their forks; a human accepts or cuts) ----
