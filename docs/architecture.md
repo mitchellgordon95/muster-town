@@ -355,7 +355,8 @@ Login: on load, read token from localStorage; in dev (`MUSTER_TOWN_DEV=1`), if a
 - Errors: `AppError(code, message, status)` in core; server maps to HTTP.
 - Logging: `console.log` with a `[pkg]` prefix is fine; no logging framework.
 - Keep files under ~400 lines; split by concern.
-- Don't add dependencies beyond: better-sqlite3, fastify, @fastify/websocket, @fastify/cors, @fastify/static, @modelcontextprotocol/sdk, @anthropic-ai/claude-agent-sdk, zod, nanoid, react, react-dom, marked, vite, vitest, typescript, tsx, commander, ws (and their @types). Ask (in your report) if you believe another is needed.
+- Pure core, stateful shell: every subsystem gets a pure core (data in, data out, no World, DB or clock) with property-based tests of its invariants, called by the stateful shell; the rule, its worked examples and the first pieces are AGENTS.md standing rule 8.
+- Don't add dependencies beyond: better-sqlite3, fastify, @fastify/websocket, @fastify/cors, @fastify/static, @modelcontextprotocol/sdk, @anthropic-ai/claude-agent-sdk, zod, nanoid, react, react-dom, marked, vite, vitest, fast-check (dev only, for property tests of pure cores; added by the first PR that has one), typescript, tsx, commander, ws (and their @types). Ask (in your report) if you believe another is needed.
 
 ---
 
