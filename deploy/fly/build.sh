@@ -1,4 +1,7 @@
 #!/bin/sh
+# The manual fallback: CI's image job (.github/workflows/ci.yml) deploys the ghcr image itself when deploy/fly/Dockerfile,
+# deploy/fly/entrypoint.sh or fly.town.toml change and the FLY_TOWN_DEPLOY_TOKEN secret is set. Use this without that secret, or to
+# deploy a branch. Note a build.sh deploy leaves the Machine on a Fly-registry image, so CI's next main run deploys the ghcr image once.
 # Deploy the town image to Fly from a throwaway clone of GitHub main, with the build-context fixes Fly needs:
 #  - the repo's .dockerignore (made for the desk image) excludes .git and collectives/, so it is replaced by deploy/fly/dockerignore;
 #  - Fly's upload drops `.git`, so it travels as `gitdir` (the Dockerfile moves it back).

@@ -52,7 +52,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: ubuntu-latest
-    # up to 15 min of debounce below; the workflow's concurrency group cancels a waiting run when a newer push comes in
+    # up to 15 min of debounce below; on main a newer push queues behind this run (concurrency above), it doesn't cancel it
     timeout-minutes: 25
     permissions:
       contents: write
@@ -69,7 +69,7 @@ jobs:
       #  - no redeploy when nothing since the live commit can change the running town: only docs/ (but docs/manual.md, which
       #    the server serves), .github/ or top-level *.md files. prod still moves; the next redeploy takes those commits along.
       #  - at most one CI restart per 15 min: when the server started less than 15 min ago, wait out the rest. A push meanwhile
-      #    cancels this run (concurrency above) and its own run redeploys the newer commit, so a burst ends in one restart.
+      #    queues (only the newest pending run is kept) and redeploys the newer commit after its own wait: at most 2 restarts a burst.
       - name: redeploy muster.town
         env:
           TOKEN: ${{ secrets.MUSTER_TOWN_DEPLOY_TOKEN }}
@@ -105,7 +105,7 @@ jobs:
   image:
     needs: check
     runs-on: ubuntu-latest # amd64 only
-    timeout-minutes: 30
+    timeout-minutes: 50 # build + smoke (~10 min), then up to 15 min of restart spacing and the fly deploy
     permissions:
       contents: read
       packages: write
@@ -247,3 +247,43 @@ jobs:
           digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:prod")
           echo "pushed $IMAGE:$GITHUB_SHA and :prod ($digest)"
           echo "\`pushed $IMAGE:${GITHUB_SHA:0:7} and :prod ($digest)\`" >> "$GITHUB_STEP_SUMMARY"
+      # Image deploys of muster.town (Mitchell, 1:1 mt_5is8stmjvo 2026-11-13): the image just pushed goes to the Fly app, but only
+      # when something only an image deploy can change has changed since the image the Machine runs: the Dockerfile (node, apt
+      # packages), deploy/fly/entrypoint.sh (the supervisor, outside the checkout) and fly.town.toml ([env], health check, VM size).
+      # Everything else, lockfiles and start-server.sh included, moves with promote's `redeploy` (git pull + npm install on the volume's
+      # /data/repo; the image is only its first-boot seed, Dockerfile:4-5), so promote stays as it is. The Machine runs
+      # ghcr.io/mitchellgordon95/muster-town:<sha> (public: Fly pulls it anonymously), so its tag names the commit to diff against;
+      # an image that isn't a sha tag (deploy/fly/build.sh pushes to Fly's registry) counts as unknown and deploys once.
+      # A fly deploy replaces the Machine: one restart, on top of promote's. Like promote it waits until the server has run 15 min,
+      # so a run that deploys the image restarts the town twice, at least 15 min apart. Skipped until FLY_TOWN_DEPLOY_TOKEN
+      # (`fly tokens create deploy -a muster-town`) is a repo secret; deploy/fly/build.sh is the manual fallback.
+      - name: setup flyctl
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: deploy the image to muster.town
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_TOWN_DEPLOY_TOKEN }}
+        run: |
+          say() { echo "$1"; echo "\`image deploy: $1\`" >> "$GITHUB_STEP_SUMMARY"; }
+          if [ -z "$FLY_API_TOKEN" ]; then say "FLY_TOWN_DEPLOY_TOKEN not set; skipping image deploy"; exit 0; fi
+          running=$(flyctl machine list -a muster-town --json | jq -r '[.[] | .config.image // empty][0] // empty')
+          ref="${running%@*}" # a digest-pinned ref (repo:tag@sha256:...) keeps its tag before the @
+          tag="${ref##*:}"
+          if printf '%s' "$tag" | grep -qxE '[0-9a-f]{40}' && git --git-dir=ctx/gitdir cat-file -e "$tag^{commit}" 2>/dev/null; then
+            changed=$(git --git-dir=ctx/gitdir diff --name-only "$tag" "$GITHUB_SHA" -- deploy/fly/Dockerfile deploy/fly/entrypoint.sh fly.town.toml)
+            if [ -z "$changed" ]; then
+              say "the Machine runs ${tag:0:7}; no image-path change since (Dockerfile, entrypoint.sh, fly.town.toml), no deploy"
+              exit 0
+            fi
+            echo "changed since the Machine's ${tag:0:7}:"; echo "$changed"
+          else
+            echo "the Machine runs '${running:-nothing}', not a sha-tagged ghcr image: deploying once to move it onto $IMAGE:<sha>"
+          fi
+          started=$(curl -fsS -m 20 https://muster.town/api/health | jq -r '.startedAt // empty' 2>/dev/null || true)
+          if [ -n "$started" ]; then
+            wait=$(( $(date -d "$started" +%s) + 900 - $(date +%s) ))
+            if [ "$wait" -gt 0 ]; then echo "the server started at $started: waiting ${wait}s (one CI restart per 15 min)"; sleep "$wait"; fi
+          fi
+          flyctl deploy -c ctx/fly.town.toml -a muster-town --ha=false --wait-timeout 10m --image "$IMAGE:$GITHUB_SHA"
+          say "deployed $IMAGE:${GITHUB_SHA:0:7} to muster-town (was '${running:-nothing}')"
