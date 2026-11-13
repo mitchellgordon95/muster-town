@@ -53,16 +53,26 @@ This is easy to get wrong. When creating Muster Town, we started with reports th
 If decision asks are rendered views, what makes them better than reports? A few things we've come up with or reused:
 
 - Reports are reference ID heavy; asks refer to other documents by their short titles
-- Reports use information dense language; asks conform to 80% of ASD-STE100
-- Reports may or may not contain diagrams; asks are interactive and multi-modal when appropriate
+- Reports use information dense language and have no instructions; asks conform to 80% of ASD-STE100
+- Reports may or may not contain diagrams; asks are multi-modal when appropriate
+- Reports have no affordances; asks programmatically perform small tasks to keep users deciding, not doing
 - Reports assume content from referenced documents; asks repeat the content when necessary
 - Reports don't assume anything about the reader; asks can reformat based on user activity
 - Reports don't necessarily recommend default action; asks always have a default action recommended (aka completed staff work)
-- Reports have no affordances; asks programmatically perform small tasks to keep users deciding, not doing
 
+# CPU scheduling analogy
 
-CPU scheduling metaphor
+You might notice the shape of this problem (organizing a queue of incoming streams of work for a single worker) looks a lot like CPU scheduling for a single core CPU. The goals of a CPU scheduler might include (from Wikipedia):
 
-Future post: the operating layers (jobs + decision queues for work as normal, meetings for real time debugging)
+- maximizing throughput (the total amount of work completed per time unit)
+- minimizing wait time (time from work becoming ready until the first point it begins execution)
+- minimizing latency or response time (time from work becoming ready until it is finished in case of batch activity, or until the system responds and hands the first output to the user in case of interactive activity)
+- maximizing fairness (equal CPU time to each process, or more generally appropriate times according to the priority and workload of each process)
+
+These goals often conflict, and an interesting thought experiment is to imagine optimizing the decision queue for one or another, and why we might choose one goal over another. I'll leave that as an exercise for you and future me.
 
 Subscribe for updates (mailing list for every blog post)
+
+Future post: 
+- the operating layers (jobs + decision queues for work as normal, crons, meetings for real time debugging)
+- using Bend 2 
