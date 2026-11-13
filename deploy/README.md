@@ -26,7 +26,13 @@ alternative; that box was deleted.
 - **The repo token:** a collective secret named `GH_TOKEN` at the Town Hall (planning desk, Secrets tab): a fine-grained token for the collective's repo with
   Contents and Pull requests read/write. Desks with code access clone and push with it and `redeploy` pulls with it (docs/secrets.md). A host
   `GH_TOKEN` Fly secret still works as the fallback (`desks.ghToken: "env"`), but it belongs to the collective, not the host.
-- **Rebuild the image:** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). A plain
+- **Image deploys (CI):** the `image` job of `.github/workflows/ci.yml` pushes `ghcr.io/mitchellgordon95/muster-town:<sha>` (public) for every
+  green `main` and, when `deploy/fly/Dockerfile`, `deploy/fly/entrypoint.sh` or `fly.town.toml` changed since the sha tag the Machine runs
+  (`flyctl machine list -a muster-town --json`, `config.image`), runs `flyctl deploy --image` with it: one Machine restart, spaced 15 min from
+  the last start like promote's redeploy. Lockfiles and everything else in the checkout move with `redeploy`. Gated on the Actions secret
+  `FLY_TOWN_DEPLOY_TOKEN` (`fly tokens create deploy -a muster-town`); without it the step logs "not set; skipping image deploy". The run's
+  image job summary says what it did. A Machine on a non-sha image (a `build.sh` deploy) gets one deploy to move it onto the sha tags.
+- **Rebuild the image by hand (fallback):** `deploy/fly/build.sh` (a throwaway clone of GitHub main with the build-context fixes Fly needs; see the script). A plain
   `fly deploy` fails on purpose (the Dockerfile wants `.git` shipped as `gitdir` and a clean tree). The build does not touch the live checkout:
   ship code with the town's `redeploy`. To reset the checkout itself to the image's, `fly ssh console -a muster-town -C "rm -rf /data/repo"` and
   restart the Machine: with the state at `/data/workshop` that loses only the checkout and its `node_modules`.
@@ -313,7 +319,8 @@ enabled. Updating it: re-run step 1.
   `figuresAt` says when, so a slow or locked database can't make the check time out. The check's `timeout` is 10 s
   (it was 5 s: under the 10-31 throttle the loop answered in 5-10 s and Fly marked a live process critical, which turned
   slowness into 503s). `grace_period` 240 s already covers a restart, so there is no extra "booting" state. The check
-  settings reach the Machine only with an image deploy (`deploy/fly/build.sh`), not with the town's `redeploy`.
+  settings reach the Machine only with an image deploy (CI's image job deploys one when `fly.town.toml` changes; `deploy/fly/build.sh`
+  by hand), not with the town's `redeploy`.
 - **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
   the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
   into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on
