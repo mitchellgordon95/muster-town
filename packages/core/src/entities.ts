@@ -47,7 +47,11 @@ export function createBuilding(
   const goalId = inp.goalId ?? ROOT_GOAL_ID;
   const goal = world.goals.get(goalId);
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
-  if (opts.kind !== "town-hall") world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
+  if (opts.kind !== "town-hall") {
+    // one building per goal (docs/goals.md): nesting under another building's goal is fine, sharing its goal is not
+    world.goalTree.requireGoalFree(goalId);
+    world.goalTree.requireDesksFit(null, goalId, inp.headcount ?? 6);
+  }
   return world.transaction(() => {
     const building = world.buildings.upsert({
       ...inp, ...text, ...defaults, name: inp.name || world.goalTree.defaultName(goalId), goalId, id, kind: opts.kind ?? "lab", createdAt: nowIso(), createdBy: creatorUserId ?? undefined, ...(opts.lot ? { lot: opts.lot } : {}),
@@ -224,23 +228,14 @@ function freeTileNear(world: World, p: Tile): Tile {
   return { ...p };
 }
 
-/** The lab attached to `goalId` or to the nearest goal above it (a goal under a building's goal is that building's work); undefined when the chain has none. */
-function labOnChain(world: World, goalId: string): Building | undefined {
-  for (const g of world.goalTree.ancestors(goalId)) {
-    const b = world.buildings.first("goalId = ? AND kind = 'lab'", [g.id], "ORDER BY createdAt, id");
-    if (b) return b;
-  }
-  return undefined;
-}
-
 /**
- * The lab a visitor working on `goalId` sits in (`labOnChain`). A goal whose chain has no lab with desks is refused:
+ * The lab a visitor working on `goalId` sits in (`Goals.nearestBuilding`). A goal whose chain has no lab with desks is refused:
  * the visitor `adopt`s it instead (`adoptGoal`).
  */
 function visitorBuildingFor(world: World, goalId: string): Building {
   const goal = world.goalTree.get(goalId);
   if (!goal || goal.status === "retired") throw notFound("goal", goalId);
-  const b = labOnChain(world, goalId);
+  const b = world.goalTree.nearestBuilding(goalId);
   if (b) return b;
   throw new AppError("conflict", `No building works on "${goal.text}" or a goal above it, so it has no desks to join yet. Adopt it (\`adopt\`, POST /api/goals/${goalId}/adopt) to become its building's manager, or pick a goal that has a building.`);
 }
@@ -260,7 +255,7 @@ export function adoptGoal(world: World, agentId: string, goalId: string): { buil
   if (!goal || goal.status !== "active") throw badRequest(`${goalId} is not an active goal of the town tree.`);
   const managed = world.buildings.first("managerAgentId = ? AND kind = 'lab'", [me.id]);
   if (managed) throw new AppError("conflict", `${me.name} already manages ${managed.name}; a visitor manages one building.`);
-  const lab = labOnChain(world, goalId);
+  const lab = world.goalTree.nearestBuilding(goalId);
   if (lab) throw new AppError("conflict", `${lab.name} already works on ${lab.goalId === goalId ? "this goal" : "a goal above it"}, so it has desks to join: register a visitor on goal ${goalId} (goalId) instead of adopting it.`);
   return world.transaction(() => {
     const b = createBuilding(world, { goalId, headcount: 1 }, me.ownerUserId ?? null);

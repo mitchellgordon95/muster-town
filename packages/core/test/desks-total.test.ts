@@ -56,9 +56,11 @@ describe("desks per subtree: goals.desksTotal (gr_yu6qw3j9x5)", () => {
     world.ops.updateBuilding(admin, LAB, { headcount: 5 });
     expect(() => world.ops.updateBuilding(admin, LAB, { headcount: 6 })).toThrow(/Desk total reached: "A" .* allows 5 desks/);
     // a new building under A, or one moving in, brings desks too
-    expect(() => createBuilding(world, { name: "New", goalId: a1.id, headcount: 1 }, null)).toThrow(/Desk total reached/);
+    // (on A2: A1 has the lab already, one building per goal)
+    const a2 = tree.create(admin, { parentId: a.id, text: "A2" });
+    expect(() => createBuilding(world, { name: "New", goalId: a2.id, headcount: 1 }, null)).toThrow(/Desk total reached/);
     const other = createBuilding(world, { name: "Other", goalId: b.id, headcount: 2 }, null);
-    expect(() => tree.attach(admin, other.id, a1.id)).toThrow(/Desk total reached/);
+    expect(() => tree.attach(admin, other.id, a2.id)).toThrow(/Desk total reached/);
     // a total under the desks there now is allowed; lowering always is; raising stays blocked until it fits
     tree.update(admin, a.id, { desksTotal: 3 });
     world.ops.updateBuilding(admin, LAB, { headcount: 4 });
