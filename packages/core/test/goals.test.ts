@@ -59,9 +59,12 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(() => world.ops.updateBuilding(admin, LAB, { goalId: null as never })).toThrow();
     expect(() => tree.attach(admin, LAB, "")).toThrow(/always attached/);
     expect(() => tree.attach(mei, LAB, otherGoal.id)).toThrow(/goals.edit|Only a human/);
-    world.ops.updateBuilding(admin, LAB, { goalId: otherGoal.id });
-    expect(world.buildings.require(LAB).goalId).toBe(otherGoal.id);
-    expect(world.events.list({ types: ["goal.attached"] }).some((e) => e.payload.goalId === otherGoal.id)).toBe(true);
+    // otherGoal has a building already: one building per goal
+    expect(() => world.ops.updateBuilding(admin, LAB, { goalId: otherGoal.id })).toThrow(/one building per goal/);
+    const free = tree.create(admin, { parentId: "gl_town", text: "Nobody works here" });
+    world.ops.updateBuilding(admin, LAB, { goalId: free.id });
+    expect(world.buildings.require(LAB).goalId).toBe(free.id);
+    expect(world.events.list({ types: ["goal.attached"] }).some((e) => e.payload.goalId === free.id)).toBe(true);
   });
 
   it("Goals.inScope: a grant is filed against a goal in the building's subtree and its key results are in scope; exploration names a gap", async () => {
