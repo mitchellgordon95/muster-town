@@ -14,7 +14,7 @@
 // HEAD, so a checkout moved without a build (a failed build, a hand pull) never runs stale code: it rebuilds or uses tsx.
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,21 @@ for (const p of ["server", "core", "runtime", "schema"]) {
 
 let head = "";
 try { head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: here, encoding: "utf8" }).trim(); } catch { /* no git: no stamp, never used by the entrypoint */ }
+
+// Every external must resolve from packages/server/dist, where the bundle runs: a dependency npm left nested under another
+// workspace (packages/runtime/node_modules) resolves from that package's sources but not from here. On 2026-11-13 the SDK
+// did, and every host session failed with "Cannot find package" until it was hoisted. Fail the build instead, so
+// deploy/fly/start-server.sh falls back to tsx and the town keeps running.
+const unresolved = [...external].filter((d) => {
+  for (let dir = out; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "node_modules", d, "package.json"))) return false;
+    if (dirname(dir) === dir) return true;
+  }
+});
+if (unresolved.length) {
+  console.error(`[build] not resolvable from packages/server/dist: ${unresolved.join(", ")}; declare them in packages/server/package.json so npm hoists them`);
+  process.exit(1);
+}
 
 const started = Date.now();
 // write: false: a failed build throws here and leaves the previous dist untouched
