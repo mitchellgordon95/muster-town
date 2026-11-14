@@ -1,0 +1,1 @@
+- 2026-11-14: docs/architecture.md Web client names the sidebar-vs-sheet rule and the shared Sheet component (grant gr_4csjpgh346 kr_nokx342ovj; same rule as section 12 of the muster-style-guide skill dc_q736158pnn).
