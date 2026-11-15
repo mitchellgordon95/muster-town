@@ -1,0 +1,1 @@
+- 2026-11-15 Teo 1: a money ask now reads "<Building> is asking for tokens" on its card, "tokens" in the in-tray list pill and "(tokens)" on its deck slide (Mitchell, 1:1 mt_t65exni4et: "s/asking for money/asking for tokens").

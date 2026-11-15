@@ -326,7 +326,7 @@ function slateSlide(world: World, now: Date): ReviewSlide | null {
 /** An ask's header on the item slide it is about: its rank, type and title, the recommendation, every place it was raised. */
 function askHead(a: Ask): string {
   const raised = a.sources.length > 1 ? `**Raised ${a.sources.length} times:**\n\n${a.sources.map((s) => `- ${oneLine(s.line)} (${s.docId})`).join("\n")}\n\n` : "";
-  return `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}: ${oneLine(a.title)}_\n\n${a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}\n\n` : ""}${raised}`;
+  return `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type === "money" ? "tokens" : a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}: ${oneLine(a.title)}_\n\n${a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}\n\n` : ""}${raised}`;
 }
 
 /** A slide of its own for an ask with no item slide (a rollup's ask, an outbox request, an access request, a policy ask). */
@@ -337,7 +337,7 @@ function askDraft(world: World, a: Ask): Draft {
     kind: "ask", group: a.type === "money" ? 4 : 5, itemId: a.id, askId: a.id, buildingId: a.buildingId, since: a.createdAt, history: "",
     title: `${who}: ${a.title}`,
     body: [
-      `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}: it waits behind that` : ""}_`,
+      `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type === "money" ? "tokens" : a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}: it waits behind that` : ""}_`,
       a.body.trim(),
       a.branches.length ? `**Choices:** ${a.branches.map((b) => b.label).join(" · ")}` : "",
       a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}` : "",

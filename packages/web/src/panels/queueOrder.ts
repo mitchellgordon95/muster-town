@@ -101,7 +101,7 @@ export function stepFrom(items: QueueItem[], id: string | null, by: 1 | -1): str
 /** A queue line's kind word: the ask's type, else what the item is. */
 export function kindWord(x: QueueItem): string {
   switch (x.kind) {
-    case "ask": return x.ask.type;
+    case "ask": return x.ask.type === "money" ? "tokens" : x.ask.type; // the card's header word: "is asking for tokens"
     case "report": return x.doc.type === "flag" ? "flag" : "report";
     case "grant": return x.grant.status === "checkpoint" ? "checkpoint" : "proposal";
     case "retainer": return "retainer";
