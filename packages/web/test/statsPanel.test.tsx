@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { EngagementView as Engagement, HealthLineView, JoinFunnelView, TownHealthView } from "../src/api";
-import { byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, HealthView, healthRed, MembersTable, StatsView, waitLabel } from "../src/panels/StatsPanel";
+import { byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, HealthView, healthRed, legibleRows, MembersTable, queueRows, StatsView, waitLabel } from "../src/panels/StatsPanel";
+import { legible } from "../src/mock/fixture";
 
 const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 };
 const one = (slug: string, daily: ({ day: string } & typeof zero)[], medianDecisionMs: number | null) => {
@@ -90,5 +91,28 @@ describe("user stats panel", () => {
     for (const s of ["Town health, last 24 hours", "Paperwork", "Cache hits", "Median cache write", "Past 100% holds", "Tokens / report", "grant 150k (1)", "By day", "By week", "/api/health-stats", "2 back-filled sessions", "P def"]) expect(html).toContain(s);
     expect(html).toContain('stats-total bad');
     expect(html.indexOf("Nov 10")).toBeLessThan(html.indexOf("Nov 9"));
+    expect(html).not.toContain("Queue health");
+
+    // queue health (gr_pdja05z2f1 step 3): above the token tiles, money/click/policy rows always, the warning red when crossed
+    const q = renderToStaticMarkup(<HealthView h={h} legible={legible} />);
+    expect(q.indexOf("Queue health, last 14 days")).toBeGreaterThan(-1);
+    expect(q.indexOf("Queue health, last 14 days")).toBeLessThan(q.indexOf("Town health, last 24 hours"));
+    for (const s of ["Minutes on a money card", "4 (median of 9)", "Questions before deciding a money card", "1 (median of 9)", "Minutes on a click card", "Minutes on a policy card", "none yet (no sample)", "Minutes on a do card",
+      "Gates per funded grant", "0.6 (24 gates, 40 grants funded)", "Grants at a gate today", "17% (1 of 6 live grants)", "Budget used by grants funded in 14 days", "72% (22.5M of 31.3M tokens)",
+      "Few gates with high budget use: not crossed"]) expect(q).toContain(s);
+    expect(q).not.toContain("Minutes on a credential card");
+    expect(q).not.toContain('role="alert"');
+    // every other legible measure is a row (kr_4jfnyb4y6p), each with its "What the numbers are" line
+    for (const s of ["Open asks", "Oldest open ask", "waiting 5 h", "Time to decide a money ask", "Time to decide a click ask", "3 days (median of 18)", "Asks retired before anyone read them", "4 of 12", "Adjust asks per funded grant", "Closed grants that held at a gate", "68% (36 of 53)", "Spent over size, M steps", "1.05 (median of 13)", "Sessions per plan step", "Grants at a gate now", "120k tokens held", "Cards the Secretary rewrote", "Screen views of queue items"]) expect(q).toContain(s);
+    const rows = [...queueRows(legible), ...legibleRows(legible)];
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+    for (const r of rows) expect(q).toContain(`<dt>${r.label}</dt>`);
+
+    const crossed = { ...legible, queue: { ...legible.queue, byType: {}, gates: { ...legible.queue.gates, perGrant: 0.3, budgetUsed: 0.9, warning: true } } };
+    const w = renderToStaticMarkup(<HealthView h={h} legible={crossed} />);
+    expect(w).toContain("Few gates with high budget use: work is running past review.");
+    expect(w).toContain('stats-warning bad');
+    expect(w).toMatch(/class="num bad">0\.3 \(/);
+    expect(queueRows(crossed).filter((r) => r.key.startsWith("card-")).map((r) => r.label)).toEqual(["Minutes on a money card", "Minutes on a click card", "Minutes on a policy card"]);
   });
 });

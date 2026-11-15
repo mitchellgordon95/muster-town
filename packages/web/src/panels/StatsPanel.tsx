@@ -10,7 +10,7 @@
  * revoke per goal. The server is the gate: GET /api/members is 403 for anyone else.
  */
 import { useState, type ReactNode } from "react";
-import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView, type TownHealthView, type HealthLineView } from "../api";
+import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView, type TownHealthView, type HealthLineView, type LegibleView, type MedianView } from "../api";
 import { goalShortName } from "../purpose";
 import { useTown } from "../state";
 import { letInGoal } from "./letIn";
@@ -185,12 +185,89 @@ function HealthTable({ first, rows, t }: { first: string; rows: { key: string; h
   );
 }
 
+/** One plain-words measure row: what it is, its value, and the "What the numbers are" line for it. `red` = past its threshold. */
+interface MeasureRow { key: string; label: string; value: string; what: string; red?: boolean }
+const num = (x: number | null | undefined) => x == null ? "–" : String(Math.round(x * 100) / 100);
+const hrs = (h: number | null) => h == null ? "none" : waitLabel(h * 3_600_000);
+const ofSample = (m: MedianView, unit = "") => m.median == null ? "none yet (no sample)" : `${num(m.median)}${unit} (median of ${m.sample})`;
+/** The ask types the queue section always lists (the KR's rows), then any other type with a decision in the window. */
+const QUEUE_TYPES = ["money", "click", "policy"] as const;
+const OTHER_TYPES = ["credential", "do", "meeting"] as const;
+
+/** Queue health (gr_pdja05z2f1 step 3): per ask type, the human's time and lines per card, then gates beside budget used. */
+export function queueRows(l: LegibleView): MeasureRow[] {
+  const q = l.queue, g = q.gates, rows: MeasureRow[] = [];
+  const types = [...QUEUE_TYPES, ...OTHER_TYPES.filter((x) => q.byType[x])];
+  const empty: MedianView = { median: null, sample: 0 };
+  for (const type of types) {
+    const r = q.byType[type];
+    rows.push({ key: `card-${type}`, label: `Minutes on a ${type} card`, value: ofSample(r?.minutesOnCard ?? empty), what: `the median minutes the deciding human had a ${type} ask (or its grant, request or retainer) open on screen before deciding it, over the ${type} asks they saw in the queue; two windows open at once count once` });
+    rows.push({ key: `questions-${type}`, label: `Questions before deciding a ${type} card`, value: `${ofSample(r?.questions ?? empty)}${r?.lines.median != null ? `; lines said ${num(r.lines.median)}` : ""}`, what: `the median lines the deciding human said in a 1:1 while the ${type} card was open, before deciding, and how many of them ended in a question mark` });
+  }
+  rows.push({ key: "gates-per-grant", label: "Gates per funded grant", value: g.perGrant == null ? "none" : `${num(g.perGrant)} (${g.gates} gates, ${g.funded} grants funded)`, red: g.warning, what: `the gates (holds at a checkpoint, or adjust asks for more tokens) met by grants funded in the last ${q.windowDays} days, divided by those grants; under ${g.thresholds.fewGatesPerGrant} counts as few` });
+  rows.push({ key: "hold-today", label: "Grants at a gate today", value: g.holdShareToday == null ? "none live" : `${pct(g.holdShareToday)} (${g.heldNow} of ${g.live} live grants)`, what: "the live grants (funded or at a gate) that are waiting at a gate now" });
+  rows.push({ key: "budget-used", label: `Budget used by grants funded in ${q.windowDays} days`, value: g.budgetUsed == null ? "none" : `${pct(g.budgetUsed)} (${tok(g.spent)} of ${tok(g.granted)} tokens)`, red: g.warning, what: `tokens spent divided by tokens granted, over the grants funded in the last ${q.windowDays} days; over ${pct(g.thresholds.highBudgetUsed)} counts as high` });
+  return rows;
+}
+
+/** Every other `legible` measure of GET /api/health, one plain-words row each (kr_4jfnyb4y6p). */
+export function legibleRows(l: LegibleView): MeasureRow[] {
+  const rows: MeasureRow[] = [
+    { key: "open-asks", label: "Open asks", value: `${l.openAsks}${l.asksPerTarget.ratio != null ? ` (${num(l.asksPerTarget.ratio)} per thing asked about, ${l.asksPerTarget.folds} folded)` : ""}`, what: "asks waiting in the decision queue now (open or deferred), how many asks there are per grant, request or question they are about, and the second asks folded into a first one" },
+    { key: "oldest-ask", label: "Oldest open ask", value: l.oldestOpenAskHours == null ? "none" : `waiting ${hrs(l.oldestOpenAskHours)}`, what: "how long the oldest ask in the queue has waited since it was filed" },
+  ];
+  for (const [type, d] of Object.entries(l.timeToDecision)) if (d) rows.push({ key: `decide-${type}`, label: `Time to decide a ${type} ask`, value: `${hrs(d.medianHours)} (median of ${d.sample})`, what: `the median time from a ${type} ask being filed to a human deciding it, over the ${type} asks decided in the window` });
+  rows.push(
+    { key: "retired-unread", label: "Asks retired before anyone read them", value: `${l.retiredBeforeRead.unread} of ${l.retiredBeforeRead.retired}`, what: "asks the town closed in the window (moot, folded or replaced) that no human had opened first" },
+    { key: "adjust-per-grant", label: "Adjust asks per funded grant", value: l.topUpsPerFundedGrant.ratio == null ? "none" : `${num(l.topUpsPerFundedGrant.ratio)} (${l.topUpsPerFundedGrant.topUps} for ${l.topUpsPerFundedGrant.funded} grants)`, what: "asks to adjust a grant's tokens (filed at a hold, or forecast past the ceiling) divided by the grants funded in the window" },
+    { key: "hold-share", label: "Closed grants that held at a gate", value: l.holdShare.share == null ? "none closed" : `${pct(l.holdShare.share)} (${l.holdShare.held} of ${l.holdShare.closed})`, what: "of the grants closed in the window, those that stopped at a gate at least once before closing" },
+  );
+  for (const size of ["S", "M", "L"] as const) {
+    const s = l.spentOverSize[size];
+    if (s) rows.push({ key: `size-${size}`, label: `Spent over size, ${size} steps`, value: s.ratio == null ? "none yet (no sample)" : `${num(s.ratio)} (median of ${s.sample})`, what: `for steps sized ${size}, the median tokens spent divided by the size's price in the step-size table (1 = on price), over the steps done in the last 30 days` });
+  }
+  rows.push(
+    { key: "sessions-per-step", label: "Sessions per plan step", value: l.sessionsPerStep.median == null ? "none" : `${num(l.sessionsPerStep.median)} (median of ${l.sessionsPerStep.steps} steps)`, what: "the median number of sessions a grant step took to finish, parked continuations included" },
+    { key: "at-gate-now", label: "Grants at a gate now", value: `${l.heldAtGates.grants}${l.heldAtGates.grants ? ` (${tok(l.heldAtGates.tokens)} tokens held, oldest ${hrs(l.heldAtGates.oldestHours)})` : ""}`, what: "grants waiting at a gate for a human to continue, adjust or cut, the unspent tokens they hold, and how long the oldest has waited" },
+    { key: "rewrites", label: "Cards the Secretary rewrote", value: l.cardRewrites.rate == null ? "none filed" : `${pct(l.cardRewrites.rate)} (${l.cardRewrites.rewritten} of ${l.cardRewrites.filed}; ${l.cardRewrites.withWarnings} filed with style warnings)`, what: "of the ask cards filed in the window, those the Secretary had to write again, and those filed with style warnings" },
+    { key: "screen-views", label: "Screen views of queue items", value: `${l.screenViews.views} by ${l.screenViews.users} ${l.screenViews.users === 1 ? "human" : "humans"}${l.screenViews.open ? `, ${l.screenViews.open} open now` : ""}`, what: "times a human opened an ask, grant, request or retainer on screen in the window: what minutes on a card are read from" },
+  );
+  return rows;
+}
+
+function MeasureTable({ rows }: { rows: MeasureRow[] }) {
+  return (
+    <div className="stats-scroll"><table className="table stats-table measure-table">
+      <tbody>{rows.map((r) => <tr key={r.key}><td title={r.what}>{r.label}</td><td className={`num ${r.red ? "bad" : ""}`}>{r.value}</td></tr>)}</tbody>
+    </table></div>
+  );
+}
+
+/** The queue-health section (above the token tiles) and every other legible measure, from GET /api/health `legible`. */
+function QueueHealthView({ l }: { l: LegibleView }) {
+  const g = l.queue.gates;
+  return (
+    <>
+      <Section title={`Queue health, last ${l.queue.windowDays} days`} right={<a className="link" href={`${API_BASE}/api/health`} target="_blank" rel="noreferrer">JSON</a>}>
+        <MeasureTable rows={queueRows(l)} />
+        <div className={`stats-warning ${g.warning ? "bad" : "muted"}`} role={g.warning ? "alert" : undefined}>
+          {g.warning ? "Few gates with high budget use: work is running past review." : `Few gates with high budget use: not crossed (it turns red under ${g.thresholds.fewGatesPerGrant} gates per grant with over ${pct(g.thresholds.highBudgetUsed)} of the budget used).`}
+        </div>
+      </Section>
+      <Section title={`Queue and grants, last ${l.windowDays} days`}>
+        <MeasureTable rows={legibleRows(l)} />
+      </Section>
+    </>
+  );
+}
+
 /** Town health (gr_8bxoy2heif): the last 24 h as tiles (red past threshold), tokens per report by lane, then by day and by week. */
-export function HealthView({ h }: { h: TownHealthView }) {
+export function HealthView({ h, legible }: { h: TownHealthView; legible?: LegibleView | null }) {
   const l = h.last24h, t = h.thresholds, red = healthRed(l, t);
   const lanes = LANES.filter((x) => l.byLane[x]);
   return (
     <>
+      {legible ? <QueueHealthView l={legible} /> : null}
       <Section title="Town health, last 24 hours" right={<a className="link" href={`${API_BASE}/api/health-stats`} target="_blank" rel="noreferrer">JSON</a>}>
         <div className="stats-totals">
           <div className={`stats-total ${red.paperwork ? "bad" : ""}`} title={h.definitions.paperwork}><b>{pct(l.paperworkShare)}</b><span>Paperwork</span></div>
@@ -215,7 +292,9 @@ export function HealthView({ h }: { h: TownHealthView }) {
           <div><dt>Median cache write</dt><dd>{h.definitions.medianCacheWrite}</dd></div>
           <div><dt>Past 100% holds</dt><dd>{h.definitions.overrun}</dd></div>
           <div><dt>Tokens / report</dt><dd>{h.definitions.perReport}</dd></div>
+          {legible ? [...queueRows(legible), ...legibleRows(legible)].map((r) => <div key={r.key}><dt>{r.label}</dt><dd>{r.what}.</dd></div>) : null}
         </dl>
+        {legible ? <div className="muted">Queue and grant rows are medians over the last {legible.windowDays} days, with their sample; a row with no sample says so. They are the Secretary's rank-run numbers too.</div> : null}
         <div className="muted">Tokens are adjusted, as the Bank books them. A session counts on the UTC day it ended. {h.notCounted.sessions ? `${n(h.notCounted.sessions)} back-filled sessions (${tok(h.notCounted.tokens)} tokens) are left out: they have no real cache breakdown.` : ""}</div>
       </Section>
     </>
@@ -224,10 +303,11 @@ export function HealthView({ h }: { h: TownHealthView }) {
 
 function TownHealth() {
   const h = useLoad(() => api().healthStats(), []);
+  const live = useLoad(() => api().health(), []);
   return (
     <>
       <ErrorLine error={h.error} />
-      {h.loading && !h.data ? <Loading /> : h.data ? <HealthView h={h.data} /> : null}
+      {h.loading && !h.data ? <Loading /> : h.data ? <HealthView h={h.data} legible={live.data?.legible ?? null} /> : null}
     </>
   );
 }

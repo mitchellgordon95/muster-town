@@ -430,6 +430,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .stats-table td:first-child { white-space: nowrap; }
 .stats-scroll { overflow-x: auto; }
 .stats-table .faint { color: var(--faint); }
+.stats-warning { margin: 4px 0; } .stats-warning.bad { color: var(--bad); font-weight: 600; }
+.measure-table td.num { white-space: normal; }
 .members-table td { vertical-align: top; }
 .member-avatar { width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; margin-right: 4px; }
 .member-goal { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px 0 0; }

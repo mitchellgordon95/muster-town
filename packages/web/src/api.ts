@@ -9,7 +9,7 @@ import type {
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
-  Ask, Notice, NoticeKind, StepCalibration, StepSizeTable,
+  Ask, AskType, Notice, NoticeKind, StepCalibration, StepSize, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
@@ -402,7 +402,30 @@ export type TownRead = Snapshot;
 /** GET /api/town/pricing (an admin): the step-size table, oversell, and the cached calibration beside them. */
 export interface PricingRead { stepSizes: StepSizeTable; oversell: number; stepCalibration: StepCalibration | null; figuresAt: string }
 /** GET /api/health as the web reads it: the town's funding, and the cached step-size calibration (the funding slate's expected spend). */
-export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null }
+export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null; legible?: LegibleView }
+/** A median with its sample (core queue-health.ts). */
+export interface MedianView { median: number | null; sample: number }
+/** Per ask type, what a human's decision cost (core queue-health.ts QueueTypeRow). */
+export interface QueueTypeView { decisionHours: MedianView; minutesOnCard: MedianView; firstSeenMinutes: MedianView; lines: MedianView; questions: MedianView }
+/** GET /api/health `legible` (core measures.ts LegibleMeasures, gr_pdja05z2f1): the 14-day queue and grant measures the Town health tab shows in plain words. */
+export interface LegibleView {
+  at: string; windowDays: number; openAsks: number;
+  asksPerTarget: { targets: number; ratio: number | null; folds: number };
+  oldestOpenAskHours: number | null;
+  timeToDecision: Partial<Record<AskType, { medianHours: number; sample: number }>>;
+  retiredBeforeRead: { retired: number; unread: number };
+  topUpsPerFundedGrant: { topUps: number; funded: number; ratio: number | null };
+  holdShare: { held: number; closed: number; share: number | null };
+  spentOverSize: Partial<Record<StepSize, { ratio: number | null; sample: number }>>;
+  sessionsPerStep: { median: number | null; steps: number };
+  cardRewrites: { filed: number; rewritten: number; rate: number | null; withWarnings: number };
+  heldAtGates: { grants: number; tokens: number; oldestHours: number | null };
+  screenViews: { views: number; users: number; open: number };
+  queue: {
+    at: string; windowDays: number; byType: Partial<Record<AskType, QueueTypeView>>;
+    gates: { funded: number; gates: number; perGrant: number | null; heldNow: number; live: number; holdShareToday: number | null; granted: number; spent: number; budgetUsed: number | null; warning: boolean; thresholds: { fewGatesPerGrant: number; highBudgetUsed: number } };
+  };
+}
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
 export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
 

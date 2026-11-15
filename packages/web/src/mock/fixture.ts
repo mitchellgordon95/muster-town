@@ -5,6 +5,7 @@
  */
 import type { Agent, Ask, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Notice, Objective, Role, StepCalibration, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
+import type { LegibleView } from "../api";
 import deckShot from "./deck-shot.svg?no-inline";
 import samplePage from "./sample-page.html?raw";
 
@@ -451,3 +452,27 @@ export const notices: Notice[] = [
   { id: "nt_gate", kind: "gate", buildingId: "bl_workshop", goalId: "gl_town", title: "Tour step 1 landed on budget", body: "Spent 140k of an M step.", picture: null, refs: ["gr_tour"], createdAt: ago(310) },
   { id: "nt_pattern", kind: "pattern", buildingId: "bl_townhall", goalId: null, title: "This week: three proposals sized a re-check M", body: "Carbon and the Workshop each sized a re-check step M. A policy ask proposes S.", picture: null, refs: ["ak_policy"], createdAt: ago(700) },
 ];
+
+/** GET /api/health `legible` for the mock (gr_pdja05z2f1 step 3): the live shape of 2026-11-15 with a money row and the warning off. */
+export const legible: LegibleView = {
+  at: "2026-11-15T22:35:46.005Z", windowDays: 14, openAsks: 3,
+  asksPerTarget: { targets: 3, ratio: 1, folds: 1 }, oldestOpenAskHours: 5.4,
+  timeToDecision: { money: { medianHours: 6.1, sample: 9 }, click: { medianHours: 73.2, sample: 18 }, policy: { medianHours: 2.4, sample: 11 } },
+  retiredBeforeRead: { retired: 12, unread: 4 },
+  topUpsPerFundedGrant: { topUps: 12, funded: 40, ratio: 0.3 },
+  holdShare: { held: 36, closed: 53, share: 0.68 },
+  spentOverSize: { S: { ratio: 1.02, sample: 2 }, M: { ratio: 1.05, sample: 13 }, L: { ratio: 0.64, sample: 2 } },
+  sessionsPerStep: { median: 3, steps: 19 },
+  cardRewrites: { filed: 105, rewritten: 11, rate: 0.1, withWarnings: 69 },
+  heldAtGates: { grants: 1, tokens: 120_000, oldestHours: 2.5 },
+  screenViews: { views: 31, users: 1, open: 0 },
+  queue: {
+    at: "2026-11-15T22:35:46.005Z", windowDays: 14,
+    byType: {
+      money: { decisionHours: { median: 6.1, sample: 9 }, minutesOnCard: { median: 4, sample: 9 }, firstSeenMinutes: { median: 5.2, sample: 9 }, lines: { median: 2, sample: 9 }, questions: { median: 1, sample: 9 } },
+      click: { decisionHours: { median: 73.22, sample: 18 }, minutesOnCard: { median: 0.8, sample: 6 }, firstSeenMinutes: { median: 1.1, sample: 6 }, lines: { median: 0, sample: 6 }, questions: { median: 0, sample: 6 } },
+      do: { decisionHours: { median: 0.52, sample: 5 }, minutesOnCard: { median: 3.51, sample: 5 }, firstSeenMinutes: { median: 3.73, sample: 5 }, lines: { median: 1, sample: 5 }, questions: { median: 0, sample: 5 } },
+    },
+    gates: { funded: 40, gates: 24, perGrant: 0.6, heldNow: 1, live: 6, holdShareToday: 0.17, granted: 31_315_000, spent: 22_546_800, budgetUsed: 0.72, warning: false, thresholds: { fewGatesPerGrant: 0.5, highBudgetUsed: 0.85 } },
+  },
+};
