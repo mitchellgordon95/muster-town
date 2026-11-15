@@ -123,7 +123,9 @@ function raiseEntry(world: World, n: NewAsk, by: string): string | null {
 /**
  * Write the live asks again from their threads (plan dc_uwx045472m step 6; all of them, or those raised on `jobId`). A
  * card the town writes from its object (`townCardOf`: a proposal, a gate, a retainer, a request) takes the object's
- * facts as they are now; a card with an author's or the Secretary's words keeps them. Either way `renderedSeq` records
+ * facts as they are now; a card with an author's or the Secretary's words keeps them. A captain, access or outbox
+ * request card the Secretary rewrote (`rewriteAsk`) is the Secretary's from then on: it keeps those words and its
+ * renderedSeq, so `entriesSinceCard` marks it behind when its thread moves. Either way `renderedSeq` records
  * the thread's length, so the Secretary's read can tell a card whose thread has moved since. An ask filed before
  * migration 115 gets its source entry here when it can be named. Returns how many cards changed words.
  */
@@ -598,6 +600,8 @@ type TownCard = Pick<Ask, "title" | "body"> & Partial<Pick<Ask, "recommendation"
 function townCardOf(world: World, a: Ask): TownCard | null {
   const id = a.targetId;
   if (!id) return null;
+  // a person's request (captain, access, outbox) the Secretary rewrote keeps the Secretary's words (rewriteAsk)
+  if ((a.targetKind === "captain" || a.targetKind === "access" || a.targetKind === "request") && a.history.some((h) => h.action === "rewritten")) return null;
   switch (a.targetKind) {
     case "grant": {
       const g = world.grants.get(id);
