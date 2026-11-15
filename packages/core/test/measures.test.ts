@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, markSeen, newId, nowIso, retireFork, updateBuilding } from "../src/index.ts";
 import { decideAsk, retireAsks } from "../src/asks.ts";
 import { legibleMeasures } from "../src/measures.ts";
+import { recordScreenView } from "../src/screen-views.ts";
 import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
@@ -52,6 +53,8 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     // a money ask filed 4 h ago and decided now
     const money = seedAsk(world, { type: "money", buildingId: null, sourceDocId: null, title: "Fund it", branches: two("Fund") }).ask;
     world.asks.patch(money.id, { createdAt: ago(4) });
+    // the human had it on screen for the last hour (capped at 30 min) before deciding (queue health, gr_pdja05z2f1 step 2)
+    recordScreenView(world, admin.ownerUserId!, "mt_queue", { kind: "ask", id: money.id }, ago(1));
     decideAsk(world, admin, money.id, "Fund");
     // two asks retired by their events: a human opened one of them first
     const r1 = seedAsk(world, { type: "click", targetKind: "access", targetId: "ar_one", buildingId: null, sourceDocId: null, title: "Let Ada in", branches: two("Let in") }).ask;
@@ -67,6 +70,7 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     expect(m.timeToDecision.money).toEqual({ medianHours: 4, sample: 1 });
     expect(m.timeToDecision.click).toBeUndefined();
     expect(m.retiredBeforeRead).toEqual({ retired: 2, unread: 1 });
+    expect(m.queue.byType.money).toMatchObject({ decisionHours: { median: 4, sample: 1 }, minutesOnCard: { median: 30, sample: 1 }, lines: { median: 0, sample: 1 } });
     // a decision older than the window is not counted
     world.asks.patch(money.id, { decidedAt: ago(15 * 24) });
     expect(legibleMeasures(world).timeToDecision.money).toBeUndefined();

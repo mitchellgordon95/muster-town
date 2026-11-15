@@ -153,7 +153,9 @@ describe("the Secretary", () => {
     expect(rankRunView(world, admin)!.refused).toBeNull();
     const nextRun = world.schedules.require(s.id).nextRunAt;
     const a = pressRank(world, admin);
-    expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: SECRETARY_MODEL, description: s.description, origin: { userId: world.holderOf(admin).id } });
+    expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: SECRETARY_MODEL, origin: { userId: world.holderOf(admin).id } });
+    // the run reads the queue-health numbers after its instructions (gr_pdja05z2f1 KR kr_nsghrfza2i)
+    expect(a.description.startsWith(`${s.description}\n\n## Queue health, last 14 days`)).toBe(true);
     expect(ruleBlock(world, a)).toBeNull(); // the approved retainer pays for it
     expect(world.schedules.require(s.id)).toMatchObject({ nextRunAt: nextRun, lastAssignmentId: a.id, runs: 0 });
     expect(rankRunView(world, admin)).toMatchObject({ runningId: a.id, refused: expect.stringMatching(/under way/) });
