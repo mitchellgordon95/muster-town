@@ -272,10 +272,9 @@ describe("the Secretary knows what is open (the 1:1's focus)", () => {
     expect(put).not.toHaveBeenCalled();
   });
 
-  it("the queue's kinds in the town's words: a report is a doc, a goal proposal a goalProposal", () => {
+  it("the queue's kinds in the town's words: a report is a doc", () => {
     expect(focusOf(null)).toBeNull();
     expect(focusOf({ kind: "report", id: "dc_r", doc: {} as never })).toEqual({ kind: "doc", id: "dc_r" });
-    expect(focusOf({ kind: "goal", id: "gp_1", proposal: {} as never })).toEqual({ kind: "goalProposal", id: "gp_1" });
     expect(focusOf({ kind: "blocked", id: "blocked:bl_x", blocked: {} as never })).toEqual({ kind: "blocked", id: "blocked:bl_x" });
   });
 });

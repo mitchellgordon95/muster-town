@@ -6,7 +6,6 @@
  */
 import type { ReactNode } from "react";
 import type { AccessRequestView, CaptainRequestView, Doc, GrantView, ScheduleView } from "@muster-town/schema";
-import type { GoalProposalView } from "../api";
 import { fmtTokens, Pill, timeAgo } from "./ui";
 import { VERDICT_TONE } from "./DocView";
 
@@ -49,4 +48,3 @@ export function retainerPill(x: ScheduleView): ReactNode {
 const who = (r: { githubLogin: string | null; name: string }) => r.githubLogin ? `@${r.githubLogin}` : r.name;
 export const captainTitle = (r: CaptainRequestView) => `${who(r)} asks to captain "${r.goalText}"`;
 export const accessTitle = (r: AccessRequestView) => `${who(r)} asks to join${r.message ? `: "${r.message}"` : ""}`;
-export const goalProposalTitle = (p: GoalProposalView) => `${p.proposedByName}: ${p.action.replace(/-/g, " ")}${p.fields.text ? ` "${p.fields.text}"` : p.why ? `: ${p.why}` : ""}`;

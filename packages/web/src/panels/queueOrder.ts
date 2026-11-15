@@ -3,7 +3,7 @@
  * what the human pops off the front, one item at a time, at the Town Hall hydrant. Hook-free so the tests call it.
  *
  * The live asks come first, in the Secretary's order (sortAsks: rank, then oldest, deferred last). Then every waiting
- * item no ask is about (a goal proposal, a report, a building blocked with no key results), oldest first, so nothing waiting is lost. The items an ask is about are
+ * item no ask is about (a report, a building blocked with no key results), oldest first, so nothing waiting is lost. The items an ask is about are
  * its record, one click down from its card, not queue items of their own.
  *
  * Only asks are decided (1:1 mt_t65exni4et decision 3): a grant proposal, a held grant, a retainer, a captain or an
@@ -11,7 +11,7 @@
  * item. It shows as one plain line under the queue (cardsBeingWritten), with nothing to press.
  */
 import type { AccessRequestView, CaptainRequestView, Doc, GrantView, IntrayRoute, MeetingFocusKind, ScheduleView } from "@muster-town/schema";
-import type { AskView, GoalProposalView, Intray } from "../api";
+import type { AskView, Intray } from "../api";
 import { sortAsks } from "./asks";
 
 export type Blocked = NonNullable<Intray["blocked"]>[number];
@@ -23,14 +23,13 @@ export type QueueItem =
   | { kind: "retainer"; id: string; retainer: ScheduleView }
   | { kind: "captain"; id: string; req: CaptainRequestView }
   | { kind: "access"; id: string; req: AccessRequestView }
-  | { kind: "goal"; id: string; proposal: GoalProposalView }
   | { kind: "blocked"; id: string; blocked: Blocked };
 
 /** The waiting items of a Town Hall in-tray read, already filtered to the viewer's Mine / All / Funded view. */
 interface QueueInput {
   asks: AskView[];
   reports: Doc[]; grants: GrantView[]; retainers: ScheduleView[]; captains: CaptainRequestView[];
-  access: AccessRequestView[]; goalProposals: GoalProposalView[]; blocked: Blocked[];
+  access: AccessRequestView[]; blocked: Blocked[];
 }
 
 /** Every id an ask is about or came from: an item with one of these ids is that ask's record, not a queue item. */
@@ -57,7 +56,6 @@ export function waitingSince(x: QueueItem): string | null {
     case "grant": return x.grant.updatedAt;
     case "retainer": return x.retainer.updatedAt;
     case "captain": case "access": return x.req.createdAt;
-    case "goal": return x.proposal.createdAt;
     case "blocked": return x.blocked.since;
   }
 }
@@ -73,7 +71,6 @@ export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "s
   const free = <T extends { id: string }>(xs: T[]) => xs.filter((x) => !asked.has(x.id));
   const rest: QueueItem[] = [
     ...free(t.reports).map((doc) => ({ kind: "report" as const, id: doc.id, doc })),
-    ...free(t.goalProposals).map((proposal) => ({ kind: "goal" as const, id: proposal.id, proposal })),
     ...t.blocked.map((blocked) => ({ kind: "blocked" as const, id: `blocked:${blocked.buildingId}`, blocked })),
   ];
   rest.sort((a, b) => (waitingSince(a) ?? "9").localeCompare(waitingSince(b) ?? "9"));
@@ -125,7 +122,6 @@ export function kindWord(x: QueueItem): string {
     case "retainer": return "retainer";
     case "captain": return "captain ask";
     case "access": return "join ask";
-    case "goal": return "goal proposal";
     case "blocked": return "blocked";
   }
 }
@@ -137,7 +133,6 @@ export function buildingOf(x: QueueItem): string | null {
     case "report": return x.doc.buildingId ?? null;
     case "grant": return x.grant.buildingId;
     case "retainer": return x.retainer.buildingId;
-    case "goal": return x.proposal.buildingId ?? null;
     case "blocked": return x.blocked.buildingId;
     default: return null;
   }
@@ -146,6 +141,6 @@ export function buildingOf(x: QueueItem): string | null {
 /** The item on screen as the Secretary's 1:1 hears it (PUT /api/meetings/:id/focus): the queue's kinds in the town's words. */
 export function focusOf(x: QueueItem | null): { kind: MeetingFocusKind; id: string } | null {
   if (!x) return null;
-  const kind: MeetingFocusKind = x.kind === "report" ? "doc" : x.kind === "goal" ? "goalProposal" : x.kind;
+  const kind: MeetingFocusKind = x.kind === "report" ? "doc" : x.kind;
   return { kind, id: x.id };
 }

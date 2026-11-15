@@ -43,6 +43,7 @@ function doneLine(c: BranchCall, label: string): string {
     case "captain": return c.action === "accept" ? "Captain accepted." : "Captain ask declined.";
     case "access": return c.grant ? "Let in." : "Declined.";
     case "request": return c.action === "done" ? "Done: your report is in the library and the author hears it." : "Request declined.";
+    case "goal": return c.action === "cut" ? "Goal proposal cut: the proposer hears it." : "Accepted: the goal tree is changed.";
     default: return `Decided: ${label}.`;
   }
 }
@@ -61,6 +62,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   const [noting, setNoting] = useState(false);
   const [perRun, setPerRun] = useState(retainer ? toMillions(retainer.tokensPerRun) : "");
   const [until, setUntil] = useState("");
+  const [words, setWords] = useState("");
   const counter = retainerCounter(perRun, until, note, retainer?.tokensPerRun);
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
@@ -78,6 +80,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
       case "captain": await api().decideCaptain(id, c.action, note || undefined); break;
       case "access": await api().decideAccess(id, c.grant); break;
       case "request": await api().request(id, c.action, note.trim() || undefined); break;
+      case "goal": await api().decideGoalProposal(id, { action: c.action === "cut" ? "cut" : "accept", note: note.trim(), ...(c.action === "edit" ? { text: words.trim() } : {}) }); break;
       case "ask": await api().decideAsk(ask.id, c.decision, note); break;
       case "none": return;
     }
@@ -92,7 +95,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
   const plain = branches.some(({ c }) => c.kind === "ask");
   // a form whose note may stay empty: a grant's adjust (tokens decide it)
-  const noteOptional = (c: BranchCall) => c.kind === "grant" && c.action === "adjust";
+  const noteOptional = (c: BranchCall) => (c.kind === "grant" && c.action === "adjust") || c.kind === "goal";
   return (
     <div className="ask-decide">
       {plain && noting ? (
@@ -109,6 +112,9 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
           {form.call.kind === "grant" ? (
             <Field label={form.call.action === "adjust" ? "New ceiling" : "Tokens"}><MTokensInput value={tokens} onChange={setTokens} ariaLabel={form.call.action === "adjust" ? "New ceiling" : "Tokens"} /></Field>
           ) : null}
+          {form.call.kind === "goal" && form.call.action === "edit" ? (
+            <Field label="New words"><textarea className="ask-note" rows={2} maxLength={300} value={words} onChange={(e) => setWords(e.target.value)} placeholder="the goal or key result as you want it to read" aria-label="New words" autoFocus /></Field>
+          ) : null}
           {form.call.kind === "retainer" ? (
             <div className="ask-form-row">
               <Field label="Tokens per run"><MTokensInput value={perRun} onChange={setPerRun} ariaLabel="Tokens per run" /></Field>
@@ -119,7 +125,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
           {form.call.kind === "retainer" ? <div className="muted">Change the per-run amount, the end date or both, or just say what to change. The manager edits the schedule, which asks again.</div> : null}
           {form.call.kind === "grant" && form.call.action === "adjust" && grant ? <div className="muted">It has spent {fmtTokens(grant.spentTokens)} {ADJ}. The new ceiling must be more.</div> : null}
           <div className="actions">
-            <Act small tone="primary" disabled={form.call.kind === "grant" && form.call.action === "adjust" ? !tokensOk || (grant ? n <= grant.spentTokens : false) : form.call.kind === "retainer" ? !counter : noteOptional(form.call) ? false : !note.trim()} run={run(form.call, form.label)}>{form.label}</Act>
+            <Act small tone="primary" disabled={form.call.kind === "grant" && form.call.action === "adjust" ? !tokensOk || (grant ? n <= grant.spentTokens : false) : form.call.kind === "retainer" ? !counter : form.call.kind === "goal" && form.call.action === "edit" ? !words.trim() : noteOptional(form.call) ? false : !note.trim()} run={run(form.call, form.label)}>{form.label}</Act>
             <button className="btn sm" onClick={() => setForm(null)}>Cancel</button>
           </div>
         </div>

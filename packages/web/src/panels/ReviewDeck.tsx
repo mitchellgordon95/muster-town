@@ -5,14 +5,13 @@
  * and Archive; Approve all on "For the record"), sent with `deckSlide`. Deciding moves on to the next item's slide.
  */
 import { type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type IntrayRoute, type ReviewSlide } from "@muster-town/schema";
-import type { AskView, FunderWeekView, GoalProposalView } from "../api";
+import type { AskView, FunderWeekView } from "../api";
 import { AskButtons } from "./AskCard";
 import { fundedSlides, type IntrayView } from "./funderFilter";
 import { store } from "../state";
 import { clampSlide } from "./DeckView";
 import { ReportActions } from "./DocView";
 import { CaptainRow, GrantRow, RetainerRow } from "./Places";
-import { GoalProposalItem } from "./GoalTreePanel";
 
 /** After deciding on slide `n`: the key of the first later slide about another item (an item's other slides go with it). */
 export function nextSlideKey(slides: ReviewSlide[], n: number): string | null {
@@ -37,7 +36,7 @@ export function mineSlides(slides: ReviewSlide[], routes: Record<string, IntrayR
 }
 
 /** The decision buttons for one slide: pure over its props, so tests render it. */
-export function SlideDecision({ slide, n, grants, reports, goalProposals = [], captains = [], retainers = [], asks = [], routes = {}, onDecided, onMarked, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; goalProposals?: GoalProposalView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; /** the in-tray's asks: an "ask" slide's buttons (legible delegation step 5) */ asks?: AskView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
+export function SlideDecision({ slide, n, grants, reports, captains = [], retainers = [], asks = [], routes = {}, onDecided, onMarked, onOpenDoc, meetingId }: { slide: ReviewSlide; n: number; grants: GrantView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; /** the in-tray's asks: an "ask" slide's buttons (legible delegation step 5) */ asks?: AskView[]; routes?: Record<string, IntrayRoute>; onDecided: () => void; onMarked?: () => void; onOpenDoc: (id: string) => void; meetingId?: string }) {
   // a presented deck keeps a decided item's slide in place (mt_xywhisvdcm): its decision, no buttons
   if (slide.decided) return <div className="review-decide muted">Decided: {slide.decided}. Move on with →.</div>;
   // the money slate (slide 1 when the Secretary filed one): nothing to decide on it, each ask has its own slide
@@ -50,10 +49,6 @@ export function SlideDecision({ slide, n, grants, reports, goalProposals = [], c
   if (slide.grantId) {
     const g = grants.find((x) => x.id === slide.grantId);
     return g ? <div className="review-decide"><GrantRow grant={g} canDecide={routes[g.id]?.canDecide} route={routes[g.id]} onDecided={onDecided} onMarked={onMarked} onOpenDoc={onOpenDoc} deckSlide={n} meetingId={meetingId} /></div> : <div className="review-decide muted">Already decided.</div>;
-  }
-  if (slide.kind === "goal-proposal") {
-    const p = goalProposals.find((x) => x.id === slide.itemId);
-    return p ? <div className="review-decide"><GoalProposalItem p={p} onDone={onDecided} /></div> : <div className="review-decide muted">Already decided.</div>;
   }
   if (slide.kind === "retainer") {
     const x = retainers.find((y) => y.id === slide.itemId);

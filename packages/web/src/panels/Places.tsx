@@ -183,7 +183,7 @@ function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
 }
 
 /** "→ Lena via <goal>": who a waiting item is routed to (docs/goals.md "Routing"). */
-export function RoutedTo({ route }: { route?: IntrayRoute }) {
+function RoutedTo({ route }: { route?: IntrayRoute }) {
   if (!route) return null;
   return <div className="muted intray-route" title={`Routed by goal ${route.goalId}`}>For {route.mine ? <b>you</b> : route.ownerName}{route.canDecide && !route.mine ? " (you can decide it too)" : ""}</div>;
 }
