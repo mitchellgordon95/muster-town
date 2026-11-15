@@ -7,7 +7,7 @@ import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
 import { backfillJobs } from "./jobs.ts";
-import { rerenderAsks, requestsToDoAsks, backfillAsks, retitleClippedAsks, retitleGrantAsks } from "./asks.ts";
+import { rerenderAsks, requestsToDoAsks, backfillAsks, retitleClippedAsks, templateCardsToNeeds } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { ruleHold } from "./lanes.ts";
@@ -303,13 +303,14 @@ export class World {
     moveManagerRowsToBuildingQueue(this);
     // the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17): claimed requests are open again, their asks offer Done / Decline; idempotent
     requestsToDoAsks(this);
-    // asks (docs/legible-delegation.md §4): what already waits for a human gets its ask; idempotent
+    // asks (docs/legible-delegation.md §4): what already waits for a human gets its need or its ask; idempotent
     backfillAsks(this);
-    // every live ask points at the entry that raised it, and its card is the thread as it stands (migration 115); idempotent
+    // needs and asks (1:1 mt_t65exni4et decision 2): live template cards leave the queue, their needs wait for the manager; idempotent
+    templateCardsToNeeds(this);
+    // every live ask points at the entry that raised it (migration 115); idempotent
     rerenderAsks(this);
-    // migration 105: live town-written cards that quoted a clipped objective are written again from their target; idempotent
+    // migration 105: live cards lose their clipping; idempotent
     retitleClippedAsks(this);
-    retitleGrantAsks(this);
     // rollups are retired (plan dc_uwx045472m step 7; 1:1 mt_msnjkpgwdb decision 21): the undecided ones leave the queue; idempotent
     retireRollups(this);
     // work left queued on a grant that closed (before a close cancelled it) can never start: cancelled; idempotent

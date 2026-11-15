@@ -8,7 +8,7 @@ import { buildingRoleId, createOneOnOne, createResident, createSchedule, fireSch
 import { decideRetainer } from "../src/retainers.ts";
 import { ruleBlock } from "../src/lanes.ts";
 import { applyRank, pressRank, RANK_TOKENS_PER_RUN, rankNothingNew, rankRunView, SECRETARY_MODEL } from "../src/secretary.ts";
-import { askAt, creditBank, seededWorld } from "./helpers.ts";
+import { askAt, creditBank, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
@@ -21,9 +21,11 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
   const th = world.buildings.first("kind = 'town-hall'")!;
-  const proposal = (objective: string, askTokens: number) => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const propose = (objective: string, askTokens: number) => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
   }).id), askTokens);
+  // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
+  const proposal = (objective: string, askTokens: number) => { const g = propose(objective, askTokens); renderNeeds(world, manager.id); return g; };
   return { ...s, world, manager, sec, th, proposal };
 }
 

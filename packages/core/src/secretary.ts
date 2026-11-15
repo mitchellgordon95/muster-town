@@ -16,12 +16,17 @@
  *   ask "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
  *   of type `policy`, `policyLedgerBlock` pins it in managers' prompts). It never appends on its own.
  *
+ * - **Render the backstop** (1:1 mt_t65exni4et decision 2 point 3): a need its manager left unrendered for an hour
+ *   (`overdueNeeds`) queues one run (`needsOverdue`, from the runtime tick); `rank` with `render` files the card and the
+ *   manager is told.
+ *
  * It never funds, continues, cuts or approves anything: the humans decide every ask. The `digest` doc type stays
  * readable for old cards; nothing writes one any more.
  */
 import { grantName, isGone, NOT_GONE, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
-import { createAsk, deferAsk, entriesSinceCard, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
-import { createAssignment, createDoc, managerAgentOf, updateDoc } from "./domain.ts";
+import { createAsk, deferAsk, entriesSinceCard, overtakeAsk, rankedAsks, renderNeed, rewriteAsk, setRank } from "./asks.ts";
+import { createAssignment, createDoc, managerAgentOf, sendMessage, updateDoc } from "./domain.ts";
+import { openNeed, overdueNeeds, type Need } from "./needs.ts";
 import { syncManagerRoles } from "./entities.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { fileNotice } from "./notices.ts";
@@ -65,6 +70,14 @@ const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs
 4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list. In each why, name a grant by its title (the short name on its ask), never by its objective.
 5. Call \`rank\` once with \`order\` (every open ask id), \`slate\` and \`defer\`. It sets the ranks, files the slate as a notice beside the asks and parks the deferred asks. It funds nothing.
 6. submit_report (verdict stop): the slate notice id and how many asks you ranked. Nothing else: don't read other docs, don't write pages.`;
+
+/** The backstop run's title: one pending or running run at a time is found by it. */
+const NEEDS_RUN_TITLE = "Render the needs no manager rendered";
+const NEEDS_RUN_PROMPT = `A need has waited more than an hour for its manager to render it (you are the Secretary; 1:1 mt_t65exni4et decision 2). A need is a fact on a job's thread: a grant wants funding, a grant reached its gate, a request asks a human. The town writes no card for it. You render it now, as its manager would have.
+1. Call \`rank\` with no arguments. Its "Needs waiting" section lists each overdue need: its id, target, type, branches and facts.
+2. For each, \`read\` the need and its job's thread (GET /api/jobs/<job>), and the human's last decision on that target if any.
+3. Call \`rank\` once with \`render\`: one card per need (title, body, recommendation, claims), diff-first from the human's last decision, in plain short sentences, no fact the thread lacks. Its type and branches come from the need. Its manager is told.
+4. submit_report (verdict stop): which needs you rendered. Nothing else.`;
 
 /** The decision run's title: one pending run at a time is found by it (the debounce). */
 const DECISION_RUN_TITLE = "Settle and re-rank after a decision";
@@ -241,6 +254,27 @@ export class Secretary {
     });
   }
 
+  /**
+   * The backstop (1:1 mt_t65exni4et decision 2 point 3): when a need has waited unrendered past `NEED_BACKSTOP_MS`, one
+   * Secretary run renders it. Called from the runtime tick; at most one such run pending or running at a time, and at
+   * most DECISION_RUNS_PER_DAY a day. A run of the ranking schedule's retainer, like the decision run. Returns the run, or null.
+   */
+  needsOverdue(at: Date = new Date()): Assignment | null {
+    const world = this.world;
+    const sec = this.agent();
+    const s = rankSchedule(world);
+    if (!sec || sec.status === "stopped" || isGone(sec) || !s || s.retainer !== "funded") return null;
+    if (world.assignments.exists("agentId = ? AND status IN ('pending', 'active') AND title = ?", [sec.id, NEEDS_RUN_TITLE])) return null;
+    const overdue = overdueNeeds(world, at.getTime());
+    if (!overdue.length) return null;
+    const today = `${at.toISOString().slice(0, 10)}T00:00:00.000Z`;
+    if (world.assignments.count("agentId = ? AND title = ? AND createdAt >= ?", [sec.id, NEEDS_RUN_TITLE, today]) >= DECISION_RUNS_PER_DAY) return null;
+    return createAssignment(world, {
+      agentId: sec.id, title: NEEDS_RUN_TITLE, description: `${NEEDS_RUN_PROMPT}\n\nWaiting now:\n${overdue.map(needLine).join("\n")}`, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
+      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, model: s.model,
+    });
+  }
+
   /** The Secretary's part of a 1:1 prompt (null when the 1:1 is with anyone else). */
   brief(m: Meeting): string | null {
     const s = this.agent();
@@ -393,9 +427,14 @@ export function pressRank(world: World, actor: Agent, at: Date = new Date()): As
 const MONEY_ACTIONS: Record<string, string> = { fund: "funded", reject: "rejected", counter: "countered", continue: "continued", adjust: "adjusted", cut: "cut", stop: "stopped" };
 
 /** The `rank` tool's read: every live ask in rank order, then the humans' recent money decisions with their notes. */
+/** One overdue need as a line of the Secretary's read. */
+const needLine = (n: Need) => `- ${n.entry.id} on ${n.entry.jobId} · about ${n.targetId} · ${n.type} · branches ${n.branches.map((b) => b.label).join(" / ")}: ${oneLine(n.entry.note, 200)}`;
+
 export function rankInputsText(world: World, now: Date = new Date()): string {
   const asks = rankedAsks(world);
-  if (!asks.length) return "Nothing to rank: no open asks. submit_report (verdict stop) now.";
+  const overdue = overdueNeeds(world, now.getTime());
+  const needs = overdue.length ? `Needs waiting more than an hour for their manager (render each with \`rank\` render; \`read\` the need first):\n${overdue.map((n) => `${needLine(n)}\n  ${oneLine(n.entry.body, 600)}`).join("\n")}\n\n` : "";
+  if (!asks.length) return needs ? `${needs}No open asks to rank.` : "Nothing to rank: no open asks. submit_report (verdict stop) now.";
   const name = (id: string | null) => (id ? world.buildings.get(id)?.name ?? id : "Town");
   // a card whose thread has moved since it was written: the Secretary may write it again (`rewrite`)
   const moved = (a: Ask) => { const n = entriesSinceCard(world, a); return n ? ` · THREAD MOVED: ${n} entr${n === 1 ? "y" : "ies"} on its thread since this card was written (GET /api/jobs/<its job> or \`read\` ${a.sourceEntryId})` : ""; };
@@ -412,7 +451,7 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
     .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${grantName(g)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
   const decided = world.asks.where("status = 'decided'", [], "ORDER BY decidedAt DESC LIMIT 15").map((a) => `- ${a.id} (${a.type}) "${oneLine(a.title, 100)}": ${oneLine(a.decision ?? "", 120)}`);
   const since = decidedSinceRanking(world, asks);
-  return [
+  return needs + [
     `Open asks (${asks.length}), in their current order:\n\n${list.join("\n\n")}`,
     `Decided since the last ranking, and the open asks each may have overtaken (candidates: judge each; close one only when a human has nothing left to decide on it):\n${since.join("\n") || "(none)"}`,
     `The humans' recent money decisions (newest first):\n${decisions.join("\n") || "(none yet)"}`,
@@ -439,6 +478,7 @@ function decidedSinceRanking(world: World, open: Ask[]): string[] {
 }
 
 interface RankInput {
+  render?: { needId: string; title: string; body: string; recommendation: string; claims?: { text: string; check: { kind: "pr" | "url" | "api" | "kr" | "manual"; ref?: string } }[] }[];
   rewrite?: { askId: string; title?: string; body?: string; recommendation?: string }[];
   overtaken?: { askId: string; because: string; note: string }[];
   order?: string[];
@@ -458,6 +498,11 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
   // asks closed as overtaken in this call leave the queue first: they are in no order, slate or defer
   const closing = new Set<string>();
   for (const r of input.rewrite ?? []) if (!live.has(r.askId)) throw badRequest(`rewrite: ${r.askId} is not an open ask.`);
+  const renders = (input.render ?? []).map((r) => {
+    const n = openNeed(world, r.needId);
+    if (!n) throw badRequest(`render: ${r.needId} is not an open need.`);
+    return { r, n };
+  });
   for (const o of input.overtaken ?? []) {
     if (!live.has(o.askId)) throw badRequest(`overtaken: ${o.askId} is not an open ask.`);
     if (closing.has(o.askId)) throw badRequest(`overtaken: ${o.askId} is listed twice.`);
@@ -493,6 +538,13 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
     tellBuildingsOvertaken(world, by, overtaken);
     // plan step 6: a card is a snapshot of its thread; the Secretary writes one again when the thread moved or the card reads badly
     const rewritten = (input.rewrite ?? []).map((r) => rewriteAsk(world, by, r.askId, r).id);
+    // the backstop: a need its manager left unrendered; its manager hears that the Secretary rendered it
+    const rendered = renders.map(({ r, n }) => {
+      const { ask } = renderNeed(world, n, { title: r.title, body: r.body, recommendation: r.recommendation, claims: r.claims ?? [] }, by.id);
+      const manager = managerAgentOf(world, world.buildings.get(n.buildingId));
+      if (manager) sendMessage(world, { kind: "system", fromId: by.id, fromKind: "agent", toId: manager.id, body: `${by.name} rendered your need ${n.entry.id} (${oneLine(n.entry.note, 120)}) as ask ${ask.id}: it waited more than an hour unrendered. Read the card; the Secretary owns its words from now on.` });
+      return ask.id;
+    });
     if (input.order) {
       order.forEach((id, i) => setRank(world, id, i + 1));
       for (const id of live.keys()) if (!seen.has(id) && !closing.has(id)) setRank(world, id, null);
@@ -517,7 +569,7 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
       });
     }
     world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${overtaken.length ? `, closed ${overtaken.length} as overtaken` : ""}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null, overtaken: overtaken.map((o) => o.askId) } });
-    return { ranked: order.length, deferred, overtaken: overtaken.map((o) => o.askId), rewritten, slateId: slate?.id ?? null, note: `Done${overtaken.length ? `: closed ${overtaken.length} as overtaken` : ""}${slate ? `; the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
+    return { ranked: order.length, deferred, overtaken: overtaken.map((o) => o.askId), rewritten, rendered, slateId: slate?.id ?? null, note: `Done${overtaken.length ? `: closed ${overtaken.length} as overtaken` : ""}${slate ? `; the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
   });
 }
 

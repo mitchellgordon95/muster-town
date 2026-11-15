@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, decideAsk, focusBlock, focusTarget, setMeetingFocus, townRoleId } from "../src/index.ts";
 import { createAsk } from "../src/asks.ts";
-import { askAt, creditBank, seededWorld } from "./helpers.ts";
+import { askAt, creditBank, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -19,9 +19,11 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
   const th = world.buildings.first("kind = 'town-hall'")!;
-  const proposal = () => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const propose = () => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: "Banner shows Usage", approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 350_000,
   }).id), 350_000);
+  // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
+  const proposal = () => { const g = propose(); renderNeeds(world, manager.id); return g; };
   const m = createOneOnOne(world, admin, th.id, { agentId: sec.id });
   const askOf = (grantId: string) => world.asks.first("targetKind = 'grant' AND targetId = ?", [grantId])!;
   return { ...s, world, manager, sec, th, proposal, m, askOf };

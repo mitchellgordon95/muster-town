@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { REVIEW_DECK_ID } from "@muster-town/schema";
 import { buildingRoleId, createAssignment, createDoc, newId, nowIso, presentedReviewDeck, reviewDeck } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -17,10 +17,12 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const krs = KRS;
   world.setGrantPricing({ stepSizes: { S: 50_000, M: 1_000_000, L: 2_000_000 } }); // one M step asks 1M
-  const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string; continues?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const propose = (i = 0, extra: { picture?: string; whatYoudSee?: string; continues?: string } = {}) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [KRS[i]!, { text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: `Plan for KR ${i}`, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 1_000_000,
     ...extra,
   }).id);
+  // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
+  const proposal = (i = 0, extra: { picture?: string; whatYoudSee?: string; continues?: string } = {}) => { const g = propose(i, extra); renderNeeds(world, manager.id); return g; };
   /** An unhomed visitor's report, filed under the Town Hall: the only report its in-tray holds (rollups are retired). */
   const visitorReport = (title: string, createdAt: string) => createDoc(world, {
     type: "report", title, body: `# ${title}\nWhat I saw on the board.\n![shot](/api/media/mf_x0.png)`, authorId: manager.id, authorKind: "agent", buildingId: "town-hall", state: "building",

@@ -48,3 +48,20 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     expect(ask.history.find((h) => h.action === "lint")!.note).toContain('"checkpoint card" in "Open the checkpoint card once and this never comes back.": use "gate"');
   });
 });
+
+describe("needs and asks in the dictionary (1:1 mt_t65exni4et)", () => {
+  it("a dictionary seeded before needs gets the need line after ask, rewords the seed's ask line, keeps a human's edit, and is idempotent", () => {
+    const { world } = seededWorld();
+    const d = ensureDictionary(world)!;
+    expect(d.body).toMatch(/^- \*\*need\*\*: a fact on a job's thread/m);
+    // as seeded before needs
+    const old = d.body.replace(/^- \*\*need\*\*:.*\n/m, "").replace(/^- \*\*ask\*\*:.*$/m, "- **ask**: something only a human can do, stored with its type, target, branches and recommendation. The human decides it.");
+    world.docs.patch(d.id, { body: old });
+    const fixed = ensureDictionary(world)!;
+    expect(fixed.body).toMatch(/^- \*\*ask\*\*: the card in the decision queue: a view of one need.*\n- \*\*need\*\*: /m);
+    expect(ensureDictionary(world)!.body).toBe(fixed.body);
+    // a human's own ask line stays
+    world.docs.patch(d.id, { body: old.replace(/^- \*\*ask\*\*:.*$/m, "- **ask**: Mitchell's words.") });
+    expect(ensureDictionary(world)!.body).toMatch(/^- \*\*ask\*\*: Mitchell's words\.\n- \*\*need\*\*: /m);
+  });
+});

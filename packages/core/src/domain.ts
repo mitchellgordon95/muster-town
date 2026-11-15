@@ -1,6 +1,7 @@
 import { isGone, Doc, QUEUE_ORDER, type Agent, type Ask, type Assignment, type AssignmentQueue, type Building, type AccessRequestView, type CaptainRequestView, type GrantView, type LaneFields, type Message, type Origin, type ReviewDecision, type ScheduleView, type WaitFor } from "@muster-town/schema";
 import { AppError } from "./errors.ts";
 import { answerEntry, appendEntry, flagJobId, openJob, openManagerEntries, type Entry } from "./jobs.ts";
+import { unrenderedNeeds } from "./needs.ts";
 import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
@@ -448,13 +449,14 @@ export const isEntry = (x: QueueItem): x is Entry => "jobId" in x;
 /**
  * A building's queue for whoever works its in-tray (plan dc_uwx045472m A2: "queues are views"): the pending reports and
  * flags the code did not settle (`intrayOf`), and the unanswered entries at level manager that have no doc (a dead
- * session, a human's counter, reject, cut or missed key result, a tell, a mention, an outbox answer). Oldest first.
- * Not the Town Hall's: the humans' queue is the asks.
+ * session, a human's counter, reject, cut or missed key result, a tell, a mention, an outbox answer), and the needs on
+ * its threads that no card renders yet (needs.ts). Oldest first. Not the Town Hall's: the humans' queue is the asks.
  */
 export function managerQueue(world: World, buildingId: string): QueueItem[] {
   const b = world.buildings.get(buildingId);
   if (!b || b.kind === "town-hall") return b ? intrayOf(world, buildingId) : [];
-  return [...intrayOf(world, buildingId), ...openManagerEntries(world, buildingId)].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+  // a need no card renders yet waits for this manager too (1:1 mt_t65exni4et decision 2): rendering it with `ask` clears it
+  return [...intrayOf(world, buildingId), ...openManagerEntries(world, buildingId), ...unrenderedNeeds(world, buildingId).map((n) => n.entry)].sort((x, y) => x.createdAt.localeCompare(y.createdAt));
 }
 
 /**
@@ -517,6 +519,7 @@ export function intrayCounts(world: World): Map<string, number> {
     WHERE e.level = 'manager' AND e.docId IS NULL AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.answers = e.id) GROUP BY j.buildingId`).all() as { b: string; n: number }[]) {
     if (r.b !== th?.id) counts.set(r.b, (counts.get(r.b) ?? 0) + r.n);
   }
+  for (const n of unrenderedNeeds(world)) if (n.buildingId !== th?.id) bump(n.buildingId);
   if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world); i > 0; i--) bump(th.id);
   return counts;
 }

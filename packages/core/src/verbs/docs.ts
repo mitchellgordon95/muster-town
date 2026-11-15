@@ -20,7 +20,7 @@ import { answer, asksSomething } from "../answer.ts";
 import { answerEntry, appendEntry, entryOf, fileReportEntry, jobOf, refreshJob } from "../jobs.ts";
 import { passUpWithAsk, requireOpenEntry, reviewEntry } from "../review-entry.ts";
 import { linkPostmortem } from "../postmortems.ts";
-import { askForRequest } from "../asks.ts";
+import { needForRequest } from "../asks.ts";
 import { fileNotice } from "../notices.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
@@ -499,12 +499,8 @@ export async function request_human(world: World, me: Agent, input: VerbIn<"requ
     ...(asking ? { assignmentId: asking.id } : {}),
     ...(input.replaces ? { requestReplaces: input.replaces } : {}),
   }, `${me.name} asked for human help: ${input.title}`);
-  // its entry on the thread of the job that asked (else the building's own), at level human: the do ask is its rendering
-  if (bid) appendEntry(world, {
-    id: `en_${doc.id}`, jobId: asking ? jobOf(asking).id : `jb_${bid}`, authorKind: world.buildings.get(bid)?.managerAgentId === me.id ? "manager" : "fork", authorId: me.id,
-    level: "human", note: input.title, body, docId: doc.id, assignmentId: asking?.id ?? null, moved: { kind: "do", requestId: doc.id }, createdAt: doc.createdAt,
-  });
-  askForRequest(world, doc);
+  // its need on the thread of the job that asked (else the building's own): the author's manager renders the ask from it
+  if (bid) needForRequest(world, doc, { jobId: asking ? jobOf(asking).id : `jb_${bid}`, authorKind: world.buildings.get(bid)?.managerAgentId === me.id ? "manager" : "fork", authorId: me.id, assignmentId: asking?.id ?? null });
   const withdrew: string[] = [];
   for (const id of new Set([...(input.replaces ? [input.replaces] : []), ...replacedRequestIds(`${input.title}\n${input.body}`)])) {
     const old = world.docs.get(id);

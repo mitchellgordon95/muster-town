@@ -58,8 +58,10 @@ describe("jobs and entries, read only", () => {
     expect(reports[0]).toMatchObject({ id: `en_${one.r.id}`, authorKind: "fork", assignmentId: one.a.id, proposes: "continue", moved: { stepsDone: [0], left: "Two more steps." }, pocket: g.id, level: "code" });
     expect(reports[1].moved).toEqual({ stepsDone: [1], left: "Two more steps." });
     // the human's propose and fund came first; seq is 1, 2, 3… in time order
-    expect(t.entries.slice(0, 2).map((e) => e.moved.action)).toEqual(["propose", "fund"]);
-    expect(t.entries[1].authorKind).toBe("human");
+    // (the proposal's need and its answer sit among them: 1:1 mt_t65exni4et)
+    const history = t.entries.filter((e) => e.moved.action);
+    expect(history.slice(0, 2).map((e) => e.moved.action)).toEqual(["propose", "fund"]);
+    expect(history[1].authorKind).toBe("human");
     expect(t.entries.map((e) => e.seq)).toEqual(t.entries.map((_, i) => i + 1));
     // an assignment id reads its job too
     expect(jobThread(world, one.a.id)!.job.id).toBe(`jb_${g.id}`);

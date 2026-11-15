@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, decideAccess, decideCaptain, decideRetainer, newId, nowIso, requestAccess, requestCaptain, townHallIntray, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { asksFor, backfillAsks, createAsk, decideAsk, deferAsk, openAsks, rankedAsks, requestsToDoAsks } from "../src/asks.ts";
-import { askAt, seededWorld } from "./helpers.ts";
+import { askAt, renderNeeds, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
@@ -44,6 +44,7 @@ describe("the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17)", () => {
     const { world, by } = seededWorld();
     const noor = by("Noor");
     const { id } = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side." });
+    renderNeeds(world);
     // as the old outbox left it: claimed, its ask a click with Claim
     world.docs.patch(id, { requestStatus: "claimed", claimedByUserId: "us_x" });
     const ask = world.asks.first("targetKind = 'request' AND targetId = ?", [id])!;
@@ -58,6 +59,7 @@ describe("the end of the outbox (1:1 mt_msnjkpgwdb decisions 16-17)", () => {
     const { world, by } = seededWorld();
     const noor = by("Noor");
     const { id } = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side." });
+    renderNeeds(world);
     const later = createAsk(world, { type: "click", buildingId: "carbon-cycle", sourceDocId: null, title: "Press Let in", body: "Noor has waited since today.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" }).ask;
     const order = rankedAsks(world).map((a) => a.id);
     const doAsk = world.asks.first("targetKind = 'request' AND targetId = ?", [id])!;
@@ -70,6 +72,9 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
   it("a proposal files one money ask; a second ask on its grant folds in as a source line; funding retires it with the event's text", async () => {
     const { world, admin, propose } = await setup();
     const g = propose(250_000);
+    // the proposal writes a need and no card (1:1 mt_t65exni4et): its manager renders the ask
+    expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([]);
+    renderNeeds(world);
     const [ask] = asksFor(world, { kind: "grant", id: g.id });
     expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
     expect(ask).toMatchObject({ type: "money", status: "open", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, recommendation: expect.stringContaining("Fund it"), tags: [] });
@@ -95,6 +100,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const g = fund(100_000);
     spend(g.id, 100_000);
     expect(world.grants.require(g.id).status).toBe("checkpoint");
+    renderNeeds(world);
     expect(live("grant", g.id)).toEqual([expect.objectContaining({ type: "money", title: expect.stringContaining("is held at its ceiling") })]);
     expect(live("grant", g.id)[0]!.branches.map((b) => b.label)).toEqual(["Adjust", "Cut"]);
     world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 150_000 });
@@ -109,6 +115,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     // requests: a token is a credential ask, anything else a do; Done / Decline (no Claim); done and withdraw retire them
     const pat = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Reissue the test account's PAT", body: "The token expired.", kind: "other" });
     const photo = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side.", kind: "observation" });
+    renderNeeds(world);
     expect(live("request", pat.id)).toEqual([expect.objectContaining({ type: "credential", branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] })]);
     expect(live("request", photo.id)).toEqual([expect.objectContaining({ type: "do" })]);
     world.ops.requestAction(admin, pat.id, "done", "Reissued; it is in the Secrets tab.");
@@ -135,6 +142,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
   it("only a human who can fund decides an ask; a deferred ask stays listed until decided", async () => {
     const { world, admin, mei, noor } = await setup();
     const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Hold a 1:1 about the deck", body: "Ten minutes.", kind: "other" });
+    renderNeeds(world);
     const ask = asksFor(world, { kind: "request", id: req.id })[0]!;
     expect(() => decideAsk(world, mei, ask.id, "Done")).toThrow(/Only a human/);
     expect(() => deferAsk(world, mei, ask.id, "gr_x ships")).toThrow(/Only a human/);
@@ -144,12 +152,13 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(decideAsk(world, admin, ask.id, "Done")).toMatchObject({ status: "decided", decision: "Done", decidedBy: admin.ownerUserId });
     expect(openAsks(world).map((a) => a.id)).not.toContain(ask.id);
     expect(() => decideAsk(world, admin, ask.id, "Done")).toThrow(/already decided/);
-    expect(world.asks.require(ask.id).history.map((h) => h.action)).toEqual(["create", "lint", "defer", "decide"]); // the town wrote this card from the request: vetted and flagged
+    expect(world.asks.require(ask.id).history.map((h) => h.action).filter((a) => a !== "lint")).toEqual(["create", "defer", "decide"]);
   }, 30_000);
 
   it("a click ask's note rides with its label as the decision's words, and the building's manager hears them", async () => {
     const { world, admin, noor } = await setup();
     const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title: "Create the repo for the bot", body: "One repo.", kind: "other" });
+    renderNeeds(world);
     const ask = asksFor(world, { kind: "request", id: req.id })[0]!;
     const managerId = world.buildings.get(ask.buildingId!)!.managerAgentId ?? "";
     expect(managerId).not.toBe("");
@@ -163,11 +172,13 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const { world, admin, noor, propose } = await setup();
     const asked = async (title: string) => {
       const req = await world.verbs.request_human(noor, { worth: "Only a human can do this; the work waits on it.", title, body: "Ten minutes.", kind: "other" });
+      renderNeeds(world);
       return asksFor(world, { kind: "request", id: req.id })[0]!;
     };
     const first = await asked("Hold a 1:1 about the deck");
     const second = await asked("Book the deck review");
     const g = propose();
+    renderNeeds(world);
     // behind an ask: deciding that ask reopens it
     deferAsk(world, admin, second.id, `after ${first.id} is answered`);
     // behind a target: the grant's ask retiring (it is funded) reopens it; a deferral naming a longer id doesn't match
@@ -185,7 +196,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(world.events.list({ types: ["ask.reopened"] })).toHaveLength(2);
   }, 30_000);
 
-  it("backfill files the asks of everything already open, and a second run creates nothing", async () => {
+  it("backfill files the asks and needs of everything already open, and a second run creates nothing", async () => {
     const { world, admin, noor, propose, member } = await setup();
     const g = propose();
     const countered = propose(50_000, "A second plan");
@@ -196,7 +207,10 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const ar = requestAccess(world, upsertGithubUser(world, { id: 77, login: "newcomer" }).user.id);
     // as if the asks table had just been added: everything open is there, no ask yet
     world.db.prepare("DELETE FROM asks").run();
-    expect(backfillAsks(world)).toBe(4);
+    // the proposal and the request keep their open needs (no card: their manager renders them); the person asks get theirs
+    expect(backfillAsks(world)).toBe(2);
+    expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([]);
+    renderNeeds(world);
     expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([expect.objectContaining({ type: "money", status: "open" })]);
     expect(asksFor(world, { kind: "grant", id: g.id })[0]!.sources.map((s) => s.docId)).toEqual([g.id]);
     expect(asksFor(world, { kind: "grant", id: countered.id })).toEqual([]); // a countered proposal waits on its manager
@@ -212,21 +226,25 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const g = propose();
     const fundIt = { type: "money" as const, targetId: g.id, title: "Fund the deck grant", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships.", claims: [{ text: "The deck builds", check: { kind: "manual" as const } }], branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" };
     const redeploy = { type: "policy" as const, title: "May forks redeploy?", body: "Rule: forks may redeploy on green CI.\nI applied it twice this week.\nReversing it means a human redeploys each change.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" };
-    const grantAsk = asksFor(world, { kind: "grant", id: g.id })[0]!;
     const before = world.asks.count();
     await expect(world.verbs.ask(mei, { ...fundIt, targetId: undefined })).rejects.toThrow(/money ask: name the grant or retainer/);
     await expect(world.verbs.ask(mei, { ...fundIt, targetId: "gr_nothere" })).rejects.toThrow(/gr_nothere is not a grant/);
     expect(world.asks.count()).toBe(before);
-    // the grant's proposal already has a live ask: the manager's money ask on it is that ask, not a second one
-    const folded = await world.verbs.ask(mei, fundIt);
-    expect(folded).toMatchObject({ askId: grantAsk.id, folded: true });
+    // the grant's proposal has an open need: the manager's money ask on it renders that need, with the need's branches
+    const rendered = await world.verbs.ask(mei, fundIt);
+    const grantAsk = world.asks.require(rendered.askId);
+    expect(rendered).toMatchObject({ folded: false, entryId: expect.stringMatching(new RegExp(`^en_${g.id}_need`)) });
+    expect(grantAsk.branches.map((b) => b.label)).toEqual(["Fund", "Counter", "Reject"]);
+    expect(grantAsk.sourceEntryId).toBe(rendered.entryId);
+    // a second money ask on it folds into that card, not a second one
+    expect(await world.verbs.ask(mei, { ...fundIt, title: "Fund it again" })).toMatchObject({ askId: grantAsk.id, folded: true });
     expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
     expect(world.asks.require(grantAsk.id).status).toBe("open");
     // an ask with no target is a card of its own in the queue
     const own = await world.verbs.ask(mei, redeploy);
     expect(own).toMatchObject({ askId: expect.stringMatching(/^ak_/), folded: false });
     expect(own.askId).not.toBe(grantAsk.id);
-    expect(world.asks.count()).toBe(before + 1);
+    expect(world.asks.count()).toBe(before + 2);
     expect(townHallIntray(world).asks.map((a) => a.id)).toEqual(expect.arrayContaining([grantAsk.id, own.askId]));
   }, 30_000);
 
@@ -242,7 +260,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     const t0 = Date.now();
     const sc = (await world.verbs.schedule(mei, { title: "Sweep", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 3_000 })).scheduleId as string;
     const money = (targetId: string, title: string) => ({ type: "money" as const, targetId, title, body: MONEY, branches: two, recommendation: "Continue" });
-    // the manager asks about each: a proposal, a held grant and an asked retainer already have a live ask (its ask folds in); the rest are new asks
+    // the manager asks about each: a proposal and a held grant have an open need (its ask renders it); an asked retainer already has a live ask (its ask folds in); the rest are new asks
     const asked = [
       await world.verbs.ask(mei, { ...money(toFund.id, "Fund the fund case"), body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships." }),
       await world.verbs.ask(mei, money(held.id, "Raise the checkpoint case")),
@@ -251,7 +269,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
       await world.verbs.ask(mei, { ...money(sc, "Approve the sweep's retainer"), body: "You approved it last week. It has spent 9k.\nIf you approve: the sweep runs every six hours.\nIf you reject: it stays held." }),
       await world.verbs.ask(mei, money(toStop.id, "Stop the stop case if the PR stays red")),
     ];
-    expect(asked.map((a) => a.folded)).toEqual([true, true, false, false, true, false]);
+    expect(asked.map((a) => a.folded)).toEqual([false, false, false, false, true, false]);
     const targets = [["grant", toFund.id], ["grant", held.id], ["grant", toClose.id], ["keyResult", kr.id], ["retainer", sc], ["grant", toStop.id]] as const;
     targets.forEach(([kind, id], i) => expect(asksFor(world, { kind, id }).filter((a) => a.status === "open").map((a) => a.id)).toEqual([asked[i]!.askId]));
     world.grantDesk.decide(admin, toFund.id, { action: "fund" });

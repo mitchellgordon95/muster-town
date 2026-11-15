@@ -1,14 +1,14 @@
 /**
  * An ask is a stored snapshot of a job's thread (plan dc_uwx045472m step 6; Mitchell, 2026-11-12: asks are "data ...
- * rendered from a thread at a given snapshot of its state"). Every ask points at the entry that raised it; a card the
- * town writes from its object is written again when the thread moves; a card with an author's words is marked as
- * behind its thread, and the Secretary may write it again.
+ * rendered from a thread at a given snapshot of its state"). Every ask points at the entry that raised it (a need, for
+ * a proposal, a gate or a request: 1:1 mt_t65exni4et). The town never writes words on a card: when the thread moves the
+ * card is marked behind, and the Secretary may write it again.
  */
 import { describe, expect, it } from "vitest";
 import { appendEntry, buildingRoleId, entryOf, jobThread, openManagerEntries, requestAccess } from "../src/index.ts";
 import { decideAsk, entriesSinceCard, rerenderAsks } from "../src/asks.ts";
 import { threadSeq } from "../src/jobs.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const POLICY = { type: "policy" as const, title: "Keep one banner per lab?", body: "Rule: a lab shows one banner.\nI applied it to the second banner.\nReversing it means two banners compete.", branches: [{ label: "Keep the rule" }, { label: "Change it" }], recommendation: "Keep the rule" };
@@ -29,18 +29,21 @@ function setup() {
 }
 
 describe("every ask points at the entry that raised it", () => {
-  it("a proposal's ask: the propose entry on the grant's job; a request's: its do entry; a retainer's and a join request's: an entry on the building's or the Town Hall's thread", async () => {
+  it("a proposal's ask: its need on the grant's job; a request's: its need entry; a retainer's and a join request's: an entry on the building's or the Town Hall's thread", async () => {
     const { world, manager, proposal, askOn } = setup();
     const g = proposal();
+    renderNeeds(world, manager.id);
     const money = askOn("grant", g.id);
-    const propose = jobThread(world, g.id)!.entries.find((e) => e.moved.action === "propose")!;
-    expect(money.sourceEntryId).toBe(propose.id);
-    expect(money.sources[0]).toMatchObject({ docId: g.id, entryId: propose.id });
+    const need = jobThread(world, g.id)!.entries.find((e) => e.moved.kind === "need")!;
+    expect(need).toMatchObject({ level: "human", authorKind: "code", moved: { need: "proposal", targetId: g.id, type: "money" } });
+    expect(money.sourceEntryId).toBe(need.id);
+    expect(money.sources[0]).toMatchObject({ docId: g.id, entryId: need.id });
 
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    renderNeeds(world, manager.id);
     const doAsk = askOn("request", req.id);
     expect(doAsk.sourceEntryId).toBe(`en_${req.id}`);
-    expect(entryOf(world, doAsk.sourceEntryId!)).toMatchObject({ level: "human", moved: { kind: "do" } });
+    expect(entryOf(world, doAsk.sourceEntryId!)).toMatchObject({ level: "human", moved: { kind: "need", need: "request", targetId: req.id } });
 
     const sc = (await world.verbs.schedule(manager, { title: "Weekly check", description: "d", tokensPerRun: 1000, repeat: { everyHours: 168 } })).scheduleId;
     const retainer = askOn("retainer", sc);
@@ -51,7 +54,9 @@ describe("every ask points at the entry that raised it", () => {
     const join = askOn("access", access.id);
     expect(entryOf(world, join.sourceEntryId!)).toMatchObject({ jobId: "jb_town-hall", authorKind: "human", authorId: stranger.id, level: "human" });
     // each card records the thread's length when it was written
-    for (const a of [doAsk, retainer, join].map((x) => world.asks.require(x.id))) expect(a.renderedSeq).toBe(threadSeq(world, entryOf(world, a.sourceEntryId!)!.jobId));
+    // (the request's card was written before the retainer moved the same thread: it is behind by that entry)
+    for (const a of [retainer, join].map((x) => world.asks.require(x.id))) expect(a.renderedSeq).toBe(threadSeq(world, entryOf(world, a.sourceEntryId!)!.jobId));
+    expect(entriesSinceCard(world, world.asks.require(doAsk.id))).toBe(1);
     // no live ask is without one
     expect(world.asks.count("status IN ('open', 'deferred') AND sourceEntryId IS NULL")).toBe(0);
   });
@@ -73,21 +78,17 @@ describe("every ask points at the entry that raised it", () => {
 });
 
 describe("a card follows its thread", () => {
-  it("a town card is written again from its object when an entry lands on its thread, and its renderedSeq moves with the thread", async () => {
+  it("the town never writes words on a card: the request changes and the thread moves, the card keeps its words and is marked behind", async () => {
     const { world, manager, askOn } = setup();
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    renderNeeds(world, manager.id);
     const before = askOn("request", req.id);
     const jobId = entryOf(world, before.sourceEntryId!)!.jobId;
-    // the request changes, and the thread moves
-    world.docs.patch(req.id, { title: "Photograph the gauge at dusk" });
+    world.docs.patch(req.id, { title: "Photograph the gauge at dusk", body: "From the south side." });
     appendEntry(world, { jobId, authorKind: "manager", authorId: manager.id, level: "none", note: "Dusk is when the light shows the scale." });
     const after = world.asks.require(before.id);
-    expect(after.title).toBe("Photograph the gauge at dusk");
-    expect(after.renderedSeq).toBe(threadSeq(world, jobId));
-    expect(after.renderedSeq).toBeGreaterThan(before.renderedSeq!);
-    expect(after.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
-    // nothing else about it changed, and a second pass changes nothing
-    expect(after).toMatchObject({ id: before.id, status: "open", type: before.type, branches: before.branches });
+    expect(after).toMatchObject({ title: before.title, body: before.body, renderedSeq: before.renderedSeq, history: before.history });
+    expect(entriesSinceCard(world, after)).toBe(1);
     expect(rerenderAsks(world)).toBe(0);
   });
 
@@ -116,6 +117,7 @@ describe("a card follows its thread", () => {
   it("a request card the Secretary rewrote keeps its words through new thread entries and a boot pass, and is marked behind", async () => {
     const { world, manager, sec, askOn } = setup();
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    renderNeeds(world, manager.id);
     const before = askOn("request", req.id);
     const jobId = entryOf(world, before.sourceEntryId!)!.jobId;
     const body = "Take one photograph of the gauge from the north side.\nThe calibration waits on it.";
@@ -133,21 +135,11 @@ describe("a card follows its thread", () => {
     expect(world.asks.require(before.id)).toMatchObject({ title: "Photograph the north gauge", body });
   });
 
-  it("a request card nobody rewrote is still written again from its doc", async () => {
-    const { world, manager, askOn } = setup();
-    const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
-    const before = askOn("request", req.id);
-    world.docs.patch(req.id, { body: "From the south side." });
-    expect(rerenderAsks(world)).toBe(1);
-    const after = world.asks.require(before.id);
-    expect(after.body).toBe("From the south side.");
-    expect(entriesSinceCard(world, after)).toBe(0);
-  });
-
   it("boot: a live ask filed before migration 115 gets the entry it came from, once", async () => {
     const { world, manager, proposal, askOn } = setup();
     const g = proposal();
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    renderNeeds(world, manager.id);
     for (const a of [askOn("grant", g.id), askOn("request", req.id)]) world.asks.upsert({ ...a, sourceEntryId: null, renderedSeq: null });
     rerenderAsks(world);
     expect(askOn("grant", g.id).sourceEntryId).toBe(jobThread(world, g.id)!.entries.find((e) => e.moved.action === "propose")!.id);

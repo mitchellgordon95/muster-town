@@ -12,7 +12,8 @@
 import type { Agent, Ask, Assignment, LaneFields, ReviewDecision, AskCardInput, WaitFor } from "@muster-town/schema";
 import { askStructure, askWarnings } from "@muster-town/schema";
 import { dictionaryPairs } from "./dictionary.ts";
-import { checkAskCards, createAsk, refuseMissingStructure } from "./asks.ts";
+import { checkAskCards, createAsk, refuseMissingStructure, renderNeed } from "./asks.ts";
+import { cardShown, cardText, openNeedsOn } from "./needs.ts";
 import { createAssignment, managerAgentOf } from "./domain.ts";
 import type { Holder } from "./permissions.ts";
 import { AppError, badRequest } from "./errors.ts";
@@ -112,7 +113,9 @@ export function passUpWithAsk(world: World, me: Agent, e: Entry, buildingId: str
  * at level manager when a manager or a fork raised it (the manager moves on it), else a record. One per entry that
  * raised the ask (a second manager's card folded into it hears too).
  */
-export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "sourceEntryId" | "sources">, by: string, said: string): Entry[] {
+export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "body" | "branches" | "recommendation" | "sourceEntryId" | "sources">, by: string, said: string): Entry[] {
+  // the entry carries the card as the human saw it beside their words (1:1 mt_t65exni4et decision 2 point 5)
+  const card = cardShown(ask);
   const ids = [...new Set([ask.sourceEntryId, ...ask.sources.map((x) => x.entryId)].filter((x): x is string => !!x))];
   const out: Entry[] = [];
   for (const id of ids) {
@@ -120,7 +123,7 @@ export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" |
     if (!raised) continue;
     // the manager (or its fork's report) that raised it moves on the answer; anyone else's is a record
     const level = raised.authorKind === "manager" || raised.authorKind === "fork" ? "manager" : "none";
-    const e = answerEntry(world, id, { kind: "user", id: by }, "ask-decided", `${world.nameOf(by)} decided your ask "${firstLine(ask.title, 100)}" (${ask.id}): ${said.slice(0, 1500)}`, { level });
+    const e = answerEntry(world, id, { kind: "user", id: by }, "ask-decided", `${world.nameOf(by)} decided your ask "${firstLine(ask.title, 100)}" (${ask.id}): ${said.slice(0, 1500)}`, { level, moved: { card, said }, body: cardText(card) });
     if (e) out.push(e);
   }
   return out;
@@ -131,9 +134,18 @@ export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" |
  * settle, when the need appears. One manager entry at level human on a job's thread (the job named, else the grant or
  * retainer the card targets, else the building's own), and its card as an ask in the decision queue (structure checked).
  * The human's decision comes back on the same thread (`askDecidedOnThread`). A real-world act is `request_human`.
+ * When the card's target has an open need (a proposal, a gate, a request: 1:1 mt_t65exni4et decision 2), the card renders
+ * that need: it takes the need's type and branches, it is filed on the need's entry, and no second entry is written.
  */
 export function askHumans(world: World, me: Agent, buildingId: string, input: AskCardInput & { jobId?: string; note?: string }): { askId: string; entryId: string; jobId: string; folded: boolean; warnings: string[] } {
   const [a] = checkAskCards(world, [input]);
+  const need = a!.targetId && a!.targetKind ? openNeedsOn(world, a!.targetKind, a!.targetId).at(-1) : undefined;
+  if (need) {
+    if (need.buildingId !== buildingId) throw badRequest(`${a!.targetId}'s need (${need.entry.id}) is on another building's thread: its own manager renders it.`);
+    const { ask, folded } = renderNeed(world, need, { title: a!.title, body: a!.body, recommendation: a!.recommendation, claims: a!.claims ?? [] }, me.id);
+    const warnings = askWarnings(need.type, { ...a!, branches: need.branches, targetKind: need.targetKind, dictionary: dictionaryPairs(world) });
+    return { askId: ask.id, entryId: need.entry.id, jobId: need.entry.jobId, folded, warnings };
+  }
   if (a!.type === "do") throw badRequest("A real-world act a human must carry out is `request_human` (it says why it is worth leaving the queue), not `ask`.");
   refuseMissingStructure("ask", askStructure(a!.type, { ...a!, targetKind: a!.targetKind ?? null }));
   const named = input.jobId ? jobThread(world, input.jobId)?.job : null;

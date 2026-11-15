@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import type { MapLayout } from "@muster-town/schema";
 import { World } from "../src/index.ts";
+import { proposalTitle, renderNeed } from "../src/asks.ts";
+import { unrenderedNeeds } from "../src/needs.ts";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 export const CARBON_DIR = join(REPO_ROOT, "buildings/carbon-cycle");
@@ -144,4 +146,23 @@ export function fundGoalOf(world: World, buildingId: string, funding: { exploreC
   const goalId = world.goalTree.attachmentOf(buildingId);
   world.goalTree.update(null, goalId, funding);
   return goalId;
+}
+
+/**
+ * Render every open need no card renders yet, as its manager would with `ask` (1:1 mt_t65exni4et decision 2): the
+ * town writes needs, never cards, so a test that wants a proposal's, a gate's or a request's ask renders it here. Each
+ * card meets its type's contract. Returns the asks made.
+ */
+export function renderNeeds(world: World, by = "ag_manager"): import("@muster-town/schema").Ask[] {
+  return unrenderedNeeds(world).map((n) => {
+    const g = n.targetKind === "grant" ? world.grants.get(n.targetId) : undefined;
+    const d = n.targetKind === "request" ? world.docs.get(n.targetId) : undefined;
+    const name = g ? `"${g.title || g.objective}"` : "";
+    const card = n.need === "proposal"
+      ? { title: proposalTitle(g!), body: `You have not decided on it before.\nIt asks for ${g!.askTokens} tokens. Nothing is spent yet.\nIt has ${g!.steps.length} steps, and none is done yet.`, recommendation: "Fund it." }
+      : n.need === "gate"
+        ? { title: g!.status === "checkpoint" ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}`, body: `You funded this before.\nIt has spent ${world.grantDesk.spent(g!.id)} tokens.\nSome steps are done and some are left.`, recommendation: "Adjust it." }
+        : { title: d?.title ?? n.entry.note, body: `${d?.body ?? ""}\nScope: what the request says.\nIf you decline: it stays manual.\nWorth leaving the queue: only a human can do it.`, recommendation: "Press Done." };
+    return renderNeed(world, n, card, by).ask;
+  });
 }

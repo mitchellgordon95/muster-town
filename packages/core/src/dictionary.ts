@@ -14,7 +14,8 @@ const AVOID_HEADING = "## Avoid → use";
 
 /** The words the dictionary is seeded with, one meaning each. */
 const SEED_ENTRIES: readonly [string, string][] = [
-  ["ask", "something only a human can do, stored with its type, target, branches and recommendation. The human decides it."],
+  ["ask", "the card in the decision queue: a view of one need, with its type, target, branches and recommendation. A manager or the Secretary writes it. The human decides it."],
+  ["need", "a fact on a job's thread that only a human can settle: a grant wants funding, a grant reached its gate, a request asks a human. It follows no presentation rule. An ask renders it."],
   ["notice", "a state change with nothing to do: something shipped, a grant closed, a key result verified."],
   ["record", "what an ask or a notice came from: a rollup, a report, a grant plan. It is one click down from the card."],
   ["gate", "the point where a grant waits for a human: at its ceiling, or a step report whose forecast is past it."],
@@ -55,6 +56,9 @@ const SEED_BODY = [
   "",
 ].join("\n");
 
+/** The "ask" line as first seeded, before needs (1:1 mt_t65exni4et): the boot repair replaces only this exact line. */
+const OLD_ASK_LINE = "- **ask**: something only a human can do, stored with its type, target, branches and recommendation. The human decides it.";
+
 function dictionaryDoc(world: World): Doc | undefined {
   return world.docs.first("type = 'dictionary' AND buildingId = ?", [TOWN_HALL_ID], "ORDER BY createdAt, rowid");
 }
@@ -62,7 +66,7 @@ function dictionaryDoc(world: World): Doc | undefined {
 /** The dictionary, created once (server boot): a Town Hall doc of type `dictionary`, seeded. Null before the Town Hall exists. */
 export function ensureDictionary(world: World): Doc | null {
   const have = dictionaryDoc(world);
-  if (have) return have;
+  if (have) return addNeed(world, have);
   const th = world.buildings.get(TOWN_HALL_ID);
   if (!th) return null;
   const by = world.reorgs.planner();
@@ -70,6 +74,21 @@ export function ensureDictionary(world: World): Doc | null {
     type: "dictionary", state: "building", buildingId: th.id, title: "Town dictionary", tags: ["dictionary"],
     authorId: by?.id ?? th.createdBy ?? "system", authorKind: by ? "agent" : "user", body: SEED_BODY,
   }, "The town dictionary opened in the Town Hall");
+}
+
+/**
+ * Boot repair (1:1 mt_t65exni4et decision 2): a dictionary seeded before needs gets the "need" line after "ask", and its
+ * "ask" line is reworded only while it is still the seed's (a human's edit stays). Idempotent.
+ */
+function addNeed(world: World, d: Doc): Doc {
+  if (/^\s*-\s*\*\*need\*\*\s*:/m.test(d.body)) return d;
+  const entry = (w: string) => `- **${w}**: ${SEED_ENTRIES.find(([x]) => x === w)![1]}`;
+  const lines = d.body.split("\n");
+  const at = lines.findIndex((l) => /^\s*-\s*\*\*ask\*\*\s*:/.test(l));
+  if (at >= 0 && lines[at] === OLD_ASK_LINE) lines[at] = entry("ask");
+  if (at >= 0) lines.splice(at + 1, 0, entry("need"));
+  else { const w = lines.indexOf("## Words"); lines.splice(w >= 0 ? w + 2 : lines.length, 0, entry("need")); }
+  return world.docs.patch(d.id, { body: lines.join("\n") });
 }
 
 /** A dictionary body's words (the `- **word**` lines of "## Words"). */

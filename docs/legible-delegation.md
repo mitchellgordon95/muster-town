@@ -55,7 +55,7 @@ Several pieces exist in a first form, and §11 builds on them rather than replac
 
 **Built on 2026-11-09** (§11 steps 1-10 and UI items B-E, on the legible-delegation branch), so a reader knows where the code is:
 
-- `packages/core/src/asks.ts`: the `asks` table's service. Asks created at their sources, folded by target, retired by event, decided by a human; the town-written money cards (`proposalCard`, `gateCard`); the Secretary's rank. Invariants in `docs/invariants/asks.md`.
+- `packages/core/src/asks.ts`: the `asks` table's service. Asks created at their sources, folded by target, retired by event, decided by a human; the needs it reads (`needs.ts`: a proposal, a gate and a request write a need, never a card); the Secretary's rank. Invariants in `docs/invariants/asks.md`.
 - `packages/schema/src/ask.ts`: the card contract per ask type and the countable STE rules: `askStructure` (refused when missing) and `askWarnings` (style, filed as warnings).
 - `packages/core/src/seen.ts`: the `seen` table and the reader's delta.
 - `packages/core/src/ask-checks.ts`: claim checks (`pr`, `url`, `api`, `kr`, `manual`), run at render and on open.
@@ -114,6 +114,16 @@ Every ask also carries: `targetKind` + `targetId` (the grant, request, key resul
 6. **Logged**: every decision is an event, and the ask keeps its history like a grant does.
 
 **Since 2026-11-12:** rollups are retired, so no rollup creates an ask. A manager files one with the `ask` verb (type, title, body, branches, recommendation, optional target and job) or passes an in-tray item up with `review` plus `ask`. It is one entry at level human on a job's thread, and the human's decision comes back to the manager as an entry on the same thread. An outbox request is now a `do` ask (Done or Decline, no Claim).
+
+**Since 2026-11-15 (Mitchell, 1:1 mt_t65exni4et decision 2): needs and asks.** Two things, two names. A **need** is an entry on a job's thread at level human that states a fact: "Grant gr_x wants funding", "Grant gr_x reached its gate", "Request dc_x asks a human". It follows no presentation rule. An **ask** is the card in the decision queue: a view of one need, linked by `asks.sourceEntryId`. Only asks enter the queue and the review deck.
+
+- A grant proposed, a grant at its gate (a forecast past the ceiling, or the hold at it) and an outbox request write a need (`packages/core/src/needs.ts`), never a card. The town's old templates (the proposal card, the gate card, the request copied whole) are gone. A newer need on the same target supersedes the open one; the target's deciding event answers it.
+- The manager of the building whose thread holds the need renders it with `ask` on its target: the card is structure-checked and linted like any other, written diff-first from the human's last decision, and takes the need's type and branches. An unrendered need sits in that manager's in-tray (`managerQueue`), which wakes it. For a request, the author's manager renders it. An explorer may render its proposal at once with `propose_grant`'s `ask`.
+- The Secretary rewrites, reorders, defers, folds and closes rendered asks. Backstop: a need left unrendered for an hour queues one Secretary run, which renders it with `rank` `render`, and the manager is told.
+- The town never writes words on a card. When a thread moves under a card, the card is marked behind (`entriesSinceCard`) for the Secretary to rewrite.
+- The Bank counts needs: free tokens subtract an open proposal's askTokens from the grant itself, so an unrendered proposal is not free money.
+- The decision entry carries the card: when a human decides, the answer entry on the thread stores the card as they saw it (title, body, branches, recommendation) beside their words.
+- Migration: at boot, a live card the town wrote from a template leaves the queue and its need waits for its manager (`templateCardsToNeeds`); a card the Secretary rewrote or an author wrote keeps its words. Retainers, captain and access requests still file their own cards.
 
 This replaces the "## Needs from Mitchell" prose and the "Your call:" lines as the channel for asks. The rollup keeps both sections as the **record** of what was asked, but the server reads asks from the typed list the manager files alongside the rollup, not from the prose. A rollup whose every ask is folded or none is archived on submit, as the Secretary does today, and lives one click down.
 

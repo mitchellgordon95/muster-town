@@ -2410,6 +2410,13 @@ export const VerbInputs = {
       skip: z.array(z.object({ askId: Id, why: z.string().trim().min(1).max(300).describe("the overlap or reason") })).max(30).default([]).describe("money asks to skip, and why"),
     }).optional().describe("the money slate: filed as one notice (kind slate) citing the ask ids; it funds nothing"),
     defer: z.array(z.object({ askId: Id, until: Id.describe("the ask (ak_…) or item id it is moot without") })).max(30).optional().describe("park an open ask behind another ask or item it is moot without"),
+    render: z.array(z.object({
+      needId: Id.describe("an open need (en_…) no manager rendered within an hour: the read lists them"),
+      title: z.string().trim().min(1).max(160),
+      body: z.string().trim().min(1).max(4000).describe("the card from the need and its thread, diff-first from the human's last decision"),
+      recommendation: z.string().trim().min(1).max(400),
+      claims: z.array(AskClaim.omit({ result: true })).max(2).optional(),
+    })).max(20).optional().describe("the backstop: render a need its manager left unrendered for over an hour as its ask (type and branches come from the need); its manager is told"),
     rewrite: z.array(z.object({
       askId: Id.describe("an open ask whose card no longer matches its thread, or breaks the presentation rules"),
       title: z.string().trim().min(1).max(160).optional(),

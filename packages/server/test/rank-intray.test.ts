@@ -19,17 +19,22 @@ async function setup() {
   const mei = by("Mei");
   world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
-  const proposal = (objective: string) => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, {
-    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 300_000,
-  }).id);
+  // a proposal writes a need; the manager renders its ask with `ask` (1:1 mt_t65exni4et)
+  const proposal = async (objective: string) => {
+    const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, {
+      keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 300_000,
+    }).id);
+    await world.verbs.ask(mei, { type: "money", targetId: g.id, title: `Fund ${objective}`, body: "You have not decided on it before.\nNothing is spent yet.\nIt has one step, and none is done yet.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund it." });
+    return g;
+  };
   return { ...s, mei, sec, proposal, secAuth: { authorization: `Bearer ${world.tokens.getOrCreate("agent", sec.id)}` } };
 }
 
 describe("the Secretary's ranking in the Town Hall in-tray", () => {
   it("the rank verb sets ranks and files the slate; the in-tray carries it under notices, /api/notices filters it, the deck opens on it", async () => {
     const { world, app, auth, secAuth, proposal } = await setup();
-    const a = proposal("A banner with today's spend");
-    const b = proposal("A second banner");
+    const a = await proposal("A banner with today's spend");
+    const b = await proposal("A second banner");
     const askOf = (id: string) => world.asks.first("targetId = ? AND status = 'open'", [id])!;
     const [ka, kb] = [askOf(a.id), askOf(b.id)];
     const read = await json(app, "POST", "/api/verbs/rank", { headers: secAuth, body: {} });
@@ -58,7 +63,7 @@ describe("the Secretary's ranking in the Town Hall in-tray", () => {
     expect((await json(app, "POST", "/api/rank/run", { headers: auth })).body.error).toMatch(/not approved/);
     expect((await json(app, "POST", `/api/schedules/${sched.id}/retainer`, { headers: auth, body: { action: "approve" } })).status).toBe(200);
     expect((await json(app, "POST", "/api/rank/run", { headers: auth })).status).toBe(409); // no open ask
-    proposal("A banner with today's spend");
+    await proposal("A banner with today's spend");
     const view = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
     expect(view.rankRun).toEqual({ scheduleId: sched.id, runningId: null, refused: null });
     expect(view.digestRun).toEqual(view.rankRun);

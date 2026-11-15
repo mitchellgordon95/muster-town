@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { GrantTitle, grantTitleOf, lintAskBody, vetAsk } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, migrate, newId, nowIso, updateBuilding } from "../src/index.ts";
-import { asksFor, createAsk, retitleClippedAsks, retitleGrantAsks, setRank } from "../src/asks.ts";
+import { createAsk, retitleClippedAsks, setRank } from "../src/asks.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner on the lab board", howToCheck: "Open the lab as a guest" };
@@ -57,66 +57,22 @@ function lab() {
   return { ...s, b, pix, objective, propose };
 }
 
-describe("cards name a grant by its title", () => {
-  it("the proposal card has no ellipsis, never quotes the objective, and its second line is the first key result", () => {
-    const { world, propose, objective } = lab();
-    const g = propose();
-    expect(g.title).toBe("Lab board answers its purpose");
-    const ask = asksFor(world, { kind: "grant", id: g.id })[0]!;
-    expect(ask.title).toBe('Fund "Lab board answers its purpose" at 150k');
-    expect(ask.body.split("\n")[1]).toBe("A guest sees the banner on the lab board.");
-    expect(`${ask.title}\n${ask.body}`).not.toContain("…");
-    expect(ask.body).not.toContain(objective.slice(0, 30));
-    expect(ask.tags).toEqual([]);
-    expect(world.events.list({ types: ["grant.proposed"] }).at(-1)!.text).toBe("Proposal: Lab board answers its purpose (150,000 tokens)");
-  });
-
-  it("the gate card's body holds no quote: the forks' top-up line is a claim checked by the checkpoint report", async () => {
-    const { world, admin, propose, pix } = lab();
-    const g = world.grantDesk.decide(admin, propose().id, { action: "fund" });
-    const report = await world.verbs.submit_report(pix, { title: "Checkpoint", body: "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.", verdict: "continue" });
-    const buys = "one session merges PR #392 and closes it, so the docs point at the image";
-    world.grants.patch(g.id, { topUpTokens: 150_000, whatTopUpBuys: buys, checkpointDocId: report.id });
-    world.sessions.upsert({
-      id: newId("se"), agentId: pix.id, assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
-      sdkSessionId: null, output: 150_000, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: g.id,
-    } as never);
-    world.grantDesk.checkpoints(g.buildingId);
-    const ask = asksFor(world, { kind: "grant", id: g.id }).find((a) => a.status === "open")!;
-    expect(ask.title).toBe('"Lab board answers its purpose" is held at its ceiling: adjust or cut it');
-    expect(ask.body).not.toContain("merges PR");
-    expect(ask.body).not.toContain("The forks say");
-    expect(ask.claims).toContainEqual({ text: "The forks say 150,000 more tokens finish it", check: { kind: "manual", ref: report.id } });
-  });
-});
-
 describe("the retitle repair (boot)", () => {
-  it("rewrites a live clipped town card once from its target, keeping its id, sources, rank and status; a card with no target card loses its ellipsis and keeps its words", () => {
+  it("a live card with an ellipsis loses it and keeps its words, id, sources, rank and status; idempotent", () => {
     const { world, propose } = lab();
     const g = propose();
-    const ask = asksFor(world, { kind: "grant", id: g.id })[0]!;
-    setRank(world, ask.id, 2);
-    // the card as the town wrote it before migration 105: the objective quoted and clipped
-    const old = { title: 'Fund "Make the lab board answer what the lab is for in one look, for every…" at 150,000 tokens', body: `This is a new proposal. You have not decided on it before.\nMake the lab board answer what the lab is for in one look, for every guest who opens it…\n${ask.body.split("\n").slice(2).join("\n")}` };
-    world.asks.upsert({ ...world.asks.require(ask.id), ...old });
     // a manager's card (a rollup's typed ask) that carries an ellipsis
     const mgr = createAsk(world, { type: "policy", targetKind: "rule", targetId: "dc_rulebook", buildingId: g.buildingId, sourceDocId: "dc_rollup1", by: "ag_x", title: "Keep the rule on forks…", body: "Rule: forks may redeploy… I applied it twice. Reversing it costs a session.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" }).ask;
-
-    expect(retitleClippedAsks(world)).toBe(2);
-    const fixed = world.asks.require(ask.id);
-    expect(fixed).toMatchObject({ id: ask.id, status: "open", rank: 2, sources: ask.sources, title: 'Fund "Lab board answers its purpose" at 150k', tags: [] });
-    expect(fixed.body).not.toContain("…");
-    expect(fixed.body.split("\n")[1]).toBe("A guest sees the banner on the lab board.");
-    expect(fixed.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
-    // the manager's card has no target card to rewrite from: its words stay, the ellipsis goes, its first clause is the title
+    setRank(world, mgr.id, 2);
+    expect(retitleClippedAsks(world)).toBe(1);
     const kept = world.asks.require(mgr.id);
     expect(kept.title).toBe("Keep the rule on forks");
     expect(kept.title + kept.body + kept.recommendation).not.toContain("\u2026");
-    expect(kept).toMatchObject({ id: mgr.id, status: mgr.status, sources: mgr.sources.map((x) => ({ ...x, line: x.line.replace(/\s*\u2026\s*/g, " ").trim() })) });
+    expect(kept).toMatchObject({ id: mgr.id, status: mgr.status, rank: 2, sources: mgr.sources.map((x) => ({ ...x, line: x.line.replace(/\s*\u2026\s*/g, " ").trim() })) });
     expect(kept.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
     // idempotent: nothing left to rewrite
     expect(retitleClippedAsks(world)).toBe(0);
-    expect(world.asks.require(ask.id).history.filter((h) => h.action === "retitled")).toHaveLength(1);
+    expect(world.asks.require(mgr.id).history.filter((h) => h.action === "retitled")).toHaveLength(1);
   });
 });
 
@@ -138,24 +94,6 @@ describe("migration 107: written titles for the grants still in play", () => {
     db.exec(sql);
     expect(db.prepare("SELECT title FROM grants WHERE id = ?").pluck().get(a!.id)).toBe(a!.title);
     expect(db.prepare("SELECT title FROM grants WHERE id = ?").pluck().get(b!.id)).toBe("Edited by its manager");
-  });
-});
-
-describe("the grant-ask retitle repair (boot, migration 107)", () => {
-  it("a live town-written ask on a grant takes the grant's current title, quoted, and keeps its body; a manager's ask is untouched; idempotent", () => {
-    const { world, propose } = lab();
-    const g = propose();
-    const ask = asksFor(world, { kind: "grant", id: g.id })[0]!;
-    // the grant got its written title after its ask was filed (migration 107), and the ask still has the old unquoted form
-    world.grants.patch(g.id, { title: "One look says what the lab is for" });
-    world.asks.upsert({ ...world.asks.require(ask.id), title: "Fund Lab board answers its purpose at 150k" });
-    const mgr = createAsk(world, { type: "money", targetKind: "grant", targetId: "gr_other1234", buildingId: g.buildingId, sourceDocId: "dc_rollup1", by: "ag_x", title: "Fund the other one", body: "b", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" }).ask;
-    expect(retitleGrantAsks(world)).toBe(1);
-    const fixed = world.asks.require(ask.id);
-    expect(fixed).toMatchObject({ id: ask.id, status: "open", body: ask.body, title: 'Fund "One look says what the lab is for" at 150k' });
-    expect(fixed.history.at(-1)).toMatchObject({ action: "retitled", by: "system", note: "was: Fund Lab board answers its purpose at 150k" });
-    expect(world.asks.require(mgr.id).title).toBe("Fund the other one");
-    expect(retitleGrantAsks(world)).toBe(0);
   });
 });
 
