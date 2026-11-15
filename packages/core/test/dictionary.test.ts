@@ -5,9 +5,8 @@
 import { lintAskBody } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, managerStateBlock, updateBuilding } from "../src/index.ts";
-import { createAsk } from "../src/asks.ts";
 import { dictionaryBlock, dictionaryPairs, ensureDictionary } from "../src/dictionary.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, seedAsk } from "./helpers.ts";
 
 describe("the town dictionary (docs/legible-delegation.md §5)", () => {
   it("seeded at boot: one Town Hall dictionary doc with the words and the avoid → use list, made once", () => {
@@ -43,7 +42,7 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     // in the town, the pairs come from the Town Hall doc when a card is stored
     const { world } = seededWorld();
     ensureDictionary(world);
-    const { ask } = createAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Look at the checkpoint card", body: "Pix has waited since Monday. Open the checkpoint card once and this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
+    const { ask } = seedAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Look at the checkpoint card", body: "Pix has waited since Monday. Open the checkpoint card once and this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
     expect(ask.tags).toEqual([]);
     expect(ask.history.find((h) => h.action === "lint")!.note).toContain('"checkpoint card" in "Open the checkpoint card once and this never comes back.": use "gate"');
   });

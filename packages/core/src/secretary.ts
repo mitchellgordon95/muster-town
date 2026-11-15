@@ -24,7 +24,8 @@
  * readable for old cards; nothing writes one any more.
  */
 import { grantName, isGone, NOT_GONE, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
-import { createAsk, deferAsk, entriesSinceCard, overtakeAsk, rankedAsks, renderNeed, rewriteAsk, setRank } from "./asks.ts";
+import { deferAsk, entriesSinceCard, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
+import { askOnOwnNeed, renderNeed } from "./ask-verb.ts";
 import { createAssignment, createDoc, managerAgentOf, sendMessage, updateDoc } from "./domain.ts";
 import { openNeed, overdueNeeds, type Need } from "./needs.ts";
 import { syncManagerRoles } from "./entities.ts";
@@ -320,12 +321,16 @@ export function policyLedgerBlock(world: World): string {
  */
 function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
   const line = `- ${oneLine(p.rule, 300)} (origin: ${p.origin}, ${utcDate(nowIso())})`;
-  return createAsk(world, {
-    type: "policy", targetKind: "rule", targetId: `ledger:${p.origin}`, buildingId: p.buildingId ?? null, sourceDocId: p.sourceDocId ?? null,
-    by: world.secretary.agent()?.id ?? "system", title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, line: p.why,
-    body: line, branches: [{ label: "Add", action: LEDGER_ADD }, { label: "Skip", action: "ledger-skip" }],
-    recommendation: "",
-  }).ask;
+  const by = world.secretary.agent()?.id ?? "system";
+  const targetId = `ledger:${p.origin}`;
+  const branches = [{ label: "Add", action: LEDGER_ADD }, { label: "Skip", action: "ledger-skip" }];
+  // the Secretary is its card's author: its need goes on the Town Hall's thread and is rendered at once (decision 7)
+  const ask = askOnOwnNeed(world, {
+    need: "rule", targetKind: "rule", targetId, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: by === "system" ? "code" : "secretary",
+    note: oneLine(p.why, 300), body: line, docId: p.sourceDocId ?? null,
+  }, { title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, body: line, recommendation: "", claims: [] }, by);
+  if (!ask) throw new AppError("conflict", "There is no Town Hall thread to file the rule ask on.");
+  return ask;
 }
 
 const isLedgerAsk = (a: Ask) => a.branches.some((b) => b.action === LEDGER_ADD);

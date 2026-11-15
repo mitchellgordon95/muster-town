@@ -123,7 +123,9 @@ Every ask also carries: `targetKind` + `targetId` (the grant, request, key resul
 - The town never writes words on a card. When a thread moves under a card, the card is marked behind (`entriesSinceCard`) for the Secretary to rewrite.
 - The Bank counts needs: free tokens subtract an open proposal's askTokens from the grant itself, so an unrendered proposal is not free money.
 - The decision entry carries the card: when a human decides, the answer entry on the thread stores the card as they saw it (title, body, branches, recommendation) beside their words.
-- Migration: at boot, a live card the town wrote from a template leaves the queue and its need waits for its manager (`templateCardsToNeeds`); a card the Secretary rewrote or an author wrote keeps its words. Retainers, captain and access requests still file their own cards.
+- Migration: at boot, a live card the town wrote from a template leaves the queue and its need waits for its manager (`templateCardsToNeeds`); a card the Secretary rewrote or an author wrote keeps its words.
+- One entry point (decisions 7-8). The `ask` verb's module, `packages/core/src/ask-verb.ts`, files every card, so the lint runs on each one. A retainer asked writes a need for its building's manager. A captain or access request writes a need on the Town Hall's thread, and the Secretary renders it at its next run. The Planner's calibration and the Secretary's ledger rule write their need and render it at once. An architecture test fails any other file that calls `createAsk` or inserts an ask row.
+- The lint's machine-checkable report-vs-ask principles (decision 6) are rules in `ASK_LINT_RULES`: a short title with no ids, no bare pointer such as "see the report", and branches that name an action. A picture and a card shaped to its act are the renderer's duty, stated in the manager's Asks paragraph and not linted.
 
 This replaces the "## Needs from Mitchell" prose and the "Your call:" lines as the channel for asks. The rollup keeps both sections as the **record** of what was asked, but the server reads asks from the typed list the manager files alongside the rollup, not from the prose. A rollup whose every ask is folded or none is archived on submit, as the Secretary does today, and lives one click down.
 
@@ -242,6 +244,7 @@ What the town should count, so the design can be checked against the drudgery it
 - **Retired before read**: asks the stream retired on an event before the human saw them.
 - **Stale records**: rollups the human opened from a card versus never (if nobody drills down, the card carried enough).
 - The §7.4 budget signals: top-ups per grant, hold share, spend over size, sessions per step, tokens held at gates.
+- **Rewrite rate** (1:1 mt_t65exni4et decision 9, `cardRewrites`): cards filed, filed with style warnings and rewritten by the Secretary, per building and per ask type. A rising rate means the prompt that writes cards is wrong.
 
 These fit the "Town health" tab proposed in gr_8bxoy2heif.
 

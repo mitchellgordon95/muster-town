@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import type { MapLayout } from "@muster-town/schema";
 import { World } from "../src/index.ts";
-import { proposalTitle, renderNeed } from "../src/asks.ts";
+import { proposalTitle } from "../src/asks.ts";
+import { createAsk, renderNeed, type NewAsk } from "../src/ask-verb.ts";
+import { appendEntry } from "../src/jobs.ts";
 import { unrenderedNeeds } from "../src/needs.ts";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -162,7 +164,26 @@ export function renderNeeds(world: World, by = "ag_manager"): import("@muster-to
       ? { title: proposalTitle(g!), body: `You have not decided on it before.\nIt asks for ${g!.askTokens} tokens. Nothing is spent yet.\nIt has ${g!.steps.length} steps, and none is done yet.`, recommendation: "Fund it." }
       : n.need === "gate"
         ? { title: g!.status === "checkpoint" ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}`, body: `You funded this before.\nIt has spent ${world.grantDesk.spent(g!.id)} tokens.\nSome steps are done and some are left.`, recommendation: "Adjust it." }
-        : { title: d?.title ?? n.entry.note, body: `${d?.body ?? ""}\nScope: what the request says.\nIf you decline: it stays manual.\nWorth leaving the queue: only a human can do it.`, recommendation: "Press Done." };
+        : n.need === "retainer"
+          ? { title: `Approve the retainer ${n.targetId}`, body: `You have not decided on it before.\n${n.entry.body}\nNothing is spent yet.\nNo run has its steps done yet.`, recommendation: "Approve it." }
+          : n.need === "captain" || n.need === "access"
+            ? { title: n.entry.note, body: `${n.entry.body}\nThey have waited since they asked.`, recommendation: "Accept it." }
+            : { title: d?.title ?? n.entry.note, body: `${d?.body ?? ""}\nScope: what the request says.\nIf you decline: it stays manual.\nWorth leaving the queue: only a human can do it.`, recommendation: "Press Done." };
     return renderNeed(world, n, card, by).ask;
   });
+}
+
+/**
+ * Seed an ask in a test the way the ask verb files one: an entry at level human on its building's thread (the Town
+ * Hall's when it has none), then the card on it. The one test seam onto `createAsk` (docs/invariants/asks.md 18).
+ */
+export function seedAsk(world: World, n: Omit<NewAsk, "sourceEntryId"> & { sourceEntryId?: string }): { ask: import("@muster-town/schema").Ask; folded: boolean } {
+  const by = n.by ?? "system";
+  const live = n.targetId && n.targetKind ? world.asks.exists("targetKind = ? AND targetId = ? AND status IN ('open', 'deferred')", [n.targetKind, n.targetId]) : false;
+  const entryId = n.sourceEntryId ?? (live ? null : appendEntry(world, {
+    jobId: `jb_${n.buildingId ?? "town-hall"}`, authorKind: by === "system" ? "code" : "manager", authorId: by,
+    level: "human", note: n.title, body: n.body ?? "", moved: { kind: "ask", type: n.type, ...(n.targetId ? { targetId: n.targetId } : {}) },
+  })?.id);
+  if (!entryId && !live) throw new Error(`seedAsk: no thread jb_${n.buildingId ?? "town-hall"}`);
+  return createAsk(world, { ...n, sourceEntryId: entryId ?? null });
 }

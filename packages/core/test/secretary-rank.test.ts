@@ -67,6 +67,7 @@ describe("the Secretary's ranking run", () => {
     world.permissions.grant({ kind: "user", id: ana.id }, townRoleId("member"));
     const goal = world.goalTree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
     const cr = requestCaptain(world, ana.id, goal.id, "I know this goal");
+    renderNeeds(world);
     const click = askOn(cr.id);
     const money = askOn(g.id);
     await expect(world.verbs.rank(sec, { slate: { fund: [{ askId: click.id, why: "x" }], hold: [], skip: [] } })).rejects.toThrow(/money asks only/);

@@ -47,8 +47,18 @@ describe("the ask linter (docs/legible-delegation.md §5)", () => {
     expect(rules("One step is left. Cleo recommends continue.", { branches: card.branches })).toEqual([]);
     expect(rules("One step is left.", { recommendation: "Continue", branches: [{ label: "Continue" }] })).toEqual(["branches"]);
     expect(rules("If you continue: it closes. If you cut: it stops.", { recommendation: "Continue" })).toEqual([]);
+    // decision 2 point 6 (1:1 mt_t65exni4et): a short title with no ids, no bare pointer, branches that name an action
+    const ok = { recommendation: "Continue", branches: card.branches };
+    expect(rules("One step is left.", { ...ok, title: "Fund gr_q1jrelx2ty" })).toEqual(["short-title"]);
+    expect(rules("One step is left.", { ...ok, title: "Fund the self-host grant at 150k so the image docs ship and the third step can start this week" })).toEqual(["short-title"]);
+    expect(rules("One step is left.", { ...ok, title: "Fund the self-host grant at 150k" })).toEqual([]);
+    expect(rules("See the report.", ok)).toEqual(["no-bare-reference"]);
+    expect(rules("Details are in the report.", ok)).toEqual(["no-bare-reference"]);
+    expect(rules("The report says one step is left.", ok)).toEqual([]);
+    expect(rules("One step is left.", { recommendation: "Yes", branches: [{ label: "Yes" }, { label: "No" }] })).toEqual(["branch-actions"]);
+    expect(rules("One step is left.", { recommendation: "Fund", branches: [{ label: "Fund" }, { label: "Reject" }] })).toEqual([]);
     // every rule is data with a name and the line a prompt quotes
-    expect(ASK_LINT_RULES.map((r) => r.name)).toEqual(["sentence-length", "no-ids", "no-semicolons", "no-parentheses", "one-instruction", "condition-first", "no-ellipsis", "recommendation", "branches", "dictionary"]);
+    expect(ASK_LINT_RULES.map((r) => r.name)).toEqual(["sentence-length", "no-ids", "no-semicolons", "no-parentheses", "one-instruction", "condition-first", "no-ellipsis", "short-title", "no-bare-reference", "branch-actions", "recommendation", "branches", "dictionary"]);
   });
 
   it("the §5 Prod ask fails as first written and passes as a card", () => {

@@ -13,9 +13,10 @@
  */
 import type { AskBranch, AskTargetKind, AskType } from "@muster-town/schema";
 import { answerEntry, appendEntry, entryOf, type Entry } from "./jobs.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
-type NeedKind = "proposal" | "gate" | "request";
+type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule";
 
 /** An open need, read back from its entry. */
 export interface Need {
@@ -43,7 +44,7 @@ const CREDENTIAL = /\b(token|tokens|credential|credentials|api[- ]?key|keys?|PAT
 /** A request's ask type: a credential ask when it asks for a token or key, else a do. */
 export const requestType = (d: { title: string; body: string }): AskType => (CREDENTIAL.test(`${d.title}\n${d.body}`) ? "credential" : "do");
 
-interface NewNeed {
+export interface NewNeed {
   need: NeedKind; targetKind: AskTargetKind; targetId: string; type: AskType; branches: AskBranch[];
   jobId: string; note: string; body: string;
   id?: string; authorKind?: Entry["authorKind"]; authorId?: string; docId?: string | null; assignmentId?: string | null; createdAt?: string;
@@ -108,9 +109,10 @@ export function unrenderedNeeds(world: World, buildingId?: string): Need[] {
   return openNeeds(world, buildingId).filter((n) => !hasLiveAsk(world, n));
 }
 
-/** Unrendered needs older than the backstop: the Secretary's to render (`now` in ms). */
+/** Unrendered needs older than the backstop, and every unrendered need of the Town Hall: the Secretary's to render (`now` in ms). */
 export function overdueNeeds(world: World, now: number): Need[] {
-  return unrenderedNeeds(world).filter((n) => now - Date.parse(n.entry.createdAt) >= NEED_BACKSTOP_MS);
+  // the Town Hall's own needs (a captain or access request) have no other manager: the Secretary renders them at once
+  return unrenderedNeeds(world).filter((n) => n.buildingId === TOWN_HALL_ID || now - Date.parse(n.entry.createdAt) >= NEED_BACKSTOP_MS);
 }
 
 /** An open need by its entry id; null when it is not an open need. */

@@ -29,7 +29,7 @@ function setup() {
 }
 
 describe("every ask points at the entry that raised it", () => {
-  it("a proposal's ask: its need on the grant's job; a request's: its need entry; a retainer's and a join request's: an entry on the building's or the Town Hall's thread", async () => {
+  it("a proposal's ask: its need on the grant's job; a request's: its need entry; a retainer's: its need on the retainer's job; a join request's: its need on the Town Hall's thread", async () => {
     const { world, manager, proposal, askOn } = setup();
     const g = proposal();
     renderNeeds(world, manager.id);
@@ -46,17 +46,19 @@ describe("every ask points at the entry that raised it", () => {
     expect(entryOf(world, doAsk.sourceEntryId!)).toMatchObject({ level: "human", moved: { kind: "need", need: "request", targetId: req.id } });
 
     const sc = (await world.verbs.schedule(manager, { title: "Weekly check", description: "d", tokensPerRun: 1000, repeat: { everyHours: 168 } })).scheduleId;
+    renderNeeds(world, manager.id);
     const retainer = askOn("retainer", sc);
-    expect(entryOf(world, retainer.sourceEntryId!)).toMatchObject({ jobId: `jb_${LAB}`, level: "human", moved: { kind: "ask", type: "money", targetId: sc } });
+    expect(entryOf(world, retainer.sourceEntryId!)).toMatchObject({ jobId: `jb_${sc}`, level: "human", moved: { kind: "need", need: "retainer", type: "money", targetId: sc } });
 
     const stranger = world.ops.createUser("Rando").user;
     const access = requestAccess(world, stranger.id, "I'd like to help");
+    renderNeeds(world, manager.id);
     const join = askOn("access", access.id);
     expect(entryOf(world, join.sourceEntryId!)).toMatchObject({ jobId: "jb_town-hall", authorKind: "human", authorId: stranger.id, level: "human" });
     // each card records the thread's length when it was written
-    // (the request's card was written before the retainer moved the same thread: it is behind by that entry)
+    // (the retainer's need is on its own job's thread, so the request's card is not behind)
     for (const a of [retainer, join].map((x) => world.asks.require(x.id))) expect(a.renderedSeq).toBe(threadSeq(world, entryOf(world, a.sourceEntryId!)!.jobId));
-    expect(entriesSinceCard(world, world.asks.require(doAsk.id))).toBe(1);
+    expect(entriesSinceCard(world, world.asks.require(doAsk.id))).toBe(0);
     // no live ask is without one
     expect(world.asks.count("status IN ('open', 'deferred') AND sourceEntryId IS NULL")).toBe(0);
   });

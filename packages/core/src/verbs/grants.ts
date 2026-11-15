@@ -1,5 +1,6 @@
 import { askStructure, askWarnings, grantName, grantPricingOf, type Agent, type Grant } from "@muster-town/schema";
-import { proposalTitle, refuseMissingStructure, renderNeed } from "../asks.ts";
+import { proposalTitle, refuseMissingStructure } from "../asks.ts";
+import { renderNeed } from "../ask-verb.ts";
 import { openNeedsOn, PROPOSAL_BRANCHES } from "../needs.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";

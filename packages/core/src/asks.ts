@@ -1,13 +1,14 @@
 /**
  * Asks (docs/legible-delegation.md §4, build steps 1-2): something only a human can do, stored as a row of `asks`
- * instead of parsed out of a report's prose. A grant proposed, a grant at its gate and an outbox request write a need
- * (needs.ts: a fact on the job's thread) and no card: their manager renders the card from it (`renderNeed`; 1:1
- * mt_t65exni4et decision 2). A retainer asked, a captain or access request and a manager's `ask` file their card here,
- * deduped by target (`createAsk` folds a second ask on the same targetKind + targetId into the open one as a source
- * line), retired by the event that decides its target (`retireAsks`, called next to each state change: grant decided,
- * closed or withdrawn, access granted or declined, captain accepted or declined, request claimed, declined or withdrawn,
- * retainer decided or ended, key result marked by a human), and decided only by a human (`decideAsk`). Nothing here
- * decides a target: the ask is the human's to answer. `backfillAsks` (boot) creates the asks of everything already open.
+ * instead of parsed out of a report's prose. Everything that needs a human writes a need (needs.ts: a fact on the job's
+ * thread) and no card: a grant proposed or at its gate, an outbox request, a retainer asked, a captain or access
+ * request. Its manager renders the card from it, and every card is filed by ask-verb.ts, the one entry point (1:1
+ * mt_t65exni4et decisions 2 and 7), deduped by target (a second ask on the same targetKind + targetId folds into the
+ * open one as a source line). Here: retired by the event that decides its target (`retireAsks`, called next to each
+ * state change: grant decided, closed or withdrawn, access granted or declined, captain accepted or declined, request
+ * claimed, declined or withdrawn, retainer decided or ended, key result marked by a human), and decided only by a human
+ * (`decideAsk`). Nothing here decides a target: the ask is the human's to answer. `backfillAsks` (boot) writes the
+ * needs of everything already open.
  */
 import {
   askStructure, askWarnings, clipWords, grantName, grantPricingOf, kTokens, nameWithin, vetAsk, withoutEllipsis, Ask, AskCardInput, type AccessRequest, type Agent, type AskBranch, type AskClaim, type AskTargetKind,
@@ -18,7 +19,7 @@ import { queueClaimChecks } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { maySettle } from "./overtake.ts";
-import { appendEntry, entryOf, threadSeq } from "./jobs.ts";
+import { appendEntry, entryOf, jobThread, threadSeq } from "./jobs.ts";
 import { cardShown, DO_BRANCHES, fileNeed, GATE_BRANCHES, openNeedsOn, PROPOSAL_BRANCHES, requestType, settleNeeds, type Need } from "./needs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
@@ -34,28 +35,6 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 const oneLine = (s: string, max = 160) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
 const LIVE_ASK = "status IN ('open', 'deferred')";
 
-/** What a source files: the ask's fields, plus the source line it brings (the record's own words) and who filed it. */
-interface NewAsk {
-  type: AskType;
-  targetKind?: AskTargetKind | null;
-  targetId?: string | null;
-  buildingId: string | null;
-  sourceDocId: string | null;
-  title: string;
-  body?: string;
-  branches: AskBranch[];
-  recommendation?: string;
-  claims?: AskClaim[];
-  /** the source's own line (default: the title) */
-  line?: string;
-  /** who filed it (an agent or user id, "system" by default) */
-  by?: string;
-  /** the entry on a job's thread that raised it; left out, `createAsk` writes one on the building's own thread (the Town Hall's for none) */
-  sourceEntryId?: string | null;
-  /** step 9: the Planner's table change on a rule ask (deciding "Adopt" applies it, planner.ts) */
-  proposal?: CalibrationProposal | null;
-}
-
 /** The human behind an act, for `retireAsks`: the user id of a human's avatar; false for an agent or the system. */
 function humanBehind(world: World, agentId: string | null | undefined): string | false {
   const a = agentId ? world.agents.get(agentId) : undefined;
@@ -63,62 +42,8 @@ function humanBehind(world: World, agentId: string | null | undefined): string |
 }
 
 /** The live (open or deferred) ask on a target, if any. */
-function liveAskOn(world: World, kind: AskTargetKind, id: string): Ask | undefined {
+export function liveAskOn(world: World, kind: AskTargetKind, id: string): Ask | undefined {
   return world.asks.first(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid");
-}
-
-/**
- * File an ask. With a target that already has a live ask, it folds in: the source line is appended to that ask (once:
- * the same record and line again changes nothing) and no second ask is made. Returns the ask and whether it folded.
- */
-export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean } {
-  const at = nowIso();
-  const by = n.by ?? "system";
-  const kind = n.targetId ? n.targetKind ?? null : null;
-  const line = oneLine(n.line ?? n.title, 400);
-  let entryId = n.sourceEntryId ?? null;
-  const sourceOf = () => (n.sourceDocId || entryId ? [{ docId: n.sourceDocId ?? null, entryId, buildingId: n.buildingId, line, at }] : []);
-  const source = sourceOf();
-  const have = kind && n.targetId ? liveAskOn(world, kind, n.targetId) : undefined;
-  if (have) {
-    if (!source.length || have.sources.some((s) => s.docId === (n.sourceDocId ?? null) && (s.entryId ?? null) === entryId && s.line === line)) return { ask: have, folded: true };
-    // step 3: a manager's card (one with a recommendation) replaces the words of an ask that has none or lacks structure
-    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
-    const card = adopt ? vetted(world, have.type, { title: have.title, body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
-    const next = world.asks.upsert({
-      ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
-      history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId ?? entryId}: ${line}` }, ...(card?.lint ?? [])],
-    });
-    world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `Folded into "${oneLine(have.title, 80)}": ${oneLine(line, 120)}`, payload: { askId: have.id, sourceDocId: n.sourceDocId, targetKind: kind, targetId: n.targetId } });
-    if (card) queueClaimChecks(world, next.id);
-    return { ask: next, folded: true };
-  }
-  const card = vetted(world, n.type, { title: n.title, body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
-  // an ask is a snapshot of a thread (plan step 6): one raised with no entry of its own gets one, on its building's thread
-  if (!entryId) entryId = raiseEntry(world, n, by);
-  const raisedOn = entryId ? entryOf(world, entryId)?.jobId : undefined;
-  const ask = world.asks.upsert(Ask.parse({
-    sourceEntryId: entryId, renderedSeq: raisedOn ? threadSeq(world, raisedOn) : null,
-    id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
-    title: clipWords(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
-    status: "open", sources: sourceOf(), createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
-  }));
-  world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
-  queueClaimChecks(world, ask.id);
-  return { ask, folded: false };
-}
-
-/**
- * The entry for an ask raised with none of its own (a retainer asked, a person asking to join or to captain, the
- * Planner's or the Secretary's rule): on its building's own thread, the Town Hall's when it has no building, at level
- * human. Null when that thread does not exist (a world with no Town Hall).
- */
-function raiseEntry(world: World, n: NewAsk, by: string): string | null {
-  const e = appendEntry(world, {
-    jobId: `jb_${n.buildingId ?? TOWN_HALL_ID}`, authorKind: by === "system" ? "code" : by.startsWith("us_") ? "human" : world.secretary.agent()?.id === by ? "secretary" : "manager", authorId: by,
-    level: "human", note: n.title, body: n.body ?? "", moved: { kind: "ask", type: n.type, ...(n.targetId ? { targetId: n.targetId } : {}) },
-  });
-  return e?.id ?? null;
 }
 
 /**
@@ -190,14 +115,14 @@ function proposeEntryId(g: Grant | undefined): string | null {
  * breaks go into its history as one "lint" entry of warnings. Nothing is refused here and nothing is tagged: an author's
  * card already passed `refuseMissingStructure`, and a card the town wrote from a source's own words is filed as is.
  */
-function vetted(world: World, type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
+export function vetted(world: World, type: AskType, card: Parameters<typeof vetAsk>[1], at: string, by: string): { tags: string[]; lint: Ask["history"] } {
   const c = { ...card, dictionary: dictionaryPairs(world) };
   const problems = [...askStructure(type, c), ...askWarnings(type, c)];
   return { tags: [], lint: problems.length ? [{ at, action: "lint", by, note: `warnings: ${problems.join("\n")}`.slice(0, 4000) }] : [] };
 }
 
 /** The tag the old three-tries path put on a card filed failing the linter; cards that carry it lose it when rewritten. */
-const LINT_FAILED = "lint-failed";
+export const LINT_FAILED = "lint-failed";
 
 /**
  * An author's card (a rollup's typed asks, a proposal's money ask, the Planner's calibration card) is refused only when
@@ -384,8 +309,6 @@ function needForProposal(world: World, g: Grant): Need | null {
 /** When a human last countered this grant (it is being re-proposed), or null. */
 const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g.history].reverse().find((h) => h.action === "counter")?.at ?? null;
 
-/** The card fields an author gives (`ask`, `propose_grant` with `ask`, the Secretary's backstop). */
-type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
 
 /** A grant's name as a sentence quotes it: in double quotes, so it reads as a name and not as words of the sentence around it. */
 const quotedGrantName = (g: Pick<Grant, "title" | "objective">) => `"${grantName(g)}"`;
@@ -397,30 +320,19 @@ export const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens"
 const PROPOSAL_RECOMMENDATION = "Fund it: the building proposed it as its next piece of work.";
 
 /**
- * Render a need as its ask (1:1 mt_t65exni4et decision 2 point 3): the card's words are the author's (a manager, an
- * explorer at `propose_grant`, or the Secretary as the backstop); its type and branches are the need's, because they map
- * onto the target's own verbs. Refused when the card lacks structure. Folds into a live ask on the target, as any ask does.
+ * A retainer asked (`askRetainer`): its need on the retainer's thread (its building's when it has none yet), approve /
+ * counter / reject. Its building's manager renders the card (1:1 mt_t65exni4et decision 7).
  */
-export function renderNeed(world: World, n: Need, card: { title: string } & Partial<Card>, by: string): { ask: Ask; folded: boolean } {
-  refuseMissingStructure("ask", askStructure(n.type, { title: card.title, body: card.body ?? "", recommendation: card.recommendation ?? "", claims: card.claims ?? [], branches: n.branches, targetKind: n.targetKind }));
-  return createAsk(world, {
-    type: n.type, targetKind: n.targetKind, targetId: n.targetId, buildingId: n.buildingId, sourceDocId: n.entry.docId ?? n.targetId, sourceEntryId: n.entry.id, by,
-    title: card.title, body: card.body ?? "", branches: n.branches, recommendation: card.recommendation ?? "", claims: card.claims ?? [], line: n.entry.note,
-  });
-}
-
-/** A retainer asked (`askRetainer`): approve / counter / reject. */
 export function askForRetainer(world: World, s: Schedule, why: string): void {
   const v = scheduleView(world, s);
-  createAsk(world, {
-    type: "money", targetKind: "retainer", targetId: s.id, buildingId: s.buildingId, sourceDocId: s.id,
-    title: retainerTitle(s.title, v.askTokens), line: `${retainerLine(world, v)} (${why})`,
-    body: withoutEllipsis(retainerLine(world, v)),
-    branches: [{ label: "Approve", action: "approve" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }],
+  fileNeed(world, {
+    need: "retainer", targetKind: "retainer", targetId: s.id, type: "money", branches: RETAINER_BRANCHES,
+    jobId: jobThread(world, s.id)?.job.id ?? `jb_${s.buildingId}`, docId: s.id,
+    note: `Retainer ${s.id} "${nameWithin(s.title)}" wants approval at ${kTokens(v.askTokens)}`, body: `${withoutEllipsis(retainerLine(world, v))} (${why})`,
   });
 }
 
-const retainerTitle = (title: string, tokens: number) => `Approve the retainer for "${nameWithin(title)}" at ${kTokens(tokens)}`;
+const RETAINER_BRANCHES: AskBranch[] = [{ label: "Approve", action: "approve" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }];
 
 /**
  * An outbox request's need (`request_human`): its entry on the thread of the job that asked, at level human. The
@@ -455,26 +367,35 @@ export function requestsToDoAsks(world: World): { reopened: number; asks: number
   return { reopened, asks };
 }
 
-/** A member asks to captain a goal: accept / decline. */
-export function askForCaptain(world: World, r: CaptainRequest): void {
-  const who = world.users.get(r.userId);
-  const name = who?.githubLogin ? `@${who.githubLogin}` : who?.name ?? r.userId;
-  const goal = world.goalTree.get(r.goalId)?.text ?? r.goalId;
-  createAsk(world, {
-    type: "click", targetKind: "captain", targetId: r.id, buildingId: null, sourceDocId: r.id, by: r.userId,
-    title: `Make ${name} captain of "${nameWithin(goal)}"`, body: withoutEllipsis(r.note), line: `${name} asks to captain "${oneLine(goal, 100)}"${r.note ? `: ${r.note}` : ""}`,
-    branches: [{ label: "Accept", action: "accept" }, { label: "Decline", action: "decline" }],
+/**
+ * A person's request on the Town Hall's thread (a captain or an access request): its need, which the Town Hall's
+ * manager (the Secretary) renders at its next run (`overdueNeeds` has no wait for the Town Hall; decision 7).
+ */
+function needAtTownHall(world: World, n: { need: "captain" | "access"; targetKind: "captain" | "access"; targetId: string; userId: string; note: string; body: string; branches: AskBranch[] }): void {
+  fileNeed(world, {
+    need: n.need, targetKind: n.targetKind, targetId: n.targetId, type: "click", branches: n.branches,
+    jobId: `jb_${TOWN_HALL_ID}`, authorKind: "human", authorId: n.userId, docId: n.targetId, note: n.note, body: n.body,
   });
 }
 
-/** A signed-in visitor asks to join: let in / decline. */
+const whoAsks = (world: World, userId: string) => { const who = world.users.get(userId); return who?.githubLogin ? `@${who.githubLogin}` : who?.name ?? userId; };
+
+/** A member asks to captain a goal: its need, accept / decline. */
+export function askForCaptain(world: World, r: CaptainRequest): void {
+  const name = whoAsks(world, r.userId);
+  const goal = world.goalTree.get(r.goalId)?.text ?? r.goalId;
+  needAtTownHall(world, {
+    need: "captain", targetKind: "captain", targetId: r.id, userId: r.userId, note: `${name} asks to captain "${oneLine(goal, 100)}" (${r.goalId})`,
+    body: withoutEllipsis(r.note), branches: [{ label: "Accept", action: "accept" }, { label: "Decline", action: "decline" }],
+  });
+}
+
+/** A signed-in visitor asks to join: its need, let in / decline. */
 export function askForAccess(world: World, r: AccessRequest): void {
-  const who = world.users.get(r.userId);
-  const name = who?.githubLogin ? `@${who.githubLogin}` : who?.name ?? r.userId;
-  createAsk(world, {
-    type: "click", targetKind: "access", targetId: r.id, buildingId: null, sourceDocId: r.id, by: r.userId,
-    title: `Let ${name} in`, body: withoutEllipsis(r.message), line: `${name} asked to join${r.message ? `: ${r.message}` : ""}`,
-    branches: [{ label: "Let in", action: "grant" }, { label: "Decline", action: "decline" }],
+  const name = whoAsks(world, r.userId);
+  needAtTownHall(world, {
+    need: "access", targetKind: "access", targetId: r.id, userId: r.userId, note: `${name} asked to join`,
+    body: withoutEllipsis(r.message), branches: [{ label: "Let in", action: "grant" }, { label: "Decline", action: "decline" }],
   });
 }
 
@@ -554,9 +475,9 @@ export function backfillAsks(world: World): number {
       needForRequest(world, d, { jobId: `jb_${d.buildingId}`, authorKind: world.buildings.get(d.buildingId!)?.managerAgentId === by?.id ? "manager" : "fork", authorId: d.authorId, assignmentId: null });
       needs++;
     }
-    for (const s of world.schedules.where("status = 'active' AND retainer = 'asked'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "retainer", s.id)) askForRetainer(world, s, "waiting when asks began");
-    for (const r of world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "captain", r.id)) askForCaptain(world, r);
-    for (const r of world.accessRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "access", r.id)) askForAccess(world, r);
+    for (const s of world.schedules.where("status = 'active' AND retainer = 'asked'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "retainer", s.id) && !openNeedsOn(world, "retainer", s.id).length) { askForRetainer(world, s, "waiting when asks began"); needs++; }
+    for (const r of world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "captain", r.id) && !openNeedsOn(world, "captain", r.id).length) { askForCaptain(world, r); needs++; }
+    for (const r of world.accessRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "access", r.id) && !openNeedsOn(world, "access", r.id).length) { askForAccess(world, r); needs++; }
   });
   return world.asks.count() - before + needs;
 }

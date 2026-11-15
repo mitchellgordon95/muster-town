@@ -100,6 +100,7 @@ describe("the Secretary", () => {
     const asksBefore = world.asks.count("targetKind = 'retainer' AND targetId = ? AND status = 'open'", [s.id]);
     const raised = world.secretary.ensureRankSchedule(t0)!;
     expect(raised).toMatchObject({ id: s.id, tokensPerRun: RANK_TOKENS_PER_RUN, retainer: "asked" });
+    renderNeeds(world); // the retainer's need, rendered as its manager would (decision 7)
     expect(world.asks.count("targetKind = 'retainer' AND targetId = ? AND status = 'open'", [s.id])).toBe(asksBefore + 1);
     const ev = world.events.list({ types: ["schedule.edited"] }).at(-1)!;
     expect(ev.text).toMatch(/raised schedule "Daily ask ranking" from 10,000 to 40,000 tokens per run.*asked again/);

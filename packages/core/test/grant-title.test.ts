@@ -11,8 +11,8 @@ import { fileURLToPath } from "node:url";
 import { GrantTitle, grantTitleOf, lintAskBody, vetAsk } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, migrate, newId, nowIso, updateBuilding } from "../src/index.ts";
-import { createAsk, retitleClippedAsks, setRank } from "../src/asks.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { retitleClippedAsks, setRank } from "../src/asks.ts";
+import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner on the lab board", howToCheck: "Open the lab as a guest" };
 const STEPS = [{ size: "M" as const, title: "Build the banner", description: "Ship the banner PR" }];
@@ -62,7 +62,7 @@ describe("the retitle repair (boot)", () => {
     const { world, propose } = lab();
     const g = propose();
     // a manager's card (a rollup's typed ask) that carries an ellipsis
-    const mgr = createAsk(world, { type: "policy", targetKind: "rule", targetId: "dc_rulebook", buildingId: g.buildingId, sourceDocId: "dc_rollup1", by: "ag_x", title: "Keep the rule on forks…", body: "Rule: forks may redeploy… I applied it twice. Reversing it costs a session.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" }).ask;
+    const mgr = seedAsk(world, { type: "policy", targetKind: "rule", targetId: "dc_rulebook", buildingId: g.buildingId, sourceDocId: "dc_rollup1", by: "ag_x", title: "Keep the rule on forks…", body: "Rule: forks may redeploy… I applied it twice. Reversing it costs a session.", branches: [{ label: "Keep" }, { label: "Change" }], recommendation: "Keep" }).ask;
     setRank(world, mgr.id, 2);
     expect(retitleClippedAsks(world)).toBe(1);
     const kept = world.asks.require(mgr.id);
@@ -99,9 +99,9 @@ describe("migration 107: written titles for the grants still in play", () => {
 
 describe("the no-ellipsis lint rule", () => {
   it("refuses an ellipsis in an ask's title, body or recommendation", () => {
-    expect(lintAskBody("It has spent 474k…", { recommendation: "Cut", branches: [{ label: "A" }, { label: "B" }] })).toEqual(["no-ellipsis: an ellipsis in the body: say it whole or leave it out"]);
-    expect(lintAskBody("It has spent 474k.", { title: "Fund the banner…", recommendation: "Cut", branches: [{ label: "A" }, { label: "B" }] })).toEqual(["no-ellipsis: an ellipsis in the title: say it whole or leave it out"]);
-    expect(vetAsk("policy", { title: "Keep it", body: "Rule: x. I applied it. Reversing it costs a run.", recommendation: "Keep…", branches: [{ label: "A" }, { label: "B" }] })).toEqual(["no-ellipsis: an ellipsis in the recommendation: say it whole or leave it out"]);
-    expect(lintAskBody("It has spent 474k.", { title: "Fund the banner", recommendation: "Cut", branches: [{ label: "A" }, { label: "B" }] })).toEqual([]);
+    expect(lintAskBody("It has spent 474k…", { recommendation: "Cut", branches: [{ label: "Keep" }, { label: "Cut" }] })).toEqual(["no-ellipsis: an ellipsis in the body: say it whole or leave it out"]);
+    expect(lintAskBody("It has spent 474k.", { title: "Fund the banner…", recommendation: "Cut", branches: [{ label: "Keep" }, { label: "Cut" }] })).toEqual(["no-ellipsis: an ellipsis in the title: say it whole or leave it out"]);
+    expect(vetAsk("policy", { title: "Keep it", body: "Rule: x. I applied it. Reversing it costs a run.", recommendation: "Keep…", branches: [{ label: "Keep" }, { label: "Cut" }] })).toEqual(["no-ellipsis: an ellipsis in the recommendation: say it whole or leave it out"]);
+    expect(lintAskBody("It has spent 474k.", { title: "Fund the banner", recommendation: "Cut", branches: [{ label: "Keep" }, { label: "Cut" }] })).toEqual([]);
   });
 });

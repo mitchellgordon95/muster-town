@@ -4,8 +4,9 @@
  * Pure reads over asks, seen, grants, assignments, sessions and events: nothing is written. `GET /api/health` and
  * `GET /api/town` carry them as `legible`.
  */
-import type { AskType, StepCalibration, StepSize } from "@muster-town/schema";
+import type { Ask, AskType, StepCalibration, StepSize } from "@muster-town/schema";
 import { stepCalibration } from "./grant-estimate.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
 /** Time to decision, top-ups, hold share and sessions per step are read over this many days. */
@@ -34,8 +35,33 @@ export interface LegibleMeasures {
   spentOverSize: Record<StepSize, { ratio: number | null; sample: number }>;
   /** the median number of sessions a plan step completed in the window took (its parked continuations included) */
   sessionsPerStep: { median: number | null; steps: number };
+  /**
+   * cards filed in the window, those filed with style warnings (a `lint` history line) and those the Secretary rewrote
+   * (`rewritten`), with the rewrite rate overall, per building (the Town Hall's for none) and per ask type (1:1
+   * mt_t65exni4et decision 9). A rising rate says the manager's Asks paragraph, the prompt that writes cards, is wrong.
+   */
+  cardRewrites: RewriteCount & { withWarnings: number; byBuilding: Record<string, RewriteCount>; byType: Partial<Record<AskType, RewriteCount>> };
   /** grants at a gate now: how many, the tokens they hold (grantTokens − spent, at least 0) and the oldest hold's age in hours */
   heldAtGates: { grants: number; tokens: number; oldestHours: number | null };
+}
+
+interface RewriteCount { filed: number; rewritten: number; rate: number | null }
+
+/** A card filed with style warnings: a `lint` line in its history before any rewrite (a rewrite's own lint is the Secretary's). */
+const filedWithWarnings = (a: Ask) => { const r = a.history.findIndex((h) => h.action === "rewritten"); const l = a.history.findIndex((h) => h.action === "lint"); return l >= 0 && (r < 0 || l < r); };
+
+/** Decision 9: of the cards filed since `since`, how many carried style warnings and how many the Secretary rewrote. */
+function cardRewrites(asks: Ask[]): LegibleMeasures["cardRewrites"] {
+  const count = (xs: Ask[]): RewriteCount => { const rewritten = xs.filter((a) => a.history.some((h) => h.action === "rewritten")).length; return { filed: xs.length, rewritten, rate: ratio(rewritten, xs.length) }; };
+  const group = <K extends string>(key: (a: Ask) => K) => {
+    const by = new Map<K, Ask[]>();
+    for (const a of asks) by.set(key(a), [...(by.get(key(a)) ?? []), a]);
+    return Object.fromEntries([...by].sort(([x], [y]) => x.localeCompare(y)).map(([k, xs]) => [k, count(xs)])) as Record<K, RewriteCount>;
+  };
+  return {
+    ...count(asks), withWarnings: asks.filter(filedWithWarnings).length,
+    byBuilding: group((a) => a.buildingId ?? TOWN_HALL_ID), byType: group((a) => a.type),
+  };
 }
 
 function median(xs: number[]): number | null {
@@ -88,6 +114,7 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
     holdShare: { held, closed: closed.length, share: ratio(held, closed.length) },
     spentOverSize: cal.sizes,
     sessionsPerStep: sessionsPerStep(world, since),
+    cardRewrites: cardRewrites(world.asks.where("createdAt >= ?", [since], "ORDER BY createdAt, rowid")),
     heldAtGates: {
       grants: gates.length,
       tokens: Math.round(gates.reduce((n, g) => n + Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id)), 0)),

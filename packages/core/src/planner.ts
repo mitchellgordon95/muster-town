@@ -7,7 +7,8 @@
  * with no line crossed (or with a calibration ask still waiting) is skipped before any session starts.
  */
 import { askStructure, grantPricingOf, type Agent, type Ask, type CalibrationProposal, type Schedule, type StepSize, type StepSizeTable } from "@muster-town/schema";
-import { createAsk, refuseMissingStructure } from "./asks.ts";
+import { refuseMissingStructure } from "./asks.ts";
+import { askOnOwnNeed } from "./ask-verb.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { legibleMeasures, type LegibleMeasures } from "./measures.ts";
 import { holderOf } from "./permissions.ts";
@@ -180,10 +181,12 @@ export function calibrate(world: World, me: Agent, input: { title?: string; body
   const branches = [{ label: "Adopt", action: ADOPT }, { label: "Keep as is", action: "keep" }];
   const card = { body: input.body, recommendation: input.recommendation, claims: [], branches, targetKind: "rule" };
   refuseMissingStructure("calibration", askStructure("policy", card));
-  const { ask } = createAsk(world, {
-    type: "policy", targetKind: "rule", targetId: CALIBRATION_TARGET, buildingId: TOWN_HALL_ID, sourceDocId: null, by: me.id,
-    title: input.title, body: input.body, branches, recommendation: input.recommendation, proposal, line: proposalSentence(proposal),
-  });
+  // the Planner is its card's author: its need goes on the Town Hall's thread and is rendered at once (decision 7)
+  const ask = askOnOwnNeed(world, {
+    need: "rule", targetKind: "rule", targetId: CALIBRATION_TARGET, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: "manager",
+    note: proposalSentence(proposal), body: input.body,
+  }, { title: input.title, body: input.body, recommendation: input.recommendation, claims: [] }, me.id, proposal);
+  if (!ask) throw new AppError("conflict", "There is no Town Hall thread to file the calibration ask on.");
   return { askId: ask.id, proposal, note: `Filed ${ask.id} in the Town Hall in-tray. Now submit_report (verdict stop) naming it.` };
 }
 

@@ -11,7 +11,7 @@ import { adoptGoal } from "../entities.ts";
 import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
-import { askHumans } from "../review-entry.ts";
+import { askHumans } from "../ask-verb.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {

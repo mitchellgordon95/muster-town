@@ -6,10 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, decideRetainer, intrayCounts, jobThread, managerQueue, managerStateBlock } from "../src/index.ts";
-import { asksFor, createAsk, decideAsk } from "../src/asks.ts";
+import { asksFor, decideAsk } from "../src/asks.ts";
 import { NEED_BACKSTOP_MS, openNeedsOn, overdueNeeds, unrenderedNeeds } from "../src/needs.ts";
 import { templateCardsToNeeds } from "../src/asks.ts";
-import { askAt, creditBank, seededWorld } from "./helpers.ts";
+import { askAt, creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const FUND_CARD = {
@@ -125,7 +125,7 @@ describe("needs and asks", () => {
     const authored = propose(50_000);
     // the cards as the town's templates left them (before needs), plus one the Secretary rewrote and one an explorer wrote
     const card = (g: { id: string }, recommendation: string, history: { at: string; action: string; by: string; note: string }[] = []) => {
-      const a = createAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, title: `Fund ${g.id}`, body: "This is a new proposal.", branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation }).ask;
+      const a = seedAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, title: `Fund ${g.id}`, body: "This is a new proposal.", branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation }).ask;
       return world.asks.upsert({ ...a, history: [...a.history, ...history] as never });
     };
     const t = card(tpl, "Fund it: the building proposed it as its next piece of work.");

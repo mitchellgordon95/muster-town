@@ -5,10 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, openManagerEntries } from "../src/index.ts";
-import { createAsk, decideAsk, rankedAsks } from "../src/asks.ts";
+import { decideAsk, rankedAsks } from "../src/asks.ts";
 import { decideRetainer } from "../src/retainers.ts";
 import { DECISION_RUN_DEBOUNCE_MS, DECISION_RUNS_PER_DAY } from "../src/secretary.ts";
-import { creditBank, seededWorld, renderNeeds } from "./helpers.ts";
+import { creditBank, seededWorld, renderNeeds, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const RUN = "Settle and re-rank after a decision";
@@ -28,7 +28,7 @@ function setup(opts: { fundRetainer?: boolean } = {}) {
   }).id);
   // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
   const proposal = (objective: string) => { const g = propose(objective); renderNeeds(world, manager.id); return g; };
-  const click = (title: string, extra: { targetKind?: "request" | "rule"; targetId?: string; type?: "click" | "policy" | "credential" } = {}) => createAsk(world, {
+  const click = (title: string, extra: { targetKind?: "request" | "rule"; targetId?: string; type?: "click" | "policy" | "credential" } = {}) => seedAsk(world, {
     type: extra.type ?? "click", targetKind: extra.targetKind ?? null, targetId: extra.targetId ?? null, buildingId: LAB, sourceDocId: null, by: manager.id,
     title, body: "Pix has waited on this since today.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done",
   }).ask;

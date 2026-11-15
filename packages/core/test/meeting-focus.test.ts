@@ -6,8 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, decideAsk, focusBlock, focusTarget, setMeetingFocus, townRoleId } from "../src/index.ts";
-import { createAsk } from "../src/asks.ts";
-import { askAt, creditBank, seededWorld, renderNeeds } from "./helpers.ts";
+import { askAt, creditBank, seededWorld, renderNeeds, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -86,7 +85,7 @@ describe("the 1:1's open item (focus)", () => {
 
   it("says when the ask was decided since it was opened, and reports a gone id as gone", () => {
     const { world, admin, th, m } = setup();
-    const { ask } = createAsk(world, { type: "policy", buildingId: th.id, sourceDocId: null, title: "Should reviews wait for CI?", line: "Should reviews wait for CI?", body: "Two labs disagree.", branches: [{ label: "Yes" }, { label: "No" }] });
+    const { ask } = seedAsk(world, { type: "policy", buildingId: th.id, sourceDocId: null, title: "Should reviews wait for CI?", line: "Should reviews wait for CI?", body: "Two labs disagree.", branches: [{ label: "Yes" }, { label: "No" }] });
     setMeetingFocus(world, admin, m.id, { kind: "ask", id: ask.id });
     expect(focusBlock(world, world.meetings.require(m.id))).toContain("Status: open");
     decideAsk(world, admin, ask.id, "Yes, always");
