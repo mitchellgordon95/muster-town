@@ -7,7 +7,7 @@ import { ApiError } from "../api";
 import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
-import { asks as fixtureAsks, explorationSpentToday, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
+import { asks as fixtureAsks, explorationSpentToday, legible, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
 import type { Ask, Notice, NoticeKind, StepSizeTable } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
 import manualMd from "../../../../docs/manual.md?raw";
@@ -1178,7 +1178,7 @@ export class MockApi implements Api {
   /** the mock runtime's live redeploy view (GET /api/admin/redeploy) */
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
-  async health() { return { ok: true, commit: "mock", stepCalibration: clone(stepCalibration) }; }
+  async health() { return { ok: true, commit: "mock", stepCalibration: clone(stepCalibration), legible: clone(legible) }; }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
   async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
   async collectives() { return []; }
