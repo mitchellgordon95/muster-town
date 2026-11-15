@@ -5,18 +5,20 @@
  * renders from it for the decision queue: `asks.sourceEntryId` names the need. The town writes needs and never cards.
  *
  * - Written by code where the fact appears: a grant proposed (`grant.proposed`), a grant held at its ceiling or forecast
- *   past it (grants.ts, grant-forecast.ts), an outbox request (`request_human`).
+ *   past it (grants.ts, grant-forecast.ts), an outbox request (`request_human`), a goal proposal (`propose_goal`, right
+ *   after its proposal entry on the proposer's thread: 1:1 mt_dwsxo7oms8 decision 4).
  * - Open until answered: the event that decides its target answers it (asks.ts `retireAsks` calls `settleNeeds`), and a
  *   newer need on the same target supersedes it.
  * - Unrendered while no live ask is on its target: it sits in the manager's in-tray (`managerQueue`), which wakes the
  *   manager; past `NEED_BACKSTOP_MS` the Secretary renders it and the manager is told (secretary.ts).
  */
-import type { Ask, AskBranch, AskTargetKind, AskType } from "@muster-town/schema";
+import type { Ask, AskBranch, AskTargetKind, AskType, GoalProposal } from "@muster-town/schema";
+import { AppError } from "./errors.ts";
 import { answerEntry, appendEntry, entryOf, type Entry } from "./jobs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
-export type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule";
+export type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule" | "goal";
 
 /** An open need, read back from its entry. */
 export interface Need {
@@ -36,6 +38,8 @@ export const NEED_BACKSTOP_MS = 60 * 60_000;
 
 export const PROPOSAL_BRANCHES: AskBranch[] = [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }];
 export const GATE_BRANCHES: AskBranch[] = [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }];
+/** A goal proposal's three branches (1:1 mt_dwsxo7oms8 decision 4): they map onto `decideProposal` (accept, accept with new words, cut). */
+const GOAL_BRANCHES: AskBranch[] = [{ label: "Accept", action: "accept" }, { label: "Edit and accept", action: "edit" }, { label: "Cut", action: "cut" }];
 /** A request's two branches (1:1 mt_msnjkpgwdb decision 17: no Claim): Done with the report back, Decline with a note. */
 export const DO_BRANCHES: AskBranch[] = [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }];
 
@@ -65,6 +69,58 @@ export function fileNeed(world: World, n: NewNeed): Entry | null {
   if (e) for (const o of older) answerEntry(world, o.entry.id, { kind: "system", id: "system" }, "superseded", `Superseded by ${e.id}: ${e.note}`.slice(0, 500));
   return e;
 }
+
+/** The thread a goal proposal goes on: its building's own, the Town Hall's for the Planner's and a human's (no building). */
+const goalProposalJob = (p: Pick<GoalProposal, "buildingId">): string => `jb_${p.buildingId ?? TOWN_HALL_ID}`;
+
+/** A goal proposal's words for its thread: what it changes, said once for the entry and the need. */
+export interface GoalProposalWords {
+  /** the goal or key result it is about, in its own words (or the new goal's words for add-goal) */
+  subject: string;
+  /** "key result" or "goal" */
+  subjectKind: "key result" | "goal";
+  /** the goal it goes under or moves to (add-goal, move, retire's sibling), in its words */
+  parent: string | null;
+  proposedByName: string;
+  authorKind: Entry["authorKind"];
+}
+
+const ACTION_WORDS: Record<GoalProposal["action"], string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire", promote: "promote to a goal" };
+
+/**
+ * `propose_goal` on the thread (1:1 mt_dwsxo7oms8 decision 4): the proposal as an entry on the proposer's thread
+ * (`goalProposalJob`), then its need, filed by code right after it: kind goal, target the proposal, a policy ask with
+ * Accept / Edit and accept / Cut. Its manager writes the card from the thread (the Secretary after `NEED_BACKSTOP_MS`,
+ * at once for the Town Hall's). Nothing here writes a card. Idempotent per proposal (`en_<gp>`, `en_<gp>_need`).
+ * Throws when the thread does not exist: a proposal is never stranded off the thread.
+ */
+export function fileGoalProposal(world: World, p: GoalProposal, w: GoalProposalWords): { entry: Entry | null; need: Entry | null } {
+  const jobId = goalProposalJob(p);
+  const what = `${ACTION_WORDS[p.action]} the ${w.subjectKind} "${oneLine(w.subject, 160)}"`;
+  const lines = [
+    `${w.proposedByName} proposes to ${what}${w.parent ? ` (under "${oneLine(w.parent, 120)}")` : ""}.`,
+    p.fields.text && p.fields.text !== w.subject ? `New words: ${p.fields.text}` : "",
+    p.fields.howToCheck ? `How to check: ${p.fields.howToCheck}` : "",
+    p.fields.due ? `Due: ${p.fields.due}` : "",
+    `Why: ${p.why || "not given"}`,
+    p.sourceDocIds.length ? `Sources: ${p.sourceDocIds.join(", ")}` : "",
+    p.reorgId ? `Answers the goal change ${p.reorgId}.` : "",
+  ].filter(Boolean).join("\n");
+  const entry = appendEntry(world, {
+    id: `en_${p.id}`, jobId, authorKind: w.authorKind, authorId: p.proposedBy, level: "none", createdAt: p.createdAt,
+    note: `Goal proposal ${p.id}: ${what}`.slice(0, 500), body: lines,
+    moved: { kind: "goal-proposal", proposalId: p.id, action: p.action, targetId: p.targetId, parentId: p.parentId, fields: p.fields, why: p.why, sourceDocIds: p.sourceDocIds, reorgId: p.reorgId },
+  });
+  if (!entry && !entryOf(world, `en_${p.id}`)) throw new AppError("conflict", `Goal proposal ${p.id} has no thread to go on: job ${jobId} does not exist.`);
+  const need = fileNeed(world, {
+    need: "goal", targetKind: "goalProposal", targetId: p.id, type: "policy", branches: GOAL_BRANCHES,
+    id: `en_${p.id}_need`, jobId, authorKind: "code", authorId: "system", createdAt: p.createdAt,
+    note: `Needs a human's decision on the ${w.subjectKind} "${oneLine(w.subject, 160)}" (${p.id})`.slice(0, 500), body: lines,
+  });
+  return { entry, need };
+}
+
+const oneLine = (s: string, max: number) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
 
 /** An entry as a need, when it is one: a `need` entry, or an outbox request's entry written before needs (`kind: do`). */
 function needOf(world: World, e: Entry, buildingId: string): Need | null {

@@ -435,7 +435,7 @@ export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
  */
 export interface ThreadEntry { id: string; jobId: string; authorKind: string; authorId: string; level: string; note: string; body: string; moved: Record<string, unknown>; assignmentId: string | null; createdAt: string }
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall; `entries` only for a building */
-export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; entries?: ThreadEntry[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; goalProposals?: GoalProposalView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
+export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; entries?: ThreadEntry[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
@@ -834,7 +834,7 @@ function qs(q: object): string {
 
 /** GET /api/buildings/:id/intray with its lists defaulted; every other field (digest, stopped, ...) passes through as sent. */
 export function intrayOf(r: Partial<Intray>): Intray {
-  return { ...r, reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], goalProposals: r.goalProposals ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, digestRun: r.digestRun ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
+  return { ...r, reports: r.reports ?? [], chains: r.chains ?? {}, grants: r.grants ?? [], access: r.access ?? [], captains: r.captains ?? [], retainers: r.retainers ?? [], blocked: r.blocked ?? [], stopped: r.stopped ?? [], digest: r.digest ?? null, digestRun: r.digestRun ?? null, routes: r.routes ?? {}, defaultView: r.defaultView ?? "all" };
 }
 
 class HttpApi implements Api {

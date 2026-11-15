@@ -216,7 +216,11 @@ export const ASK_CONTRACTS: Record<AskType, readonly ContractField[]> = {
     { name: "recommended-answer", hard: true, needs: "your recommended answer (the recommendation field), so the human can reply in a line", has: (c) => !!c.recommendation?.trim() },
   ],
   policy: [
-    { name: "rule", hard: true, needs: "the rule as a sentence (\"Rule: a plain member may not 1:1 a manager.\")", has: either("rule", /\brule\b/i) },
+    {
+      // a goal proposal's card (1:1 mt_dwsxo7oms8 decision 4): its rule is the change to the tree, said as a sentence
+      name: "rule", hard: true, needs: "the rule as a sentence (\"Rule: a plain member may not 1:1 a manager.\"; on a goal proposal, the change: \"Change: the key result reads 48 h, not 24 h.\")",
+      has: (c, s) => either("rule", /\brule\b/i)(c, s) || (c.targetKind === "goalProposal" && either("change", /\b(?:goal|key result)\b/i)(c, s)),
+    },
     { name: "what-i-did", needs: "what the manager did under it", has: either("what I did", /\b(?:I|we)\s+(?:applied|did|decided|chose|kept|made|let|refused|treated|used)\b|\bapplied\b/i) },
     { name: "reversing-cost", needs: "what reversing it costs (\"Reversing it means …\")", has: either("reversing", /\brevers\w*|\bundo\w*|\bto change it\b/i) },
   ],

@@ -20,7 +20,7 @@ import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { maySettle } from "./overtake.ts";
 import { answerEntry, appendEntry, entryOf, jobThread, threadSeq } from "./jobs.ts";
-import { cardShown, DO_BRANCHES, fileNeed, GATE_BRANCHES, openNeedsOn, PROPOSAL_BRANCHES, requestType, settleNeeds, type Need } from "./needs.ts";
+import { cardShown, DO_BRANCHES, fileGoalProposal, fileNeed, GATE_BRANCHES, openNeedsOn, PROPOSAL_BRANCHES, requestType, settleNeeds, type Need } from "./needs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
 import { askDecidedOnThread } from "./review-entry.ts";
@@ -297,6 +297,8 @@ export function decideAsk(world: World, actor: Agent | null, id: string, decisio
   const by = requireDecider(world, actor, a);
   if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `This ask is already ${a.status}.`);
   if (!decision.trim()) throw badRequest("Say what you decided (decision).");
+  // a goal proposal's ask is decided on the proposal itself, which edits the tree and then retires this ask (decision 4)
+  if (a.targetKind === "goalProposal") throw badRequest(`Ask ${id} is about goal proposal ${a.targetId}: decide it with Accept, Edit and accept or Cut (POST /api/goal-proposals/${a.targetId}/decide), which edits the tree.`);
   const said = decisionWords(decision, note);
   // step 9: adopting the Planner's table change is an admin's (it is PUT /api/town/defaults' change)
   requireRuleDecider(world, actor!, a, said);
@@ -472,7 +474,7 @@ export function askForAccess(world: World, r: AccessRequest): void {
 
 // ---- an author's cards ----
 
-const TARGET_PREFIX: Record<string, AskTargetKind> = { gr: "grant", sc: "retainer", dc: "request", cr: "captain", ar: "access", kr: "keyResult", mt: "meeting" };
+const TARGET_PREFIX: Record<string, AskTargetKind> = { gr: "grant", sc: "retainer", dc: "request", cr: "captain", ar: "access", kr: "keyResult", mt: "meeting", gp: "goalProposal" };
 
 /** The target kind of an id by its prefix (dc_ is a request only when the doc is one; any other doc reads as a rule's source). */
 function kindOf(world: World, id: string): AskTargetKind | null {
@@ -490,6 +492,7 @@ function targetExists(world: World, kind: AskTargetKind, id: string): boolean {
     case "captain": return !!world.captainRequests.get(id);
     case "access": return !!world.accessRequests.get(id);
     case "keyResult": return !!world.keyResults.get(id);
+    case "goalProposal": return world.goalProposals.get(id)?.status === "open";
     default: return true;
   }
 }
@@ -510,7 +513,7 @@ export function checkAskCards(world: World, input: AskCardInput[]): ResolvedAskC
       return a;
     }
     const kind = a.targetKind ?? kindOf(world, a.targetId);
-    if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule or meeting).`);
+    if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule, meeting or goalProposal).`);
     if (a.type === "money" && kind !== "grant" && kind !== "retainer") throw badRequest(`${where} is a money ask: its target is a grant or a retainer, not a ${kind}.`);
     if (!targetExists(world, kind, a.targetId)) throw badRequest(`${where}: ${a.targetId} is not a ${kind} of this town.`);
     // 1:1 mt_msnjkpgwdb decision 9: a key result met on code and tests is shown as "met, unverified"; nobody is asked about it
@@ -549,6 +552,12 @@ export function backfillAsks(world: World): number {
     for (const s of world.schedules.where("status = 'active' AND retainer = 'asked'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "retainer", s.id) && !openNeedsOn(world, "retainer", s.id).length) { askForRetainer(world, s, "waiting when asks began"); needs++; }
     for (const r of world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "captain", r.id) && !openNeedsOn(world, "captain", r.id).length) { askForCaptain(world, r); needs++; }
     for (const r of world.accessRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid")) if (!hasAsk(world, "access", r.id) && !openNeedsOn(world, "access", r.id).length) { askForAccess(world, r); needs++; }
+    // 1:1 mt_dwsxo7oms8 decision 4: a goal proposal filed before it joined the thread gets its entry and need, so none is stranded
+    for (const p of world.goalProposals.where("status = 'open'", [], "ORDER BY createdAt, rowid")) {
+      if (openNeedsOn(world, "goalProposal", p.id).length || entryOf(world, `en_${p.id}_need`)) continue;
+      fileGoalProposal(world, p, world.goalTree.proposalWords(p));
+      needs++;
+    }
   });
   return world.asks.count() - before + needs;
 }

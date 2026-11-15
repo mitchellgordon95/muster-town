@@ -1967,7 +1967,7 @@ export type AskType = z.infer<typeof AskType>;
 export const AskStatus = z.enum(["open", "decided", "retired", "folded", "deferred"]);
 export type AskStatus = z.infer<typeof AskStatus>;
 /** What an ask is about: dedupe and retire key on (targetKind, targetId). */
-export const AskTargetKind = z.enum(["grant", "request", "captain", "access", "retainer", "keyResult", "rule", "meeting"]);
+export const AskTargetKind = z.enum(["grant", "request", "captain", "access", "retainer", "keyResult", "rule", "meeting", "goalProposal"]);
 export type AskTargetKind = z.infer<typeof AskTargetKind>;
 /** One branch of the decision, as a button label; `action` names the verb it maps to (fund, cut, approve…), when one does. */
 export const AskBranch = z.object({ label: z.string().trim().min(1).max(80), action: z.string().max(40).optional() });
@@ -2037,7 +2037,7 @@ export type Ask = z.infer<typeof Ask>;
  */
 export const AskCardInput = z.object({
   type: AskType,
-  targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting)"),
+  targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting, gp_ goalProposal)"),
   targetId: z.string().trim().min(1).optional().describe("the grant, retainer, request, key result, rule or meeting it is about; required for money"),
   title: z.string().trim().min(1).max(160).describe("the ask in one line"),
   body: z.string().max(4000).default("").describe("the context the human needs to decide, in plain sentences"),
@@ -2479,7 +2479,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
-  propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. A human with goals.edit there (an admin or the goal's captain) accepts or cuts it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
+  propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. It goes on your building's thread as an entry, and the town files its need: you write its ask with `ask` (targetId the gp_ id, type policy: say the change; its branches Accept / Edit and accept / Cut are fixed). A human with goals.edit there (an admin or the goal's captain) decides it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
   calibrate: "(Planner) The weekly calibration run. With no arguments: the budget measures, the Planner's lines, which are crossed and the town's one proposed change to the step-size table. With title, body and recommendation: file that change as one policy ask (Adopt / Keep as is) for a human; refused when no line is crossed or one already waits. It never changes the table itself.",

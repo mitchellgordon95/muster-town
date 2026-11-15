@@ -176,6 +176,26 @@ describe("the ask card", () => {
     expect(req).toHaveBeenCalledWith("dc_req_ml", "done", "Signed up; the monitor is live.");
   });
 
+  it("a goal proposal's card (1:1 mt_dwsxo7oms8 decision 4): Accept, Edit and accept with new words, Cut with an optional note, all on the proposal", async () => {
+    expect(branchCall({ targetKind: "goalProposal" }, { label: "Accept", action: "accept" })).toEqual({ kind: "goal", action: "accept" });
+    expect(branchCall({ targetKind: "goalProposal" }, { label: "Edit and accept", action: "edit" })).toEqual({ kind: "goal", action: "edit", form: "words" });
+    expect(branchCall({ targetKind: "goalProposal" }, { label: "Cut", action: "cut" })).toEqual({ kind: "goal", action: "cut", form: "note" });
+    expect(branchCall({ targetKind: "goalProposal" }, { label: "Later" })).toEqual({ kind: "none" });
+    signIn();
+    const goal = { ...ask("ak_policy"), id: "ak_goal", targetKind: "goalProposal" as const, targetId: "gp_1", branches: [{ label: "Accept", action: "accept" }, { label: "Edit and accept", action: "edit" }, { label: "Cut", action: "cut" }] };
+    const decide = vi.spyOn(api(), "decideGoalProposal").mockResolvedValue({} as never);
+    const decideAsk = vi.spyOn(api(), "decideAsk");
+    const el = await mount(<AskCard ask={goal} onDecided={() => undefined} />);
+    await act(async () => button(el, "Edit and accept…").click());
+    const editAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Edit and accept") as HTMLButtonElement;
+    expect(editAct().disabled).toBe(true);
+    await act(async () => typeInto(el.querySelector("textarea[aria-label='New words']") as HTMLTextAreaElement, "48 h, not 24 h"));
+    await act(async () => editAct().click());
+    await flush();
+    expect(decide).toHaveBeenCalledWith("gp_1", { action: "accept", note: "", text: "48 h, not 24 h" });
+    expect(decideAsk).not.toHaveBeenCalled();
+  });
+
   it("a retainer's Counter takes tokens per run, an end date and a note, like a grant's counter", async () => {
     signIn();
     const decide = vi.spyOn(api(), "decideRetainer").mockResolvedValue(null as never);
