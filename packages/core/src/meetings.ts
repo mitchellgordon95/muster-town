@@ -12,6 +12,7 @@ import { newId, nowIso } from "./util.ts";
 import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
 import { decisionEntries, decisionWakes } from "./wakes.ts";
+import { closeScreenViews } from "./screen-views.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
@@ -253,6 +254,8 @@ export function setMeetingPhase(world: World, meetingId: string, phase: Meeting[
   const live = phase === "collecting" || phase === "discussing";
   const deck = live && m.deck?.docId === REVIEW_DECK_ID && !m.deck.pinned ? { ...m.deck, pinned: presentedReviewDeck(world, undefined).pinned } : m.deck;
   const updated = world.meetings.upsert({ ...m, phase, deck, startedAt: phase === "discussing" ? m.startedAt ?? ts : m.startedAt, endedAt: phase === "done" || phase === "cancelled" ? ts : m.endedAt });
+  // the 1:1 ended: the human's open screen view in it closes (screen-views.ts)
+  if (phase === "done" || phase === "cancelled") closeScreenViews(world, m.id, ts);
   for (const id of m.attendeeIds) {
     const a = world.agents.get(id);
     if (!a) continue;

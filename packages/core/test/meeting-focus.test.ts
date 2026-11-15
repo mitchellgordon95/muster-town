@@ -6,7 +6,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, decideAsk, focusBlock, focusTarget, setMeetingFocus, townRoleId } from "../src/index.ts";
-import { createAsk } from "../src/asks.ts";
+import { createAsk, retireAsks } from "../src/asks.ts";
+import { screenViews, VIEW_CAP_MS } from "../src/screen-views.ts";
+import { endMeeting } from "../src/meetings.ts";
 import { askAt, creditBank, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -110,5 +112,58 @@ describe("the 1:1's open item (focus)", () => {
     // nothing decidable open: it asks for a target instead of guessing
     setMeetingFocus(world, admin, m.id, null);
     await expect(world.verbs.act_in_1on1(sec, { meetingId: m.id, utteranceAt: at, action: "fund" })).rejects.toThrow(/nothing is open/);
+  });
+
+  describe("screen views (queue health, gr_pdja05z2f1 step 1)", () => {
+    const T0 = Date.parse("2030-01-01T00:00:00.000Z");
+    const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
+    const views = (world: Parameters<typeof screenViews>[0], nowMin = 120) => screenViews(world, at(-1), new Date(T0 + nowMin * 60_000));
+
+    it("focus A, then B, then null writes two closed views with their minutes; the same item twice writes one", () => {
+      const { world, admin, m, proposal, askOf } = setup();
+      const a = askOf(proposal().id), b = askOf(proposal().id);
+      setMeetingFocus(world, admin, m.id, { kind: "ask", id: a.id }, at(0));
+      setMeetingFocus(world, admin, m.id, { kind: "ask", id: a.id }, at(1));
+      setMeetingFocus(world, admin, m.id, { kind: "ask", id: b.id }, at(3));
+      setMeetingFocus(world, admin, m.id, null, at(4));
+      setMeetingFocus(world, admin, m.id, null, at(5));
+      const v = views(world);
+      expect(v.map((x) => [x.itemId, x.openedAt, x.closedAt, x.ms / 60_000])).toEqual([[a.id, at(0), at(3), 3], [b.id, at(3), at(4), 1]]);
+      expect(v.every((x) => x.userId === admin.ownerUserId && x.meetingId === m.id && x.kind === "ask" && !x.open)).toBe(true);
+    });
+
+    it("records the view while the 1:1 is not discussing (the focus itself stays unset), and the 1:1's end closes it", () => {
+      const { world, admin, m, proposal, askOf } = setup();
+      const a = askOf(proposal().id);
+      world.meetings.upsert({ ...world.meetings.require(m.id), phase: "collecting" });
+      expect(setMeetingFocus(world, admin, m.id, { kind: "ask", id: a.id }, at(0)).focus ?? null).toBeNull();
+      setMeetingFocus(world, admin, m.id, { kind: "ask", id: a.id }, at(2)); // the focus stays null, but the open view is the same item: no second row
+      expect(views(world)).toHaveLength(1);
+      expect(views(world)[0]!.open).toBe(true);
+      endMeeting(world, admin, m.id);
+      const [v] = views(world);
+      expect(v!.open).toBe(false);
+      expect(v!.closedAt).not.toBeNull();
+    });
+
+    it("a view left open (no null reached the server) counts at most 30 minutes, and the row is not rewritten", () => {
+      const { world, admin, m, proposal, askOf } = setup();
+      const a = askOf(proposal().id);
+      setMeetingFocus(world, admin, m.id, { kind: "ask", id: a.id }, at(0));
+      expect(views(world, 10)[0]).toMatchObject({ open: true, ms: 10 * 60_000 });
+      expect(views(world, 600)[0]).toMatchObject({ open: true, ms: VIEW_CAP_MS, closedAt: null });
+    });
+
+    it("a fund retires the grant's money ask with by = the funder; a moot retire stays by system", () => {
+      const { world, admin, proposal, askOf } = setup();
+      const g = proposal();
+      world.grantDesk.decide(admin, g.id, { action: "fund" });
+      const retire = askOf(g.id).history.find((h) => h.action === "retire")!;
+      expect(askOf(g.id).status).toBe("retired");
+      expect(retire.by).toBe(admin.ownerUserId);
+      const g2 = proposal();
+      retireAsks(world, "grant", g2.id, "moot: the plan changed");
+      expect(askOf(g2.id).history.find((h) => h.action === "retire")!.by).toBe("system");
+    });
   });
 });
