@@ -1,0 +1,1 @@
+- 2026-11-15 Pix 1: a captain, access or outbox request ask the Secretary rewrote keeps its words through `rerenderAsks` (thread entries and boot); `townCardOf` returns null once its history has a "rewritten" entry, so `entriesSinceCard` marks it behind when its thread moves (1:1 mt_t65exni4et).

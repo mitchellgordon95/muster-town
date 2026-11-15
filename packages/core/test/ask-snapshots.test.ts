@@ -113,6 +113,37 @@ describe("a card follows its thread", () => {
     expect(again.inputs).not.toContain("THREAD MOVED");
   });
 
+  it("a request card the Secretary rewrote keeps its words through new thread entries and a boot pass, and is marked behind", async () => {
+    const { world, manager, sec, askOn } = setup();
+    const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    const before = askOn("request", req.id);
+    const jobId = entryOf(world, before.sourceEntryId!)!.jobId;
+    const body = "Take one photograph of the gauge from the north side.\nThe calibration waits on it.";
+    await world.verbs.rank(sec, { rewrite: [{ askId: before.id, title: "Photograph the north gauge", body }] });
+    const rewritten = world.asks.require(before.id);
+    expect(rewritten).toMatchObject({ title: "Photograph the north gauge", body });
+    expect(entriesSinceCard(world, rewritten)).toBe(0);
+    // the thread moves: the words stay, the card is behind by one entry
+    appendEntry(world, { jobId, authorKind: "manager", authorId: manager.id, level: "none", note: "Dusk is when the light shows the scale." });
+    const after = world.asks.require(before.id);
+    expect(after).toMatchObject({ title: "Photograph the north gauge", body, renderedSeq: rewritten.renderedSeq });
+    expect(entriesSinceCard(world, after)).toBe(1);
+    // a boot pass changes nothing
+    expect(rerenderAsks(world)).toBe(0);
+    expect(world.asks.require(before.id)).toMatchObject({ title: "Photograph the north gauge", body });
+  });
+
+  it("a request card nobody rewrote is still written again from its doc", async () => {
+    const { world, manager, askOn } = setup();
+    const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
+    const before = askOn("request", req.id);
+    world.docs.patch(req.id, { body: "From the south side." });
+    expect(rerenderAsks(world)).toBe(1);
+    const after = world.asks.require(before.id);
+    expect(after.body).toBe("From the south side.");
+    expect(entriesSinceCard(world, after)).toBe(0);
+  });
+
   it("boot: a live ask filed before migration 115 gets the entry it came from, once", async () => {
     const { world, manager, proposal, askOn } = setup();
     const g = proposal();
