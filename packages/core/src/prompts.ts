@@ -18,6 +18,7 @@ import { EXPLORE_CEILING_SHARE } from "./explore.ts";
 import { jobOf, type Entry } from "./jobs.ts";
 import { policyLedgerBlock } from "./secretary.ts";
 import { dictionaryBlock } from "./dictionary.ts";
+import { operatingManualBlock } from "./operating-manual.ts";
 
 export { docGist, sectionOf } from "./text.ts";
 
@@ -143,6 +144,8 @@ export interface WorkSessionParts {
   team?: string;
   keyResults?: string;
   townBoard?: string;
+  /** live: the policy ledger, the town dictionary and the operating manual, read from their docs each session */
+  rules?: string;
   /** fixed */
   buildings: string;
   purpose: string;
@@ -162,6 +165,7 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   const keyResults = keyResultsBlock(world, building, assignment);
   const grants = manager ? managerGrantsBlock(world, building) : "";
   const townBoard = townBoardBlock(world);
+  const rules = townRulesBlock(world, agent);
   const forkOf = agent.forkOf ? world.agents.get(agent.forkOf)?.name ?? agent.forkOf : undefined;
   // a fork gets a frozen read-only copy of its manager's memory (dc_mymt27yz25 §5.2); a manager the index of its wiki
   // (pages read on demand, as on a team-lead wake); everyone else their own wiki and log; then the building's topic index
@@ -172,6 +176,7 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
     memory, repo: world.repoMode(), purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building),
     ...(forkOf ? { forkOf } : {}),
     ...(townBoard ? { townBoard } : {}),
+    ...(rules ? { rules } : {}),
     ...(manager ? { team: [managerIntrayRows(world, building, agent.id), teamBlock(world, building, agent.id), grants].filter(Boolean).join("\n\n"), intrayRules: managerIntrayRules(world.repoMode(), world.captainName()) } : {}),
     ...(keyResults ? { keyResults } : {}),
   };
@@ -193,9 +198,19 @@ export function workStateBlock(agent: Agent, parts: WorkSessionParts, workspace?
     parts.keyResults ?? "",
     parts.team ?? "",
     parts.townBoard ?? "",
+    parts.rules ?? "",
     parts.memory,
     workspace ? workspaceBlock(workspace) : "",
   ].filter((x) => x.trim()).join("\n\n");
+}
+
+/**
+ * What every session's first message carries beside the town board (1:1 mt_t65exni4et, "operating manual lgtm"): the
+ * policy ledger (docs/legible-delegation.md §6: rules the humans set, so nobody asks them again), the town dictionary and
+ * the operating manual, each read live from its Town Hall doc. "" when none exists yet.
+ */
+export function townRulesBlock(world: World, agent?: Agent): string {
+  return [policyLedgerBlock(world), dictionaryBlock(world), operatingManualBlock(world, agent)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -496,9 +511,8 @@ export function managerStateBlock(world: World, agent: Agent, building: Building
     grants,
     captainDeltaBlock(world, building, now),
     board,
-    // the policy ledger (docs/legible-delegation.md §6): rules the humans set, so the manager doesn't ask them again
-    policyLedgerBlock(world),
-    dictionaryBlock(world),
+    // the policy ledger, the town dictionary and the operating manual (1:1 mt_t65exni4et)
+    townRulesBlock(world, agent),
     memoryIndexBlock(world, agent.id, { now }),
   ].filter(Boolean).join("\n\n");
 }

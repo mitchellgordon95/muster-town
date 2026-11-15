@@ -28,7 +28,7 @@ const SEED_ENTRIES: readonly [string, string][] = [
   ["adjust / cut", "a human's two answers at a gate: change the ceiling, or end the grant here."],
   ["hold", "a grant at its ceiling: new sessions on it wait for a human."],
   ["slate", "the Secretary's ranked set of money asks: fund these, hold these, skip these, and why."],
-  ["ledger", "the policy ledger: one rule per line with its origin, pinned in every manager's prompt."],
+  ["ledger", "the policy ledger: one rule per line with its origin, pinned in every session's first message."],
 ];
 
 /** The words the town does not use, each with the one it uses instead. */
@@ -115,7 +115,7 @@ export function dictionaryPairs(world: World): DictionaryPair[] {
 }
 
 /**
- * The block pinned in every manager's first message: the dictionary's words and its avoid → use pairs, under 120 words
+ * The block pinned in every session's first message (`townRulesBlock`): the dictionary's words and its avoid → use pairs, under 120 words
  * (the meanings are a `read` away). "" before the dictionary exists.
  */
 export function dictionaryBlock(world: World): string {

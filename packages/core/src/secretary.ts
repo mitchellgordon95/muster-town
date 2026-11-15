@@ -14,7 +14,7 @@
  *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
  * - **Propose a rule**: only from the pattern note's rule (never after a decided policy ask or `act_in_1on1`), the policy
  *   ask "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
- *   of type `policy`, `policyLedgerBlock` pins it in managers' prompts). It never appends on its own.
+ *   of type `policy`, `policyLedgerBlock` pins it in every session's first message). It never appends on its own.
  *
  * - **Render the backstop** (1:1 mt_t65exni4et decision 2 point 3): a need its manager left unrendered for an hour
  *   (`overdueNeeds`) queues one run (`needsOverdue`, from the runtime tick); `rank` with `render` files the card and the
