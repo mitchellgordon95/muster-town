@@ -58,7 +58,6 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   },
   "goal-tree": () => ({ kind: "goals", verb: "Read the goal tree" }),
   library: () => ({ kind: "library", verb: "Browse the library" }),
-  outbox: () => ({ kind: "outbox", verb: "See what agents ask a human to do (the decision queue)" }),
   stats: () => ({ kind: "stats", verb: "Read the user stats" }),
   bulletin: () => ({ kind: "bulletin", verb: "Read the bulletin board" }),
   help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
@@ -794,12 +793,6 @@ export class MapRenderer {
       const below = s.grid && s.grid.tiles[(p.pos.y + 1) * s.grid.w + p.pos.x] === TILE.MANAGER_DESK;
       const q = toScreen(p.pos.x * T + T - 2, (p.pos.y + (below ? 1 : -1)) * T + 1);
       if (q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, b.intray);
-    }
-    // the counter's badge: open requests for a human (do asks in the decision queue), on the counter (the tile row above its standing spot)
-    if (s.outbox) {
-      const p = s.places.find((x) => x.kind === "outbox");
-      const q = p ? toScreen(p.pos.x * T + T - 2, (p.pos.y - 1) * T + 1) : null;
-      if (q && q.x > -40 && q.x < cw + 40 && q.y > -40 && q.y < ch + 40) drawBadge(g, q.x, q.y, s.outbox);
     }
     // the bulletin board's badge: notes the signed-in human hasn't opened (flag dc_04q4h8s229), on the board (the tile above its standing spot)
     if (s.bulletinUnread && s.me) {

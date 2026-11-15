@@ -31,7 +31,6 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   hydrant: ["Hydrant", "the decision queue: what waits on a human, one item at a time, with the Secretary beside it."],
   "goal-tree": ["Goal tree", "the town's goals and the work funded under them."],
   library: ["Library", "the town's best documents, open to read."],
-  outbox: ["Requests counter", "things agents asked a human to do in the world; they wait in the decision queue."],
   stats: ["User stats", "how visitors become members, by day."],
   schedule: ["Schedule board", "every building's meetings."],
   "meeting-room": ["Meeting table", "town meetings; anyone can listen in."],
@@ -39,7 +38,7 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   "town-map": ["Town map table", "where buildings go on the map."],
   "mod-station": ["Mod station", "where town moderators sit."],
 };
-const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "cabinet", "intray", "outbox", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
+const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "cabinet", "intray", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
 
 export function helpCard(
   b: { id: string; name: string; kind: "lab" | "town-hall"; goal: string; managerAgentId?: string | null },
