@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { REVIEW_DECK_ID } from "@muster-town/schema";
 import { buildingRoleId, createAssignment, createDoc, newId, nowIso, presentedReviewDeck, reviewDeck } from "../src/index.ts";
-import { seededWorld, renderNeeds } from "./helpers.ts";
+import { seededWorld, renderNeeds, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -29,7 +29,12 @@ function setup() {
     tags: ["visitor"], decision: "pending", createdAt,
   } as never);
   const park = (decision: string) => createAssignment(world, { agentId: manager.id, title: "parked", description: "x", createdBy: world.holderOf(admin), waitFor: { decision } });
-  return { ...s, manager, krs, proposal, visitorReport, park };
+  /** Hold a funded grant at its checkpoint, with the manager's ask on it (only an ask puts it on a slide). */
+  const hold = (id: string) => {
+    world.grants.patch(id, { status: "checkpoint", history: [...world.grants.require(id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    seedAsk(world, { type: "money", targetKind: "grant", targetId: id, buildingId: LAB, sourceDocId: null, by: manager.id, title: "Adjust or cut the held grant", branches: [{ label: "Adjust" }, { label: "Cut" }], recommendation: "Adjust it." });
+  };
+  return { ...s, manager, krs, proposal, visitorReport, park, hold };
 }
 
 const ours = (d: ReturnType<typeof reviewDeck>) => d.slides.filter((s) => s.kind !== "blocked");
@@ -67,14 +72,14 @@ describe("review deck (GET /api/review-deck)", () => {
   });
 
   it("the asks come first in rank order (an unranked proposal oldest first); then held checkpoints, then items work is parked on (most waiters first), with the waiter count on the slide", () => {
-    const { world, admin, proposal, visitorReport, park } = setup();
+    const { world, admin, proposal, visitorReport, park, hold } = setup();
     const p1 = proposal();
     const r1 = visitorReport("First visit", ago(5));
     const r2 = visitorReport("Second visit", ago(4));
     // a funded grant held at its checkpoint
     const held = proposal(1);
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
-    world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    hold(held.id);
     park(r2.id); park(r2.id); park(p1.id);
     const rest = ours(reviewDeck(world)).slice(1);
     expect(rest.map((s) => s.key)).toEqual([`proposal:${p1.id}`, `checkpoint:${held.id}`, `report:${r2.id}`, `report:${r1.id}`]);
@@ -90,10 +95,10 @@ describe("review deck (GET /api/review-deck)", () => {
   });
 
   it("a checkpoint slide leads with what shipped per key result, spend and what a top-up buys; a proposal asking again for that work shows it (mt_7b4zc7yja3)", () => {
-    const { world, admin, manager, proposal } = setup();
+    const { world, admin, manager, proposal, hold } = setup();
     const held = proposal();
     world.grantDesk.decide(admin, held.id, { action: "fund", tokens: 1_000_000 });
-    world.grants.patch(held.id, { status: "checkpoint", history: [...world.grants.require(held.id).history, { at: nowIso(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    hold(held.id);
     // nothing filed yet (grant C): "No evidence filed by the forks", no top-up line
     let slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
     expect(slide.text).toContain("No evidence filed by the forks");
@@ -133,6 +138,7 @@ describe("review deck (GET /api/review-deck)", () => {
     world.grantDesk.decide(admin, g.id, { action: "counter", note: "halve the ask" });
     world.grantDesk.update(manager, g.id, { askTokens: 500_000 });
     world.grantDesk.propose(manager, g.id);
+    renderNeeds(world, manager.id);
     const deck = ours(reviewDeck(world)).slice(1);
     const gs = deck.find((s) => s.grantId === g.id)!;
     expect(gs.history).toMatch(/countered .* ago: "halve the ask"/);
@@ -163,11 +169,28 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(world.events.list({ types: ["doc.decision"] }).at(-1)!.payload).not.toHaveProperty("deckSlide");
   });
 
+  it("a proposal with no ask yet is no slide, only one plain line on the town slide; its ask puts it on a slide (mt_t65exni4et decision 3)", () => {
+    const { world, manager } = setup();
+    const raw = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+      keyResults: [KRS[0]!], objective: "Unrendered", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 1_000_000,
+    }).id);
+    let deck = reviewDeck(world);
+    expect(deck.slides.some((x) => x.grantId === raw.id)).toBe(false);
+    const lab = world.buildings.require(LAB).name;
+    expect(deck.slides[0]!.text).toContain(`**Not yet on a slide:** Proposal from ${lab}: its card is being written.`);
+    expect(deck.slides[0]!.text).toMatch(/0 decisions below/);
+    renderNeeds(world, manager.id);
+    deck = reviewDeck(world);
+    expect(deck.slides.find((x) => x.grantId === raw.id)).toMatchObject({ kind: "proposal", askId: expect.stringMatching(/^ak_/) });
+    expect(deck.slides[0]!.text).not.toContain("Not yet on a slide");
+  });
+
   it("the proposal slide shows a long approach whole (no-truncation rule)", async () => {
     const { world, manager, krs } = setup();
     const approach = `${"Step one adds a Goals tab next to Tab. ".repeat(24)}The last words stay.`;
     expect(approach.length).toBeGreaterThan(900);
     const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [krs[0]!], objective: "Long approach", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach, note: "" });
+    renderNeeds(world, manager.id);
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.text).toContain(approach.trim());
     expect(s.text).not.toMatch(/…/);
@@ -177,6 +200,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const { world, manager, krs } = setup();
     const media = world.media.put(manager.id, "image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"));
     const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [krs[0]!], objective: "With a picture", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, picture: media.id, whatYoudSee: "The in-tray shows it", findingsDocIds: [], approach: "", note: "" });
+    renderNeeds(world, manager.id);
     expect(world.grants.require(r.grantId)).toMatchObject({ picture: media.id, whatYoudSee: "The in-tray shows it" });
     const s = ours(reviewDeck(world)).find((x) => x.grantId === r.grantId)!;
     expect(s.pictures[0]!.src).toBe(media.url);
@@ -190,6 +214,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const plan = (findingsDocIds: string[]) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { keyResults: [krs[0]!], objective: `Plan ${findingsDocIds.length}`, approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 1000, findingsDocIds }).id);
     const without = plan([design.id]);
     const withShot = plan([design.id, shot.id]);
+    renderNeeds(world, manager.id);
     const slides = reviewDeck(world).slides;
     const a = slides.find((x) => x.grantId === without.id)!;
     expect(a.pictures).toEqual([]);

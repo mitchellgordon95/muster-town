@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildingRoleId, createAssignment, fixedParts, workStateBlock, createBuilding, keyResultsBlock, newId, nextStartable, nowIso, reviewDeck, sessionMemory, townHallIntray, workSystemPrompt } from "../src/index.ts";
 import { ruleBlock, resolveLane } from "../src/lanes.ts";
 import { BUDGET_POLICY } from "../src/policy.ts";
-import { creditBank, fundGoalOf, seededWorld } from "./helpers.ts";
+import { creditBank, fundGoalOf, renderNeeds, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -302,6 +302,7 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     const propose = () => world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[0]!, KRS[1]!], objective: "A plan to rewrite", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 300_000 }).id);
     const g = propose();
     expect(townHallIntray(world).grants.map((x) => x.id)).toContain(g.id);
+    renderNeeds(world); // only its ask puts it on a slide (mt_t65exni4et decision 3)
     expect(JSON.stringify(reviewDeck(world).slides)).toContain(g.id);
     // another building's manager can't
     const other = createBuilding(world, { name: "Other lab" }, seed.admin.id);

@@ -8,7 +8,7 @@ import { createBuilding, createResident, decideRetainer, fireSchedules, freeToke
 import { ruleHold } from "../src/lanes.ts";
 import { runsLeft } from "../src/retainers.ts";
 import { newId, nowIso } from "../src/util.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
 const H = 3_600_000;
 
@@ -51,6 +51,7 @@ describe("retainers", () => {
     expect(intray.retainers.map((x) => x.id)).toEqual([id]);
     expect(intrayCount(world, th.id)).toBeGreaterThanOrEqual(1);
     expect(intrayRoutes(world, admin, intray).routes[id]).toMatchObject({ canDecide: true });
+    renderNeeds(world); // only its ask puts it on a slide (mt_t65exni4et decision 3)
     const slide = reviewDeck(world).slides.find((s) => s.kind === "retainer");
     expect(slide?.title).toMatch(/Retainer: Clockwork asks/);
     expect(slide?.text).toMatch(/3,000 tokens × 5 runs/);

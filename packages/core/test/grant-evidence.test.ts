@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, reviewDeck, workSystemPrompt } from "../src/index.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -95,6 +95,8 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     expect(e.reports[0]).toMatchObject({ title: "Step 1, nothing to claim", authorName: "Noor", verdict: "continue" });
     // the held card (a grant at checkpoint) and its deck slide say no fork filed evidence, and omit the top-up line
     world.grants.patch(g.id, { status: "checkpoint" });
+    // only an ask puts a held grant on a slide (mt_t65exni4et decision 3)
+    seedAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: g.buildingId, sourceDocId: null, title: "Adjust or cut the held grant", branches: [{ label: "Adjust" }, { label: "Cut" }], recommendation: "Adjust it." });
     let slide = reviewDeck(world).slides.find((s) => s.grantId === g.id)!;
     expect(slide.text).toContain("No evidence filed by the forks");
     expect(slide.text).toContain(`Step 1, nothing to claim (${first.id}, Noor, continue)`);

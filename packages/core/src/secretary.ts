@@ -319,7 +319,7 @@ export function policyLedgerBlock(world: World): string {
 
 /**
  * File the policy ask "Add this rule to the ledger?" (the Secretary's; it never appends on its own): the proposed line
- * `- <rule> (origin: <id>, <date>)` as its body, branches Add / Skip. One live ask per origin (a second folds in).
+ * `- <rule> (origin: <id>, <date>)` as its body's first line (what Add appends), branches Add / Skip, recommending Add. One live ask per origin (a second folds in).
  */
 function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
   const line = `- ${oneLine(p.rule, 300)} (origin: ${p.origin}, ${utcDate(nowIso())})`;
@@ -330,10 +330,15 @@ function proposeRule(world: World, p: { rule: string; origin: string; buildingId
   const ask = askOnOwnNeed(world, {
     need: "rule", targetKind: "rule", targetId, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: by === "system" ? "code" : "secretary",
     note: oneLine(p.why, 300), body: line, docId: p.sourceDocId ?? null,
-  }, { title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, body: line, recommendation: "", claims: [] }, by);
+  }, { title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, body: `${line}\n\n${RULE_CARD_TAIL}`, recommendation: RULE_RECOMMENDATION, claims: [] }, by);
   if (!ask) throw new AppError("conflict", "There is no Town Hall thread to file the rule ask on.");
   return ask;
 }
+
+/** The ledger card's recommendation (as_y7mrnayxs2): the Secretary files a rule only from a pattern it saw repeat. */
+export const RULE_RECOMMENDATION = "Add it. The same question came back this week, and this rule answers it before it is asked again.";
+/** Under the card's first line (the ledger line that Add appends): the policy contract's rule and reversing cost. */
+const RULE_CARD_TAIL = "If you add it, every manager reads this rule in its first message. Reversing it means deleting the line from the ledger.";
 
 const isLedgerAsk = (a: Ask) => a.branches.some((b) => b.action === LEDGER_ADD);
 

@@ -15,6 +15,7 @@ describe("GET /api/review-deck", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, whatYoudSee: "The banner says it", findingsDocIds: [], approach: "", note: "" });
+    await world.verbs.ask(manager, { type: "money", targetId: r.grantId, title: "Fund the banner", body: "You have not decided on it before.\nNothing is spent yet.\nIt has one step, and none is done yet.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund it." }); // only its ask puts it on a slide (mt_t65exni4et)
     const deck = await json(app, "GET", "/api/review-deck");
     expect(deck.status).toBe(200);
     expect(deck.body.slides[0]).toMatchObject({ key: "town", kind: "town" });
@@ -35,6 +36,7 @@ describe("GET /api/review-deck", () => {
     const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
     world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
     const r = await world.verbs.propose_grant(manager, { title: "A test grant proposal", keyResults: [{ text: "A banner line", howToCheck: "Open the banner" }], objective: "Banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "done", askTokens: 100_000, findingsDocIds: [], approach: "", note: "" });
+    await world.verbs.ask(manager, { type: "money", targetId: r.grantId, title: "Fund the banner", body: "You have not decided on it before.\nNothing is spent yet.\nIt has one step, and none is done yet.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund it." }); // only its ask puts it on a slide (mt_t65exni4et)
     const called = await json(app, "POST", "/api/meetings", { headers: auth, body: { kind: "in-tray-review", buildingId: null, startNow: true, brings: { mode: "nothing", text: "" }, askHumans: true, deck: { docId: "review-deck" } } });
     expect(called.status).toBe(201);
     const id = called.body.meeting.id;
