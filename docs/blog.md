@@ -51,7 +51,7 @@ curl -H "Authorization: Bearer $TOKEN" "https://muster.town/api/blog/subscribers
 `packages/server/src/mail.ts` sends through Resend's HTTP API (`POST https://api.resend.com/emails`, fetch, no SDK). Two host secrets, read at boot (docs/secrets.md):
 
 - `RESEND_API_KEY`: a Resend key with **Sending access** only, restricted to the sending domain.
-- `BLOG_MAIL_FROM`: the From line, on the domain verified in Resend, e.g. `Muster Town <blog@mail.muster.town>` (default `Muster Town <blog@muster.town>`).
+- `BLOG_MAIL_FROM`: the From line, on the domain verified in Resend (muster.town). It must be exactly `Name <email@domain>`, angle brackets included, e.g. `Muster Town <blog@muster.town>`, or a bare `email@domain`; anything else makes Resend answer 422 validation_error "Invalid from field" and every signup 500. Unset, it defaults to `Muster Town <blog@muster.town>`.
 
 **Without `RESEND_API_KEY`** nothing is sent and a signup is confirmed at once (single opt-in), as before.
 

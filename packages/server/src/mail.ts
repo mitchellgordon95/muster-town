@@ -1,7 +1,8 @@
 /**
  * The town's mail sender: Resend's HTTP API (https://resend.com/docs/api-reference/emails/send-email), called with fetch, no SDK.
- * Host secrets (docs/secrets.md): `RESEND_API_KEY` (a sending-only key) and `BLOG_MAIL_FROM` (e.g. "Muster Town <blog@mail.muster.town>",
- * on a domain verified in Resend). Without a key the sender is off (`enabled` false) and callers carry on as if there were no mail:
+ * Host secrets (docs/secrets.md): `RESEND_API_KEY` (a sending-only key) and `BLOG_MAIL_FROM`, on a domain verified in Resend:
+ * exactly `Name <email@domain>` (angle brackets included, e.g. "Muster Town <blog@muster.town>") or a bare `email@domain`;
+ * anything else (e.g. "Muster Town blog@muster.town") gets Resend's 422 validation_error "Invalid from field". Without a key the sender is off (`enabled` false) and callers carry on as if there were no mail:
  * the blog signup stays single opt-in (mailing-list.ts). Only the blog's mailing list sends today.
  */
 export interface Mail {
