@@ -179,11 +179,12 @@ export function renderNeeds(world: World, by = "ag_manager"): import("@muster-to
  */
 export function seedAsk(world: World, n: Omit<NewAsk, "sourceEntryId"> & { sourceEntryId?: string }): { ask: import("@muster-town/schema").Ask; folded: boolean } {
   const by = n.by ?? "system";
-  const live = n.targetId && n.targetKind ? world.asks.exists("targetKind = ? AND targetId = ? AND status IN ('open', 'deferred')", [n.targetKind, n.targetId]) : false;
-  const entryId = n.sourceEntryId ?? (live ? null : appendEntry(world, {
+  // a seed on a target that already has a live ask is the same need again (its entry: the door refuses a second card)
+  const live = n.targetId && n.targetKind ? world.asks.first("targetKind = ? AND targetId = ? AND status IN ('open', 'deferred')", [n.targetKind, n.targetId], "ORDER BY createdAt, rowid")?.sourceEntryId ?? null : null;
+  const entryId = n.sourceEntryId ?? live ?? (appendEntry(world, {
     jobId: `jb_${n.buildingId ?? "town-hall"}`, authorKind: by === "system" ? "code" : "manager", authorId: by,
     level: "human", note: n.title, body: n.body ?? "", moved: { kind: "ask", type: n.type, ...(n.targetId ? { targetId: n.targetId } : {}) },
   })?.id);
-  if (!entryId && !live) throw new Error(`seedAsk: no thread jb_${n.buildingId ?? "town-hall"}`);
+  if (!entryId) throw new Error(`seedAsk: no thread jb_${n.buildingId ?? "town-hall"}`);
   return createAsk(world, { ...n, sourceEntryId: entryId ?? null });
 }

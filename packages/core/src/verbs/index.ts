@@ -12,6 +12,8 @@ import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
 import { askHumans } from "../ask-verb.ts";
+import { rewriteOwnAsk, withdrawAsk } from "../asks.ts";
+import { entryOf } from "../jobs.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
@@ -21,15 +23,29 @@ export const verbImpls = {
   ask: async (world: World, me: Agent, input: VerbIn<"ask">) => {
     const bid = me.homeBuildingId ?? me.buildingId;
     if (!bid || !world.permissions.can(me, "building.manage", bid)) throw new AppError("forbidden", "Only a building's manager asks the humans (building.manage); a fork puts what it needs in its report's \"What I need from you\".");
-    const r = world.transaction(() => askHumans(world, me, bid, input));
+    // the same verb changes one of the building's own asks (1:1 mt_dwsxo7oms8 decision 2 point 5): rewrite it whole, or withdraw it
+    if (input.askId) {
+      const id = input.askId;
+      const jobOf = (a: { sourceEntryId: string | null }) => (a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined) ?? "";
+      if (input.withdraw) {
+        const a = world.transaction(() => withdrawAsk(world, me, id, input.note));
+        return { askId: a.id, entryId: a.sourceEntryId ?? "", jobId: jobOf(a), folded: false, status: a.status, note: `Withdrew ask ${a.id}: it left the humans' queue (retired, kept on its thread with your note). Nobody is woken.` };
+      }
+      if (!input.title || !input.body.trim() || !input.recommendation.trim()) throw new AppError("bad_request", "rewrite: give the whole card again, title, body and recommendation together (claims too, if they change). Its type, branches and target stay.");
+      const card = { title: input.title, body: input.body, recommendation: input.recommendation, ...(input.claims ? { claims: input.claims } : {}) };
+      const a = world.transaction(() => rewriteOwnAsk(world, me, id, card));
+      return { askId: a.id, entryId: a.sourceEntryId ?? "", jobId: jobOf(a), folded: false, status: a.status, note: `Wrote ask ${a.id}'s card again, whole. It is the card the humans see now.` };
+    }
+    if (!input.type || !input.title || !input.branches) throw new AppError("bad_request", "ask: a new ask needs type, title and branches (or askId to rewrite or withdraw one of your building's asks).");
+    const r = world.transaction(() => askHumans(world, me, bid, { ...input, type: input.type!, title: input.title!, branches: input.branches! }));
     const { warnings, ...filed } = r;
-    return { ...filed, ...(warnings.length ? { warnings } : {}), note: `Filed as ask ${r.askId}${r.folded ? " (folded into the ask already open on that item: your words are on it)" : ""} in the humans' decision queue, on the thread of ${r.jobId}. Their decision comes back to your in-tray as an entry on that thread; don't wait in this session.${warnings.length ? ` It is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ").slice(0, 1200)}.` : ""}` };
+    return { ...filed, ...(warnings.length ? { warnings } : {}), note: `Filed as ask ${r.askId}${r.folded ? " (refused as a second card: that need already has this ask. Your words are an entry on its thread; to change its card, `ask` again with askId and the whole card)" : ""} in the humans' decision queue, on the thread of ${r.jobId}. Their decision comes back to your in-tray as an entry on that thread; don't wait in this session.${warnings.length ? ` It is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ").slice(0, 1200)}.` : ""}` };
   },
   rank: async (world: World, me: Agent, input: VerbIn<"rank">) => {
     if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary ranks the asks.");
     if (input.pattern) return filePattern(world, me, input.pattern);
     if (input.week) return { inputs: weekInputsText(world) };
-    if (!input.order && !input.slate && !input.defer && !input.overtaken && !input.rewrite && !input.render) return { inputs: rankInputsText(world) };
+    if (!input.order && !input.slate && !input.defer && !input.overtaken && !input.rewrite && !input.render && !input.fold) return { inputs: rankInputsText(world) };
     return applyRank(world, me, input);
   },
   calibrate: async (world: World, me: Agent, input: VerbIn<"calibrate">) => calibrate(world, me, input),

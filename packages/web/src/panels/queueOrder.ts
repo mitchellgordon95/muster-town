@@ -34,12 +34,11 @@ interface QueueInput {
 }
 
 /** Every id an ask is about or came from: an item with one of these ids is that ask's record, not a queue item. */
-export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[]): Set<string> {
+export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId">[]): Set<string> {
   const ids = new Set<string>();
   for (const a of asks) {
     if (a.targetId) ids.add(a.targetId);
     if (a.sourceDocId) ids.add(a.sourceDocId);
-    for (const s of a.sources) if (s.docId) ids.add(s.docId);
   }
   return ids;
 }
@@ -68,7 +67,7 @@ export function waitingSince(x: QueueItem): string | null {
  * only hidden by the view still counts as asked. Grants, retainers, captain and access requests enter only through
  * their ask (see cardsBeingWritten for the ones still waiting for it).
  */
-export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[] = t.asks): QueueItem[] {
+export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId">[] = t.asks): QueueItem[] {
   const live = sortAsks(t.asks.filter((a) => a.status === "open" || a.status === "deferred"));
   const asked = askedIds(allAsks);
   const free = <T extends { id: string }>(xs: T[]) => xs.filter((x) => !asked.has(x.id));
@@ -88,7 +87,7 @@ interface CardBeingWritten { id: string; buildingId: string | null; text: string
  * The needs waiting for their card, oldest first: a proposed or held grant, an asked retainer, a captain or an access
  * request no ask is about. `buildingName` turns a building id into its name ("Proposal from Prod: its card is being written.").
  */
-export function cardsBeingWritten(t: Pick<QueueInput, "grants" | "retainers" | "captains" | "access">, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[], buildingName: (id: string) => string | null = () => null): CardBeingWritten[] {
+export function cardsBeingWritten(t: Pick<QueueInput, "grants" | "retainers" | "captains" | "access">, allAsks: Pick<AskView, "targetId" | "sourceDocId">[], buildingName: (id: string) => string | null = () => null): CardBeingWritten[] {
   const asked = askedIds(allAsks);
   const line = (what: string, b: string | null) => { const n = b ? buildingName(b) : null; return `${what}${n ? ` from ${n}` : ""}: its card is being written.`; };
   const out: CardBeingWritten[] = [

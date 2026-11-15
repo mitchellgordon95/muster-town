@@ -125,7 +125,9 @@ describe("needs and asks", () => {
     const authored = propose(50_000);
     // the cards as the town's templates left them (before needs), plus one the Secretary rewrote and one an explorer wrote
     const card = (g: { id: string }, recommendation: string, history: { at: string; action: string; by: string; note: string }[] = []) => {
-      const a = seedAsk(world, { type: "money", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, title: `Fund ${g.id}`, body: "This is a new proposal.", branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation }).ask;
+      // a card filed before needs views the grant's propose entry (asks.ts knownEntryOf), not a need
+      const g2 = world.grants.require(g.id);
+      const a = seedAsk(world, { sourceEntryId: `en_${g.id}_h${g2.history.map((h) => h.action).lastIndexOf("propose")}`, type: "money", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, title: `Fund ${g.id}`, body: "This is a new proposal.", branches: [{ label: "Fund", action: "fund" }, { label: "Counter", action: "counter" }, { label: "Reject", action: "reject" }], recommendation }).ask;
       return world.asks.upsert({ ...a, history: [...a.history, ...history] as never });
     };
     const t = card(tpl, "Fund it: the building proposed it as its next piece of work.");

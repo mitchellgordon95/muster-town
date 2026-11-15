@@ -11,12 +11,12 @@
  * - Unrendered while no live ask is on its target: it sits in the manager's in-tray (`managerQueue`), which wakes the
  *   manager; past `NEED_BACKSTOP_MS` the Secretary renders it and the manager is told (secretary.ts).
  */
-import type { AskBranch, AskTargetKind, AskType } from "@muster-town/schema";
+import type { Ask, AskBranch, AskTargetKind, AskType } from "@muster-town/schema";
 import { answerEntry, appendEntry, entryOf, type Entry } from "./jobs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
-type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule";
+export type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule";
 
 /** An open need, read back from its entry. */
 export interface Need {
@@ -51,11 +51,12 @@ export interface NewNeed {
 }
 
 /**
- * Write a need on a job's thread (level human), superseding any open need on the same target (it is answered with a
- * pointer to the new one). Null when the thread does not exist or the id was already written.
+ * Write a need on a job's thread (level human), superseding an open need of the same kind on the same target (a new gate
+ * replaces the old gate; it is answered with a pointer to the new one). A need of another kind on that target stays
+ * open: one need, one ask (1:1 mt_dwsxo7oms8 decision 3). Null when the thread does not exist or the id was already written.
  */
 export function fileNeed(world: World, n: NewNeed): Entry | null {
-  const older = openNeedsOn(world, n.targetKind, n.targetId);
+  const older = openNeedsOn(world, n.targetKind, n.targetId).filter((o) => o.need === n.need);
   const e = appendEntry(world, {
     id: n.id, jobId: n.jobId, authorKind: n.authorKind ?? "code", authorId: n.authorId ?? "system", level: "human",
     note: n.note, body: n.body, docId: n.docId ?? null, assignmentId: n.assignmentId ?? null, createdAt: n.createdAt,
@@ -102,7 +103,30 @@ export function openNeedsOn(world: World, kind: AskTargetKind, id: string): Need
   return readNeeds(world, "AND (json_extract(e.moved, '$.targetId') = ? OR json_extract(e.moved, '$.requestId') = ?)", [id, id]).filter((n) => n.targetKind === kind);
 }
 
-const hasLiveAsk = (world: World, n: Need) => world.asks.exists("targetKind = ? AND targetId = ? AND status IN ('open', 'deferred')", [n.targetKind, n.targetId]);
+/** The need kind an entry raised, when it is a need: a `need` entry's own, or "request" for an outbox request's legacy entry. */
+function needKindOf(world: World, entryId: string | null): NeedKind | null {
+  const m = entryId ? entryOf(world, entryId)?.moved : undefined;
+  return m?.kind === "need" ? (m.need as NeedKind) : m?.kind === "do" ? "request" : null;
+}
+
+/**
+ * The live ask that renders a need (1:1 mt_dwsxo7oms8 decisions 2-3: one need, one ask): the ask filed on its entry, else
+ * a card of the same type on its target that views no need of another kind and is no manager's own `ask` entry: the old
+ * need's card under a newer need of the same kind (a new gate), or a card filed before needs. A manager's ask on the same
+ * target (a credential beside a proposal, a policy on the grant) is a need of its own and never renders this one.
+ */
+export function liveAskForNeed(world: World, n: Pick<Need, "entry" | "need" | "type" | "targetKind" | "targetId">): Ask | undefined {
+  const live = "status IN ('open', 'deferred')";
+  return world.asks.first(`sourceEntryId = ? AND ${live}`, [n.entry.id], "ORDER BY createdAt, rowid")
+    ?? world.asks.where(`targetKind = ? AND targetId = ? AND type = ? AND ${live}`, [n.targetKind, n.targetId, n.type], "ORDER BY createdAt, rowid").find((a) => {
+      const raised = a.sourceEntryId ? entryOf(world, a.sourceEntryId) : null;
+      if (raised?.moved.kind === "ask") return false;
+      const kind = needKindOf(world, a.sourceEntryId);
+      return kind === null || kind === n.need;
+    });
+}
+
+const hasLiveAsk = (world: World, n: Need) => !!liveAskForNeed(world, n);
 
 /** The open needs no card renders yet (of one building, when given), oldest first: the manager's to render. */
 export function unrenderedNeeds(world: World, buildingId?: string): Need[] {
