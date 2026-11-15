@@ -37,7 +37,7 @@ describe("the ask verb is the one entry point to the decision queue (asks.md 18)
     expect(offenders, "File a card through ask-verb.ts (askHumans, passUpWithAsk, renderNeed, askOnOwnNeed): write a need and render it").toEqual([]);
   });
 
-  it("ask-verb.ts holds the insert, and only test/helpers.ts seeds asks in tests", () => {
+  it("ask-verb.ts holds the insert, and only the seedAsk helper seeds asks in tests", () => {
     expect(readFileSync(join(ROOT, VERB), "utf8")).toMatch(/function createAsk\(/);
     const offenders = under("test").filter((f) => rel(f) !== SEAM && !f.endsWith("ask-entry-point.test.ts")).filter((f) => /\bcreateAsk\b/.test(readFileSync(f, "utf8"))).map(rel);
     expect(offenders, "Seed a test's ask with helpers.ts seedAsk").toEqual([]);
