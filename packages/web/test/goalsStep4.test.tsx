@@ -24,11 +24,6 @@ describe("the decision queue: Mine / All and goal proposals (docs/goals.md step 
     expect(mineSlides(slides, ROUTES, "mine").map((x) => x.key)).toEqual(["town", "proposal:gr_a", "goal-proposal:gp_c", "record"]);
     expect(mineSlides(slides, ROUTES, "all")).toHaveLength(6);
   });
-  it("a goal proposal slide whose proposal was decided says so", () => {
-    const html = renderToStaticMarkup(<SlideDecision slide={s("goal-proposal:gp_z", "gp_z", { kind: "goal-proposal", group: 4 })} n={2} grants={[]} reports={[]} goalProposals={[]} onDecided={() => undefined} onOpenDoc={() => undefined} />);
-    expect(html).toContain("Already decided");
-  });
-
   it("a captain slide (gr_bwm0iz7rwl) carries Accept / Decline for whoever the route lets decide; the others see who decides", () => {
     const req: CaptainRequestView = { id: "cr_1", goalId: "gl_x", userId: "us_ana", note: "I run this", status: "pending", decidedBy: null, decisionNote: "", createdAt: new Date().toISOString(), decidedAt: null, name: "Ana", githubLogin: "ana", avatarUrl: null, goalText: "Grant pages show sessions", captainId: "us_mitchell", captainName: "Mitchell" };
     const slide = s("captain:cr_1", "cr_1", { kind: "captain", group: 4 });

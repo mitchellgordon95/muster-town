@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adjustedOfUsage, buildingRoleId, createBuilding, createUser, goalSpend, holderOf, intrayRoutes, intrayCount, reviewDeck, townHallIntray, worldGoalSpend, type GoalSpendInputs } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { renderNeeds, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const due = "2026-12-31";
@@ -20,43 +20,19 @@ function setup() {
 }
 
 describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
-  it("open goal proposals are Town Hall in-tray items: listed, counted in the badge, one deck slide each after grant proposals", async () => {
+  it("an open goal proposal is no raw in-tray item, badge count or deck slide: it reaches the queue only as its ask (1:1 mt_dwsxo7oms8 decision 4)", async () => {
     const { world, mei, admin } = setup();
     const th = world.buildings.first("kind = 'town-hall'")!;
     const before = intrayCount(world, th.id);
     const r = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: world.goalTree.attachmentOf(LAB), text: "Deck shows sessions", why: "funders asked" });
-    const g = world.grantDesk.create(null, LAB, { keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
-    world.grantDesk.propose(null, g.id);
-    expect(townHallIntray(world).goalProposals.map((p) => p.id)).toEqual([r.proposal.id]);
-    expect(intrayCount(world, th.id)).toBe(before + 2);
-    const deck = reviewDeck(world);
-    const kinds = deck.slides.map((s) => s.kind);
-    expect(kinds).toContain("goal-proposal");
-    expect(kinds.indexOf("proposal")).toBeLessThan(kinds.indexOf("goal-proposal"));
-    const slide = deck.slides.find((s) => s.kind === "goal-proposal")!;
-    expect(slide).toMatchObject({ itemId: r.proposal.id, group: 4, buildingId: LAB });
-    expect(slide.text).toMatch(/add a goal.*Deck shows sessions/);
+    expect(townHallIntray(world)).not.toHaveProperty("goalProposals");
+    expect(intrayCount(world, th.id)).toBe(before);
+    expect(reviewDeck(world).slides.some((s) => s.kind === "goal-proposal" || s.itemId === r.proposal.id)).toBe(false);
+    const [ask] = renderNeeds(world, mei.id);
+    expect(ask).toMatchObject({ targetKind: "goalProposal", targetId: r.proposal.id, type: "policy" });
+    expect(reviewDeck(world).slides.filter((s) => s.askId === ask!.id || s.itemId === ask!.id)).toHaveLength(1);
     world.goalTree.decideProposal(admin, r.proposal.id, { action: "cut", note: "no" });
-    expect(townHallIntray(world).goalProposals).toEqual([]);
-    expect(reviewDeck(world).slides.some((s) => s.kind === "goal-proposal")).toBe(false);
-  });
-
-  it("move and retire slides say what happens in the card's words; a retire names the buildings and key results that move", async () => {
-    const { world, mei, admin, tree, labGoal, otherGoal } = setup();
-    const sib = tree.create(admin, { parentId: "gl_trust", text: "Anyone can check the ledger" });
-    world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "Grant pages show sessions", howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
-    const mv = await world.verbs.propose_goal(mei, { action: "move", targetId: labGoal.id, parentId: otherGoal.id, why: "fits better" });
-    const rt = await world.verbs.propose_goal(mei, { action: "retire", targetId: labGoal.id, parentId: sib.id, why: "done" });
-    const text = (id: string) => reviewDeck(world).slides.find((s) => s.itemId === id)!.text;
-    expect(text(mv.proposal.id)).toContain(`"A funder sees what every token bought" moves under "A stranger finishes useful work"`);
-    expect(text(mv.proposal.id)).not.toContain("→");
-    const r = text(rt.proposal.id);
-    expect(r).toContain(`is retired; its open key results and attached buildings go under "Anyone can check the ledger"`);
-    expect(r).toContain(`What moves under "Anyone can check the ledger": building ${world.buildings.require(LAB).name}; key result "Grant pages show sessions". A building is never archived here; it moves.`);
-    const empty = tree.create(admin, { parentId: "gl_trust", text: "Nothing here" });
-    const re = await world.verbs.propose_goal(mei, { action: "retire", targetId: empty.id, why: "unused" });
-    expect(text(re.proposal.id)).toContain(`"Nothing here" is retired; nothing open hangs under it`);
-    expect(text(re.proposal.id)).not.toContain("What moves");
+    expect(world.asks.get(ask!.id)!.status).toBe("retired");
   });
 
   it("routes: Mine is what ends at the viewer (the root's captain gets the root's), an owner decides and funds in their subtree only", async () => {
@@ -70,6 +46,7 @@ describe("the in-tray and the deck (docs/goals.md, step 4)", () => {
     world.grantDesk.propose(null, gLab.id);
     world.grantDesk.propose(null, gOther.id);
     const p = (await world.verbs.propose_goal(mei, { action: "add-goal", parentId: labGoal.id, text: "x", why: "z" })).proposal;
+    renderNeeds(world, mei.id);
     const items = townHallIntray(world);
     const forLena = intrayRoutes(world, lenaAv, items);
     expect(forLena.defaultView).toBe("mine");

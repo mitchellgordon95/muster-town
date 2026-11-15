@@ -3,11 +3,13 @@ import { isJudgedKr,
   Event, type Agent, type Building, type Goal, type GoalFunding, type GoalProposal, type KeyResult,
 } from "@muster-town/schema";
 import { answererOf } from "./chain-of-command.ts";
+import { retireAsks } from "./asks.ts";
 import { sendMessage } from "./domain.ts";
 import { desksTotalAt, freeTokensAll, goalFunding } from "./free-tokens.ts";
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import type { Actor } from "./ops.ts";
 import { holderOf, townRoleId, type Holder } from "./permissions.ts";
+import { fileGoalProposal, type GoalProposalWords } from "./needs.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -522,21 +524,36 @@ export class Goals {
         break;
     }
     const now = nowIso();
+    // 1:1 mt_dwsxo7oms8 decision 4: the proposal is an entry on the proposer's thread and its need follows; both or neither
     const p = this.world.transaction(() => {
-      if (inp.targetId) {
-        for (const old of this.world.goalProposals.where("status = 'open' AND action = ? AND targetId = ? AND buildingId IS ?", [inp.action, inp.targetId, buildingId])) {
-          this.world.goalProposals.upsert({ ...old, status: "superseded", decidedAt: now });
-        }
-      }
-      return this.world.goalProposals.upsert({
+      const p = this.world.goalProposals.upsert({
         id: newId("gp"), action: inp.action, targetId: inp.targetId ?? null, parentId: inp.parentId ?? null, fields, why: inp.why, proposedBy: by.id,
         buildingId, reorgId: inp.reorgId ?? null, sourceDocIds: inp.sourceDocIds, status: "open", decidedBy: null, decidedAt: null, note: "", resultId: null, createdAt: now,
       });
+      if (inp.targetId) {
+        for (const old of this.world.goalProposals.where("status = 'open' AND action = ? AND targetId = ? AND buildingId IS ? AND id != ?", [inp.action, inp.targetId, buildingId, p.id])) {
+          this.world.goalProposals.upsert({ ...old, status: "superseded", decidedAt: now });
+          retireAsks(this.world, "goalProposal", old.id, `Superseded by the newer goal proposal ${p.id}.`);
+        }
+      }
+      fileGoalProposal(this.world, p, this.proposalWords(p, actor, planner));
+      return p;
     });
     const view = this.proposalView(p);
     this.world.events.append({ type: "goal.proposal", agentId: actor?.id ?? null, buildingId, text: `Goal proposal (${p.action}): ${clip(fields.text ?? this.targetText(p), 100)}`, payload: { proposalId: p.id, action: p.action, status: p.status, outsideScope: view.outsideScope } });
-    this.notifyEditors(p, actor, `${view.proposedByName} proposed a change to the goal tree (${p.action}): ${clip(fields.text ?? this.targetText(p), 160)}. Why: ${clip(p.why, 300)}. Accept or cut it (${p.id}).`);
     return view;
+  }
+
+  /** A proposal's words for its thread entry and need (needs.ts `fileGoalProposal`). `actor` null: the boot repair, which reads the proposer back. */
+  proposalWords(p: GoalProposal, actor: Actor | null = null, planner = false): GoalProposalWords {
+    const kr = p.targetId ? this.world.keyResults.get(p.targetId) : undefined;
+    const subject = p.action === "add-goal" ? p.fields.text ?? "" : this.targetText(p);
+    const parent = p.parentId ? this.get(p.parentId)?.text ?? p.parentId : null;
+    const agent = actor ?? this.world.agents.get(p.proposedBy) ?? null;
+    const b = p.buildingId ? this.world.buildings.get(p.buildingId) : undefined;
+    const authorKind: GoalProposalWords["authorKind"] = !agent || holderOf(agent).kind === "user" ? "human"
+      : planner || !b ? "manager" : b.managerAgentId === agent.id ? "manager" : "fork";
+    return { subject, subjectKind: kr || p.action === "promote" ? "key result" : "goal", parent, proposedByName: this.world.nameOf(p.proposedBy), authorKind };
   }
 
   listProposals(opts: { status?: GoalProposal["status"]; buildingId?: string } = {}): GoalProposalView[] {
@@ -560,6 +577,9 @@ export class Goals {
       return this.world.goalProposals.upsert({ ...p, status: inp.action === "accept" ? "accepted" : "cut", decidedBy: by, decidedAt: nowIso(), note: inp.note, resultId });
     });
     this.world.events.append({ type: "goal.proposal", agentId: actor?.id ?? null, buildingId: p.buildingId, text: `Goal proposal ${next.status}: ${clip(p.fields.text ?? this.targetText(p), 100)}`, payload: { proposalId: p.id, action: p.action, status: next.status, resultId: next.resultId } });
+    // the human's decision answers the need on the thread (with the card they saw) and retires its ask (decision 4)
+    const words = inp.action === "accept" ? (inp.text || inp.howToCheck || inp.due ? "Edit and accept" : "Accept") : "Cut";
+    retireAsks(this.world, "goalProposal", p.id, `${words}: goal proposal ${p.id} ${next.status}${inp.note ? `. ${inp.note}` : "."}`, actor ? holderOf(actor).id : false);
     if (this.world.agents.get(p.proposedBy)) {
       sendMessage(this.world, { kind: "system", fromId: by, fromKind: actor ? holderOf(actor).kind : "system", toId: p.proposedBy, body: `Your goal proposal ${p.id} (${p.action}: ${clip(p.fields.text ?? this.targetText(p), 120)}) was ${next.status}${inp.note ? `: ${inp.note}` : "."}` });
     }
@@ -693,16 +713,6 @@ export class Goals {
   private targetText(p: GoalProposal): string {
     const t = p.targetId ? this.world.keyResults.get(p.targetId)?.text ?? this.get(p.targetId)?.text : undefined;
     return t ?? p.targetId ?? "";
-  }
-
-  /** Inbox note to every human (avatar) who can accept the proposal. */
-  private notifyEditors(p: GoalProposal, actor: Actor, body: string): void {
-    const node = this.nodeOfProposal(p) ?? ROOT_GOAL_ID;
-    const from: Holder | { kind: "system"; id: string } = actor ? holderOf(actor) : { kind: "system", id: "system" };
-    for (const h of this.world.agents.where("kind = 'human' AND status != 'retired'")) {
-      if (h.id === actor?.id || !this.canEdit(h, node)) continue;
-      sendMessage(this.world, { kind: "system", fromId: from.id, fromKind: from.kind, toId: h.id, body });
-    }
   }
 
   private requireSources(ids: string[]): void {

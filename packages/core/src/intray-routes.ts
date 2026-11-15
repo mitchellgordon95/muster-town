@@ -1,7 +1,6 @@
 import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes, ScheduleView } from "@muster-town/schema";
 import { canDecideCaptain } from "./captain.ts";
 import { canDecideRetainer } from "./retainers.ts";
-import type { GoalProposalView } from "./goals.ts";
 import { holderOf } from "./permissions.ts";
 import type { World } from "./world.ts";
 
@@ -15,7 +14,7 @@ import type { World } from "./world.ts";
  * the captain of the report's building's goal or a goal above it (`Goals.captainsBuilding`, gr_zsm1piyqyx).
  * Anonymous viewers get routes with nothing theirs and nothing decidable.
  */
-export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; goalProposals: GoalProposalView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; stopped?: GrantView[] }): IntrayRoutes {
+export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; stopped?: GrantView[] }): IntrayRoutes {
   const human = viewer?.kind === "human" ? viewer : undefined;
   const user = human ? holderOf(human) : null;
   const userId = user?.kind === "user" ? user.id : null;
@@ -32,7 +31,10 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
   for (const g of items.grants) add(g.id, { grantId: g.id }, !!human && world.grantDesk.canFund(human, g));
   // a stopped grant has nothing left to decide: routed like a grant so "Mine" shows it to its goal's captain
   for (const g of items.stopped ?? []) add(g.id, { grantId: g.id }, false);
-  for (const p of items.goalProposals) {
+  // a goal proposal reaches the queue only as its ask (1:1 mt_dwsxo7oms8 decision 4): routed to whoever may edit the goal it lands on
+  for (const a of world.asks.where("targetKind = 'goalProposal' AND status IN ('open', 'deferred')", [])) {
+    const p = a.targetId ? world.goalProposals.get(a.targetId) : undefined;
+    if (!p) continue;
     const node = world.goalTree.nodeOfProposal(p);
     add(p.id, { proposalId: p.id }, !!human && (!node || world.goalTree.canEdit(human, node)));
   }

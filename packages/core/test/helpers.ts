@@ -166,6 +166,8 @@ export function renderNeeds(world: World, by = "ag_manager"): import("@muster-to
         ? { title: g!.status === "checkpoint" ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}`, body: `You funded this before.\nIt has spent ${world.grantDesk.spent(g!.id)} tokens.\nSome steps are done and some are left.`, recommendation: "Adjust it." }
         : n.need === "retainer"
           ? { title: `Approve the retainer ${n.targetId}`, body: `You have not decided on it before.\n${n.entry.body}\nNothing is spent yet.\nNo run has its steps done yet.`, recommendation: "Approve it." }
+          : n.need === "goal"
+            ? { title: `Accept the goal change ${n.targetId}`, body: `Change: ${n.entry.body}\nYou have not decided on it before.`, recommendation: "Accept it." }
           : n.need === "captain" || n.need === "access"
             ? { title: n.entry.note, body: `${n.entry.body}\nThey have waited since they asked.`, recommendation: "Accept it." }
             : { title: d?.title ?? n.entry.note, body: `${d?.body ?? ""}\nScope: what the request says.\nIf you decline: it stays manual.\nWorth leaving the queue: only a human can do it.`, recommendation: "Press Done." };
