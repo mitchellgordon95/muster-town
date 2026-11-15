@@ -110,7 +110,7 @@ describe("layout", () => {
 
   it("creates the named places", () => {
     const { world, by } = seededWorld();
-    for (const id of ["library", "town-map", "planning-desk", "outbox", "meeting-room:town-hall", "plaza", "door:town-hall", "door:carbon-cycle", "meeting-room:carbon-cycle"]) {
+    for (const id of ["library", "town-map", "planning-desk", "meeting-room:town-hall", "plaza", "door:town-hall", "door:carbon-cycle", "meeting-room:carbon-cycle"]) {
       const p = world.layout.requirePlace(id);
       expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y), id).toBe(true);
     }

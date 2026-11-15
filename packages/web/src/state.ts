@@ -47,8 +47,6 @@ interface TownState {
   places: Place[];
   /** flags standing on the map (planted, not yet picked up by the manager); the snapshot's, then kept by `doc` frames */
   flags: MapFlag[];
-  /** outbox requests nobody has claimed yet: the snapshot's count, then kept by `outbox` frames (the map's outbox badge) */
-  outbox: number;
   /** bulletin board notes the signed-in human hasn't opened (flag dc_04q4h8s229): from GET /api/bulletin, refetched on bulletin `doc` frames; 0 for guests (the map's red badge on the board) */
   bulletinUnread: number;
   grid: Grid | null;
@@ -65,9 +63,6 @@ interface TownState {
   toasts: Toast[];
   /** bumps whenever a doc/assignment/meeting arrives so panels can refetch lists */
   rev: number;
-  /** bumps only when the Outbox's lists can have changed: an `outbox` frame, a request or human-report `doc` frame, a snapshot,
-   * or the panel's own move on a request (OutboxPanel keys its loads on it, not on `rev`, so a busy town doesn't cancel its fetch) */
-  outboxRev: number;
   /** `GET /api/bank`, shown on the Bank's sign; null until the first fetch */
   bank: Bank | null;
   /** the snapshot's `health` (docker up?); live changes arrive as `alert` system events */
@@ -84,8 +79,8 @@ const MAX_EVENTS = 600;
 
 class Store {
   state: TownState = {
-    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], outbox: 0, bulletinUnread: 0, grid: null, gridVersion: 0,
-    meetings: {}, events: [], cacheAlerts: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, outboxRev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
+    conn: "connecting", me: null, town: null, buildings: [], agents: {}, places: [], flags: [], bulletinUnread: 0, grid: null, gridVersion: 0,
+    meetings: {}, events: [], cacheAlerts: [], docs: {}, assignments: {}, panel: null, sheet: null, toasts: [], rev: 0, bank: null, health: null, redeployLive: null, blocked: {}, scheduled: [],
   };
   /** Latest server position per agent (tile coords). Mutated in place; the renderer interpolates. */
   readonly livePos = new Map<string, { x: number; y: number; at: number }>();
@@ -137,10 +132,11 @@ class Store {
       }
       case "event": return this.applyEvent(m.event);
       case "doc":
-        this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), ...this.outboxWith([m.doc]), rev: s.rev + 1 });
+        this.set({ docs: { ...s.docs, [m.doc.id]: m.doc }, ...this.flagsWith([m.doc]), rev: s.rev + 1 });
         if (m.doc.type === "bulletin") this.onBulletinChanged?.();
         return;
-      case "outbox": return this.set({ outbox: m.open, rev: s.rev + 1, outboxRev: s.outboxRev + 1 });
+      // the open-requests count was the map outbox's badge; the outbox is gone from the map (flag dc_f3xcob2n9u)
+      case "outbox": return;
       case "meeting": return this.set({ meetings: { ...s.meetings, [m.meeting.id]: m.meeting }, rev: s.rev + 1 });
       case "assignment": {
         this.set({ assignments: { ...s.assignments, [m.assignment.id]: m.assignment }, rev: s.rev + 1 });
@@ -202,8 +198,8 @@ class Store {
     const meetings: Record<string, Meeting> = {};
     for (const mt of m.meetings) meetings[mt.id] = mt;
     this.set({
-      town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], outbox: m.outbox ?? 0, grid: m.grid, meetings, health: m.health ?? this.state.health,
-      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1,
+      town: m.town, buildings: m.buildings, agents, places: m.places, flags: m.flags ?? [], grid: m.grid, meetings, health: m.health ?? this.state.health,
+      gridVersion: this.state.gridVersion + 1, rev: this.state.rev + 1,
     });
   }
 
@@ -265,17 +261,13 @@ class Store {
     if (!list.length) return;
     const docs = { ...this.state.docs };
     for (const d of list) docs[d.id] = d;
-    this.set({ docs, ...this.flagsWith(list), ...this.outboxWith(list) });
+    this.set({ docs, ...this.flagsWith(list) });
   }
   /** A doc was deleted (an admin removed an outbox request): forget it and let lists refetch. */
   dropDoc(id: string) {
     const docs = { ...this.state.docs };
     delete docs[id];
-    this.set({ docs, rev: this.state.rev + 1, outboxRev: this.state.outboxRev + 1 });
-  }
-  /** `outboxRev` bumped when one of these docs is a request or a human report (the Outbox's two lists) */
-  private outboxWith(list: Doc[]): Partial<TownState> {
-    return list.some((d) => d.type === "request" || d.type === "human-report") ? { outboxRev: this.state.outboxRev + 1 } : {};
+    this.set({ docs, rev: this.state.rev + 1 });
   }
   /** `flags` after these docs changed: a flag doc stands on the map while it is pending and not picked up. */
   private flagsWith(list: Doc[]): Partial<TownState> {

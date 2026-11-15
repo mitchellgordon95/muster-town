@@ -29,7 +29,7 @@ export const TOWN_HALL_FIXTURES = {
   /** planning desk bottom-right */
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
   /** the hydrant: the stream of asks and notices, opening the decision queue (docs/legible-delegation.md §3) */
-  hydrant: { x: 15, y: 9 }, hydrantStand: { x: 15, y: 8 },
+  hydrant: { x: 2, y: 6 }, hydrantStand: { x: 2, y: 7 },
   /** schedule board next to the town meeting room table */
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
   /** the Town Hall board (town-wide FYIs) on the back wall, above the middle */
@@ -158,7 +158,6 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: stand("town-map") },
         { id: "goal-tree", kind: "goal-tree", name: "Goal tree (the town's goals, key results and proposals)", buildingId: b.id, pos: stand("goal-tree") },
-        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: stand("outbox") },
         { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: stand("stats") },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: stand("meeting") },
         { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: stand("help") },
