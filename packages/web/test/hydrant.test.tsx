@@ -12,14 +12,16 @@ import { MAX_PARTICLES, hydrantCounts, streamParticles } from "../src/map/hydran
 const notice = (id: string, kind: Notice["kind"], createdAt: string): Notice => ({ ...notices[0], id, kind, createdAt });
 
 describe("the Town Hall hydrant", () => {
-  it("the Town Hall layout has the hydrant place and no in-tray: its tile right of the planning desk, open floor where the tray was", () => {
+  it("the Town Hall layout has the hydrant place and no in-tray: its tile where the outbox counter was, used from below; no outbox place", () => {
     const { grid, places } = computeLayout(buildings, agents);
     const hall = buildings.find((b) => b.kind === "town-hall")!;
     const p = places.find((x) => x.id === `hydrant:${hall.id}`)!;
     expect(p).toMatchObject({ kind: "hydrant", buildingId: hall.id });
     const at = (x: number, y: number) => grid.tiles[y * grid.w + x];
-    expect(at(p.pos.x, p.pos.y + 1)).toBe(TILE.HYDRANT);
-    expect(at(p.pos.x - 1, p.pos.y + 1)).toBe(TILE.FLOOR);
+    expect(at(p.pos.x, p.pos.y - 1)).toBe(TILE.HYDRANT);
+    expect(at(p.pos.x + 1, p.pos.y - 1)).toBe(TILE.FLOOR);
+    expect(grid.tiles.includes(TILE.COUNTER)).toBe(false);
+    expect(places.some((x) => x.kind === "outbox")).toBe(false);
     expect(places.some((x) => x.buildingId === hall.id && x.kind === "intray")).toBe(false);
   });
 

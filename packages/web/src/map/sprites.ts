@@ -518,7 +518,7 @@ export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number,
   g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
 }
 
-export type IconKind = "library" | "outbox" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin" | "hydrant";
+export type IconKind = "library" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin" | "hydrant";
 const iconCache = new Map<string, string>();
 /** Tile-art icons for panel headers (2x scale). */
 export function iconUrl(kind: IconKind): string {
@@ -532,7 +532,6 @@ export function iconUrl(kind: IconKind): string {
   g.scale(2, 2);
   switch (kind) {
     case "library": g.drawImage(tl.shelf, 0, 0); break;
-    case "outbox": drawCounter(g, 0, 2, { l: false, r: false }, true); break;
     case "meeting": drawChair(g, 0, -4, "down"); drawTable(g, 0, 2, { l: false, r: false, u: false, d: false }); break;
     case "admin": g.drawImage(tl.plant, 2, 0); break;
     case "intray": drawManagerDesk(g, 0, 0); break;

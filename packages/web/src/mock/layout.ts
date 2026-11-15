@@ -15,7 +15,7 @@ const F = {
   modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
   modStand: { x: 5, y: 8 },
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
-  hydrant: { x: 15, y: 9 }, hydrantStand: { x: 15, y: 8 },
+  hydrant: { x: 2, y: 6 }, hydrantStand: { x: 2, y: 7 },
   schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
   board: { x: 8, y: 0 }, boardStand: { x: 8, y: 1 },
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
@@ -86,7 +86,6 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       );
       for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
       for (let x = 10; x <= 14; x++) for (let y = 2; y <= 3; y++) set(x0 + x, y0 + y, TILE.TOWN_MAP);
-      for (let x = 2; x <= 3; x++) set(x0 + x, y0 + 6, TILE.COUNTER);
       set(x0 + 5, y0 + 6, TILE.STATS);
       set(x0 + 6, y0 + 9, TILE.HELP); // = core's `help` piece
       for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
@@ -94,7 +93,6 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
       places.push(
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 4 } },
-        { id: "outbox", kind: "outbox", name: "Outbox", buildingId: b.id, pos: { x: x0 + 3, y: y0 + 7 } },
         { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: { x: x0 + 5, y: y0 + 7 } },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
         { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 9 } },
