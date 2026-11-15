@@ -87,7 +87,7 @@ interface CardBeingWritten { id: string; buildingId: string | null; text: string
  * The needs waiting for their card, oldest first: a proposed or held grant, an asked retainer, a captain or an access
  * request no ask is about. `buildingName` turns a building id into its name ("Proposal from Prod: its card is being written.").
  */
-export function cardsBeingWritten(t: Pick<QueueInput, "grants" | "retainers" | "captains" | "access">, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[], buildingName: (id: string) => string | null = () => null): CardBeingWritten[] {
+export function cardsBeingWritten(t: Pick<QueueInput, "grants" | "retainers" | "captains" | "access">, allAsks: Pick<AskView, "targetId" | "sourceDocId">[], buildingName: (id: string) => string | null = () => null): CardBeingWritten[] {
   const asked = askedIds(allAsks);
   const line = (what: string, b: string | null) => { const n = b ? buildingName(b) : null; return `${what}${n ? ` from ${n}` : ""}: its card is being written.`; };
   const out: CardBeingWritten[] = [
