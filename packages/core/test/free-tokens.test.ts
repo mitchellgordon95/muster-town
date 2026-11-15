@@ -26,6 +26,13 @@ function setup() {
 }
 
 describe("free tokens (docs/how-work-gets-done.md §7)", () => {
+  it("an open proposal claims its tokens by its need, before any card renders it (1:1 mt_t65exni4et decision 2 point 4)", () => {
+    const { world, a1, propose } = setup();
+    const g = propose(2_000);
+    expect(world.asks.count("targetId = ?", [g.id])).toBe(0);
+    expect(freeTokens(world, a1.id)).toMatchObject({ openAsksTokens: 2_000, freeTokens: 11_000 });
+  });
+
   it("with no claims: the general balance, plus the earmarks at or above the goal", () => {
     const { world, a1, b } = setup();
     expect(freeTokens(world, a1.id)).toEqual({ goalId: a1.id, generalTokens: 10_000, reserveTokens: 0, earmarkTokens: 3_000, fundedRemainingTokens: 0, openAsksTokens: 0, reservedTokens: 0, retainerTokens: 0, retainerJobs: 0, freeTokens: 13_000 });

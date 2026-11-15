@@ -4,9 +4,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, markSeen, newId, nowIso, retireFork, updateBuilding } from "../src/index.ts";
-import { createAsk, decideAsk, retireAsks } from "../src/asks.ts";
+import { decideAsk, retireAsks } from "../src/asks.ts";
 import { legibleMeasures } from "../src/measures.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
 const REPORT = "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.";
@@ -45,17 +45,17 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     const { world, admin } = lab();
     const two = (label: string) => [{ label }, { label: "Decline" }];
     // two live asks: one on a captain request (a second source folds in), one in words
-    const a1 = createAsk(world, { type: "click", targetKind: "captain", targetId: "cr_one", buildingId: null, sourceDocId: "dc_first", title: "Make Noor captain", branches: two("Accept") }).ask;
-    createAsk(world, { type: "click", targetKind: "captain", targetId: "cr_one", buildingId: null, sourceDocId: "dc_second", title: "Make Noor captain, again", branches: two("Accept") });
+    const a1 = seedAsk(world, { type: "click", targetKind: "captain", targetId: "cr_one", buildingId: null, sourceDocId: "dc_first", title: "Make Noor captain", branches: two("Accept") }).ask;
+    seedAsk(world, { type: "click", targetKind: "captain", targetId: "cr_one", buildingId: null, sourceDocId: "dc_second", title: "Make Noor captain, again", branches: two("Accept") });
     world.asks.patch(a1.id, { createdAt: ago(10) });
-    createAsk(world, { type: "meeting", buildingId: null, sourceDocId: null, title: "Talk about the map?", branches: two("Yes") });
+    seedAsk(world, { type: "meeting", buildingId: null, sourceDocId: null, title: "Talk about the map?", branches: two("Yes") });
     // a money ask filed 4 h ago and decided now
-    const money = createAsk(world, { type: "money", buildingId: null, sourceDocId: null, title: "Fund it", branches: two("Fund") }).ask;
+    const money = seedAsk(world, { type: "money", buildingId: null, sourceDocId: null, title: "Fund it", branches: two("Fund") }).ask;
     world.asks.patch(money.id, { createdAt: ago(4) });
     decideAsk(world, admin, money.id, "Fund");
     // two asks retired by their events: a human opened one of them first
-    const r1 = createAsk(world, { type: "click", targetKind: "access", targetId: "ar_one", buildingId: null, sourceDocId: null, title: "Let Ada in", branches: two("Let in") }).ask;
-    createAsk(world, { type: "click", targetKind: "access", targetId: "ar_two", buildingId: null, sourceDocId: null, title: "Let Bo in", branches: two("Let in") });
+    const r1 = seedAsk(world, { type: "click", targetKind: "access", targetId: "ar_one", buildingId: null, sourceDocId: null, title: "Let Ada in", branches: two("Let in") }).ask;
+    seedAsk(world, { type: "click", targetKind: "access", targetId: "ar_two", buildingId: null, sourceDocId: null, title: "Let Bo in", branches: two("Let in") });
     markSeen(world, admin.ownerUserId!, "ask", r1.id);
     retireAsks(world, "access", "ar_one", "Ada was let in");
     retireAsks(world, "access", "ar_two", "Bo was let in");
@@ -70,6 +70,30 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     // a decision older than the window is not counted
     world.asks.patch(money.id, { decidedAt: ago(15 * 24) });
     expect(legibleMeasures(world).timeToDecision.money).toBeUndefined();
+  });
+
+  it("card rewrites: cards filed in the window, filed with style warnings, rewritten by the Secretary, the rate per building and per ask type (decision 9)", () => {
+    const { world, b } = lab();
+    const two = (label: string) => [{ label }, { label: "Decline" }];
+    const clean = { body: "Noor has waited on this since Nov 6.\nIf you accept once, this never comes back.", recommendation: "Accept" };
+    const k1 = seedAsk(world, { type: "click", targetKind: "captain", targetId: "cr_one", buildingId: b.id, sourceDocId: null, title: "Make Noor captain", branches: two("Accept"), ...clean }).ask;
+    seedAsk(world, { type: "click", targetKind: "captain", targetId: "cr_two", buildingId: b.id, sourceDocId: null, title: "Make Ada captain", branches: two("Accept"), ...clean });
+    // a card with no body: filed with warnings
+    const m1 = seedAsk(world, { type: "meeting", buildingId: null, sourceDocId: null, title: "Talk about the map?", branches: two("Yes"), recommendation: "Yes" }).ask;
+    expect(m1.history.some((h) => h.action === "lint")).toBe(true);
+    // the Secretary rewrote one card in each group; a rewrite's own lint line is not a filing warning
+    const rewrite = (id: string) => { const a = world.asks.require(id); world.asks.upsert({ ...a, history: [...a.history, { at: nowIso(), action: "rewritten", by: "ag_sec", note: "was" }, { at: nowIso(), action: "lint", by: "ag_sec", note: "warnings: x" }] }); };
+    rewrite(k1.id);
+    rewrite(m1.id);
+    // a card filed before the window is not counted
+    const old = seedAsk(world, { type: "click", targetKind: "captain", targetId: "cr_old", buildingId: b.id, sourceDocId: null, title: "Make Bo captain", branches: two("Accept"), ...clean }).ask;
+    world.asks.patch(old.id, { createdAt: ago(15 * 24) });
+
+    const r = legibleMeasures(world).cardRewrites;
+    expect(r).toMatchObject({ filed: 3, rewritten: 2, rate: 0.67 });
+    expect(r.withWarnings).toBe(1);
+    expect(r.byBuilding).toEqual({ [b.id]: { filed: 2, rewritten: 1, rate: 0.5 }, "town-hall": { filed: 1, rewritten: 1, rate: 1 } });
+    expect(r.byType).toEqual({ click: { filed: 2, rewritten: 1, rate: 0.5 }, meeting: { filed: 1, rewritten: 1, rate: 1 } });
   });
 
   it("grants: top-up asks per funded grant, hold share, spent over size per size, sessions per completed step, tokens held at gates", async () => {

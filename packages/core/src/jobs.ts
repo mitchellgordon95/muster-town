@@ -373,7 +373,7 @@ export function appendEntry(world: World, e: NewEntry): Entry | null {
     note: e.note.slice(0, 2000), body: e.body ?? "", docId: e.docId ?? null, createdAt: e.createdAt ?? nowIso(),
   });
   const entry = entryOf(world, id)!;
-  // the thread moved: the asks rendered over it are written again from its object (asks.ts `rerenderAsks`, wired by World)
+  // the thread moved: the asks rendered over it are marked behind, never rewritten (asks.ts `rerenderAsks`, wired by World)
   world.onEntry?.(e.jobId);
   // a doc-backed entry's doc.created already tells the feed and wakes the manager; this event is for the ones without a doc
   if (!entry.docId) {
@@ -411,13 +411,13 @@ const answererKind = (world: World, by: { kind: string; id: string }): EntryAuth
  * Answer an entry: one answer entry on its thread (`answers` = it), a record at level none unless `level` says the answer
  * itself needs someone (a human's answer the manager must move on). Null when the entry is unknown or the answer exists.
  */
-export function answerEntry(world: World, entryId: string, by: { kind: string; id: string }, decision: string, note: string, opts: { id?: string; level?: EntryLevel } = {}): Entry | null {
+export function answerEntry(world: World, entryId: string, by: { kind: string; id: string }, decision: string, note: string, opts: { id?: string; level?: EntryLevel; moved?: Record<string, unknown>; body?: string } = {}): Entry | null {
   const e = entryOf(world, entryId);
   if (!e) return null;
   return appendEntry(world, {
     id: opts.id, jobId: e.jobId, authorKind: answererKind(world, by), authorId: by.id, level: opts.level ?? "none",
     // an answer that itself waits for someone (a human's decision the manager moves on) is an item of its own, not its doc's
-    note, moved: { decision }, answers: e.id, docId: opts.level && opts.level !== "none" ? null : e.docId,
+    note, moved: { ...opts.moved, decision }, answers: e.id, docId: opts.level && opts.level !== "none" ? null : e.docId, ...(opts.body ? { body: opts.body } : {}),
   });
 }
 

@@ -3,7 +3,7 @@ import {
   StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict,
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, isJudgedKr, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
-import { askAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
+import { needAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
 import { syncJob } from "./jobs.ts";
 import { statusAtClose } from "./kr-evidence.ts";
 import { shippedAtClose, type ShippedItem, closedLoopNotice, verifiedNotice } from "./notices.ts";
@@ -928,7 +928,7 @@ export class Grants {
       const next = this.save(g, null, { status: "checkpoint", checkpointsDone: [...g.checkpointsDone, ...crossed].sort() }, "checkpoint", spent,
         `Spend reached its ceiling: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
       const hold = this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${grantName(g)} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: 1, spentTokens: spent, grantTokens: tokens } });
-      askAtCheckpoint(this.world, next, spent, hold.text);
+      needAtCheckpoint(this.world, next, spent);
       this.notifyFunders(next, null, `"${grantName(g)}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the Town Hall in-tray.`);
       held.push(next);
     }

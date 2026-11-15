@@ -6,10 +6,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, decideAsk, focusBlock, focusTarget, setMeetingFocus, townRoleId } from "../src/index.ts";
-import { createAsk, retireAsks } from "../src/asks.ts";
+import { retireAsks } from "../src/asks.ts";
 import { screenViews, VIEW_CAP_MS } from "../src/screen-views.ts";
 import { endMeeting } from "../src/meetings.ts";
-import { askAt, creditBank, seededWorld } from "./helpers.ts";
+import { askAt, creditBank, seededWorld, renderNeeds, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -21,9 +21,11 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
   const th = world.buildings.first("kind = 'town-hall'")!;
-  const proposal = () => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const propose = () => askAt(world, world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective: "Banner shows Usage", approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 350_000,
   }).id), 350_000);
+  // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
+  const proposal = () => { const g = propose(); renderNeeds(world, manager.id); return g; };
   const m = createOneOnOne(world, admin, th.id, { agentId: sec.id });
   const askOf = (grantId: string) => world.asks.first("targetKind = 'grant' AND targetId = ?", [grantId])!;
   return { ...s, world, manager, sec, th, proposal, m, askOf };
@@ -86,7 +88,7 @@ describe("the 1:1's open item (focus)", () => {
 
   it("says when the ask was decided since it was opened, and reports a gone id as gone", () => {
     const { world, admin, th, m } = setup();
-    const { ask } = createAsk(world, { type: "policy", buildingId: th.id, sourceDocId: null, title: "Should reviews wait for CI?", line: "Should reviews wait for CI?", body: "Two labs disagree.", branches: [{ label: "Yes" }, { label: "No" }] });
+    const { ask } = seedAsk(world, { type: "policy", buildingId: th.id, sourceDocId: null, title: "Should reviews wait for CI?", line: "Should reviews wait for CI?", body: "Two labs disagree.", branches: [{ label: "Yes" }, { label: "No" }] });
     setMeetingFocus(world, admin, m.id, { kind: "ask", id: ask.id });
     expect(focusBlock(world, world.meetings.require(m.id))).toContain("Status: open");
     decideAsk(world, admin, ask.id, "Yes, always");

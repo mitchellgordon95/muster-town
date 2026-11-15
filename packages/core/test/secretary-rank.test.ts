@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, requestCaptain, reviewDeck, townRoleId } from "../src/index.ts";
 import { rankedAsks } from "../src/asks.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -17,9 +17,11 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
-  const proposal = (objective: string, askTokens = 300_000) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+  const propose = (objective: string, askTokens = 300_000) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
   }).id);
+  // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
+  const proposal = (objective: string, askTokens = 300_000) => { const g = propose(objective, askTokens); renderNeeds(world, manager.id); return g; };
   const askOn = (id: string) => world.asks.first("targetId = ? AND status IN ('open', 'deferred')", [id])!;
   return { ...s, world, manager, sec, proposal, askOn };
 }
@@ -65,6 +67,7 @@ describe("the Secretary's ranking run", () => {
     world.permissions.grant({ kind: "user", id: ana.id }, townRoleId("member"));
     const goal = world.goalTree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
     const cr = requestCaptain(world, ana.id, goal.id, "I know this goal");
+    renderNeeds(world);
     const click = askOn(cr.id);
     const money = askOn(g.id);
     await expect(world.verbs.rank(sec, { slate: { fund: [{ askId: click.id, why: "x" }], hold: [], skip: [] } })).rejects.toThrow(/money asks only/);

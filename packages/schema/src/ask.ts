@@ -74,6 +74,12 @@ export type AskLintRule =
   | { name: string; says: string; scope: "sentence"; fails: (sentence: string) => string | null }
   | { name: string; says: string; scope: "card"; fails: (card: AskCard, sentences: string[]) => string | null };
 
+/** The most words a card's title may have (decision 2 point 6: short titles). */
+const ASK_TITLE_WORDS = 14;
+/** "See the report", "details in the doc", "as discussed": a pointer with nothing of what it points at. */
+const BARE_REFERENCE = /^(?:please\s+)?(?:see|read|check)\s+(?:the\s+)?(?:report|doc|document|thread|pr|link|above|below|attached|notes?)\b[^,]{0,20}\.?$|\b(?:details|more)\s+(?:are\s+)?in\s+the\s+(?:report|doc|thread)\.?$|^as\s+discussed\.?$/i;
+/** A button that says no action. */
+const VAGUE_BRANCH = /^(?:yes|no|ok|okay|sure|maybe|option\s*\w+|choice\s*\w+|[a-d1-4])$/i;
 const hasRecommendation = (card: AskCard, sentences: string[]) => !!card.recommendation?.trim() || sentences.some((s) => /\brecommends?\b/i.test(s));
 const ifBranches = (sentences: string[]) => sentences.filter((s) => /^if\b/i.test(s)).length;
 
@@ -111,6 +117,23 @@ export const ASK_LINT_RULES: readonly AskLintRule[] = [
       const where = (["title", "body", "recommendation"] as const).filter((k) => card[k]?.includes("…"));
       return where.length ? `an ellipsis in the ${where.join(" and the ")}: say it whole or leave it out` : null;
     },
+  },
+  // 1:1 mt_t65exni4et decision 2 point 6: the report-vs-ask principles a machine can check (pictures and reshaping by
+  // activity are the renderer's duty, stated in the manager's Asks paragraph, not linted)
+  {
+    name: "short-title", scope: "card", says: `a short title with no ids: at most ${ASK_TITLE_WORDS} words, names not ids`,
+    fails: (card) => {
+      const t = card.title ?? "", m = ID.exec(t), n = words(t).length;
+      return m ? `the title names ${m[0]}: write its name, the id goes in targetId` : n > ASK_TITLE_WORDS ? `a title of ${n} words, at most ${ASK_TITLE_WORDS}` : null;
+    },
+  },
+  {
+    name: "no-bare-reference", scope: "sentence", says: "no bare pointer to elsewhere (\"see the report\"): say what it says",
+    fails: (s) => BARE_REFERENCE.test(s) ? "a pointer to elsewhere with nothing of its content: say what the human would find there" : null,
+  },
+  {
+    name: "branch-actions", scope: "card", says: "each branch names its action (Fund, Cut, Let in), not Yes, No, OK or an option number",
+    fails: (card) => { const bad = (card.branches ?? []).filter((b) => VAGUE_BRANCH.test(b.label.trim())).map((b) => `"${b.label}"`); return bad.length ? `${bad.join(", ")} name no action: label each button with what it does` : null; },
   },
   {
     name: "recommendation", scope: "card", says: "a recommendation (the field, or a sentence \"<name> recommends …\")",

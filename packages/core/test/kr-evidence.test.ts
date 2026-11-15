@@ -6,9 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, retireFork, updateBuilding } from "../src/index.ts";
 import { runClaimChecks } from "../src/ask-checks.ts";
-import { createAsk } from "../src/asks.ts";
 import { migrate } from "../src/db.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const REPORT = "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.";
 
@@ -50,7 +49,7 @@ describe("key-result evidence class (docs/legible-delegation.md §5)", () => {
 
   it("a kr claim check that passes verifies its key result once, with a verified notice; a failing one leaves it", async () => {
     const { world, k1 } = lab();
-    const { ask } = createAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Health", branches: [{ label: "Done" }, { label: "Decline" }], claims: [{ text: "Health answers", check: { kind: "kr", ref: k1.id } }] });
+    const { ask } = seedAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Health", branches: [{ label: "Done" }, { label: "Decline" }], claims: [{ text: "Health answers", check: { kind: "kr", ref: k1.id } }] });
     await runClaimChecks(world, ask, { getUrl: async () => ({ status: 500, body: "" }) });
     expect(world.keyResults.require(k1.id).evidence ?? "unknown").toBe("unknown");
     await runClaimChecks(world, world.asks.require(ask.id), { getUrl: async () => ({ status: 200, body: "" }) });

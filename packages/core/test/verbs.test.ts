@@ -308,14 +308,14 @@ describe("request_human lifecycle", () => {
     const randoAvatar = world.ops.ensureAvatar(other.id);
     // it is a do ask in the decision queue, with the reason it is worth leaving the queue, and an entry at level human on the thread
     expect(world.docs.require(id).body).toContain("Worth leaving the queue: Only a human can do this");
-    expect(world.asks.first("targetKind = 'request' AND targetId = ?", [id])).toMatchObject({ type: "do", status: "open", branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] });
-    expect(entryOf(world, `en_${id}`)).toMatchObject({ level: "human", docId: id, moved: { kind: "do", requestId: id } });
+    // its need waits for the author's manager to render the ask (1:1 mt_t65exni4et)
+    expect(world.asks.first("targetKind = 'request' AND targetId = ?", [id])).toBeUndefined();
+    expect(entryOf(world, `en_${id}`)).toMatchObject({ level: "human", docId: id, moved: { kind: "need", need: "request", type: "do", targetId: id, branches: [{ label: "Done", action: "done" }, { label: "Decline", action: "decline" }] } });
     expect(() => world.ops.requestAction(randoAvatar, id, "claim" as never)).toThrow();
     expect(() => world.ops.requestAction(world.ops.ensureAvatar(seed.admin.id), id, "done")).toThrow(/needs your report back/);
     const { humanReport } = world.ops.requestAction(randoAvatar, id, "done", "Photos attached; slump is 40 m wide.");
     expect(humanReport).toMatchObject({ type: "human-report", state: "library", authorId: other.id, authorKind: "user" });
     expect(world.docs.require(id)).toMatchObject({ requestStatus: "done", claimedByUserId: other.id });
-    expect(world.asks.first("targetKind = 'request' AND targetId = ?", [id])!.status).toBe("retired");
     expect(isAnswered(world, `en_${id}`)).toBe(true);
     expect(() => world.ops.requestAction(randoAvatar, id, "done", "again")).toThrow(/Request is done/);
     expect((await world.verbs.inbox(ingrid, {})).messages.some((m) => m.body.includes(humanReport!.id))).toBe(true);

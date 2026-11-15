@@ -55,7 +55,7 @@ describe("GET /api/review-deck", () => {
 });
 
 describe("a manager's ask on a grant (no rollups: plan dc_uwx045472m step 7)", () => {
-  it("POST /api/verbs/ask on a proposal folds into the proposal's own ask: one card, the manager's words on it, no report and no second slide", async () => {
+  it("POST /api/verbs/ask on a proposal renders the proposal's need: one card, the manager's words on it, no report and no second slide", async () => {
     const s = await seededApp();
     cleanups.push(s.close);
     const { world, app } = s;
@@ -67,7 +67,7 @@ describe("a manager's ask on a grant (no rollups: plan dc_uwx045472m step 7)", (
     const card = { type: "money", targetId: g, title: "Fund the banner", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the banner goes up.\nIf you reject: nothing runs.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund: it is one session." };
     const r = await json(app, "POST", "/api/verbs/ask", { headers: agent, body: card });
     expect(r.status).toBe(200);
-    expect(r.body.result).toMatchObject({ folded: true, jobId: `jb_${g}` });
+    expect(r.body.result).toMatchObject({ folded: false, jobId: `jb_${g}` });
     const intray = await json(app, "GET", "/api/buildings/town-hall/intray");
     expect(intray.body.reports).toEqual([]);
     expect(intray.body.asks.filter((a: { targetId: string }) => a.targetId === g)).toHaveLength(1);

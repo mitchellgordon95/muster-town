@@ -5,9 +5,8 @@
 import { lintAskBody } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, managerStateBlock, updateBuilding } from "../src/index.ts";
-import { createAsk } from "../src/asks.ts";
 import { dictionaryBlock, dictionaryPairs, ensureDictionary } from "../src/dictionary.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, seedAsk } from "./helpers.ts";
 
 describe("the town dictionary (docs/legible-delegation.md §5)", () => {
   it("seeded at boot: one Town Hall dictionary doc with the words and the avoid → use list, made once", () => {
@@ -43,8 +42,25 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     // in the town, the pairs come from the Town Hall doc when a card is stored
     const { world } = seededWorld();
     ensureDictionary(world);
-    const { ask } = createAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Look at the checkpoint card", body: "Pix has waited since Monday. Open the checkpoint card once and this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
+    const { ask } = seedAsk(world, { type: "click", buildingId: null, sourceDocId: null, title: "Look at the checkpoint card", body: "Pix has waited since Monday. Open the checkpoint card once and this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
     expect(ask.tags).toEqual([]);
     expect(ask.history.find((h) => h.action === "lint")!.note).toContain('"checkpoint card" in "Open the checkpoint card once and this never comes back.": use "gate"');
+  });
+});
+
+describe("needs and asks in the dictionary (1:1 mt_t65exni4et)", () => {
+  it("a dictionary seeded before needs gets the need line after ask, rewords the seed's ask line, keeps a human's edit, and is idempotent", () => {
+    const { world } = seededWorld();
+    const d = ensureDictionary(world)!;
+    expect(d.body).toMatch(/^- \*\*need\*\*: a fact on a job's thread/m);
+    // as seeded before needs
+    const old = d.body.replace(/^- \*\*need\*\*:.*\n/m, "").replace(/^- \*\*ask\*\*:.*$/m, "- **ask**: something only a human can do, stored with its type, target, branches and recommendation. The human decides it.");
+    world.docs.patch(d.id, { body: old });
+    const fixed = ensureDictionary(world)!;
+    expect(fixed.body).toMatch(/^- \*\*ask\*\*: the card in the decision queue: a view of one need.*\n- \*\*need\*\*: /m);
+    expect(ensureDictionary(world)!.body).toBe(fixed.body);
+    // a human's own ask line stays
+    world.docs.patch(d.id, { body: old.replace(/^- \*\*ask\*\*:.*$/m, "- **ask**: Mitchell's words.") });
+    expect(ensureDictionary(world)!.body).toMatch(/^- \*\*ask\*\*: Mitchell's words\.\n- \*\*need\*\*: /m);
   });
 });

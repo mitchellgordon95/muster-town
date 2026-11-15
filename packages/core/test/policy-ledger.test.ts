@@ -6,11 +6,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne } from "../src/index.ts";
-import { createAsk, decideAsk } from "../src/asks.ts";
+import { decideAsk } from "../src/asks.ts";
 import { filePattern, policyLedgerBlock } from "../src/secretary.ts";
 import { managerStateBlock } from "../src/prompts.ts";
 import { ensureDictionary } from "../src/dictionary.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -32,7 +32,7 @@ describe("the policy ledger", () => {
     expect(ledger).toMatchObject({ type: "policy", buildingId: "town-hall", title: "Policy ledger" });
     expect(world.secretary.ensurePolicyLedger()!.id).toBe(ledger.id);
     expect(policyLedgerBlock(world)).toBe("");
-    const { ask: p } = createAsk(world, { type: "policy", buildingId: LAB, sourceDocId: null, by: manager.id, title: "Forks never push to main without CI", branches: [{ label: "Keep the rule" }, { label: "Change it" }] });
+    const { ask: p } = seedAsk(world, { type: "policy", buildingId: LAB, sourceDocId: null, by: manager.id, title: "Forks never push to main without CI", branches: [{ label: "Keep the rule" }, { label: "Change it" }] });
     // a manager can't decide it, a human can; pressing Keep files no twin "Add this rule?" card
     expect(() => decideAsk(world, manager, p.id, "Keep the rule")).toThrow(/Only a human/);
     decideAsk(world, admin, p.id, "Keep the rule");

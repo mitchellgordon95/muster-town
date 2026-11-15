@@ -1,5 +1,7 @@
 import { askStructure, askWarnings, grantName, grantPricingOf, type Agent, type Grant } from "@muster-town/schema";
-import { lastCounterAt, proposalCard, refuseMissingStructure, setAskCard } from "../asks.ts";
+import { proposalTitle, refuseMissingStructure } from "../asks.ts";
+import { renderNeed } from "../ask-verb.ts";
+import { openNeedsOn, PROPOSAL_BRANCHES } from "../needs.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
 import { counteredTokens } from "../grants.ts";
@@ -14,9 +16,6 @@ import type { VerbIn } from "./types.ts";
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
  * (docs/how-work-gets-done.md §4).
  */
-/** A proposal's money ask's buttons (the same as `askForProposal` files). */
-const PROPOSAL_BRANCHES = [{ label: "Fund" }, { label: "Counter" }, { label: "Reject" }];
-
 export async function propose_grant(world: World, caller: Agent, input: VerbIn<"propose_grant">) {
   // a fork of the manager (an explorer, docs/how-work-gets-done.md §3) proposes for its building as its manager
   const me = world.permissions.managerOfFork(caller) ?? caller;
@@ -29,19 +28,19 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     if (!open || open.buildingId !== bid) throw badRequest(`${grantId} is not a proposal of your building.`);
     if (open.status !== "countered") throw new AppError("conflict", `${grantId} is ${open.status}: only a countered proposal is re-proposed. Leave grantId out for a new proposal.`);
   }
-  // the money ask's card (the explorer's, else the town's from the plan) is refused only when it lacks structure (1:1
-  // mt_ewxnhs90cq decision 5); the style rules it breaks are filed as warnings in its history and named in the answer
-  const card = ask
-    ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims }
-    : proposalCard({ askTokens: (open && counteredTokens(open)) || fields.steps.reduce((n, st) => n + grantPricingOf(world.town.get()).stepSizes[st.size], 0), steps: fields.steps.length, keyResults: fields.keyResults, counteredAt: open ? lastCounterAt(open) : null });
-  const vetCard = { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) };
-  refuseMissingStructure("proposal", askStructure("money", vetCard));
-  const warnings = ask ? askWarnings("money", vetCard) : [];
+  // the proposal writes a need (1:1 mt_t65exni4et decision 2); a card given here renders it at once, else the manager
+  // renders it from the need. A card is refused only when it lacks structure (1:1 mt_ewxnhs90cq decision 5); the style
+  // rules it breaks are filed as warnings in its history and named in the answer
+  const card = ask ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims ?? [] } : null;
+  const vetCard = card ? { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) } : null;
+  if (vetCard) refuseMissingStructure("proposal", askStructure("money", vetCard));
+  const warnings = vetCard ? askWarnings("money", vetCard) : [];
   const g = world.transaction(() => {
     const proposed = open
       ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
       : world.grantDesk.propose(me, world.grantDesk.create(me, bid, fields).id, note);
-    if (ask) setAskCard(world, "grant", proposed.id, card, caller.id);
+    const need = card ? openNeedsOn(world, "grant", proposed.id).at(-1) : undefined;
+    if (card && need) renderNeed(world, need, { title: proposalTitle(proposed), ...card }, caller.id);
     return proposed;
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;

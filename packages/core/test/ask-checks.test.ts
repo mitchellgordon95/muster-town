@@ -7,8 +7,7 @@ import type { Ask } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId } from "../src/index.ts";
 import { CLAIM_STALE_MS, claimsStale, readsAsks, runClaimChecks, urlOfHowToCheck } from "../src/ask-checks.ts";
-import { createAsk } from "../src/asks.ts";
-import { seededWorld } from "./helpers.ts";
+import { seededWorld, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -38,7 +37,7 @@ describe("claim checks (docs/legible-delegation.md §5)", () => {
     const g = world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [{ text: "Health answers", howToCheck: "curl -s https://muster.town/api/health | jq .commit" }, { text: "Looks right", howToCheck: "Open the lab board" }], objective: "o", steps: [{ title: "Step 1", description: "d", size: "M" }], stopCondition: "s", askTokens: 1000 }).id);
     const [krCurl, krManual] = world.grantDesk.keyResultsOf(g.id);
     world.host.apiGet = async (path) => path === "/api/buildings/carbon-cycle" ? { status: 200, body: { building: { name: "Carbon Lab", intray: 0 } } } : { status: 404, body: { error: "nope" } };
-    const { ask } = createAsk(world, {
+    const { ask } = seedAsk(world, {
       type: "click", buildingId: LAB, sourceDocId: null, title: "Merge the self-host docs", branches: [{ label: "Done" }, { label: "Decline" }],
       claims: [
         { text: "PR #392 is green and mergeable", check: { kind: "pr", ref: "392" } },
@@ -101,7 +100,7 @@ describe("claim checks (docs/legible-delegation.md §5)", () => {
     for (const p of ["/api/asks/ak_x", "/api/asks", "/api//asks/ak_x", "/api/ASKS/ak_x", "/api/%61sks/ak_x"]) expect(readsAsks(p)).toBe(true);
     expect(readsAsks("/api/askstats")).toBe(false);
     expect(readsAsks("/api/buildings/x")).toBe(false);
-    const { ask } = createAsk(world, {
+    const { ask } = seedAsk(world, {
       type: "money", buildingId: LAB, sourceDocId: null, by: mei.id, title: "Recursion", body: "b", recommendation: "r",
       branches: [{ label: "Yes" }, { label: "No" }],
       claims: [

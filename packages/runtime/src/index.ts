@@ -735,6 +735,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       // declarative exploration (docs/how-work-gets-done.md §3): reserve a chunk and queue an explorer where a desk is idle
       timed("explore", () => withTickMemo(world.db, () => exploreTick(world, d, subTimed)));
       timed("reorgs", () => world.reorgs.tick(d));
+      // needs and asks (1:1 mt_t65exni4et): a need its manager left unrendered for an hour gets one Secretary run
+      timed("needsBackstop", () => { world.secretary.needsOverdue(d); }, "needs backstop");
       timed("walkHome", () => walkIdleHome(world, t), "walk home");
       timed("blocked", () => { for (const b of world.buildings.all()) world.grantDesk.syncBlocked(b.id); }, "blocked buildings");
       await backendReady;

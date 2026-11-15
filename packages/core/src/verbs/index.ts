@@ -11,7 +11,7 @@ import { adoptGoal } from "../entities.ts";
 import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
-import { askHumans } from "../review-entry.ts";
+import { askHumans } from "../ask-verb.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
 
 export const verbImpls = {
@@ -29,7 +29,7 @@ export const verbImpls = {
     if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary ranks the asks.");
     if (input.pattern) return filePattern(world, me, input.pattern);
     if (input.week) return { inputs: weekInputsText(world) };
-    if (!input.order && !input.slate && !input.defer && !input.overtaken && !input.rewrite) return { inputs: rankInputsText(world) };
+    if (!input.order && !input.slate && !input.defer && !input.overtaken && !input.rewrite && !input.render) return { inputs: rankInputsText(world) };
     return applyRank(world, me, input);
   },
   calibrate: async (world: World, me: Agent, input: VerbIn<"calibrate">) => calibrate(world, me, input),
