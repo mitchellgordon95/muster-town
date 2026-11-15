@@ -135,6 +135,13 @@ volumes:
 `docker compose exec town cat /data/mytown/data/admin-token`. In the container agents run in-process (no Docker inside, so
 no code tools, and code-access buildings get no sessions).
 
+**On Fly.io** (proven 2026-11-15 on a throwaway app at `<app>.fly.dev`): write a `fly.toml` with these settings:
+`[build] image = "…:prod"`; the compose `environment` as `[env]`, plus `MUSTER_TOWN_PUBLIC_URL`; `[mounts] destination = "/data"`
+(1 GB is enough); `[http_service] internal_port = 4322`; and a `shared-cpu-2x` / 2 GB `[[vm]]`. Put secrets in with
+`fly secrets set`. Ship `collective.json` as `[[files]]` at a path **outside** `/data` (e.g. `/etc/mytown/collective.json`,
+with `MUSTER_TOWN_COLLECTIVE=/etc/mytown`). Fly writes files before it mounts the volume, so a file under `/data` is hidden.
+State still goes to `/data/mytown/`. Admin token: `fly ssh console -C "cat /data/mytown/data/admin-token"`. First boot takes about 1 min.
+
 A fork that wants its own image builds it the way `deploy/fly/build.sh` does: the build context carries the git directory
 as `gitdir` and uses `deploy/fly/dockerignore`
 (`git clone <your fork> b && cd b && mv .git gitdir && cp deploy/fly/dockerignore .dockerignore && docker build -f deploy/fly/Dockerfile -t muster-town:local .`;
@@ -248,13 +255,19 @@ approval: you prove you control the DNS name. The town must be served at `https:
      `https://town.example.org/.well-known/muster-town`; or
    - add a DNS TXT record `_muster-town.town.example.org` = `muster-town-verify=mtd_…`.
 
-Checking the proof and listing the town is being built now (design dc_d6chojzl2a): once it ships, muster.town checks
-within 15 minutes, lists the town while it answers `/api/health` and `/api/collectives` (name and goal come from there),
-and drops it a day after it stops answering or when you remove the proof. Listed towns: `GET https://muster.town/api/directory`.
+3. muster.town checks the proof 1, 5 and 15 minutes after you register (then hourly). To check now:
+   `curl -X POST https://muster.town/api/directory/verify -H 'content-type: application/json' -d '{"host":"town.example.org"}'`
+   (at most once a minute per host). `status: "verified"` with `proof: "well-known"` or `"txt"` means it is listed; while
+   it is `pending`, `lastError` says what was missing.
+
+Listed towns: `GET https://muster.town/api/directory` (name and goal come from your `/api/collectives`). muster.town
+re-checks every hour. A town that has not answered for a day leaves the list, and a proof missing on two checks an hour
+apart puts it back to `pending` with the same token. Limits per IP address: 10 registrations a day, 5 pending hosts and
+30 verify calls an hour.
 
 ## Known gaps
 
-What makes self-hosting harder than this page would like, as of 2026-11-06. Struck items are fixed.
+What makes self-hosting harder than this page would like, as of 2026-11-15. Struck items are fixed.
 
 1. ~~**No published Docker image, and the Docker build is untested off Fly.**~~ Fixed: CI builds the image with plain
    `docker build` and publishes `ghcr.io/mitchellgordon95/muster-town:prod` and `:<sha>` on every green main (PR #310),
@@ -264,10 +277,12 @@ What makes self-hosting harder than this page would like, as of 2026-11-06. Stru
 3. **No code tools in the container.** The image has no Docker, so desks can't run there: agents run in-process inside the
    town's own server process (no sandbox) and code-access buildings never get sessions. Agents that write code need
    path A with Docker, or Fly.
-4. **Not yet proven on a real box with a domain.** Path A was checked by booting a fresh collective from source on a desk;
-   path B runs in CI on every main (a GitHub Actions runner: pull-and-run compose, restart, S3 backup, restore into a new
-   volume). Still untried: TLS behind a real domain, GitHub sign-in through it, a Docker desk session (path A), and a
-   real S3 provider other than Tigris (CI's bucket is moto, which does not check request signatures).
+4. **Partly proven off muster.town.** Path B ran on 2026-11-15 on a throwaway Fly app at a real TLS domain
+   (`*.fly.dev`): `:prod` booted, the admin token signed in as admin, data survived three restarts, and section 6 listed it in
+   the directory. Path A was checked by booting a fresh collective from source on a desk, and path B runs in CI on every
+   main (compose, restart, S3 backup, restore into a new volume). Still untried: path B under Docker behind your own Caddy
+   and domain, GitHub sign-in on a self-hosted town, a Docker desk session (path A), and a real S3 provider other
+   than Tigris (CI's bucket is moto, which does not check request signatures).
 5. **The web client is always at `/workshop/`**, whatever your collective is called.
 6. **The seeded admin is called "Mitchell"** unless `MUSTER_TOWN_ADMIN_NAME` is set before the first start.
 7. ~~**Monitor FYIs need a building named "Prod"**~~. Fixed: without one they go to the Town Hall board as town-wide
@@ -276,4 +291,7 @@ What makes self-hosting harder than this page would like, as of 2026-11-06. Stru
 8. ~~**The full restore drill is Fly-only**~~. Fixed: off Fly, a container started on an empty volume with the backup
    variables restores itself from the bucket (section 5); CI runs that drill on every published image (PR #387).
    `scripts/backup/restore.sh` without `--local` is still the Fly-only scratch-app drill.
-9. **Directory registration** (section 6) does not exist yet.
+9. ~~**Directory registration** (section 6) does not exist yet.~~ Fixed: it is live, and the 2026-11-15 Fly proof town
+   was verified through `/.well-known/muster-town` and listed.
+10. **The homepage's Uptime block says "Measured by UptimeRobot"** even when no `UPTIMEROBOT_API_KEY` secret is set. Then it
+   reads "Not measured yet" and counts your restarts, all marked unclean.
