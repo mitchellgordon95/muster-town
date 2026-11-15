@@ -1,0 +1,1 @@
+- 2026-11-15: The ask card opens with one big sentence, "<Building> is asking for money" (a credential, a meeting, a policy decision, a click; "is asking you to do something"), instead of the small grey type pill; rank and age stay small beside it (AskCard.tsx, Mitchell in 1:1 mt_t65exni4et).

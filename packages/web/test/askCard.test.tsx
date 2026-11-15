@@ -79,6 +79,8 @@ describe("the ask card", () => {
     signIn();
     const held = renderToStaticMarkup(<AskCard ask={ask("ak_hud")} grant={grant("gr_hud")} onDecided={() => undefined} onOpenRecord={() => undefined} />);
     expect(held).toContain("<b>Workshop</b>");
+    // 1:1 mt_t65exni4et: one big sentence says who asks for what, not a small grey type badge
+    expect(held).toMatch(/class="ask-asking">[^<]* is asking for <b>money<\/b>/);
     expect(held).toContain("You funded this at 2M");
     expect(held).toContain("Keel recommends adjust");
     expect(held).toContain("✓");
