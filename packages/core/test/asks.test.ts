@@ -80,11 +80,12 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(ask).toMatchObject({ type: "money", status: "open", targetKind: "grant", targetId: g.id, buildingId: LAB, sourceDocId: g.id, recommendation: expect.stringContaining("Fund it"), tags: [] });
     expect(ask!.id).toMatch(/^ak_/);
     expect(ask!.branches.map((b) => b.label)).toEqual(["Fund", "Counter", "Reject"]);
-    // the same target again folds in: one ask, two sources; the same source line again changes nothing
+    // the same target again is refused as a card: one ask, its words one entry on the thread; the same words again add nothing
     const again = { type: "money" as const, targetKind: "grant" as const, targetId: g.id, buildingId: LAB, sourceDocId: "dc_rollup1", title: "Fund it", branches: [{ label: "Fund" }] };
     expect(seedAsk(world, again)).toMatchObject({ folded: true, ask: { id: ask!.id } });
     seedAsk(world, again);
-    expect(world.asks.require(ask!.id).sources.map((s) => s.docId)).toEqual([g.id, "dc_rollup1"]);
+    expect(world.asks.require(ask!.id)).toMatchObject({ title: ask!.title, history: ask!.history });
+    expect(world.db.prepare("SELECT COUNT(*) AS n FROM entries WHERE json_extract(moved, '$.kind') = 'ask-fold' AND json_extract(moved, '$.askId') = ?").get(ask!.id)).toEqual({ n: 1 });
     expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
     expect(townHallIntray(world).asks.map((a) => a.id)).toContain(ask!.id);
     world.grantDesk.decide(admin, g.id, { action: "fund" });
@@ -218,7 +219,6 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([]);
     renderNeeds(world);
     expect(asksFor(world, { kind: "grant", id: g.id })).toEqual([expect.objectContaining({ type: "money", status: "open" })]);
-    expect(asksFor(world, { kind: "grant", id: g.id })[0]!.sources.map((s) => s.docId)).toEqual([g.id]);
     expect(asksFor(world, { kind: "grant", id: countered.id })).toEqual([]); // a countered proposal waits on its manager
     expect(asksFor(world, { kind: "request", id: req.id })).toHaveLength(1);
     expect(asksFor(world, { kind: "captain", id: cr.id })).toHaveLength(1);

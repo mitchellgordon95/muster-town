@@ -17,13 +17,13 @@ import { queueClaimChecks } from "./ask-checks.ts";
 import { checkAskCards, LINT_FAILED, liveAskOn, refuseMissingStructure, vetted } from "./asks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { appendEntry, entryOf, jobThread, setEntryLevel, threadSeq, type Entry } from "./jobs.ts";
-import { fileNeed, openNeedsOn, type NewNeed, type Need } from "./needs.ts";
+import { fileNeed, openNeedsOn, TOWN_NEEDS, type NewNeed, type Need } from "./needs.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
 const oneLine = (s: string, max = 160) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
 
-/** What a source files: the ask's fields, plus the source line it brings (the record's own words) and who filed it. */
+/** What a source files: the ask's fields and who filed it. */
 export interface NewAsk {
   type: AskType;
   targetKind?: AskTargetKind | null;
@@ -35,42 +35,43 @@ export interface NewAsk {
   branches: AskBranch[];
   recommendation?: string;
   claims?: AskClaim[];
-  /** the source's own line (default: the title) */
-  line?: string;
   /** who filed it (an agent or user id, "system" by default) */
   by?: string;
   /** the entry on a job's thread that raised it: a need, a manager's `ask` entry or the entry passed up (a new card must have one; a fold may not) */
   sourceEntryId: string | null;
+  /** the town's own need (proposal, gate, request, retainer, captain, access): a live card on the same target is this one (decision 3) */
+  byTarget?: boolean;
   /** step 9: the Planner's table change on a rule ask (deciding "Adopt" applies it, planner.ts) */
   proposal?: CalibrationProposal | null;
 }
 
 /**
- * File an ask. With a target that already has a live ask, it folds in: the source line is appended to that ask (once:
- * the same record and line again changes nothing) and no second ask is made. Returns the ask and whether it folded.
+ * The live ask a new card would duplicate (1:1 mt_dwsxo7oms8 decisions 1 and 3: one need, one ask). The key is the need
+ * entry it views (`sourceEntryId`), any ask type; the town's own needs (`byTarget`) also key on their target.
  */
-export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean } {
+export function liveAskFor(world: World, targetKind: AskTargetKind | null | undefined, targetId: string | null | undefined, entryId: string | null, byTarget = false): Ask | undefined {
+  const onEntry = entryId ? world.asks.first("sourceEntryId = ? AND status IN ('open', 'deferred', 'folded')", [entryId], "ORDER BY createdAt, rowid") : undefined;
+  const onTarget = () => byTarget && targetKind && targetId ? liveAskOn(world, targetKind, targetId) ?? world.asks.first("targetKind = ? AND targetId = ? AND status = 'folded'", [targetKind, targetId], "ORDER BY createdAt, rowid") : undefined;
+  const have = onEntry ?? onTarget();
+  // an ask the Secretary folded into another (decision 2): the same need again goes to its survivor, while that is live
+  const survivor = have?.status === "folded" && have.foldedInto ? world.asks.get(have.foldedInto) : have;
+  return survivor && (survivor.status === "open" || survivor.status === "deferred") ? survivor : undefined;
+}
+
+/**
+ * File an ask. A card is written whole, from its thread, by one author at one time (1:1 mt_dwsxo7oms8 decision 1):
+ * nothing appends to a card. A second ask on the same need (`liveAskFor`) is refused as a card: its
+ * words go on the live ask's thread as one entry (`moved.kind` "ask-fold", level none: it wakes nobody), which marks
+ * the card behind for a rewrite, and the live ask comes back with `folded: true`. One exception, a whole rewrite: a
+ * manager's card with a recommendation replaces a live card that has none (or lacks structure), all its words at once.
+ */
+export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean; entryId?: string } {
   const at = nowIso();
   const by = n.by ?? "system";
   const kind = n.targetId ? n.targetKind ?? null : null;
-  const line = oneLine(n.line ?? n.title, 400);
   const entryId = n.sourceEntryId;
-  const sourceOf = () => (n.sourceDocId || entryId ? [{ docId: n.sourceDocId ?? null, entryId, buildingId: n.buildingId, line, at }] : []);
-  const source = sourceOf();
-  const have = kind && n.targetId ? liveAskOn(world, kind, n.targetId) : undefined;
-  if (have) {
-    if (!source.length || have.sources.some((s) => s.docId === (n.sourceDocId ?? null) && (s.entryId ?? null) === entryId && s.line === line)) return { ask: have, folded: true };
-    // step 3: a manager's card (one with a recommendation) replaces the words of an ask that has none or lacks structure
-    const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
-    const card = adopt ? vetted(world, have.type, { title: have.title, body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [], branches: have.branches, targetKind: have.targetKind }, at, by) : null;
-    const next = world.asks.upsert({
-      ...have, ...(card ? { body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [], tags: card.tags } : {}), sources: [...have.sources, ...source], updatedAt: at,
-      history: [...have.history, { at, action: "fold", by, note: `${n.sourceDocId ?? entryId}: ${line}` }, ...(card?.lint ?? [])],
-    });
-    world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `Folded into "${oneLine(have.title, 80)}": ${oneLine(line, 120)}`, payload: { askId: have.id, sourceDocId: n.sourceDocId, targetKind: kind, targetId: n.targetId } });
-    if (card) queueClaimChecks(world, next.id);
-    return { ask: next, folded: true };
-  }
+  const have = liveAskFor(world, kind, n.targetId, entryId, n.byTarget);
+  if (have) return foldInto(world, have, n, by, at);
   const card = vetted(world, n.type, { title: n.title, body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
   // every new card views an entry on a job's thread: a need, a manager's `ask` entry or the entry passed up
   if (!entryId) throw new AppError("conflict", "An ask needs the entry it views (asks.sourceEntryId): file it through `ask`, `review` with `ask` or a need.");
@@ -79,11 +80,45 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
     sourceEntryId: entryId, renderedSeq: raisedOn ? threadSeq(world, raisedOn) : null,
     id: newId("ak"), type: n.type, targetKind: kind, targetId: kind ? n.targetId : null, buildingId: n.buildingId, sourceDocId: n.sourceDocId,
     title: clipWords(n.title, 200), body: n.body ?? "", branches: n.branches, recommendation: n.recommendation ?? "", claims: n.claims ?? [],
-    status: "open", sources: sourceOf(), createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
+    status: "open", createdAt: at, updatedAt: at, history: [{ at, action: "create", by, note: "" }, ...card.lint], tags: card.tags, proposal: n.proposal ?? null,
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
   queueClaimChecks(world, ask.id);
   return { ask, folded: false };
+}
+
+/** Who wrote an entry, by the filer's id: a manager, the Secretary, a human, else code. */
+function authorKindOf(world: World, by: string): "manager" | "secretary" | "human" | "code" {
+  const a = world.agents.get(by);
+  if (!a) return by.startsWith("us_") ? "human" : "code";
+  if (world.secretary.isSecretary(a)) return "secretary";
+  return a.kind === "human" ? "human" : "manager";
+}
+
+/** The second ask on a need: its words become one entry on the live ask's thread; the card is not touched (but see `createAsk`). */
+function foldInto(world: World, have: Ask, n: NewAsk, by: string, at: string): { ask: Ask; folded: true; entryId?: string } {
+  const raised = n.sourceEntryId ? entryOf(world, n.sourceEntryId) : undefined;
+  const jobId = (have.sourceEntryId ? entryOf(world, have.sourceEntryId)?.jobId : undefined) ?? raised?.jobId;
+  const words = [n.body?.trim() ?? "", n.recommendation?.trim() ? `Recommendation: ${n.recommendation.trim()}` : ""].filter(Boolean).join("\n\n");
+  // the same words on the same need again add nothing (a re-run of the Secretary's render, a manager's retry)
+  const same = !!jobId && !!world.db.prepare("SELECT 1 FROM entries WHERE jobId = ? AND json_extract(moved, '$.kind') = 'ask-fold' AND json_extract(moved, '$.askId') = ? AND note = ? AND body = ?").get(jobId, have.id, oneLine(n.title, 400), words);
+  const entry = jobId && !same ? appendEntry(world, {
+    jobId, authorKind: authorKindOf(world, by), authorId: by, level: "none", note: oneLine(n.title, 400), body: words,
+    moved: { kind: "ask-fold", askId: have.id, ...(n.sourceEntryId && n.sourceEntryId !== have.sourceEntryId ? { raisedBy: n.sourceEntryId } : {}) },
+  }) : null;
+  if (same) return { ask: have, folded: true };
+  world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `Asked again on "${oneLine(have.title, 80)}": ${oneLine(n.title, 120)}`, payload: { askId: have.id, entryId: entry?.id ?? null, sourceDocId: n.sourceDocId, targetKind: have.targetKind, targetId: have.targetId } });
+  // a manager's card with a recommendation replaces a placeholder (no recommendation, or missing structure) whole
+  const placeholder = !have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0;
+  if (!placeholder || !n.recommendation?.trim()) return { ask: have, folded: true, ...(entry ? { entryId: entry.id } : {}) };
+  const next = { title: clipWords(n.title, 200), body: n.body ?? "", recommendation: n.recommendation, claims: n.claims ?? [] };
+  const card = vetted(world, have.type, { ...next, branches: have.branches, targetKind: have.targetKind }, at, by);
+  const ask = world.asks.upsert({
+    ...have, ...next, tags: have.tags.filter((t) => t !== LINT_FAILED), renderedSeq: jobId ? threadSeq(world, jobId) : have.renderedSeq, updatedAt: at,
+    history: [...have.history, { at, action: "rewritten", by, note: `was: ${have.title}`.slice(0, 500) }, ...card.lint],
+  });
+  queueClaimChecks(world, ask.id);
+  return { ask, folded: true, ...(entry ? { entryId: entry.id } : {}) };
 }
 
 /** The card fields an author gives (`ask`, `propose_grant` with `ask`, the Secretary's backstop). */
@@ -97,8 +132,8 @@ type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
 export function renderNeed(world: World, n: Need, card: { title: string } & Partial<Card>, by: string, proposal: CalibrationProposal | null = null, refuse = true): { ask: Ask; folded: boolean } {
   if (refuse) refuseMissingStructure("ask", askStructure(n.type, { title: card.title, body: card.body ?? "", recommendation: card.recommendation ?? "", claims: card.claims ?? [], branches: n.branches, targetKind: n.targetKind }));
   return createAsk(world, {
-    type: n.type, targetKind: n.targetKind, targetId: n.targetId, buildingId: n.buildingId, sourceDocId: n.entry.docId ?? n.targetId, sourceEntryId: n.entry.id, by,
-    title: card.title, body: card.body ?? "", branches: n.branches, recommendation: card.recommendation ?? "", claims: card.claims ?? [], line: n.entry.note, proposal,
+    type: n.type, targetKind: n.targetKind, targetId: n.targetId, buildingId: n.buildingId, sourceDocId: n.entry.docId ?? n.targetId, sourceEntryId: n.entry.id, by, byTarget: TOWN_NEEDS.has(n.need),
+    title: card.title, body: card.body ?? "", branches: n.branches, recommendation: card.recommendation ?? "", claims: card.claims ?? [], proposal,
   });
 }
 
@@ -124,7 +159,7 @@ export function passUpWithAsk(world: World, me: Agent, e: Entry, buildingId: str
   refuseMissingStructure("pass-up", askStructure(a!.type, { ...a!, targetKind: a!.targetKind ?? null }));
   const { ask, folded } = createAsk(world, {
     type: a!.type, targetKind: a!.targetKind ?? null, targetId: a!.targetId ?? null, buildingId, sourceDocId: e.docId, by: me.id,
-    title: a!.title, body: a!.body, branches: a!.branches, recommendation: a!.recommendation, claims: a!.claims, line: note || a!.title,
+    title: a!.title, body: a!.body, branches: a!.branches, recommendation: a!.recommendation, claims: a!.claims,
     // the ask remembers the entry it came from, so its decision lands back on that thread
     sourceEntryId: e.id,
   });
@@ -142,7 +177,8 @@ export function passUpWithAsk(world: World, me: Agent, e: Entry, buildingId: str
  */
 export function askHumans(world: World, me: Agent, buildingId: string, input: AskCardInput & { jobId?: string; note?: string }): { askId: string; entryId: string; jobId: string; folded: boolean; warnings: string[] } {
   const [a] = checkAskCards(world, [input]);
-  const need = a!.targetId && a!.targetKind ? openNeedsOn(world, a!.targetKind, a!.targetId).at(-1) : undefined;
+  // the open need of the card's type on its target, if any (a credential ask on a grant is not its proposal: decision 3)
+  const need = a!.targetId && a!.targetKind ? openNeedsOn(world, a!.targetKind, a!.targetId).filter((x) => x.type === a!.type).at(-1) : undefined;
   if (need) {
     if (need.buildingId !== buildingId) throw badRequest(`${a!.targetId}'s need (${need.entry.id}) is on another building's thread: its own manager renders it.`);
     const { ask, folded } = renderNeed(world, need, { title: a!.title, body: a!.body, recommendation: a!.recommendation, claims: a!.claims ?? [] }, me.id);
@@ -166,7 +202,7 @@ export function askHumans(world: World, me: Agent, buildingId: string, input: As
   if (!entry) throw new AppError("conflict", `Could not write the ask on ${job.id}.`);
   const { ask, folded } = createAsk(world, {
     type: a!.type, targetKind: a!.targetKind ?? null, targetId: a!.targetId ?? null, buildingId, sourceDocId: null, by: me.id,
-    title: a!.title, body: a!.body, branches: a!.branches, recommendation: a!.recommendation, claims: a!.claims, line: note || a!.title,
+    title: a!.title, body: a!.body, branches: a!.branches, recommendation: a!.recommendation, claims: a!.claims,
     sourceEntryId: entry.id,
   });
   // style rules never refuse a card: what it breaks is kept in the ask's history and said back to its author

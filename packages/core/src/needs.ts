@@ -8,7 +8,7 @@
  *   past it (grants.ts, grant-forecast.ts), an outbox request (`request_human`).
  * - Open until answered: the event that decides its target answers it (asks.ts `retireAsks` calls `settleNeeds`), and a
  *   newer need on the same target supersedes it.
- * - Unrendered while no live ask is on its target: it sits in the manager's in-tray (`managerQueue`), which wakes the
+ * - Unrendered while no live ask renders it (one need, one ask): it sits in the manager's in-tray (`managerQueue`), which wakes the
  *   manager; past `NEED_BACKSTOP_MS` the Secretary renders it and the manager is told (secretary.ts).
  */
 import type { AskBranch, AskTargetKind, AskType } from "@muster-town/schema";
@@ -17,6 +17,12 @@ import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
 type NeedKind = "proposal" | "gate" | "request" | "retainer" | "captain" | "access" | "rule";
+/**
+ * The town's own needs (1:1 mt_dwsxo7oms8 decision 3): one per target and kind, so a second card on the same target
+ * folds into the live one (ask-verb.ts `liveAskFor`). Every other need is keyed by its entry alone: a grant can carry a
+ * credential need and a policy need at once, each its own card.
+ */
+export const TOWN_NEEDS: ReadonlySet<string> = new Set<NeedKind>(["proposal", "gate", "request", "retainer", "captain", "access"]);
 
 /** An open need, read back from its entry. */
 export interface Need {
@@ -51,11 +57,11 @@ export interface NewNeed {
 }
 
 /**
- * Write a need on a job's thread (level human), superseding any open need on the same target (it is answered with a
- * pointer to the new one). Null when the thread does not exist or the id was already written.
+ * Write a need on a job's thread (level human), superseding an open need of the same kind on the same target (it is
+ * answered with a pointer to the new one; 1:1 mt_dwsxo7oms8 decision 3: a need of another kind stays open). Null when the thread does not exist or the id was already written.
  */
 export function fileNeed(world: World, n: NewNeed): Entry | null {
-  const older = openNeedsOn(world, n.targetKind, n.targetId);
+  const older = openNeedsOn(world, n.targetKind, n.targetId).filter((o) => o.need === n.need);
   const e = appendEntry(world, {
     id: n.id, jobId: n.jobId, authorKind: n.authorKind ?? "code", authorId: n.authorId ?? "system", level: "human",
     note: n.note, body: n.body, docId: n.docId ?? null, assignmentId: n.assignmentId ?? null, createdAt: n.createdAt,
@@ -102,7 +108,11 @@ export function openNeedsOn(world: World, kind: AskTargetKind, id: string): Need
   return readNeeds(world, "AND (json_extract(e.moved, '$.targetId') = ? OR json_extract(e.moved, '$.requestId') = ?)", [id, id]).filter((n) => n.targetKind === kind);
 }
 
-const hasLiveAsk = (world: World, n: Need) => world.asks.exists("targetKind = ? AND targetId = ? AND status IN ('open', 'deferred')", [n.targetKind, n.targetId]);
+// a card folded into another by the Secretary (1:1 mt_dwsxo7oms8 decision 2) is rendered: its survivor carries it
+// one need, one ask (decision 3): the card on this need entry; for the town's own needs, a live card of its type on the target
+const LIVE_OR_FOLDED = "(status IN ('open', 'deferred') OR (status = 'folded' AND foldedInto IN (SELECT id FROM asks WHERE status IN ('open', 'deferred'))))";
+const hasLiveAsk = (world: World, n: Need) => world.asks.exists(`sourceEntryId = ? AND ${LIVE_OR_FOLDED}`, [n.entry.id])
+  || (TOWN_NEEDS.has(n.need) && world.asks.exists(`targetKind = ? AND targetId = ? AND type = ? AND ${LIVE_OR_FOLDED}`, [n.targetKind, n.targetId, n.type]));
 
 /** The open needs no card renders yet (of one building, when given), oldest first: the manager's to render. */
 export function unrenderedNeeds(world: World, buildingId?: string): Need[] {

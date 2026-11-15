@@ -3,8 +3,8 @@
  * instead of parsed out of a report's prose. Everything that needs a human writes a need (needs.ts: a fact on the job's
  * thread) and no card: a grant proposed or at its gate, an outbox request, a retainer asked, a captain or access
  * request. Its manager renders the card from it, and every card is filed by ask-verb.ts, the one entry point (1:1
- * mt_t65exni4et decisions 2 and 7), deduped by target (a second ask on the same targetKind + targetId folds into the
- * open one as a source line). Here: retired by the event that decides its target (`retireAsks`, called next to each
+ * mt_t65exni4et decisions 2 and 7), deduped by need entry or target (a second ask on the same one is refused as a card
+ * and its words are an entry on the thread: 1:1 mt_dwsxo7oms8). A building's manager rewrites or withdraws its own. Here: retired by the event that decides its target (`retireAsks`, called next to each
  * state change: grant decided, closed or withdrawn, access granted or declined, captain accepted or declined, request
  * claimed, declined or withdrawn, retainer decided or ended, key result marked by a human), and decided only by a human
  * (`decideAsk`). Nothing here decides a target: the ask is the human's to answer. `backfillAsks` (boot) writes the
@@ -80,20 +80,53 @@ export function entriesSinceCard(world: World, a: Ask): number {
 }
 
 /**
- * The Secretary writes an ask's card again from its thread (plan dc_uwx045472m step 6: the words come from the entry
- * that raised it or from the Secretary): title, body and recommendation only, never its type, branches or target. The
- * card is vetted like any other (warnings into its history) and its `renderedSeq` moves to the thread's length.
+ * Write an ask's card again from its thread (plan dc_uwx045472m step 6; 1:1 mt_dwsxo7oms8 decision 1): title, body and
+ * recommendation only, never its type, branches or target. The Secretary rewrites any live ask (a field left out keeps
+ * its words); a building's manager rewrites its own building's ask, whole (all three given). The card is vetted like
+ * any other (warnings into its history) and its `renderedSeq` moves to the thread's length.
  */
 export function rewriteAsk(world: World, by: Agent, id: string, card: { title?: string; body?: string; recommendation?: string }): Ask {
-  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary rewrites an ask's card.");
   const a = world.asks.require(id, "ask");
+  const secretary = world.secretary.isSecretary(by);
+  if (!secretary) {
+    requireOwnAsk(world, by, a, "rewrites");
+    if (card.title === undefined || card.body === undefined || card.recommendation === undefined) throw badRequest(`rewrite: a card is written whole: give ${id} its title, body and recommendation together.`);
+  }
   if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
   if (card.title === undefined && card.body === undefined && card.recommendation === undefined) throw badRequest(`rewrite: give ${id} a title, a body or a recommendation.`);
   const at = nowIso();
   const next = { title: clipWords(card.title ?? a.title, 200), body: card.body ?? a.body, recommendation: card.recommendation ?? a.recommendation };
+  if (!secretary) refuseMissingStructure("ask", askStructure(a.type, { ...next, claims: a.claims, branches: a.branches, targetKind: a.targetKind }));
   const v = vetted(world, a.type, { ...next, claims: a.claims, branches: a.branches, targetKind: a.targetKind }, at, by.id);
   const on = a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined;
-  return world.asks.upsert({ ...a, ...next, renderedSeq: on ? threadSeq(world, on) : a.renderedSeq, updatedAt: at, history: [...a.history, { at, action: "rewritten", by: by.id, note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
+  return world.asks.upsert({ ...a, ...next, tags: a.tags.filter((t) => t !== LINT_FAILED), renderedSeq: on ? threadSeq(world, on) : a.renderedSeq, updatedAt: at, history: [...a.history, { at, action: "rewritten", by: by.id, note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
+}
+
+/** A manager acts only on its own building's ask (`building.manage` on the ask's building). */
+function requireOwnAsk(world: World, by: Agent, a: Ask, verb: string): void {
+  if (!a.buildingId || !world.permissions.can(by, "building.manage", a.buildingId)) throw forbidden("building.manage", `Only ${a.buildingId ? `${a.buildingId}'s manager` : "the Secretary"} ${verb} ask ${a.id}: it is another building's.`);
+}
+
+/**
+ * A building's manager withdraws its own live ask with a note (1:1 mt_dwsxo7oms8 decision 1): it is retired, never
+ * deleted; the note is its `retiredBy`, a "withdrawn" history entry and one entry on its thread at level none. It wakes
+ * nobody (no Secretary run: no human decided anything). Refused while the need behind it is open: settle the item
+ * (withdraw_grant, withdraw_request…) or rewrite the card, else the need is rendered again.
+ */
+export function withdrawAsk(world: World, by: Agent, id: string, note: string): Ask {
+  const a = world.asks.require(id, "ask");
+  requireOwnAsk(world, by, a, "withdraws");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
+  if (a.targetKind && a.targetId && openNeedsOn(world, a.targetKind, a.targetId).length) throw new AppError("conflict", `Ask ${id} renders the open need on ${a.targetId}: settle that item (withdraw_grant, withdraw_request…) or rewrite the card with askId.`);
+  const at = nowIso();
+  const reason = `Withdrawn by ${by.name}: ${oneLine(note, 400)}`;
+  const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "withdrawn", by: by.id, note: oneLine(note, 500) }] });
+  const on = a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined;
+  if (on) appendEntry(world, { jobId: on, authorKind: "manager", authorId: by.id, level: "none", note: `Withdrew the ask "${oneLine(a.title, 120)}"`, body: note, moved: { kind: "ask-withdrawn", askId: a.id } });
+  world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} withdrew "${oneLine(a.title, 80)}": ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, withdrawn: true, human: false } });
+  unfoldInto(world, a.id, at, by.id);
+  reopenDeferred(world, [a.id], reason);
+  return next;
 }
 
 /** The entry an ask filed before migration 115 came from, when its id can be named: a request's, a proposal's last propose. */
@@ -173,6 +206,39 @@ export function overtakeAsk(world: World, by: Agent, id: string, because: string
   world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} closed "${oneLine(a.title, 80)}" as overtaken: ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, overtaken: true, because, human: false } });
   reopenDeferred(world, [a.id], reason);
   return next;
+}
+
+/**
+ * The Secretary collapses two asks that are one thing raised as two needs on different threads (1:1 mt_dwsxo7oms8
+ * decision 2: Prod and Outreach both asking for the mail key), any ask type: `id` leaves the queue as status
+ * "folded" with `foldedInto` = the survivor, never deleted, and one entry on its own thread says where it went. Asks
+ * already folded into it follow it to the survivor. When a human decides the survivor, the decision is written on the
+ * folded ask's thread too (`askDecidedOnThread`). The survivor's card is the Secretary's to rewrite whole, never appended.
+ */
+export function foldAsk(world: World, by: Agent, id: string, into: string, note = ""): Ask {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary folds one ask into another.");
+  if (id === into) throw badRequest(`fold: ${id} can't fold into itself.`);
+  const a = world.asks.require(id, "ask");
+  const s = world.asks.require(into, "ask");
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `fold: ${id} is already ${a.status}.`);
+  if (s.status !== "open" && s.status !== "deferred") throw new AppError("conflict", `fold: ${into} is ${s.status}; fold into a live ask.`);
+  const at = nowIso();
+  const why = note.trim() ? `: ${oneLine(note, 300)}` : "";
+  const next = world.asks.upsert({ ...a, status: "folded", foldedInto: s.id, rank: null, updatedAt: at, history: [...a.history, { at, action: "fold", by: by.id, note: `into ${s.id}${why}`.slice(0, 500) }] });
+  for (const f of world.asks.where("status = 'folded' AND foldedInto = ?", [a.id])) world.asks.upsert({ ...f, foldedInto: s.id, updatedAt: at, history: [...f.history, { at, action: "fold", by: by.id, note: `into ${s.id} (with ${a.id})` }] });
+  const on = (a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined) ?? (a.buildingId ? `jb_${a.buildingId}` : null);
+  if (on) appendEntry(world, {
+    jobId: on, authorKind: "secretary", authorId: by.id, level: "none", note: `${by.name} folded the ask "${oneLine(a.title, 100)}" into "${oneLine(s.title, 100)}" (${s.id})`,
+    body: `The same thing was asked on two threads, so the humans see one card: ${s.id}.${why ? ` ${oneLine(note, 300)}` : ""} Their decision on it is written here too.`, moved: { kind: "ask-folded-into", askId: a.id, into: s.id },
+  });
+  world.events.append({ type: "ask.folded", agentId: by.id, buildingId: a.buildingId, text: `${by.name} folded "${oneLine(a.title, 80)}" into "${oneLine(s.title, 80)}"`, payload: { askId: a.id, into: s.id, targetKind: a.targetKind, targetId: a.targetId } });
+  reopenDeferred(world, [a.id], `Folded into ${s.id}`);
+  return next;
+}
+
+/** Asks folded into `id` go back to the queue when it leaves without a human's decision (withdrawn): they still need one. */
+function unfoldInto(world: World, id: string, at: string, by: string): void {
+  for (const f of world.asks.where("status = 'folded' AND foldedInto = ?", [id])) world.asks.upsert({ ...f, status: "open", foldedInto: null, updatedAt: at, history: [...f.history, { at, action: "reopen", by, note: `${id} was withdrawn` }] });
 }
 
 const ID_CHARS = /[a-z0-9_]/;
@@ -261,7 +327,7 @@ export function deferAsk(world: World, actor: Agent | null, id: string, until: s
   return next;
 }
 
-/** Every live ask (open and deferred), oldest first, with its sources: the Town Hall in-tray's `asks`. */
+/** Every live ask (open and deferred), oldest first: the Town Hall in-tray's `asks`. */
 export function openAsks(world: World): Ask[] {
   return world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid");
 }
@@ -529,7 +595,7 @@ function ownCardOf(a: Ask): { title: string; body: string; recommendation: strin
 
 /**
  * Boot repair (migration 105): every live ask whose title or body carries "…" loses the clipping (`ownCardOf`), keeping
- * its id, sources, rank, status and history, with a "retitled" history entry, and is vetted again. Idempotent. Returns
+ * its id, rank, status and history, with a "retitled" history entry, and is vetted again. Idempotent. Returns
  * how many asks it rewrote.
  */
 export function retitleClippedAsks(world: World): number {
@@ -538,7 +604,7 @@ export function retitleClippedAsks(world: World): number {
     for (const a of world.asks.where(`${LIVE_ASK} AND (title LIKE '%…%' OR body LIKE '%…%')`, [], "ORDER BY createdAt, rowid")) {
       const card = ownCardOf(a);
       if (!card) continue;
-      const next = { ...a, ...card, title: clipWords(card.title, 200), sources: a.sources.map((s) => ({ ...s, line: withoutEllipsis(s.line) })) };
+      const next = { ...a, ...card, title: clipWords(card.title, 200) };
       if (next.title === a.title && next.body === a.body && next.recommendation === a.recommendation && JSON.stringify(next.claims) === JSON.stringify(a.claims)) continue;
       const at = nowIso();
       const v = vetted(world, a.type, { title: next.title, body: next.body, recommendation: next.recommendation, claims: next.claims, branches: a.branches, targetKind: a.targetKind }, at, "system");

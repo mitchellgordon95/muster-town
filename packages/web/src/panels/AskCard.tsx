@@ -2,7 +2,7 @@
  * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Its
  * title, the delta line (the body's first paragraph), the body, the branches as the buttons (each does the real action
  * by the ask's target, asks.ts `branchCall`; the server's hooks then retire the ask), the recommendation, the claims
- * with their check, the sources by name, and the record one click down. A grant's card adds its
+ * with their check, and the record one click down (where it was raised is its thread). A grant's card adds its
  * step strip. Names, not ids: an id only sits in a tooltip.
  */
 import { useState, type ReactNode } from "react";
@@ -128,17 +128,6 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   );
 }
 
-/** One source of an ask: the building's name, its own line, when; the click opens that record. */
-function SourceLine({ s, onOpenRecord }: { s: AskView["sources"][number]; onOpenRecord?: (id: string) => void }) {
-  const name = useBuildingName(s.buildingId);
-  return (
-    <li>
-      <b>{name}</b>: {s.line} <span className="muted">· {timeAgo(s.at)}</span>
-      {onOpenRecord && s.docId ? <> <button className="link" title={s.docId} onClick={() => onOpenRecord(s.docId!)}>read it →</button></> : null}
-    </li>
-  );
-}
-
 export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenRecord, aside, deckSlide }: {
   ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; canDecide?: boolean; onDecided: () => void; onOpenRecord?: (id: string) => void;
   /** beside the buttons: the funding view's fund / hold toggle */
@@ -168,12 +157,6 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       {signedIn && canDecide !== false
         ? <div className="ask-actions"><AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} />{aside}</div>
         : <div className="ask-actions">{aside}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span></div>}
-      {ask.sources.length ? (
-        <details className="ask-sources">
-          <summary>Asked in {ask.sources.length} place{ask.sources.length === 1 ? "" : "s"}</summary>
-          <ul>{ask.sources.map((s, i) => <SourceLine key={`${s.docId ?? s.entryId}-${i}`} s={s} onOpenRecord={onOpenRecord} />)}</ul>
-        </details>
-      ) : null}
       {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}
     </article>
   );

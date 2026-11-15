@@ -94,10 +94,14 @@ export function reviewEntry(world: World, entryId: string, decision: ReviewDecis
  * at level manager when a manager or a fork raised it (the manager moves on it), else a record. One per entry that
  * raised the ask (a second manager's card folded into it hears too).
  */
-export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "body" | "branches" | "recommendation" | "sourceEntryId" | "sources">, by: string, said: string): Entry[] {
+export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "body" | "branches" | "recommendation" | "sourceEntryId">, by: string, said: string): Entry[] {
   // the entry carries the card as the human saw it beside their words (1:1 mt_t65exni4et decision 2 point 5)
   const card = cardShown(ask);
-  const ids = [...new Set([ask.sourceEntryId, ...ask.sources.map((x) => x.entryId)].filter((x): x is string => !!x))];
+  // a second ask on it is an "ask-fold" entry on its thread (1:1 mt_dwsxo7oms8): the entry that raised it there hears, else the fold entry
+  const folds = world.db.prepare("SELECT id, json_extract(moved, '$.raisedBy') AS raisedBy FROM entries WHERE json_extract(moved, '$.kind') = 'ask-fold' AND json_extract(moved, '$.askId') = ? ORDER BY createdAt, seq").all(ask.id) as { id: string; raisedBy: string | null }[];
+  // an ask the Secretary folded into this one (decision 2): its own raising entry hears the decision on its thread too
+  const merged = world.asks.where("status = 'folded' AND foldedInto = ?", [ask.id]).map((a) => a.sourceEntryId);
+  const ids = [...new Set([ask.sourceEntryId, ...folds.map((f) => f.raisedBy ?? f.id), ...merged].filter((x): x is string => !!x))];
   const out: Entry[] = [];
   for (const id of ids) {
     const raised = entryOf(world, id);

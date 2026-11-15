@@ -31,12 +31,11 @@ interface QueueInput {
 }
 
 /** Every id an ask is about or came from: an item with one of these ids is that ask's record, not a queue item. */
-export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[]): Set<string> {
+export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId">[]): Set<string> {
   const ids = new Set<string>();
   for (const a of asks) {
     if (a.targetId) ids.add(a.targetId);
     if (a.sourceDocId) ids.add(a.sourceDocId);
-    for (const s of a.sources) if (s.docId) ids.add(s.docId);
   }
   return ids;
 }
@@ -66,7 +65,7 @@ export function waitingSince(x: QueueItem): string | null {
  * waits on the manager), and a retainer counts only
  * while it is asked: neither is in the queue.
  */
-export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[] = t.asks): QueueItem[] {
+export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId">[] = t.asks): QueueItem[] {
   const live = sortAsks(t.asks.filter((a) => a.status === "open" || a.status === "deferred"));
   const asked = askedIds(allAsks);
   const free = <T extends { id: string }>(xs: T[]) => xs.filter((x) => !asked.has(x.id));

@@ -37,7 +37,6 @@ describe("every ask points at the entry that raised it", () => {
     const need = jobThread(world, g.id)!.entries.find((e) => e.moved.kind === "need")!;
     expect(need).toMatchObject({ level: "human", authorKind: "code", moved: { need: "proposal", targetId: g.id, type: "money" } });
     expect(money.sourceEntryId).toBe(need.id);
-    expect(money.sources[0]).toMatchObject({ docId: g.id, entryId: need.id });
 
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
     renderNeeds(world, manager.id);
@@ -63,17 +62,20 @@ describe("every ask points at the entry that raised it", () => {
     expect(world.asks.count("status IN ('open', 'deferred') AND sourceEntryId IS NULL")).toBe(0);
   });
 
-  it("a manager's ask that folds into the item's live ask keeps its words on it: a source line naming its entry, a fold in the history; the decision answers every entry that raised it", async () => {
+  it("a second ask on the same target is refused as a card (1:1 mt_dwsxo7oms8): its words are one entry on the card's thread, the card is untouched and marked behind; the decision answers every entry that raised it", async () => {
     const { world, admin, manager } = setup();
     const first = await world.verbs.ask(manager, { ...POLICY, targetKind: "rule", targetId: "one-banner" });
+    const card = world.asks.require(first.askId);
     const again = await world.verbs.ask(manager, { ...POLICY, title: "Still: one banner per lab?", targetKind: "rule", targetId: "one-banner", note: "The second lab asked again." });
-    expect(again).toMatchObject({ askId: first.askId, folded: true });
+    expect(again).toMatchObject({ askId: first.askId, folded: true, jobId: first.jobId });
     expect(again.entryId).not.toBe(first.entryId);
+    expect(entryOf(world, again.entryId)).toMatchObject({ jobId: first.jobId, level: "none", note: "Still: one banner per lab?", body: expect.stringContaining("The second lab asked again."), moved: { kind: "ask-fold", askId: first.askId } });
     const ask = world.asks.require(first.askId);
-    expect(ask.sourceEntryId).toBe(first.entryId);
-    expect(ask.sources.map((s) => s.entryId)).toEqual([first.entryId, again.entryId]);
-    expect(ask.sources[1]!.line).toBe("The second lab asked again.");
-    expect(ask.history.map((h) => h.action)).toContain("fold");
+    expect(ask).toEqual(card);
+    expect(entriesSinceCard(world, ask)).toBe(1);
+    // the same words again add nothing
+    await world.verbs.ask(manager, { ...POLICY, title: "Still: one banner per lab?", targetKind: "rule", targetId: "one-banner", note: "The second lab asked again." });
+    expect(entriesSinceCard(world, ask)).toBe(1);
     decideAsk(world, admin, ask.id, "Keep the rule");
     expect(openManagerEntries(world, LAB).map((e) => e.answers).sort()).toEqual([first.entryId, again.entryId].sort());
   });

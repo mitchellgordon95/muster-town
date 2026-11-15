@@ -58,7 +58,7 @@ function lab() {
 }
 
 describe("the retitle repair (boot)", () => {
-  it("a live card with an ellipsis loses it and keeps its words, id, sources, rank and status; idempotent", () => {
+  it("a live card with an ellipsis loses it and keeps its words, id, rank and status; idempotent", () => {
     const { world, propose } = lab();
     const g = propose();
     // a manager's card (a rollup's typed ask) that carries an ellipsis
@@ -68,7 +68,7 @@ describe("the retitle repair (boot)", () => {
     const kept = world.asks.require(mgr.id);
     expect(kept.title).toBe("Keep the rule on forks");
     expect(kept.title + kept.body + kept.recommendation).not.toContain("\u2026");
-    expect(kept).toMatchObject({ id: mgr.id, status: mgr.status, rank: 2, sources: mgr.sources.map((x) => ({ ...x, line: x.line.replace(/\s*\u2026\s*/g, " ").trim() })) });
+    expect(kept).toMatchObject({ id: mgr.id, status: mgr.status, rank: 2 });
     expect(kept.history.at(-1)).toMatchObject({ action: "retitled", by: "system" });
     // idempotent: nothing left to rewrite
     expect(retitleClippedAsks(world)).toBe(0);
