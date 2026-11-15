@@ -78,14 +78,14 @@ describe("the ask card", () => {
   it("shows the delta line, the recommendation, the claims with their check, the lint badge, and names not ids", () => {
     signIn();
     const held = renderToStaticMarkup(<AskCard ask={ask("ak_hud")} grant={grant("gr_hud")} onDecided={() => undefined} onOpenRecord={() => undefined} />);
-    expect(held).toContain("<b>Workshop</b>");
+    expect(held).toContain("Workshop");
     // 1:1 mt_t65exni4et: one big sentence says who asks for what, not a small grey type badge
     expect(held).toMatch(/class="ask-asking">[^<]* is asking for <b>tokens<\/b>/);
     expect(held).toContain("You funded this at 2M");
     expect(held).toContain("Keel recommends adjust");
     expect(held).toContain("✓");
     expect(held).toContain("check by hand");
-    expect(held).toContain("Asked in 2 places");
+    expect(held).not.toContain("Asked in"); // the card has no sources list: the thread is the list (1:1 mt_dwsxo7oms8)
     expect(held).toContain("The full record →");
     expect(held).not.toContain(">gr_hud<");
     expect(renderToStaticMarkup(<AskCard ask={ask("ak_ocean")} onDecided={() => undefined} />)).toContain("✗");

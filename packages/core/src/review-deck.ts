@@ -272,7 +272,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   // the live asks in the Secretary's order (docs/legible-delegation.md §11 step 5): a rollup any of them came from is
   // read through its asks, so its own per-call slides would repeat them (the record stays one click down)
   const asks = rankedAsks(world);
-  const askedIn = new Set(asks.flatMap((a) => [a.sourceDocId, ...a.sources.map((s) => s.docId)]).filter((id): id is string => !!id));
+  const askedIn = new Set(asks.map((a) => a.sourceDocId).filter((id): id is string => !!id));
   // the Town Hall's reports are visitor reports now (rollups are retired, plan dc_uwx045472m step 7): each its markdown with the plain buttons
   for (const d of intray.reports) {
     if (askedIn.has(d.id)) continue;
@@ -323,10 +323,9 @@ function slateSlide(world: World, now: Date): ReviewSlide | null {
   return { text, notes: "", title: n.title, pictures: [], key: `slate:${n.id}`, kind: "slate", itemId: null, group: 0, buildingId: null, since: n.createdAt, waiters: 0, history: "" };
 }
 
-/** An ask's header on the item slide it is about: its rank, type and title, the recommendation, every place it was raised. */
+/** An ask's header on the item slide it is about: its rank, type and title, the recommendation (the thread is where it was raised). */
 function askHead(a: Ask): string {
-  const raised = a.sources.length > 1 ? `**Raised ${a.sources.length} times:**\n\n${a.sources.map((s) => `- ${oneLine(s.line)} (${s.docId})`).join("\n")}\n\n` : "";
-  return `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type === "money" ? "tokens" : a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}: ${oneLine(a.title)}_\n\n${a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}\n\n` : ""}${raised}`;
+  return `_Ask${a.rank ? ` #${a.rank}` : ""} (${a.type === "money" ? "tokens" : a.type})${a.status === "deferred" ? `, deferred until ${a.deferredUntil}` : ""}: ${oneLine(a.title)}_\n\n${a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}\n\n` : ""}`;
 }
 
 /** A slide of its own for an ask with no item slide (a rollup's ask, an outbox request, an access request, a policy ask). */
@@ -341,7 +340,6 @@ function askDraft(world: World, a: Ask): Draft {
       a.body.trim(),
       a.branches.length ? `**Choices:** ${a.branches.map((b) => b.label).join(" · ")}` : "",
       a.recommendation ? `**Recommended:** ${oneLine(a.recommendation)}` : "",
-      a.sources.length ? `**Raised in:**\n\n${a.sources.map((s) => `- ${oneLine(s.line)} (${s.docId})`).join("\n")}` : "",
       record,
     ].filter(Boolean).join("\n\n"),
   };

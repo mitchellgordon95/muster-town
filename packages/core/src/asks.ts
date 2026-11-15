@@ -3,8 +3,8 @@
  * instead of parsed out of a report's prose. Everything that needs a human writes a need (needs.ts: a fact on the job's
  * thread) and no card: a grant proposed or at its gate, an outbox request, a retainer asked, a captain or access
  * request. Its manager renders the card from it, and every card is filed by ask-verb.ts, the one entry point (1:1
- * mt_t65exni4et decisions 2 and 7), deduped by target (a second ask on the same targetKind + targetId folds into the
- * open one as a source line). Here: retired by the event that decides its target (`retireAsks`, called next to each
+ * mt_t65exni4et decisions 2 and 7). One need, one ask (1:1 mt_dwsxo7oms8): a second ask on the same need is refused at
+ * the door and its words go on the thread; the Secretary folds a dupe raised on another job (`foldAsk`). Here: retired by the event that decides its target (`retireAsks`, called next to each
  * state change: grant decided, closed or withdrawn, access granted or declined, captain accepted or declined, request
  * claimed, declined or withdrawn, retainer decided or ended, key result marked by a human), and decided only by a human
  * (`decideAsk`). Nothing here decides a target: the ask is the human's to answer. `backfillAsks` (boot) writes the
@@ -19,7 +19,7 @@ import { queueClaimChecks } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { maySettle } from "./overtake.ts";
-import { appendEntry, entryOf, jobThread, threadSeq } from "./jobs.ts";
+import { answerEntry, appendEntry, entryOf, jobThread, threadSeq } from "./jobs.ts";
 import { cardShown, DO_BRANCHES, fileNeed, GATE_BRANCHES, openNeedsOn, PROPOSAL_BRANCHES, requestType, settleNeeds, type Need } from "./needs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { onRuleAskDecided, requireRuleDecider } from "./planner.ts";
@@ -96,6 +96,50 @@ export function rewriteAsk(world: World, by: Agent, id: string, card: { title?: 
   return world.asks.upsert({ ...a, ...next, renderedSeq: on ? threadSeq(world, on) : a.renderedSeq, updatedAt: at, history: [...a.history, { at, action: "rewritten", by: by.id, note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
 }
 
+/** A manager may change only its own building's live ask (1:1 mt_dwsxo7oms8 decision 2 point 5). */
+function ownLiveAsk(world: World, by: Agent, id: string, verb: string): Ask {
+  const a = world.asks.require(id, "ask");
+  if (!a.buildingId || !world.permissions.can(by, "building.manage", a.buildingId)) throw forbidden("building.manage", `${verb}: ${id} is not an ask of your building; only its own manager ${verb === "rewrite" ? "writes its card again" : "withdraws it"}.`);
+  if (a.status !== "open" && a.status !== "deferred") throw new AppError("conflict", `Ask ${id} is already ${a.status}.`);
+  return a;
+}
+
+/**
+ * A manager writes its own building's card again, whole (1:1 mt_dwsxo7oms8 decision 2 point 5): title, body and
+ * recommendation together (claims too, when given), never its type, branches or target. Refused when the card lacks
+ * structure; style rules are kept as warnings, as on any card. Its `renderedSeq` moves to the thread's length.
+ */
+export function rewriteOwnAsk(world: World, by: Agent, id: string, card: { title: string; body: string; recommendation: string; claims?: Ask["claims"] }): Ask {
+  const a = ownLiveAsk(world, by, id, "rewrite");
+  const words = { title: clipWords(card.title, 200), body: card.body, recommendation: card.recommendation, claims: card.claims ?? a.claims };
+  refuseMissingStructure("ask", askStructure(a.type, { ...words, branches: a.branches, targetKind: a.targetKind }));
+  const at = nowIso();
+  const v = vetted(world, a.type, { ...words, branches: a.branches, targetKind: a.targetKind }, at, by.id);
+  const on = a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined;
+  const next = world.asks.upsert({ ...a, ...words, renderedSeq: on ? threadSeq(world, on) : a.renderedSeq, updatedAt: at, history: [...a.history, { at, action: "rewritten", by: by.id, note: `was: ${a.title}`.slice(0, 500) }, ...v.lint] });
+  if (card.claims) queueClaimChecks(world, next.id);
+  return next;
+}
+
+/**
+ * A manager withdraws its own building's ask with a note (1:1 mt_dwsxo7oms8 decision 2 point 5): it retires (never
+ * deleted), the note on the ask and on its thread. Its own `ask` entry is answered by the note; a need of the town's stays
+ * open (the manager renders it again). It wakes nobody: no Secretary run, no human, the entry is a record.
+ */
+export function withdrawAsk(world: World, by: Agent, id: string, note: string): Ask {
+  const a = ownLiveAsk(world, by, id, "withdraw");
+  if (!note.trim()) throw badRequest("withdraw: say why in note.");
+  const at = nowIso();
+  const reason = `Withdrawn by ${by.name}: ${oneLine(note, 400)}`;
+  const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "withdraw", by: by.id, note: oneLine(note, 500) }] });
+  world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} withdrew "${oneLine(a.title, 80)}": ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, withdrawn: true, human: false } });
+  const raised = a.sourceEntryId ? entryOf(world, a.sourceEntryId) : null;
+  if (raised?.moved.kind === "ask") answerEntry(world, raised.id, { kind: "agent", id: by.id }, "withdrawn", reason);
+  else if (raised) appendEntry(world, { jobId: raised.jobId, authorKind: "manager", authorId: by.id, level: "none", note: `Withdrew ask ${a.id}: ${oneLine(note, 300)}`, body: "", moved: { kind: "ask-withdrawn", askId: a.id } });
+  reopenDeferred(world, [a.id], reason);
+  return next;
+}
+
 /** The entry an ask filed before migration 115 came from, when its id can be named: a request's, a proposal's last propose. */
 function knownEntryOf(world: World, a: Ask): string | null {
   const id = a.targetKind === "request" && a.targetId ? `en_${a.targetId}`
@@ -150,6 +194,8 @@ export function retireAsks(world: World, kind: AskTargetKind, id: string, reason
   // the need behind it is settled too; a human's decision keeps the card they saw on its answer entry (mt_t65exni4et decision 2 point 5)
   const shown = human ? retired.find((a) => a.sourceEntryId && openNeedsOn(world, kind, id).some((n) => n.entry.id === a.sourceEntryId)) ?? retired[0] : undefined;
   settleNeeds(world, kind, id, reason, typeof human === "string" ? human : false, shown ? cardShown(shown) : null);
+  // a human's decision also lands on the threads of the asks the Secretary folded into these (1:1 mt_dwsxo7oms8 decision 2)
+  if (typeof human === "string") for (const a of retired) askDecidedOnThread(world, a, human, reason, true);
   reopenDeferred(world, [id, ...retired.map((a) => a.id)], reason);
   // 1:1 mt_msnjkpgwdb decision 10: a human's decision on an ask wakes the Secretary (debounced) to settle what it made moot and re-rank
   if (human && retired.length) world.secretary.afterDecision({ targetKind: kind, targetId: id, text: reason, by: typeof human === "string" ? human : null });
@@ -171,6 +217,30 @@ export function overtakeAsk(world: World, by: Agent, id: string, because: string
   const reason = `Overtaken by ${oneLine(because, 200)}: ${oneLine(note, 300)}`;
   const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: by.id, note: reason }] });
   world.events.append({ type: "ask.retired", agentId: by.id, buildingId: a.buildingId, text: `${by.name} closed "${oneLine(a.title, 80)}" as overtaken: ${oneLine(note, 160)}`, payload: { askId: a.id, targetKind: a.targetKind, targetId: a.targetId, reason, overtaken: true, because, human: false } });
+  reopenDeferred(world, [a.id], reason);
+  return next;
+}
+
+/**
+ * The Secretary folds a duplicate raised as its own need on another job (1:1 mt_dwsxo7oms8 decision 2 point 4): `id`
+ * goes to status folded with `foldedInto` the survivor and leaves the queue (never deleted). An entry on its thread says
+ * where it went; the human's decision on the survivor is written on both threads (`askDecidedOnThread`, `retireAsks`).
+ * Any type: a dupe is identity, not judgment of what a decision made moot. Wakes nobody.
+ */
+export function foldAsk(world: World, by: Agent, id: string, into: string, note: string): Ask {
+  if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary folds one ask into another.");
+  if (id === into) throw badRequest(`fold: ${id} can't fold into itself.`);
+  const a = world.asks.require(id, "ask");
+  const survivor = world.asks.require(into, "ask");
+  for (const x of [a, survivor]) if (x.status !== "open" && x.status !== "deferred") throw new AppError("conflict", `fold: ${x.id} is already ${x.status}.`);
+  const at = nowIso();
+  const reason = `Folded into ${survivor.id} ("${oneLine(survivor.title, 80)}"): ${oneLine(note, 300)}`;
+  const next = world.asks.upsert({ ...a, status: "folded", foldedInto: survivor.id, rank: null, updatedAt: at, history: [...a.history, { at, action: "fold", by: by.id, note: reason.slice(0, 500) }] });
+  world.events.append({ type: "ask.folded", agentId: by.id, buildingId: a.buildingId, text: `${by.name} folded "${oneLine(a.title, 80)}" into "${oneLine(survivor.title, 80)}": ${oneLine(note, 160)}`, payload: { askId: a.id, into: survivor.id, targetKind: a.targetKind, targetId: a.targetId } });
+  const raised = a.sourceEntryId ? entryOf(world, a.sourceEntryId) : null;
+  if (raised) appendEntry(world, { jobId: raised.jobId, authorKind: "secretary", authorId: by.id, level: "none", note: reason, body: "", moved: { kind: "ask-folded", askId: a.id, into: survivor.id } });
+  // asks folded into this one follow it to the survivor
+  for (const f of world.asks.where("status = 'folded' AND foldedInto = ?", [a.id], "ORDER BY createdAt, rowid")) world.asks.upsert({ ...f, foldedInto: survivor.id, updatedAt: at });
   reopenDeferred(world, [a.id], reason);
   return next;
 }
@@ -261,7 +331,7 @@ export function deferAsk(world: World, actor: Agent | null, id: string, until: s
   return next;
 }
 
-/** Every live ask (open and deferred), oldest first, with its sources: the Town Hall in-tray's `asks`. */
+/** Every live ask (open and deferred), oldest first: the Town Hall in-tray's `asks`. */
 export function openAsks(world: World): Ask[] {
   return world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid");
 }
@@ -529,7 +599,7 @@ function ownCardOf(a: Ask): { title: string; body: string; recommendation: strin
 
 /**
  * Boot repair (migration 105): every live ask whose title or body carries "…" loses the clipping (`ownCardOf`), keeping
- * its id, sources, rank, status and history, with a "retitled" history entry, and is vetted again. Idempotent. Returns
+ * its id, rank, status and history, with a "retitled" history entry, and is vetted again. Idempotent. Returns
  * how many asks it rewrote.
  */
 export function retitleClippedAsks(world: World): number {
@@ -538,7 +608,7 @@ export function retitleClippedAsks(world: World): number {
     for (const a of world.asks.where(`${LIVE_ASK} AND (title LIKE '%…%' OR body LIKE '%…%')`, [], "ORDER BY createdAt, rowid")) {
       const card = ownCardOf(a);
       if (!card) continue;
-      const next = { ...a, ...card, title: clipWords(card.title, 200), sources: a.sources.map((s) => ({ ...s, line: withoutEllipsis(s.line) })) };
+      const next = { ...a, ...card, title: clipWords(card.title, 200) };
       if (next.title === a.title && next.body === a.body && next.recommendation === a.recommendation && JSON.stringify(next.claims) === JSON.stringify(a.claims)) continue;
       const at = nowIso();
       const v = vetted(world, a.type, { title: next.title, body: next.body, recommendation: next.recommendation, claims: next.claims, branches: a.branches, targetKind: a.targetKind }, at, "system");

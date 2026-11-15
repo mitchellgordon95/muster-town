@@ -20,7 +20,7 @@ export interface LegibleMeasures {
   windowDays: number;
   /** live asks (open or deferred) */
   openAsks: number;
-  /** duplication: live asks ÷ distinct targets (targetKind + targetId; a question in words is its own target), and the folds (source lines merged into them) */
+  /** duplication: live asks ÷ distinct targets (targetKind + targetId; a question in words is its own target), and the folds (second asks refused at their door) */
   asksPerTarget: { targets: number; ratio: number | null; folds: number };
   /** hours since the oldest live ask was filed; null with none */
   oldestOpenAskHours: number | null;
@@ -84,7 +84,10 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
   // ---- asks ----
   const live = world.asks.where("status IN ('open', 'deferred')", [], "ORDER BY createdAt, rowid");
   const targets = new Set(live.map((a) => (a.targetKind && a.targetId ? `${a.targetKind}:${a.targetId}` : `ask:${a.id}`)));
-  const folds = live.reduce((n, a) => n + a.history.filter((h) => h.action === "fold").length, 0);
+  // a second ask refused at the door is an `ask-refused` entry on the live card's thread (1:1 mt_dwsxo7oms8); older folds are history entries
+  const liveIds = new Set(live.map((a) => a.id));
+  const refused = (world.db.prepare("SELECT json_extract(moved, '$.askId') AS askId FROM entries WHERE json_extract(moved, '$.kind') = 'ask-refused'").all() as { askId: string }[]).filter((r) => liveIds.has(r.askId)).length;
+  const folds = refused + live.reduce((n, a) => n + a.history.filter((h) => h.action === "fold").length, 0);
   const byType = new Map<AskType, number[]>();
   for (const a of world.asks.where("status = 'decided' AND decidedAt >= ?", [since])) {
     byType.set(a.type, [...(byType.get(a.type) ?? []), (Date.parse(a.decidedAt!) - Date.parse(a.createdAt)) / HOUR]);

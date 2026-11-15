@@ -24,7 +24,7 @@
  * readable for old cards; nothing writes one any more.
  */
 import { grantName, isGone, NOT_GONE, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
-import { deferAsk, entriesSinceCard, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
+import { deferAsk, entriesSinceCard, foldAsk, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
 import { askOnOwnNeed, renderNeed } from "./ask-verb.ts";
 import { createAssignment, createDoc, managerAgentOf, sendMessage, updateDoc } from "./domain.ts";
 import { openNeed, overdueNeeds, type Need } from "./needs.ts";
@@ -448,7 +448,7 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
     `   ${oneLine(a.title, 200)}`,
     a.body.trim() ? `   ${oneLine(a.body, 400)}` : "",
     `   Branches: ${a.branches.map((b) => b.label).join(" / ") || "(none)"}${a.recommendation ? ` · Recommended: ${oneLine(a.recommendation, 200)}` : ""}`,
-    a.sources.length ? `   Raised in: ${a.sources.map((s) => `${s.docId} "${oneLine(s.line, 100)}"`).join("; ")}` : "",
+    a.sourceEntryId ? `   Raised on: ${a.sourceEntryId} (its thread lists every word filed on it)` : "",
   ].filter(Boolean).join("\n"));
   const decisions = world.grants.where("history LIKE '%\"byKind\":\"user\"%'", [], "ORDER BY updatedAt DESC LIMIT 60")
     .flatMap((g) => g.history.filter((h) => h.byKind === "user" && MONEY_ACTIONS[h.action]).map((h) => ({ g, h })))
@@ -486,6 +486,7 @@ interface RankInput {
   render?: { needId: string; title: string; body: string; recommendation: string; claims?: { text: string; check: { kind: "pr" | "url" | "api" | "kr" | "manual"; ref?: string } }[] }[];
   rewrite?: { askId: string; title?: string; body?: string; recommendation?: string }[];
   overtaken?: { askId: string; because: string; note: string }[];
+  fold?: { askId: string; into: string; note: string }[];
   order?: string[];
   slate?: { fund: { askId: string; why: string }[]; hold: { askId: string; until: string; why: string }[]; skip: { askId: string; why: string }[] };
   defer?: { askId: string; until: string }[];
@@ -513,10 +514,16 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
     if (closing.has(o.askId)) throw badRequest(`overtaken: ${o.askId} is listed twice.`);
     closing.add(o.askId);
   }
+  for (const f of input.fold ?? []) {
+    if (!live.has(f.askId)) throw badRequest(`fold: ${f.askId} is not an open ask.`);
+    if (!live.has(f.into)) throw badRequest(`fold: ${f.into} is not a live ask to fold into.`);
+    if (closing.has(f.askId) || closing.has(f.into)) throw badRequest(`fold: ${closing.has(f.askId) ? f.askId : f.into} is already being closed in this call.`);
+    closing.add(f.askId);
+  }
   const order = input.order ?? [];
   const seen = new Set<string>();
   for (const id of order) {
-    if (closing.has(id)) throw badRequest(`order: ${id} is being closed as overtaken in this call; leave it out of the order.`);
+    if (closing.has(id)) throw badRequest(`order: ${id} is being closed as overtaken (or folded) in this call; leave it out of the order.`);
     if (!live.has(id)) throw badRequest(`order: ${id} is not an open ask (read \`rank\` again: it may have been decided or retired).`);
     if (seen.has(id)) throw badRequest(`order: ${id} is listed twice.`);
     seen.add(id);
@@ -541,6 +548,8 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
     // decisions 10 and 20a: close what a human's decision made moot (click and policy asks only; `overtakeAsk` refuses the rest)
     const overtaken = (input.overtaken ?? []).map((o) => ({ ask: overtakeAsk(world, by, o.askId, o.because, o.note), ...o }));
     tellBuildingsOvertaken(world, by, overtaken);
+    // 1:1 mt_dwsxo7oms8 decision 2 point 4: a dupe raised on another job leaves the queue, folded into the survivor
+    const folded = (input.fold ?? []).map((f) => foldAsk(world, by, f.askId, f.into, f.note).id);
     // plan step 6: a card is a snapshot of its thread; the Secretary writes one again when the thread moved or the card reads badly
     const rewritten = (input.rewrite ?? []).map((r) => rewriteAsk(world, by, r.askId, r).id);
     // the backstop: a need its manager left unrendered; its manager hears that the Secretary rendered it
@@ -573,8 +582,8 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
         title: `Money slate ${utcDate(at)}: fund ${s.fund.length}, hold ${s.hold.length}, skip ${s.skip.length}`,
       });
     }
-    world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${overtaken.length ? `, closed ${overtaken.length} as overtaken` : ""}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null, overtaken: overtaken.map((o) => o.askId) } });
-    return { ranked: order.length, deferred, overtaken: overtaken.map((o) => o.askId), rewritten, rendered, slateId: slate?.id ?? null, note: `Done${overtaken.length ? `: closed ${overtaken.length} as overtaken` : ""}${slate ? `; the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
+    world.events.append({ type: "ask.ranked", agentId: by.id, buildingId: TOWN_HALL_ID, text: `${by.name} ranked ${order.length} open ask${order.length === 1 ? "" : "s"}${overtaken.length ? `, closed ${overtaken.length} as overtaken` : ""}${folded.length ? `, folded ${folded.length}` : ""}${deferred.length ? `, deferred ${deferred.length}` : ""}${slate ? `, filed the money slate ${slate.id}` : ""}`, payload: { ranked: order.length, deferred, slateId: slate?.id ?? null, overtaken: overtaken.map((o) => o.askId), folded } });
+    return { ranked: order.length, deferred, overtaken: overtaken.map((o) => o.askId), folded, rewritten, rendered, slateId: slate?.id ?? null, note: `Done${overtaken.length ? `: closed ${overtaken.length} as overtaken` : ""}${folded.length ? `; folded ${folded.length}` : ""}${slate ? `; the slate is ${slate.id}` : ""}. Now submit_report (verdict stop).` };
   });
 }
 
@@ -620,7 +629,7 @@ export function weekInputsText(world: World, at: Date = new Date()): string {
   const from = new Date(at.getTime() - WEEK_MS).toISOString();
   const name = (id: string | null) => (id ? world.buildings.get(id)?.name ?? id : "Town");
   const asks = world.asks.where("createdAt >= ?", [from], "ORDER BY createdAt, rowid").map((a) =>
-    `- ${utcDate(a.createdAt)} ${a.id} ${a.type} · ${name(a.buildingId)} · ${a.status}${a.decision ? ` "${oneLine(a.decision, 80)}"` : a.retiredBy ? ` (${oneLine(a.retiredBy, 80)})` : ""}${a.sources.length > 1 ? ` · raised ${a.sources.length} times` : ""}: ${oneLine(a.title, 140)}`);
+    `- ${utcDate(a.createdAt)} ${a.id} ${a.type} · ${name(a.buildingId)} · ${a.status}${a.decision ? ` "${oneLine(a.decision, 80)}"` : a.retiredBy ? ` (${oneLine(a.retiredBy, 80)})` : ""}${a.foldedInto ? ` · folded into ${a.foldedInto}` : ""}: ${oneLine(a.title, 140)}`);
   const shipped = world.notices.where("kind = 'shipped' AND createdAt >= ?", [from], "ORDER BY createdAt, rowid").map((n) => `- ${utcDate(n.createdAt)} ${n.id} ${name(n.buildingId)}: ${oneLine(n.title, 100)}`);
   const events = world.events.list({ from, types: [...NOTABLE], limit: 400 });
   const counts = new Map<string, number>();

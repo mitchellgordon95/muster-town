@@ -37,7 +37,7 @@ describe("every ask points at the entry that raised it", () => {
     const need = jobThread(world, g.id)!.entries.find((e) => e.moved.kind === "need")!;
     expect(need).toMatchObject({ level: "human", authorKind: "code", moved: { need: "proposal", targetId: g.id, type: "money" } });
     expect(money.sourceEntryId).toBe(need.id);
-    expect(money.sources[0]).toMatchObject({ docId: g.id, entryId: need.id });
+    expect(money.sourceDocId).toBe(g.id);
 
     const req = await world.verbs.request_human(manager, { title: "Photograph the gauge", body: "From the north side.", worth: "Only a human can stand at the gauge; the calibration waits on it." });
     renderNeeds(world, manager.id);
@@ -63,19 +63,16 @@ describe("every ask points at the entry that raised it", () => {
     expect(world.asks.count("status IN ('open', 'deferred') AND sourceEntryId IS NULL")).toBe(0);
   });
 
-  it("a manager's ask that folds into the item's live ask keeps its words on it: a source line naming its entry, a fold in the history; the decision answers every entry that raised it", async () => {
+  it("one need, one ask: a manager's two asks on the same target are two needs and two cards; each decision answers its own entry", async () => {
     const { world, admin, manager } = setup();
     const first = await world.verbs.ask(manager, { ...POLICY, targetKind: "rule", targetId: "one-banner" });
-    const again = await world.verbs.ask(manager, { ...POLICY, title: "Still: one banner per lab?", targetKind: "rule", targetId: "one-banner", note: "The second lab asked again." });
-    expect(again).toMatchObject({ askId: first.askId, folded: true });
-    expect(again.entryId).not.toBe(first.entryId);
-    const ask = world.asks.require(first.askId);
-    expect(ask.sourceEntryId).toBe(first.entryId);
-    expect(ask.sources.map((s) => s.entryId)).toEqual([first.entryId, again.entryId]);
-    expect(ask.sources[1]!.line).toBe("The second lab asked again.");
-    expect(ask.history.map((h) => h.action)).toContain("fold");
-    decideAsk(world, admin, ask.id, "Keep the rule");
-    expect(openManagerEntries(world, LAB).map((e) => e.answers).sort()).toEqual([first.entryId, again.entryId].sort());
+    const second = await world.verbs.ask(manager, { ...POLICY, title: "Allow a second banner for events?", targetKind: "rule", targetId: "one-banner", note: "A different need on the same rule." });
+    expect(second).toMatchObject({ folded: false });
+    expect(second.askId).not.toBe(first.askId);
+    expect(world.asks.require(first.askId).title).toBe(POLICY.title);
+    decideAsk(world, admin, first.askId, "Keep the rule");
+    expect(openManagerEntries(world, LAB).map((e) => e.answers)).toEqual([first.entryId]);
+    expect(world.asks.require(second.askId).status).toBe("open");
   });
 });
 

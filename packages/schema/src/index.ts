@@ -1979,12 +1979,8 @@ export const AskClaim = z.object({
   result: z.object({ ok: z.boolean(), at: Iso, note: z.string().max(400).optional() }).optional(),
 });
 export type AskClaim = z.infer<typeof AskClaim>;
-/** One place the ask was raised: a record (a rollup, a grant, a request…), its building, its own line, when. */
-/** `entryId`: the entry on a job's thread that raised it there (migration 115); `docId` is null for a source that is only an entry. */
-export const AskSource = z.object({ docId: Id.nullable(), entryId: z.string().nullable().optional(), buildingId: Id.nullable(), line: z.string(), at: Iso });
-export type AskSource = z.infer<typeof AskSource>;
 export const AskHistoryEntry = z.object({
-  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* the Secretary rewrote the card from its thread */ "rewritten", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled", /* a prose ask read as money only because its line named a grant: retyped a click */ "retyped"]), by: z.string(), note: z.string().default(""),
+  at: Iso, action: z.enum(["create", "fold", "retire", "decide", "defer", /* the Secretary rewrote the card from its thread */ "rewritten", /* a deferred ask's wait ended: open again */ "reopen", /* step 3: the card failed its contract or lint */ "lint", /* migration 105: the town rewrote its clipped card from the target */ "retitled", /* a prose ask read as money only because its line named a grant: retyped a click */ "retyped", /* its manager took it back with a note (1:1 mt_dwsxo7oms8) */ "withdraw"]), by: z.string(), note: z.string().default(""),
 });
 export type AskHistoryEntry = z.infer<typeof AskHistoryEntry>;
 /**
@@ -2019,11 +2015,11 @@ export const Ask = z.object({
   decision: z.string().nullable().default(null),
   /** the event text that retired it */
   retiredBy: z.string().nullable().default(null),
-  /** the ask it was folded into */
+  /** the ask it was folded into (status folded: the Secretary's `rank` fold, 1:1 mt_dwsxo7oms8 decision 2 point 4) */
   foldedInto: Id.nullable().default(null),
   /** the event or id it waits behind */
   deferredUntil: z.string().nullable().default(null),
-  sources: z.array(AskSource).default([]),
+  // no `sources` list (1:1 mt_dwsxo7oms8 decision 2 point 3): the thread is the list. Migration 097's column stays, unwritten.
   createdAt: Iso,
   updatedAt: Iso,
   history: z.array(AskHistoryEntry).default([]),
@@ -2345,7 +2341,9 @@ export const VerbInputs = {
     }).optional().describe("the money ask's card (docs/legible-delegation.md §5). Left out, the town writes one from your objective, steps and ask. A card missing structure (a recommendation, the prior decision, spent, steps) is refused; style rules are filed as warnings"),
   }),
   ask: z.object({
-    ...AskCardInput.shape,
+    ...AskCardInput.partial({ type: true, title: true, branches: true }).shape,
+    askId: Id.optional().describe("rewrite or withdraw an open ask of your own building (ak_…): with title, body and recommendation (and claims) its card is written again whole; with withdraw: true it leaves the queue with your note. Left out, a new ask (type, title and branches required)"),
+    withdraw: z.boolean().optional().describe("with askId: withdraw that ask (status retired, never deleted); note says why"),
     jobId: Id.optional().describe("the job whose thread the ask belongs to (jb_…, or a grant, schedule or assignment id); left out: the grant or retainer it targets, else your building's own thread"),
     note: z.string().trim().max(600).default("").describe("one line for the thread: why this needs a human"),
   }),
@@ -2428,6 +2426,11 @@ export const VerbInputs = {
       because: z.string().trim().min(3).max(300).describe("the human's decision that overtook it: the decided ask (ak_…) or item (gr_…, sc_…, …) by id, or the 1:1 (mt_…) and their words"),
       note: z.string().trim().min(1).max(400).describe("why it is moot now, one plain sentence; the filing building reads it"),
     })).max(30).optional().describe("close open asks a human's decision already settled: click and policy asks only (never money, a credential, a meeting or a request a human must carry out; those you may only rank or defer). Each closes with your note, and its building hears it on its thread"),
+    fold: z.array(z.object({
+      askId: Id.describe("the later live ask: the same thing as `into`, raised as its own need on another job"),
+      into: Id.describe("the live ask that stays (ak_…)"),
+      note: z.string().trim().min(1).max(400).describe("why they are one thing, one plain sentence; both threads read it"),
+    })).max(30).optional().describe("fold a duplicate ask raised on a different job into the one that stays (status folded, never deleted). If the fold changes what the human must know, rewrite the survivor's card whole in the same call"),
     pattern: z.object({
       title: z.string().trim().min(1).max(160),
       body: z.string().trim().min(1).max(3000).describe("the convergences and repeats of the week, plain lines, ids cited"),
@@ -2471,7 +2474,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
-  ask: "(manager) Ask the humans the one thing only they can settle (money, permission, a credential, a rule, a meeting): a card in their decision queue with its branches and your recommendation. It is one entry on a job's thread, and their decision comes back to you on that thread. This replaces a rollup's Needs: file it when the need appears, one ask per decision. To pass up an item already in your in-tray use `review` with `ask`; for a real-world act use `request_human`.",
+  ask: "(manager) Ask the humans the one thing only they can settle (money, permission, a credential, a rule, a meeting): a card in their decision queue with its branches and your recommendation. It is one entry on a job's thread, and their decision comes back to you on that thread. This replaces a rollup's Needs: file it when the need appears, one ask per decision. One need, one ask: a second ask on a need already asked is refused and its words go on the thread, pointing at the first. To change your own building's card, `ask` again with its askId and the whole card (title, body, recommendation); to take it back, askId with withdraw: true and a note (nothing is ever deleted). To pass up an item already in your in-tray use `review` with `ask`; for a real-world act use `request_human`.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Say what shipped in `shipped` (what a human can now see or do): each item is a notice for the humans. There is no rollup. A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
@@ -2480,7 +2483,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
   calibrate: "(Planner) The weekly calibration run. With no arguments: the budget measures, the Planner's lines, which are crossed and the town's one proposed change to the step-size table. With title, body and recommendation: file that change as one policy ask (Adopt / Keep as is) for a human; refused when no line is crossed or one already waits. It never changes the table itself.",
-  rank: "(Secretary) The Town Hall's ranking runs. With no arguments: every open ask with its type, age, building, body, branches, recommendation and sources, then the last 30 money decisions with their notes; with week: true, the last 7 days of asks, rollups and events (the weekly run). With order: rank the open asks; slate: file the money slate (fund now, hold until, skip) as a notice; defer: park an ask behind the one it is moot without; overtaken: close a click or policy ask a human's decision already made moot, with a note citing that decision; pattern: file the weekly pattern notice (and its rule as a policy ask). It never funds or approves anything, and decides nothing a human has not already decided.",
+  rank: "(Secretary) The Town Hall's ranking runs. With no arguments: every open ask with its type, age, building, body, branches and recommendation, then the last 30 money decisions with their notes; with week: true, the last 7 days of asks, rollups and events (the weekly run). With order: rank the open asks; slate: file the money slate (fund now, hold until, skip) as a notice; defer: park an ask behind the one it is moot without; overtaken: close a click or policy ask a human's decision already made moot, with a note citing that decision; fold: fold a later ask into another live ask on the same thing raised on a different job (any type): it leaves the queue, its thread says where it went, and the human's decision on the survivor lands on both threads; pattern: file the weekly pattern notice (and its rule as a policy ask). It never funds or approves anything, and decides nothing a human has not already decided.",
   redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI already fast-forwards `prod` and redeploys muster.town after every green push to main, so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 

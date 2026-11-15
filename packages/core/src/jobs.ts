@@ -404,7 +404,7 @@ export function isAnswered(world: World, entryId: string): boolean {
 }
 
 /** Who answers, as an entry author: the system is the code, a user a human, an agent the manager (the Secretary by name). */
-const answererKind = (world: World, by: { kind: string; id: string }): EntryAuthorKind =>
+export const answererKind = (world: World, by: { kind: string; id: string }): EntryAuthorKind =>
   by.kind === "system" || by.id === "system" ? "code" : by.kind === "user" ? "human" : world.agents.get(by.id)?.name === "Secretary" ? "secretary" : "manager";
 
 /**

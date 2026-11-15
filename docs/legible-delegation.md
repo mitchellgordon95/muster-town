@@ -55,7 +55,7 @@ Several pieces exist in a first form, and §11 builds on them rather than replac
 
 **Built on 2026-11-09** (§11 steps 1-10 and UI items B-E, on the legible-delegation branch), so a reader knows where the code is:
 
-- `packages/core/src/asks.ts`: the `asks` table's service. Asks created at their sources, folded by target, retired by event, decided by a human; the needs it reads (`needs.ts`: a proposal, a gate and a request write a need, never a card); the Secretary's rank. Invariants in `docs/invariants/asks.md`.
+- `packages/core/src/asks.ts`: the `asks` table's service. Asks created at their sources, one ask per need (a second refused at the door), retired by event, decided by a human; the needs it reads (`needs.ts`: a proposal, a gate and a request write a need, never a card); the Secretary's rank. Invariants in `docs/invariants/asks.md`.
 - `packages/schema/src/ask.ts`: the card contract per ask type and the countable STE rules: `askStructure` (refused when missing) and `askWarnings` (style, filed as warnings).
 - `packages/core/src/seen.ts`: the `seen` table and the reader's delta.
 - `packages/core/src/ask-checks.ts`: claim checks (`pr`, `url`, `api`, `kr`, `manual`), run at render and on open.
@@ -107,7 +107,7 @@ Every ask also carries: `targetKind` + `targetId` (the grant, request, key resul
 **Lifecycle.**
 
 1. **Created** by the manager session that wrote the record (§5), when a rollup is filed, a grant proposed or held at a gate, a retainer asked, an outbox request opened, a captain or access request made.
-2. **Deduped by target**: a second ask on the same target folds into the first and adds its line, as `rollup-asks.ts` does for grants today. The captain-accept click asked in three places becomes one ask with three sources.
+2. **One need, one ask** (1:1 mt_dwsxo7oms8 decisions 2-3, replacing "deduped by target"): a card is written whole, from its thread, by one author at one time, and nothing appends to a card. The door keys on the need entry an ask views; a second ask on that need is refused, its words go on the thread as an entry, and the card's owner writes it again whole from the thread. Target-keyed dedupe stays only for the town's own needs of the same kind (a new gate under the old gate's card). A grant can carry a credential need and a policy need at once, each its own card. The card has no sources list: the thread is the list. A manager may write its own building's card again whole or withdraw it with a note; the Secretary folds a dupe raised as its own need on another job (`rank` `fold`), and the human's one decision lands on both threads. No ask is ever deleted. Invariant asks.md 20.
 3. **Retired by event**: when the target's deciding event fires (grant decided, access granted, captain accepted, key result patched, PR merged, request claimed), the ask retires with the event named. The Let-in ask that stayed pending two days after the click is the bug this removes. This generalises `overtakenReason` from a digest-time regex to an event hook.
 4. **Ranked** and **deferred** (§6).
 5. **Decided** by the human: a button, or via the Secretary in a 1:1 citing their words (`act_in_1on1`). Never by the town.

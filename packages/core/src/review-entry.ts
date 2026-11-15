@@ -92,12 +92,14 @@ export function reviewEntry(world: World, entryId: string, decision: ReviewDecis
 /**
  * A human decided an ask that was passed up from an entry: their words are a human entry on that thread, answering it,
  * at level manager when a manager or a fork raised it (the manager moves on it), else a record. One per entry that
- * raised the ask (a second manager's card folded into it hears too).
+ * raised it: the ask's own, and each ask the Secretary folded into it from another job (1:1 mt_dwsxo7oms8 decision 2
+ * point 4: the decision lands on both threads). `onlyFolded`: just the folded ones (the target's own event settled the rest).
  */
-export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "body" | "branches" | "recommendation" | "sourceEntryId" | "sources">, by: string, said: string): Entry[] {
+export function askDecidedOnThread(world: World, ask: Pick<Ask, "id" | "title" | "body" | "branches" | "recommendation" | "sourceEntryId">, by: string, said: string, onlyFolded = false): Entry[] {
   // the entry carries the card as the human saw it beside their words (1:1 mt_t65exni4et decision 2 point 5)
   const card = cardShown(ask);
-  const ids = [...new Set([ask.sourceEntryId, ...ask.sources.map((x) => x.entryId)].filter((x): x is string => !!x))];
+  const folded = world.asks.where("status = 'folded' AND foldedInto = ?", [ask.id], "ORDER BY createdAt, rowid").map((f) => f.sourceEntryId);
+  const ids = [...new Set([...(onlyFolded ? [] : [ask.sourceEntryId]), ...folded].filter((x): x is string => !!x))];
   const out: Entry[] = [];
   for (const id of ids) {
     const raised = entryOf(world, id);
