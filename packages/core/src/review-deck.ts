@@ -295,7 +295,10 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     used.add(d);
     return { ...d, body: askHead(a) + d.body, askId: a.id };
   });
-  ordered.push(...drafts.filter((d) => !used.has(d)));
+  // a need not yet rendered (mt_t65exni4et decision 3: only asks enter the queue and the deck): a proposal, a held
+  // grant, a retainer or a captain ask with no ask is no slide, only one plain line on the state-of-the-town slide
+  const writing = drafts.filter((d) => !used.has(d) && NEEDS_A_CARD.has(d.kind));
+  ordered.push(...drafts.filter((d) => !used.has(d) && !NEEDS_A_CARD.has(d.kind)));
 
   const slides: ReviewSlide[] = [];
   const decisions = new Set(ordered.filter((d) => d.kind !== "stopped").map((d) => d.askId ?? d.itemId)).size;
@@ -303,7 +306,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   // the first slide is today's money slate when the Secretary filed one, then the state of the town
   const slate = slateSlide(world, now);
   if (slate) slides.push(slate);
-  slides.push(townSlide(world, now, decisions, oldest, intray.access.length));
+  slides.push(townSlide(world, now, decisions, oldest, intray.access.length, writing.map((d) => cardBeingWritten(world, d))));
   for (const d of ordered) {
     const w = waitersOf(d);
     const top = [d.since && d.kind !== "stopped" ? `Waiting ${waitedFor(d.since, now)}` : d.since ? `Stopped ${waitedFor(d.since, now)} ago` : "", w ? `${w} assignment${w === 1 ? "" : "s"} parked on this` : ""].filter(Boolean).join(" · ");
@@ -347,7 +350,17 @@ function askDraft(world: World, a: Ask): Draft {
   };
 }
 
-function townSlide(world: World, now: Date, decisions: number, oldest: string | null, asking: number): ReviewSlide {
+/** The item kinds the town raises as a need: no slide until their ask exists. */
+const NEEDS_A_CARD = new Set<ReviewSlideKind>(["proposal", "checkpoint", "retainer", "captain"]);
+const NEED_WORD: Partial<Record<ReviewSlideKind, string>> = { proposal: "Proposal", checkpoint: "Held grant", retainer: "Retainer", captain: "Captain request" };
+
+/** One plain line for a need with no ask yet: what it is, from where, and what it waits for. Nothing to decide on it. */
+function cardBeingWritten(world: World, d: Draft): string {
+  const from = d.buildingId ? world.buildings.get(d.buildingId)?.name : null;
+  return `${NEED_WORD[d.kind] ?? "Item"}${from ? ` from ${from}` : ""}: its card is being written.`;
+}
+
+function townSlide(world: World, now: Date, decisions: number, oldest: string | null, asking: number, writing: string[] = []): ReviewSlide {
   const bank = world.bank.balance(now);
   const cap = world.bank.capState(now);
   const lanes = world.grantDesk.laneBudgets();
@@ -373,6 +386,7 @@ function townSlide(world: World, now: Date, decisions: number, oldest: string | 
     `**Spend today by lane:** exploration ${fmt(explSpent)} (no allowance; ${fmt(free)} free tokens${reserve ? `, after a ${fmt(reserve)} operating reserve` : ""}) · directed ${fmt(directed)}`,
     `**Desks by pillar:** ${pillars || "_none yet_"}`,
     `**${decisions} decision${decisions === 1 ? "" : "s"} below${oldest ? `, oldest waiting ${waitedFor(oldest, now)}` : ""}.**${asking ? ` ${asking} ${asking === 1 ? "person is" : "people are"} asking to join (in the in-tray list).` : ""}`,
+    writing.length ? `**Not yet on a slide:** ${writing.join(" · ")}` : "",
     `| Building | Light | Key results |\n|---|---|---|\n${rows.join("\n")}`,
     flagLine,
   ].filter(Boolean).join("\n\n");

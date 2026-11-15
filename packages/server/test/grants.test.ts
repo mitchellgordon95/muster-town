@@ -183,6 +183,7 @@ describe("grants routes", () => {
     const g = world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, { objective: "Banner", approach: "", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 1_000_000, keyResults: KRS }).id);
     world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 1_000_000 });
     world.grants.patch(g.id, { status: "checkpoint", history: [...world.grants.require(g.id).history, { at: new Date().toISOString(), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "" }] });
+    await world.verbs.ask(manager, { type: "money", targetId: g.id, title: "Adjust or cut the banner grant", body: "You funded this before.\nIt has spent 0 tokens.\nSome steps are done and some are left.", branches: [{ label: "Adjust" }, { label: "Cut" }], recommendation: "Adjust it." }); // only its ask puts it on a slide
     const [k1] = world.grantDesk.get(g.id).keyResults;
     world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "live on the banner" });
     world.grants.patch(g.id, { topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board" });

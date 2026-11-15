@@ -14,7 +14,7 @@ import { asks, buildings, grants, notices } from "../src/mock/fixture";
 import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { DecisionQueueView, FOCUS_DEBOUNCE_MS, goToQueue, useSecretaryChat } from "../src/panels/DecisionQueue";
-import { askedIds, currentItem, focusOf, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
+import { askedIds, cardsBeingWritten, currentItem, focusOf, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { redirectPanel } from "../src/panels/room";
 
@@ -50,21 +50,33 @@ beforeAll(async () => { await getApi(); });
 describe("the queue's order (queueOrder.ts)", () => {
   it("live asks by rank, then oldest, deferred last; then items no ask is about, oldest first; an ask's own items are its record", () => {
     const decided = { ...ask("ak_ocean"), id: "ak_done", status: "decided" } as AskView;
-    const items = queueItems({
+    const input = {
       asks: [...asks, decided], reports: [], blocked: [], goalProposals: [], captains: [],
       grants: grants.filter((g) => g.id === "gr_ocean" || g.status === "countered"),
-      retainers: [{ id: "sc_a", retainer: "funded" }, { id: "sc_b", retainer: "asked", updatedAt: "2026-11-01T00:00:00Z" }] as never,
+      retainers: [{ id: "sc_a", retainer: "funded" }, { id: "sc_b", retainer: "asked", updatedAt: "2026-11-01T00:00:00Z", buildingId: "bl_ocean" }] as never,
       access: [join("ar_new", "2026-11-02T00:00:00Z"), join("ar_octo", "2026-11-01T00:00:00Z")],
-    });
-    expect(items.map((x) => x.id)).toEqual(["ak_hud", "ak_ocean", "ak_land", "ak_weekly", "ak_captain", "ak_req", "ak_policy", "ak_access", "ak_meet", "sc_b", "ar_new"]);
+    };
+    const items = queueItems(input);
+    // a retainer or join request with no ask is a need waiting for its card: one plain line, never a queue item (mt_t65exni4et)
+    expect(items.map((x) => x.id)).toEqual(["ak_hud", "ak_ocean", "ak_land", "ak_weekly", "ak_captain", "ak_req", "ak_policy", "ak_access", "ak_meet"]);
+    expect(cardsBeingWritten(input, input.asks, (id) => (id === "bl_ocean" ? "Ocean Lab" : null)).map((w) => [w.id, w.text])).toEqual([
+      ["sc_b", "Retainer from Ocean Lab: its card is being written."],
+      ["ar_new", "Join request: its card is being written."],
+    ]);
+    // a proposed or held grant with no ask: one line, from its building
+    const raw = { ...grants.find((g) => g.id === "gr_ocean")!, id: "gr_raw", status: "proposed", buildingId: "bl_ocean" } as GrantView;
+    const held = { ...raw, id: "gr_held", status: "checkpoint" } as GrantView;
+    expect(queueItems({ ...input, grants: [raw, held] }).some((x) => x.id === "gr_raw" || x.id === "gr_held")).toBe(false);
+    expect(cardsBeingWritten({ grants: [raw, held], retainers: [], captains: [], access: [] }, [], () => "Prod").map((w) => w.text))
+      .toEqual(["Proposal from Prod: its card is being written.", "Held grant from Prod: its card is being written."]);
     expect(askedIds(asks).has("ar_octo")).toBe(true);
     expect(currentItem(items, null)?.id).toBe("ak_hud");
-    expect(currentItem(items, "ar_new")?.id).toBe("ar_new");
+    expect(currentItem(items, "ak_meet")?.id).toBe("ak_meet");
     expect(currentItem(items, "gone")?.id).toBe("ak_hud");
     expect(currentItem([], null)).toBeNull();
     expect(stepFrom(items, "ak_hud", 1)).toBe("ak_ocean");
     expect(stepFrom(items, "ak_hud", -1)).toBe("ak_hud");
-    expect(stepFrom(items, "ar_new", 1)).toBe("ar_new");
+    expect(stepFrom(items, "ak_meet", 1)).toBe("ak_meet");
     expect(mineAsks(asks, { gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);
   });
 });
@@ -84,7 +96,7 @@ describe("the decision queue sheet", () => {
     expect(document.body.textContent).not.toContain("Review as deck");
   });
 
-  it("deciding the front pops the next one in; an item with no ask comes after the asks", async () => {
+  it("deciding the front pops the next one in; a need with no ask is a plain line, never an item", async () => {
     signIn();
     const decide = vi.spyOn(api(), "decideAsk").mockResolvedValue({} as AskView);
     const reload = vi.fn();
@@ -95,13 +107,16 @@ describe("the decision queue sheet", () => {
     expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "");
     expect(reload).toHaveBeenCalled();
     expect(cards()).toEqual([second.title]);
-    expect(document.body.querySelector(".who-sub")?.textContent).toBe("2 waiting");
-    // the ask that is left is decided too (K / J only peek): the join ask with no ask on it is next, with its own row
+    expect(document.body.querySelector(".who-sub")?.textContent).toBe("1 waiting");
+    // the ask that is left is decided too (K / J only peek): the join request with no ask on it is no item, only a plain
+    // line with nothing to press (mt_t65exni4et decision 3: only asks are decided)
     vi.spyOn(api(), "decideGrant").mockResolvedValue({} as GrantView);
     await act(async () => button("Reject").click());
     expect(cards()).toEqual([]);
-    expect(document.body.querySelector(".queue-item")?.textContent).toContain("asks to join");
-    expect(button("Let in")).toBeTruthy();
+    expect(document.body.querySelector(".queue-item")).toBeNull();
+    expect(document.body.textContent).toContain("Nothing waiting.");
+    expect(document.body.querySelector(".queue-writing")?.textContent).toBe("Join request: its card is being written.");
+    expect(button("Let in")).toBeUndefined();
   });
 
   it("J and K peek at the next and previous item without deciding", async () => {
@@ -117,16 +132,17 @@ describe("the decision queue sheet", () => {
   it("Look at the queue lists one line per item; a line becomes the current item; ← One at a time goes back", async () => {
     signIn();
     await mount(<DecisionQueueView data={read({ asks, grants, access: [join("ar_new", "2026-11-02T00:00:00Z")] })} onReload={() => undefined} onClose={() => undefined} />);
-    await act(async () => button("Look at the queue (10)").click());
+    await act(async () => button("Look at the queue (9)").click());
     const lines = [...document.body.querySelectorAll(".intray-line")];
-    expect(lines).toHaveLength(10);
+    expect(lines).toHaveLength(9);
     expect(cards()).toEqual([]);
     expect(lines[0]!.textContent).toContain(ask("ak_hud").title);
     expect(lines[0]!.textContent).toContain("tokens");
-    expect(lines[9]!.textContent).toContain("@ada asks to join");
+    expect(document.body.textContent).not.toContain("@ada asks to join"); // no ask on it yet: a plain line, not a queue line
+    expect(document.body.querySelector(".queue-writing")?.textContent).toBe("Join request: its card is being written.");
     await act(async () => (lines[2] as HTMLButtonElement).click());
     expect(cards()).toEqual([ask("ak_land").title]);
-    await act(async () => button("Look at the queue (10)").click());
+    await act(async () => button("Look at the queue (9)").click());
     await act(async () => button("← One at a time").click());
     expect(cards()).toEqual([ask("ak_land").title]);
   });
