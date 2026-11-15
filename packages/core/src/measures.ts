@@ -6,6 +6,7 @@
  */
 import type { AskType, StepCalibration, StepSize } from "@muster-town/schema";
 import { stepCalibration } from "./grant-estimate.ts";
+import { screenViews } from "./screen-views.ts";
 import type { World } from "./world.ts";
 
 /** Time to decision, top-ups, hold share and sessions per step are read over this many days. */
@@ -36,6 +37,8 @@ export interface LegibleMeasures {
   sessionsPerStep: { median: number | null; steps: number };
   /** grants at a gate now: how many, the tokens they hold (grantTokens − spent, at least 0) and the oldest hold's age in hours */
   heldAtGates: { grants: number; tokens: number; oldestHours: number | null };
+  /** queue health step 1 (gr_pdja05z2f1): screen views opened in the window (screen-views.ts), the humans behind them, and how many are still open */
+  screenViews: { views: number; users: number; open: number };
 }
 
 function median(xs: number[]): number | null {
@@ -75,6 +78,7 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
   const closed = grants.filter((g) => g.status === "closed" && g.closedAt && g.closedAt >= since);
   const held = closed.filter((g) => g.history.some((h) => h.action === "checkpoint")).length;
   const gates = grants.filter((g) => g.status === "checkpoint");
+  const views = screenViews(world, since, now);
   const holdAt = gates.map((g) => [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt).sort();
 
   return {
@@ -93,6 +97,7 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
       tokens: Math.round(gates.reduce((n, g) => n + Math.max(0, (g.grantTokens ?? 0) - world.grantDesk.spent(g.id)), 0)),
       oldestHours: holdAt.length ? hours(holdAt[0]!, t) : null,
     },
+    screenViews: { views: views.length, users: new Set(views.map((v) => v.userId)).size, open: views.filter((v) => v.open).length },
   };
 }
 
