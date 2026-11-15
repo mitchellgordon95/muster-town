@@ -2,7 +2,9 @@
  * The decision queue at the Town Hall hydrant (docs/legible-delegation.md §3; Mitchell, 2026-11-09: "the default view
  * should be one ask at a time, in the centered content modal … and chat in the side bar"). It replaced the Town Hall
  * in-tray. A centred sheet whose main column shows ONE item, the front of the queue (queueOrder.ts `queueItems`): an
- * ask with its card and buttons, or a waiting item no ask is about with its own decision row. Deciding it (or the ask
+ * ask with its card and buttons, or a waiting item no ask is about with its own decision row (a report, a goal proposal,
+ * a blocked building). A need with no ask yet (a proposal, a held grant, a retainer, a captain or join request) is one
+ * plain line under the queue, never an item. Deciding it (or the ask
  * retiring) pops the next one in. "Look at the queue" lists one line per item; a click makes that line current. J / K
  * peek at the next or previous item without deciding anything.
  *
@@ -17,7 +19,7 @@ import { api, type Intray } from "../api";
 import { store, useTown } from "../state";
 import { AskCard } from "./AskCard";
 import { slateAsks } from "./asks";
-import { buildingOf, currentItem, focusOf, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
+import { buildingOf, cardsBeingWritten, currentItem, focusOf, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
 import { DocView } from "./DocView";
 import { FundingView } from "./FundingView";
 import { isFunder, type IntrayView } from "./funderFilter";
@@ -133,6 +135,14 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
       access: data.access ?? [], goalProposals: f(data.goalProposals), blocked: data.blocked ?? [],
     }, data.asks ?? []).filter((x) => !done.has(x.id));
   }, [data, routes, view, funder, done]);
+  // needs with no ask yet (mt_t65exni4et decision 3): one plain line each, under the queue, nothing to press
+  const buildings = useTown((s) => s.buildings);
+  const writing = useMemo(() => {
+    if (!data) return [];
+    const f = <T extends { id: string }>(xs: T[] | undefined) => mineOnly(xs ?? [], routes, view, funder);
+    const name = (id: string) => buildings.find((b) => b.id === id)?.name ?? null;
+    return cardsBeingWritten({ grants: f(data.grants), retainers: f(data.retainers), captains: f(data.captains), access: data.access ?? [] }, data.asks ?? [], name);
+  }, [data, routes, view, funder, buildings]);
   const all = data ? queueItems({ asks: data.asks ?? [], reports: data.reports, grants: data.grants, retainers: data.retainers ?? [], captains: data.captains ?? [], access: data.access ?? [], goalProposals: data.goalProposals ?? [], blocked: data.blocked ?? [] }).filter((x) => !done.has(x.id)).length : 0;
   const hidden = Math.max(0, all - items.length);
   const cur = currentItem(items, picked);
@@ -214,6 +224,11 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
     <Sheet label="Decision queue" title="Decision queue" sub={`${items.length} waiting`} icon={<Glyph kind="hydrant" />} actions={actions} onClose={onClose} maxWidth={900} className="queue-sheet"
       status={<ErrorLine error={error} />}>
       {main}
+      {!loading && writing.length ? (
+        <div className="queue-writing muted" role="note" aria-label="Not in the queue yet">
+          {writing.map((w) => <div key={w.id}>{w.text}</div>)}
+        </div>
+      ) : null}
       <div className="queue-foot">
         <button className="link" onClick={() => setSheet("funding")} title="The money asks on proposals as a slate: toggle fund or hold and watch the Bank">Funding{slate ? <> <Pill tone="warn">{slate}</Pill></> : null}</button>
         <button className="link" onClick={() => setSheet("feed")} title="What shipped, closed or was verified: nothing to decide">What shipped</button>

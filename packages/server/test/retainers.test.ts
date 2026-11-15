@@ -1,4 +1,4 @@
-import { townRoleId } from "@muster-town/core";
+import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -25,6 +25,10 @@ describe("retainers over HTTP", () => {
     const tray = await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: auth });
     expect(tray.body.retainers).toEqual([expect.objectContaining({ id, askTokens: 15_000 })]);
     expect(tray.body.routes[id]).toMatchObject({ canDecide: true });
+    // only its ask puts it on a slide (mt_t65exni4et decision 3): the lab's manager renders the retainer's need
+    const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [lab.id])!;
+    world.permissions.grant(manager, buildingRoleId(lab.id, "manager"));
+    await world.verbs.ask(manager, { type: "money", targetId: id, title: "Approve the daily sweep retainer", body: "You have not decided on it before.\nIt asks 3,000 tokens a run for 5 runs.\nNothing is spent yet.\nNo run has its steps done yet.", branches: [{ label: "Approve" }, { label: "Reject" }], recommendation: "Approve it." });
     expect((await json(app, "GET", "/api/review-deck", { headers: auth })).body.slides.some((x: { kind: string }) => x.kind === "retainer")).toBe(true);
 
     const { token } = (() => { const u = world.ops.createUser("Ana"); world.permissions.grant({ kind: "user", id: u.user.id }, townRoleId("member")); return u; })();

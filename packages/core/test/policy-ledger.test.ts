@@ -7,7 +7,8 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne } from "../src/index.ts";
 import { decideAsk } from "../src/asks.ts";
-import { filePattern, policyLedgerBlock } from "../src/secretary.ts";
+import { filePattern, policyLedgerBlock, RULE_RECOMMENDATION } from "../src/secretary.ts";
+import { askStructure } from "@muster-town/schema";
 import { managerStateBlock } from "../src/prompts.ts";
 import { ensureDictionary } from "../src/dictionary.ts";
 import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
@@ -42,14 +43,19 @@ describe("the policy ledger", () => {
     const [add] = ledgerAsks();
     expect(add).toMatchObject({ id: askId, type: "policy", branches: [{ label: "Add", action: "ledger-add" }, { label: "Skip", action: "ledger-skip" }] });
     expect(add!.title).toBe("Add this rule to the ledger? Forks never push to main without CI");
-    expect(add!.body).toMatch(/^- Forks never push to main without CI \(origin: \S+, \d{4}-\d\d-\d\d\)$/);
+    // the card is well formed (as_y7mrnayxs2): it recommends Add, so it carries no structure warning
+    expect(add!.recommendation).toBe(RULE_RECOMMENDATION);
+    expect(askStructure("policy", { ...add!, targetKind: "rule" })).toEqual([]);
+    expect(add!.history.some((h) => /structure/.test(h.note ?? ""))).toBe(false);
+    const ruleLine = add!.body.split("\n")[0]!;
+    expect(ruleLine).toMatch(/^- Forks never push to main without CI \(origin: \S+, \d{4}-\d\d-\d\d\)$/);
     expect(world.docs.require(ledger.id).body).not.toContain("Forks never push");
     // deciding "Add this rule?" never files another one; Add appends its line
     decideAsk(world, admin, add!.id, "Add");
     expect(ledgerAsks()).toHaveLength(0);
-    expect(world.docs.require(ledger.id).body.trimEnd().split("\n").at(-1)).toBe(add!.body);
+    expect(world.docs.require(ledger.id).body.trimEnd().split("\n").at(-1)).toBe(ruleLine);
     expect(world.events.list({ types: ["policy.added"] })).toHaveLength(1);
-    expect(policyLedgerBlock(world)).toBe(`## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${add!.body}`);
+    expect(policyLedgerBlock(world)).toBe(`## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${ruleLine}`);
     // a second proposed rule, skipped: nothing appended
     filePattern(world, sec, { title: "Again", body: "b", rule: "Explorers stop at one proposal" });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Skip");
