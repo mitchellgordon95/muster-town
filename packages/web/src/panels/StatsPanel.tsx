@@ -186,12 +186,12 @@ function HealthTable({ first, rows, t }: { first: string; rows: { key: string; h
 }
 
 /** One plain-words measure row: what it is, its value, and the "What the numbers are" line for it. `red` = past its threshold. */
-export interface MeasureRow { key: string; label: string; value: string; what: string; red?: boolean }
+interface MeasureRow { key: string; label: string; value: string; what: string; red?: boolean }
 const num = (x: number | null | undefined) => x == null ? "–" : String(Math.round(x * 100) / 100);
 const hrs = (h: number | null) => h == null ? "none" : waitLabel(h * 3_600_000);
 const ofSample = (m: MedianView, unit = "") => m.median == null ? "none yet (no sample)" : `${num(m.median)}${unit} (median of ${m.sample})`;
 /** The ask types the queue section always lists (the KR's rows), then any other type with a decision in the window. */
-export const QUEUE_TYPES = ["money", "click", "policy"] as const;
+const QUEUE_TYPES = ["money", "click", "policy"] as const;
 const OTHER_TYPES = ["credential", "do", "meeting"] as const;
 
 /** Queue health (gr_pdja05z2f1 step 3): per ask type, the human's time and lines per card, then gates beside budget used. */
@@ -244,7 +244,7 @@ function MeasureTable({ rows }: { rows: MeasureRow[] }) {
 }
 
 /** The queue-health section (above the token tiles) and every other legible measure, from GET /api/health `legible`. */
-export function QueueHealthView({ l }: { l: LegibleView }) {
+function QueueHealthView({ l }: { l: LegibleView }) {
   const g = l.queue.gates;
   return (
     <>
