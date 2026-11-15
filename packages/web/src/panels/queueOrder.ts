@@ -3,9 +3,12 @@
  * what the human pops off the front, one item at a time, at the Town Hall hydrant. Hook-free so the tests call it.
  *
  * The live asks come first, in the Secretary's order (sortAsks: rank, then oldest, deferred last). Then every waiting
- * item no ask is about (a goal proposal, a report, grant, retainer, captain or access row the server filed no ask for,
- * a building blocked with no key results), oldest first, so nothing waiting is lost. The items an ask is about are
+ * item no ask is about (a goal proposal, a report, a building blocked with no key results), oldest first, so nothing waiting is lost. The items an ask is about are
  * its record, one click down from its card, not queue items of their own.
+ *
+ * Only asks are decided (1:1 mt_t65exni4et decision 3): a grant proposal, a held grant, a retainer, a captain or an
+ * access request is a need the town raised, and until its manager (or the Secretary) renders its ask it is not a queue
+ * item. It shows as one plain line under the queue (cardsBeingWritten), with nothing to press.
  */
 import type { AccessRequestView, CaptainRequestView, Doc, GrantView, IntrayRoute, MeetingFocusKind, ScheduleView } from "@muster-town/schema";
 import type { AskView, GoalProposalView, Intray } from "../api";
@@ -61,9 +64,8 @@ export function waitingSince(x: QueueItem): string | null {
 
 /**
  * The queue, front first. `allAsks` is every ask the read carried (before the Mine filter), so an item whose ask is
- * only hidden by the view still counts as asked. Only a proposed or checkpoint grant waits on a human (a countered one
- * waits on the manager), and a retainer counts only
- * while it is asked: neither is in the queue.
+ * only hidden by the view still counts as asked. Grants, retainers, captain and access requests enter only through
+ * their ask (see cardsBeingWritten for the ones still waiting for it).
  */
 export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "sourceDocId">[] = t.asks): QueueItem[] {
   const live = sortAsks(t.asks.filter((a) => a.status === "open" || a.status === "deferred"));
@@ -71,15 +73,32 @@ export function queueItems(t: QueueInput, allAsks: Pick<AskView, "targetId" | "s
   const free = <T extends { id: string }>(xs: T[]) => xs.filter((x) => !asked.has(x.id));
   const rest: QueueItem[] = [
     ...free(t.reports).map((doc) => ({ kind: "report" as const, id: doc.id, doc })),
-    ...free(t.grants).filter((g) => g.status === "proposed" || g.status === "checkpoint").map((grant) => ({ kind: "grant" as const, id: grant.id, grant })),
-    ...free(t.retainers).filter((x) => x.retainer === "asked").map((retainer) => ({ kind: "retainer" as const, id: retainer.id, retainer })),
-    ...free(t.captains).map((req) => ({ kind: "captain" as const, id: req.id, req })),
-    ...free(t.access).map((req) => ({ kind: "access" as const, id: req.id, req })),
     ...free(t.goalProposals).map((proposal) => ({ kind: "goal" as const, id: proposal.id, proposal })),
     ...t.blocked.map((blocked) => ({ kind: "blocked" as const, id: `blocked:${blocked.buildingId}`, blocked })),
   ];
   rest.sort((a, b) => (waitingSince(a) ?? "9").localeCompare(waitingSince(b) ?? "9"));
   return [...live.map((ask) => ({ kind: "ask" as const, id: ask.id, ask })), ...rest];
+}
+
+/** A need the town raised with no ask yet: one plain line, nothing to decide on it. */
+interface CardBeingWritten { id: string; buildingId: string | null; text: string; since: string | null }
+
+/**
+ * The needs waiting for their card, oldest first: a proposed or held grant, an asked retainer, a captain or an access
+ * request no ask is about. `buildingName` turns a building id into its name ("Proposal from Prod: its card is being written.").
+ */
+export function cardsBeingWritten(t: Pick<QueueInput, "grants" | "retainers" | "captains" | "access">, allAsks: Pick<AskView, "targetId" | "sourceDocId" | "sources">[], buildingName: (id: string) => string | null = () => null): CardBeingWritten[] {
+  const asked = askedIds(allAsks);
+  const line = (what: string, b: string | null) => { const n = b ? buildingName(b) : null; return `${what}${n ? ` from ${n}` : ""}: its card is being written.`; };
+  const out: CardBeingWritten[] = [
+    ...t.grants.filter((g) => !asked.has(g.id) && (g.status === "proposed" || g.status === "checkpoint"))
+      .map((g) => ({ id: g.id, buildingId: g.buildingId, since: g.updatedAt, text: line(g.status === "checkpoint" ? "Held grant" : "Proposal", g.buildingId) })),
+    ...t.retainers.filter((x) => !asked.has(x.id) && x.retainer === "asked")
+      .map((x) => ({ id: x.id, buildingId: x.buildingId, since: x.updatedAt, text: line("Retainer", x.buildingId) })),
+    ...t.captains.filter((r) => !asked.has(r.id)).map((r) => ({ id: r.id, buildingId: null, since: r.createdAt, text: line("Captain request", null) })),
+    ...t.access.filter((r) => !asked.has(r.id)).map((r) => ({ id: r.id, buildingId: null, since: r.createdAt, text: line("Join request", null) })),
+  ];
+  return out.sort((a, b) => (a.since ?? "9").localeCompare(b.since ?? "9"));
 }
 
 /**

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { applyDecision, buildingQueue, reviewDeck, createBuilding, createDoc, createResident, forkManager, retireFork, updateBuilding } from "../src/index.ts";
 import { migrate } from "../src/db.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
 const REPORT = "## What I did\nx\n## Findings\ny\n## What I need from you\nNothing needed.";
 const KR = { text: "A visitor sees the banner", howToCheck: "Open the lab" };
@@ -136,6 +136,7 @@ describe("grant B step 2: the card and the deck show the steps (kr_snardl39qh)",
     const { world, propose } = lab();
     const p = propose();
     expect(world.grantDesk.get(p.id).stepStates).toEqual([null, null, null]);
+    renderNeeds(world); // only its ask puts it on a slide (mt_t65exni4et decision 3)
     const slide = reviewDeck(world).slides.find((s) => s.key === `proposal:${p.id}`)!;
     expect(slide.text).toContain("**Steps** (funding queues step 1");
     expect(slide.text).toContain("1. Build the banner\n2. Check it live\n3. Close it");

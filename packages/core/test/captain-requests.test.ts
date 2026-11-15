@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { accessRequestOf, canInteract, decideCaptain, requestAccess, holderOf, intrayCount, intrayRoutes, pendingCaptainRequests, requestCaptain, reviewDeck, townHallIntray, townRoleId } from "../src/index.ts";
-import { seededWorld } from "./helpers.ts";
+import { renderNeeds, seededWorld } from "./helpers.ts";
 
 // "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178): a member asks, the goal's current captain decides.
 function setup() {
@@ -114,6 +114,7 @@ describe("captain requests (gr_bwm0iz7rwl)", () => {
   it("is one review-deck slide with the goal, the requester, why and who decides; gone once decided", () => {
     const { world, ana, admin, child } = setup();
     const r = requestCaptain(world, ana.user.id, child.id, "I run this work");
+    renderNeeds(world); // only its ask puts it on a slide (mt_t65exni4et decision 3)
     const slide = reviewDeck(world).slides.find((s) => s.kind === "captain");
     expect(slide).toMatchObject({ key: `captain:${r.id}`, itemId: r.id, group: 4 });
     expect(slide!.text).toContain('Ana asks to captain "Grant pages show sessions"');

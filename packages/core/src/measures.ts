@@ -6,6 +6,7 @@
  */
 import type { Ask, AskType, StepCalibration, StepSize } from "@muster-town/schema";
 import { stepCalibration } from "./grant-estimate.ts";
+import { queueHealth, type QueueHealth, type QueueHealthInput } from "./queue-health.ts";
 import { screenViews } from "./screen-views.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -46,6 +47,8 @@ export interface LegibleMeasures {
   heldAtGates: { grants: number; tokens: number; oldestHours: number | null };
   /** queue health step 1 (gr_pdja05z2f1): screen views opened in the window (screen-views.ts), the humans behind them, and how many are still open */
   screenViews: { views: number; users: number; open: number };
+  /** queue health step 2 (gr_pdja05z2f1): the human's time and clarifying lines per ask type, gates beside budget used (queue-health.ts) */
+  queue: QueueHealth;
 }
 
 interface RewriteCount { filed: number; rewritten: number; rate: number | null }
@@ -128,7 +131,23 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
       oldestHours: holdAt.length ? hours(holdAt[0]!, t) : null,
     },
     screenViews: { views: views.length, users: new Set(views.map((v) => v.userId)).size, open: views.filter((v) => v.open).length },
+    queue: queueHealth(queueHealthInput(world, since, views, holdAsks.map((a) => ({ grantId: a.targetId!, createdAt: a.createdAt }))), now),
   };
+}
+
+/** The shell for `queueHealth`: the asks a human may have decided in the window, the views, the humans' 1:1 lines in the meetings those views were in, and the grants funded in the window or live now with their spend. */
+function queueHealthInput(world: World, since: string, views: ReturnType<typeof screenViews>, adjustAsks: QueueHealthInput["adjustAsks"]): QueueHealthInput {
+  const asks = world.asks.where("(status = 'decided' AND decidedAt >= ?) OR (status = 'retired' AND updatedAt >= ?)", [since, since])
+    .map((a) => ({ id: a.id, type: a.type, targetId: a.targetId, status: a.status, createdAt: a.createdAt, decidedAt: a.decidedAt, decidedBy: a.decidedBy, history: a.history }));
+  const lines: QueueHealthInput["lines"] = [];
+  for (const id of new Set(views.map((v) => v.meetingId))) {
+    const m = world.meetings.get(id);
+    for (const u of m?.transcript ?? []) if (u.speakerKind === "user" && u.at >= since) lines.push({ meetingId: id, userId: u.speakerId, at: u.at, text: u.text });
+  }
+  const grants = world.grants.all()
+    .filter((g) => g.status === "funded" || g.status === "checkpoint" || g.history.some((h) => h.action === "fund" && h.at >= since))
+    .map((g) => ({ id: g.id, status: g.status, grantTokens: g.grantTokens, spent: world.grantDesk.spent(g.id), history: g.history }));
+  return { asks, views, lines, grants, adjustAsks };
 }
 
 /** Sessions per plan step completed since `since` (a step = a grant's assignments with that grantStep; done when its latest one is). */

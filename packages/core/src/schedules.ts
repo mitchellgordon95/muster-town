@@ -14,7 +14,7 @@ import type { Holder } from "./permissions.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
-import { secretaryIdleReason } from "./secretary.ts";
+import { rankRunText, secretaryIdleReason } from "./secretary.ts";
 import { calibrationIdleReason, calibrationRunText } from "./planner.ts";
 import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
 
@@ -286,7 +286,7 @@ export function fireSchedules(world: World, at: Date = new Date()): { fired: Ass
     try {
       a = world.transaction(() => {
         const made = createAssignment(world, {
-          agentId: taker.agentId, title: s.title, description: calibrationRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
+          agentId: taker.agentId, title: s.title, description: calibrationRunText(world, s, at) ?? rankRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: b.id,
           // a retainer's run carries the schedule as its source: its sessions book against the schedule, never a grant
           lane: s.lane === "retainer" ? { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id } : { lane: s.lane ?? undefined, grantId: s.grantId ?? undefined, gap: s.gap ?? undefined, sourceId: s.sourceId ?? undefined },
           // a named taker runs on the schedule's model too (the Secretary: SECRETARY_MODEL)
