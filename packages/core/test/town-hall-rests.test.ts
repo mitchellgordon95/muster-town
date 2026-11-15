@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TILE } from "@muster-town/schema";
 import { stayReason, walkHome } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -9,7 +10,7 @@ import { seededWorld } from "./helpers.ts";
 describe("Town Hall rest spots (flag dc_r7u6bkaei4)", () => {
   const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
-  it("the Planner's desk is beside the goal tree's stand, the Secretary's beside the hydrant's; both keep a desk slot", () => {
+  it("the Planner's desk is beside the goal tree's stand, the Secretary's north of the hydrant; both keep a desk slot", () => {
     const { world } = seededWorld();
     const planner = world.reorgs.ensurePlanner();
     const secretary = world.secretary.ensure()!;
@@ -17,7 +18,11 @@ describe("Town Hall rest spots (flag dc_r7u6bkaei4)", () => {
     const tree = L.requirePlace("goal-tree").pos, tray = L.requirePlace("hydrant:town-hall").pos;
     const pd = L.deskOf(planner.id)!, sd = L.deskOf(secretary.id)!;
     expect(near(pd.pos, tree)).toBe(1);
-    expect(near(sd.pos, tray)).toBe(1);
+    // the Secretary stands on the tile north of the hydrant itself (its stand is below it), so his speech bubble rises
+    // clear of it (Mitchell's flag dc_zkzi4xnue4)
+    const hydrant = { x: tray.x, y: tray.y - 1 };
+    expect(L.grid.tiles[hydrant.y * L.grid.w + hydrant.x]).toBe(TILE.HYDRANT);
+    expect(sd.pos).toEqual({ x: hydrant.x, y: hydrant.y - 1 });
     expect(pd.name).toBe("Planner's spot by the goal tree");
     expect(sd.name).toBe("Secretary's spot by the hydrant");
     // walkable, inside the Town Hall, on no other place's tile
