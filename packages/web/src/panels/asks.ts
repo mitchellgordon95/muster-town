@@ -35,6 +35,8 @@ export type BranchCall =
   | { kind: "access"; grant: boolean }
   /** a request for a human to act (a do ask; no Claim, 1:1 mt_msnjkpgwdb decision 17): Done takes the report back, Decline the reason; both are required */
   | { kind: "request"; action: "done" | "decline"; form: "note" }
+  /** a goal proposal (1:1 mt_dwsxo7oms8 decision 4): Accept, Edit and accept (new words first), Cut (an optional note back to the proposer) */
+  | { kind: "goal"; action: "accept" | "edit" | "cut"; form?: "words" | "note" }
   | { kind: "ask"; decision: string }
   /** a branch the server refuses (continue at the ceiling): not drawn */
   | { kind: "none" };
@@ -78,6 +80,12 @@ export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["
       if (v === "done") return { kind: "request", action: "done", form: "note" };
       if (v === "decline") return { kind: "request", action: "decline", form: "note" };
       break;
+    case "goalProposal":
+      if (v === "accept") return { kind: "goal", action: "accept" };
+      if (v === "edit") return { kind: "goal", action: "edit", form: "words" };
+      if (v === "cut") return { kind: "goal", action: "cut", form: "note" };
+      // the server refuses any other decision on a goal proposal's ask: not drawn
+      return { kind: "none" };
   }
   return { kind: "ask", decision: b.label };
 }

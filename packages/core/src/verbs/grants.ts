@@ -90,7 +90,7 @@ export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<
 /** `propose_goal` (the manager or its fork): a change to the town goal tree for a human to accept or cut (docs/goals.md). */
 export async function propose_goal(world: World, me: Agent, input: VerbIn<"propose_goal">) {
   const p = world.goalTree.propose(me, { ...input, sourceDocIds: input.sourceDocIds ?? [], buildingId: homeOf(me) ?? undefined });
-  return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. A human with goals.edit there accepts or cuts it; you hear back in your inbox.${p.outsideScope ? " It reaches outside your building's subtree, so it is flagged." : ""}` };
+  return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. It is an entry on your building's thread, and its need follows: write its card with \`ask\` (targetId ${p.id}, type policy; the branches Accept / Edit and accept / Cut are fixed). A human with goals.edit there decides it; you hear back in your inbox.${p.outsideScope ? " It reaches outside your building's subtree, so it is flagged." : ""}` };
 }
 
 /**

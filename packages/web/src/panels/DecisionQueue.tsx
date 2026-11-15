@@ -2,7 +2,7 @@
  * The decision queue at the Town Hall hydrant (docs/legible-delegation.md §3; Mitchell, 2026-11-09: "the default view
  * should be one ask at a time, in the centered content modal … and chat in the side bar"). It replaced the Town Hall
  * in-tray. A centred sheet whose main column shows ONE item, the front of the queue (queueOrder.ts `queueItems`): an
- * ask with its card and buttons, or a waiting item no ask is about with its own decision row (a report, a goal proposal,
+ * ask with its card and buttons, or a waiting item no ask is about with its own decision row (a report,
  * a blocked building). A need with no ask yet (a proposal, a held grant, a retainer, a captain or join request) is one
  * plain line under the queue, never an item. Deciding it (or the ask
  * retiring) pops the next one in. "Look at the queue" lists one line per item; a click makes that line current. J / K
@@ -23,12 +23,11 @@ import { buildingOf, cardsBeingWritten, currentItem, focusOf, kindWord, mineAsks
 import { DocView } from "./DocView";
 import { FundingView } from "./FundingView";
 import { isFunder, type IntrayView } from "./funderFilter";
-import { GoalProposalItem } from "./GoalTreePanel";
-import { CompactLine, accessTitle, captainTitle, goalProposalTitle } from "./intrayList";
+import { CompactLine, accessTitle, captainTitle } from "./intrayList";
 import { UNBLOCK_LINE } from "./keyResults";
 import { ClosedLoops, NoticesFeed } from "./NoticesPanel";
 import { canTalkAtTownHall, openOneOnOne, secretaryOf } from "./oneOnOne";
-import { AccessRow, CaptainRow, DailyDigestButton, GrantRow, RetainerRow, RoutedTo, mineOnly } from "./Places";
+import { AccessRow, CaptainRow, DailyDigestButton, GrantRow, RetainerRow, mineOnly } from "./Places";
 import { Glyph } from "./PanelShell";
 import { Sheet } from "./Sheet";
 import { Empty, ErrorLine, Loading, Pill, timeAgo, useLoad } from "./ui";
@@ -132,7 +131,7 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
     return queueItems({
       asks: mineAsks(data.asks ?? [], routes, view !== "all"),
       reports: f(data.reports), grants: f(data.grants), retainers: f(data.retainers), captains: f(data.captains),
-      access: data.access ?? [], goalProposals: f(data.goalProposals), blocked: data.blocked ?? [],
+      access: data.access ?? [], blocked: data.blocked ?? [],
     }, data.asks ?? []).filter((x) => !done.has(x.id));
   }, [data, routes, view, funder, done]);
   // needs with no ask yet (mt_t65exni4et decision 3): one plain line each, under the queue, nothing to press
@@ -143,7 +142,7 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
     const name = (id: string) => buildings.find((b) => b.id === id)?.name ?? null;
     return cardsBeingWritten({ grants: f(data.grants), retainers: f(data.retainers), captains: f(data.captains), access: data.access ?? [] }, data.asks ?? [], name);
   }, [data, routes, view, funder, buildings]);
-  const all = data ? queueItems({ asks: data.asks ?? [], reports: data.reports, grants: data.grants, retainers: data.retainers ?? [], captains: data.captains ?? [], access: data.access ?? [], goalProposals: data.goalProposals ?? [], blocked: data.blocked ?? [] }).filter((x) => !done.has(x.id)).length : 0;
+  const all = data ? queueItems({ asks: data.asks ?? [], reports: data.reports, grants: data.grants, retainers: data.retainers ?? [], captains: data.captains ?? [], access: data.access ?? [], blocked: data.blocked ?? [] }).filter((x) => !done.has(x.id)).length : 0;
   const hidden = Math.max(0, all - items.length);
   const cur = currentItem(items, picked);
   const at = cur ? items.indexOf(cur) : -1;
@@ -255,7 +254,6 @@ function titleOf(x: QueueItem): string {
     case "retainer": return x.retainer.title;
     case "captain": return captainTitle(x.req);
     case "access": return accessTitle(x.req);
-    case "goal": return goalProposalTitle(x.proposal);
     case "blocked": return `${x.blocked.name}: no key results`;
   }
 }
@@ -300,7 +298,6 @@ function Row({ item: x, routes, onDecided, onReload, onOpenDoc }: { item: QueueI
     case "retainer": return <RetainerRow x={x.retainer} route={route} onDecided={onDecided} onOpenDoc={onOpenDoc} />;
     case "captain": return <CaptainRow req={x.req} route={route} onDecided={onDecided} />;
     case "access": return <AccessRow req={x.req} onDecided={onDecided} />;
-    case "goal": return <div className="goal-proposals"><RoutedTo route={route} /><GoalProposalItem p={x.proposal} onDone={onDecided} /></div>;
     case "blocked": return (
       <div className="doc-row intray-row">
         <div className="intray-who"><b>{x.blocked.name}</b>{x.blocked.since ? <span>since {timeAgo(x.blocked.since)}</span> : null}</div>

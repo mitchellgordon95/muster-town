@@ -13,7 +13,7 @@
 import { isJudgedKr, krStatusWords, ROOT_GOAL_ID, NO_FORK_EVIDENCE, grantName, evidenceKrLine, grantStepLines, historyActor, historyNote, grantStopOf, topUpLine, type Ask, type CheckpointEvidence, type CaptainRequestView, type Doc, type ScheduleView, type GrantView, type Meeting, type PinnedSlide, type ReviewDeck, type ReviewSlide, type ReviewSlideKind } from "@muster-town/schema";
 import { grantsAwaitingDecision, townHallIntray } from "./domain.ts";
 import { freeTokens } from "./free-tokens.ts";
-import type { GoalNode, GoalProposalView } from "./goals.ts";
+import type { GoalNode } from "./goals.ts";
 import type { World } from "./world.ts";
 import { retainerLine } from "./retainers.ts";
 import { describeRepeat } from "./schedules.ts";
@@ -174,47 +174,6 @@ function stoppedSlide(world: World, g: GrantView): Draft | null {
   ].join("\n\n") };
 }
 
-const GOAL_ACTION: Record<string, string> = { "add-goal": "add a goal", "add-kr": "add a key result", edit: "edit", move: "move", retire: "retire a goal", promote: "promote a key result to a goal" };
-
-/** The words after a move or retire proposal's old text, as the goal editor's card says them (web goalTree proposalVerb). */
-function goalProposalVerb(action: string, dest: string | null, hangs = false): string {
-  if (action === "move") return dest ? ` moves under ${dest}` : "";
-  if (action !== "retire") return "";
-  return dest ? ` is retired; its open key results and attached buildings go under ${dest}` : hangs ? " is retired, but no sibling is named for what hangs under it" : " is retired; nothing open hangs under it";
-}
-
-/** A manager's goal proposal (propose_goal): Accept, Edit and accept, or Cut, as in the goal editor. */
-function goalProposalSlide(world: World, p: GoalProposalView): Draft {
-  const tree = world.goalTree;
-  const node = tree.nodeOfProposal(p);
-  const kr = p.targetId ? world.keyResults.get(p.targetId) : undefined;
-  const old = kr?.text ?? (p.targetId ? tree.get(p.targetId)?.text : undefined);
-  const parent = p.parentId ? tree.get(p.parentId)?.text : undefined;
-  const where = node ? tree.ancestors(node).reverse().map((g) => g.text).join(" › ") : "the tree";
-  const b = p.buildingId ? world.buildings.get(p.buildingId)?.name ?? p.buildingId : "a human";
-  // a retire names what moves, so accepting from the deck is as informed as from the editor (which also asks to confirm)
-  const impact = p.action === "retire" && p.targetId && tree.get(p.targetId) ? tree.retireImpact(p.targetId) : null;
-  const hangs = !!impact && impact.attached.length + impact.open.length > 0;
-  const change = old && p.fields.text && p.fields.text !== old ? `"${oneLine(old)}" → "${oneLine(p.fields.text)}"`
-    : old ? `"${oneLine(old)}"${goalProposalVerb(p.action, parent ? `"${oneLine(parent)}"` : null, hangs)}`
-    : `"${oneLine(p.fields.text ?? "")}"${parent ? ` under "${oneLine(parent)}"` : ""}`;
-  const dest = parent ? `"${oneLine(parent)}"` : "a sibling (none named: accepting is refused)";
-  const moves = impact && hangs
-    ? ` What moves under ${dest}: ${[...impact.attached.map((x) => `building ${x.name}`), ...impact.open.map((k) => `key result "${oneLine(k.text)}"`)].join("; ")}. A building is never archived here; it moves.`
-    : "";
-  const extra = [p.fields.howToCheck ? `How to check: ${oneLine(p.fields.howToCheck)}` : "", p.fields.due ? `Due ${p.fields.due}` : ""].filter(Boolean).join(" · ");
-  const owner = tree.ownerOf(node ?? ROOT_GOAL_ID);
-  return {
-    kind: "goal-proposal", group: 4, itemId: p.id, buildingId: p.buildingId, since: p.createdAt, history: meetingLine(world, p.sourceDocIds),
-    title: `${b}: goal proposal — ${GOAL_ACTION[p.action] ?? p.action}`,
-    body: card({
-      whatItIs: `${p.proposedByName} proposes to ${GOAL_ACTION[p.action] ?? p.action}: ${change} (${p.id}).${p.outsideScope ? " Outside its building's subtree." : ""} Why: ${oneLine(p.why) || "_not given_"}${moves}`,
-      whatYoudSee: `In the Goal tree at ${where}.${extra ? ` ${extra}.` : ""}`,
-      picture: null,
-      yourCall: `Accept, edit and accept, or cut (a note goes back to the proposer). Routed to ${world.users.get(owner.userId)?.name ?? owner.userId}.`,
-    }),
-  };
-}
 
 /** A member asks to captain a goal (gr_bwm0iz7rwl): Accept or Decline, decided by the goal's current captain or an admin. */
 function captainSlide(world: World, r: CaptainRequestView): Draft {
@@ -258,7 +217,6 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
     drafts.push(grantSlide(world, g, now));
   }
   for (const g of intray.stopped) { const d = stoppedSlide(world, g); if (d) drafts.push(d); }
-  for (const p of intray.goalProposals) drafts.push(goalProposalSlide(world, p));
   for (const r of intray.captains) drafts.push(captainSlide(world, r));
   for (const v of intray.retainers) drafts.push(retainerSlide(world, v));
   for (const x of intray.blocked) {
@@ -284,7 +242,7 @@ export function reviewDeck(world: World, now = new Date()): ReviewDeck {
   const waitersOf = (d: Draft) => (d.itemId ? waiters.get(d.itemId) ?? 0 : 0) + (d.grantId ? waiters.get(world.grants.get(d.grantId)?.checkpointDocId ?? "") ?? 0 : 0);
   for (const d of drafts) if (d.group > 3 && waitersOf(d) > 0) d.group = 3;
   const t = (s: string | null) => (s ? Date.parse(s) : 0);
-  const goalLast = (d: Draft) => (d.kind === "goal-proposal" || d.kind === "captain" ? 1 : 0);
+  const goalLast = (d: Draft) => (d.kind === "captain" ? 1 : 0);
   drafts.sort((a, b) => a.group - b.group || (a.group === 3 ? waitersOf(b) - waitersOf(a) : 0) || goalLast(a) - goalLast(b) || t(a.since) - t(b.since) || (a.keySuffix ?? "").localeCompare(b.keySuffix ?? ""));
   // one slide per ask, in rank order: an ask on an item with its own slide (a grant, a retainer, a captain ask) is that
   // slide (its buttons) under the ask's header; any other ask is a slide of its own. Then everything with no ask yet.
@@ -407,10 +365,6 @@ function decidedLabel(world: World, p: PinnedSlide): string {
     const e = g ? [...g.history].reverse().find((h) => h.byKind === "user") : undefined;
     if (e) return ACTION_PAST[e.action] ?? e.action;
     if (g) return g.status;
-  }
-  if (p.kind === "goal-proposal" && p.itemId) {
-    const gp = world.goalProposals.get(p.itemId);
-    if (gp) return gp.status === "superseded" ? "superseded by a newer proposal" : gp.status;
   }
   if (p.kind === "retainer" && p.itemId) {
     const sc = world.schedules.get(p.itemId);

@@ -9,7 +9,6 @@ import { describeWait } from "./waits.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import type { BlockedBuilding } from "./grants.ts";
-import type { GoalProposalView } from "./goals.ts";
 import { pendingAccessCount, pendingAccessRequests } from "./access.ts";
 import { pendingCaptainCount, pendingCaptainRequests } from "./captain.ts";
 import { askedRetainerCount, pendingRetainers } from "./retainers.ts";
@@ -486,19 +485,16 @@ function stoppedGrants(world: World, now = Date.now()): GrantView[] {
 }
 
 /** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
-export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; goalProposals: GoalProposalView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
+export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
   // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)
-  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), goalProposals: world.goalTree.listProposals({ status: "open" }), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
+  return { reports: th ? intrayOf(world, th.id) : [], grants: grantsAwaitingDecision(world), access: pendingAccessRequests(world), captains: pendingCaptainRequests(world), retainers: pendingRetainers(world), blocked: world.grantDesk.blockedBuildings(), stopped: stoppedGrants(world), asks: rankedAsks(world) };
 }
-
-/** Open goal proposals (propose_goal): Town Hall in-tray items a human accepts or cuts (docs/goals.md step 4). */
-const openGoalProposals = (world: World) => world.goalProposals.count("status = 'open'");
 
 /** In-tray size as the badge shows it: pending items of that in-tray (the Town Hall's counts its grants and access requests too). */
 export function intrayCount(world: World, buildingId: string): number {
   const b = world.buildings.get(buildingId);
-  return managerQueue(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world) : 0);
+  return managerQueue(world, buildingId).length + (b?.kind === "town-hall" ? grantsAwaitingDecision(world).length + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world) : 0);
 }
 
 /**
@@ -520,7 +516,7 @@ export function intrayCounts(world: World): Map<string, number> {
     if (r.b !== th?.id) counts.set(r.b, (counts.get(r.b) ?? 0) + r.n);
   }
   for (const n of unrenderedNeeds(world)) if (n.buildingId !== th?.id) bump(n.buildingId);
-  if (th) for (let i = grantsAwaitingDecision(world).length + openGoalProposals(world) + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world); i > 0; i--) bump(th.id);
+  if (th) for (let i = grantsAwaitingDecision(world).length + pendingAccessCount(world) + pendingCaptainCount(world) + askedRetainerCount(world); i > 0; i--) bump(th.id);
   return counts;
 }
 
