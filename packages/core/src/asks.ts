@@ -137,12 +137,13 @@ export function refuseMissingStructure(what: string, problems: string[]): void {
 
 /**
  * Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired.
- * `human`: a human's decision retired them (their user or avatar id when known): the Secretary runs after it (decision 10).
+ * `human`: a human's decision retired them (their user or avatar id when known): the Secretary runs after it (decision 10),
+ * and the retire entry in each ask's history carries `by` = that id (queue health tells a human's decision from a moot retire).
  */
 export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string, human: string | boolean = false): Ask[] {
   const at = nowIso();
   const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
-    const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: "system", note: reason }] });
+    const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: typeof human === "string" ? human : "system", note: reason }] });
     world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason, human: !!human } });
     return next;
   });

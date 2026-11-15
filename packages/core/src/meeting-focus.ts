@@ -5,12 +5,14 @@
  * says in the 1:1 reaches the agent with `focusBlock` in front of it, rebuilt from live data, so "fund it" or "what's
  * this about?" has a referent; `act_in_1on1` with no target acts on it (still citing the human's words, still their
  * own gates). Only the 1:1's own human sets it; setting the same item again writes nothing. No event: it would flood.
+ * Each change also opens a screen view (screen-views.ts, migration 116), so queue health can tell the human's time per item.
  */
 import type { Agent, Ask, Meeting, MeetingFocus } from "@muster-town/schema";
 import { grantName } from "@muster-town/schema";
 import { badRequest, forbidden } from "./errors.ts";
 import { oneLine } from "./text.ts";
 import { fromNow, stamp } from "./time.ts";
+import { recordScreenView } from "./screen-views.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -20,6 +22,8 @@ export function setMeetingFocus(world: World, actor: Agent, meetingId: string, f
   if (m.kind !== "one-on-one" || !m.withUserId) throw badRequest(`${m.id} is not a 1:1: only a 1:1 follows what its human has open.`);
   const h = world.holderOf(actor);
   if (actor.kind !== "human" || h.kind !== "user" || h.id !== m.withUserId) throw forbidden("meeting.facilitate", `Only ${world.nameOf(m.withUserId)}, whose 1:1 this is, says what is open on their screen.`);
+  // queue health (gr_pdja05z2f1): the human's screen time on the item, recorded whatever the phase; the same item again writes nothing
+  if (m.phase !== "done" && m.phase !== "cancelled") recordScreenView(world, h.id, m.id, focus ? { kind: focus.kind, id: focus.id } : null, now);
   if (!focus) return m.focus ? world.meetings.upsert({ ...m, focus: null }) : m;
   if (m.focus?.kind === focus.kind && m.focus.id === focus.id) return m;
   if (m.phase !== "discussing") return m;

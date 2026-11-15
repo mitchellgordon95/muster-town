@@ -52,7 +52,7 @@ describe("the Secretary's ranking run", () => {
     // the deck opens on today's slate, then the town, then the asks in rank order (each on its grant's own slide)
     const deck = reviewDeck(world).slides;
     expect(deck.slice(0, 5).map((s) => [s.kind, s.askId ?? null])).toEqual([["slate", null], ["town", null], ["proposal", kc.id], ["proposal", ka.id], ["proposal", kb.id]]);
-    expect(deck[2]!.text).toMatch(/_Ask #1 \(money\): Fund "A third banner" at 150k/);
+    expect(deck[2]!.text).toMatch(/_Ask #1 \(tokens\): Fund "A third banner" at 150k/);
     // an ask left out of a new order loses its rank; a non-money ask or an unknown id is refused, nothing written
     await expect(world.verbs.rank(sec, { order: ["ak_nope"] })).rejects.toThrow(/not an open ask/);
     await expect(world.verbs.rank(sec, { order: [ka.id, ka.id] })).rejects.toThrow(/listed twice/);

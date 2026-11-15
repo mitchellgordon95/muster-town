@@ -122,7 +122,7 @@ describe("the decision queue sheet", () => {
     expect(lines).toHaveLength(10);
     expect(cards()).toEqual([]);
     expect(lines[0]!.textContent).toContain(ask("ak_hud").title);
-    expect(lines[0]!.textContent).toContain("money");
+    expect(lines[0]!.textContent).toContain("tokens");
     expect(lines[9]!.textContent).toContain("@ada asks to join");
     await act(async () => (lines[2] as HTMLButtonElement).click());
     expect(cards()).toEqual([ask("ak_land").title]);

@@ -17,7 +17,7 @@ import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
 /** What the building is asking for, after "<Building> is asking": the big line at the top of the card. */
 const ASKING: Record<AskView["type"], ReactNode> = {
-  money: <>for <b>money</b></>,
+  money: <>for <b>tokens</b></>,
   click: <>for a <b>click</b></>,
   credential: <>for a <b>credential</b></>,
   meeting: <>for a <b>meeting</b></>,
