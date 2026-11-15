@@ -35,6 +35,8 @@ import { appendEntry } from "./jobs.ts";
 import { humanOrigin } from "./origin.ts";
 import { overtakeCandidates, type AskFacts } from "./overtake.ts";
 import { healthLine, townHealth } from "./health.ts";
+import { legibleMeasures } from "./measures.ts";
+import { queueHealthBlock } from "./queue-health.ts";
 import { holderOf } from "./permissions.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { createSchedule, raiseRetainerPerRun } from "./schedules.ts";
@@ -377,6 +379,14 @@ export function secretaryIdleReason(world: World, s: Schedule, at: Date): string
   return rankNothingNew(world);
 }
 
+/**
+ * fireSchedules and "Rank now": the ranking run's instructions with the Queue health block appended as it is when the
+ * run starts (grant gr_pdja05z2f1 KR kr_nsghrfza2i; the same numbers as `legible.queue`). Null for any other schedule.
+ */
+export function rankRunText(world: World, s: Pick<Schedule, "id" | "description">, at: Date): string | null {
+  return s.id === rankSchedule(world)?.id ? `${s.description}\n\n${queueHealthBlock(legibleMeasures(world, at).queue)}` : null;
+}
+
 /** The Secretary's ranking schedule, if it is still active. */
 function rankSchedule(world: World): Schedule | undefined {
   const sec = world.secretary.agent();
@@ -419,7 +429,7 @@ export function pressRank(world: World, actor: Agent, at: Date = new Date()): As
   const by = holderOf(actor);
   return world.transaction(() => {
     const a = createAssignment(world, {
-      agentId: sec.id, title: `${s.title} (run now)`, description: s.description, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
+      agentId: sec.id, title: `${s.title} (run now)`, description: rankRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
       lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: humanOrigin(by.id, s.id, at.toISOString()), model: s.model,
     });
     // the schedule's next fire skips while this run is under way (fireSchedules checks lastAssignmentId)
