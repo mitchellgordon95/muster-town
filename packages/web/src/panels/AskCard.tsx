@@ -15,7 +15,20 @@ import { StepStrip } from "./StepStrip";
 import { branchCall, claimMark, deltaOf, retainerCounter, type BranchCall } from "./asks";
 import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
-const TYPE_WORD: Record<AskView["type"], string> = { money: "money", click: "click", credential: "credential", meeting: "meeting", policy: "policy", do: "do" };
+/** What the building is asking for, after "<Building> is asking": the big line at the top of the card. */
+const ASKING: Record<AskView["type"], ReactNode> = {
+  money: <>for <b>money</b></>,
+  click: <>for a <b>click</b></>,
+  credential: <>for a <b>credential</b></>,
+  meeting: <>for a <b>meeting</b></>,
+  policy: <>for a <b>policy</b> decision</>,
+  do: <>you to <b>do something</b></>,
+};
+
+/** The building as the subject of a sentence: "The Town Hall", "The town" when none, else its name. */
+function subjectName(name: string): string {
+  return name === "Town Hall" ? "The Town Hall" : name === "Town" ? "The town" : name;
+}
 
 /** The building's name (the Town when none). */
 function useBuildingName(id: string | null | undefined): string {
@@ -137,8 +150,7 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   return (
     <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title}>
       <header className="ask-head">
-        <span className="ask-building">{building}</span>
-        <Pill tone={ask.type === "money" ? "warn" : ""}>{TYPE_WORD[ask.type]}</Pill>
+        <span className="ask-asking">{subjectName(building)} is asking {ASKING[ask.type]}</span>
         {typeof ask.rank === "number" ? <Pill title="The Secretary's rank">#{ask.rank}</Pill> : null}
         <span className="muted">{timeAgo(ask.createdAt)}</span>
       </header>

@@ -1089,7 +1089,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-card.ask-policy { border-left-color: var(--blue); }
 .ask-card.deferred { opacity: 0.75; }
 .ask-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--fs-sm); }
-.ask-building { font-weight: 600; }
+.ask-asking { flex: 1 1 auto; font-size: var(--fs-xl); line-height: 1.25; margin-right: 4px; }
+.ask-asking b { font-weight: 700; }
+.ask-money .ask-asking b { color: var(--warn); }
 .ask-head .muted { margin-left: auto; }
 .ask-title { margin: 6px 0 4px; font-size: var(--fs-lg); line-height: 1.3; }
 .ask-stamp { display: inline-block; font-size: var(--fs-xs); border: 1px dashed var(--line-2); border-radius: 4px; padding: 1px 6px; margin-bottom: 4px; color: var(--muted); }
