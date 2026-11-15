@@ -1,4 +1,4 @@
-import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures } from "@muster-town/core";
+import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures, operatingManualDoc } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -68,6 +68,13 @@ export async function townRoutes(app: FastifyInstance) {
     };
   }, app.healthRefreshMs, (e) => app.log.warn(`[health] figures refresh failed: ${e instanceof Error ? e.message : String(e)}`));
   app.addHook("onClose", async () => figures.close());
+
+  // the operating manual (1:1 mt_t65exni4et): public, like the library it sits in; /skill.md links it
+  app.get("/api/operating-manual", async () => {
+    const d = operatingManualDoc(world);
+    if (!d) throw new AppError("not_found", "This town has no operating manual yet: a Town Hall doc tagged operating-manual.");
+    return { id: d.id, title: d.title, updatedAt: d.updatedAt, author: world.nameOf(d.authorId), body: d.body };
+  });
 
   app.get("/api/health", async () => {
     const { figures: f, at } = figures.get();

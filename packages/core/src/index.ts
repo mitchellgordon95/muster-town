@@ -109,5 +109,6 @@ export { markSeen } from "./seen.ts";
 export { legibleMeasures } from "./measures.ts";
 export { ensureCalibrationSchedule } from "./planner.ts";
 export { ensureDictionary } from "./dictionary.ts";
+export { operatingManualDoc } from "./operating-manual.ts";
 export { claimsStale, runClaimChecks } from "./ask-checks.ts";
 export { blockedAddress, safeGet, type Fetcher } from "./net-guard.ts";
