@@ -1,0 +1,1 @@
+- 2026-11-15 [Pix 2] legible.retiredBeforeRead counts an ask as read when the human had it (or its target) on screen in the decision queue (screen_views), not only when GET /api/asks/:id wrote a `seen` row; live it read 60 of 60 unread because the queue never calls that route (gr_pdja05z2f1 step 4).
