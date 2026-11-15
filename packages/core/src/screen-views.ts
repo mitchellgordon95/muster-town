@@ -14,7 +14,7 @@ export const VIEW_CAP_MS = 30 * 60 * 1000;
 interface ViewRow { id: number; userId: string; kind: MeetingFocusKind; itemId: string; meetingId: string; openedAt: string; closedAt: string | null }
 
 /** One view as read: its minutes on screen, capped at `VIEW_CAP_MS`, and whether it was still open (or left open) at the read. */
-export interface ScreenView extends ViewRow { ms: number; open: boolean }
+interface ScreenView extends ViewRow { ms: number; open: boolean }
 
 const openRow = (world: World, meetingId: string, userId: string) =>
   world.db.prepare("SELECT * FROM screen_views WHERE meetingId = ? AND userId = ? AND closedAt IS NULL ORDER BY id DESC LIMIT 1").get(meetingId, userId) as ViewRow | undefined;
