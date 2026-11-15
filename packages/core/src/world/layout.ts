@@ -124,11 +124,15 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
       const standTiles = new Set([...piece.keys()].flatMap((k) => piece.get(k)!.stands.map((_, i) => stand(k, i))).map((t) => `${t.x},${t.y}`));
       standTiles.add(`${door.x},${door.y}`);
       const restTaken = new Set<string>();
-      /** the first walkable tile right, left, below or above `key`'s stand that is no stand, door or other rest spot; else the stand */
+      /**
+       * The piece's own rest tile if it names one (the hydrant: the tile north of it) and it is free, else the first
+       * walkable tile right, left, below or above `key`'s stand that is no stand, door or other rest spot; else the stand
+       */
       const restBy = (key: string): Tile => {
-        const s = stand(key);
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const t = { x: s.x + dx, y: s.y + dy }, k = `${t.x},${t.y}`;
+        const s = stand(key), p = piece.get(key)!, a = anchors[key] ?? p.at;
+        const own = p.rest ? [{ x: x0 + a.x + p.rest.x, y: y0 + a.y + p.rest.y }] : [];
+        for (const t of [...own, ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: s.x + dx, y: s.y + dy }))]) {
+          const k = `${t.x},${t.y}`;
           if (t.x <= x0 || t.y <= y0 || t.x >= x0 + bw - 1 || t.y >= y0 + bh - 1) continue;
           if (standTiles.has(k) || restTaken.has(k) || !WALKABLE.has(tiles[t.y * w + t.x])) continue;
           restTaken.add(k);
