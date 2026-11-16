@@ -160,6 +160,7 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
         { id: `board:${b.id}`, kind: "board", name: "Town Hall board (town-wide FYIs)", buildingId: b.id, pos: stand("board") },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
+        { id: "operating-manual", kind: "operating-manual", name: "Operating manual (a book: how jobs, threads, reports and asks work here)", buildingId: b.id, pos: stand("manual") },
         { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: stand("town-map") },
         { id: "goal-tree", kind: "goal-tree", name: "Goal tree (the town's goals, key results and proposals)", buildingId: b.id, pos: stand("goal-tree") },
         { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: stand("stats") },

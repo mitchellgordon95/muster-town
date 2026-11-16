@@ -670,6 +670,8 @@ export interface Api {
   // docs
   docs(q: DocQuery): Promise<Doc[]>;
   doc(id: string): Promise<Doc>;
+  /** GET /api/operating-manual: the town's operating manual (the Town Hall book opens it); 404 before anyone wrote one */
+  operatingManual(): Promise<{ id: string; title: string }>;
   writeDoc(input: WriteDocInput): Promise<Doc>;
   review(docId: string, input: In<typeof ReviewInput>): Promise<Doc>;
   /** Answer an entry with no report (en_…) in a building's in-tray: approve, continue (retry a dead session) or redirect. */
@@ -969,6 +971,7 @@ class HttpApi implements Api {
   publishSettings(patch: { repoUrl: string; token?: string }) { return this.call<{ publish: TownPublish }>("PUT", "/api/town/publish", patch); }
   clearPublish() { return this.call<{ cleared: boolean }>("DELETE", "/api/town/publish"); }
   async docs(q: DocQuery) { return unwrap<Doc[]>(await this.get(`/api/docs${qs(q)}`), "docs"); }
+  operatingManual() { return this.call<{ id: string; title: string }>("GET", "/api/operating-manual"); }
   async doc(id: string) {
     const r = await this.get(`/api/docs/${id}`);
     const doc = unwrap<Doc>(r, "doc");
