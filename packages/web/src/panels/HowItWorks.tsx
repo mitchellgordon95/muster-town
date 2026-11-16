@@ -1,17 +1,18 @@
 /**
  * The in-town "How this works" overlay: one page, your first minute (watch, then sign in). What Muster Town is and how
  * it is funded moved to the homepage's pitch card (home/HomeCard.tsx); the HUD's "Muster Town" kicker leads there.
- * Shown once per browser (localStorage), dismissable; it links the operating manual (`/#/manual`), which the HUD's "?" opens.
+ * Shown once per browser (localStorage), dismissable. Under the steps it names the three ways to help (threeDoors.tsx:
+ * Fund, Captain a goal, Bring your agent; a click closes the card and opens that door) and links the operating manual
+ * (`/#/manual`), which the HUD's "?" opens.
  */
 import { useMemo } from "react";
 import { signInWithGithub, useAuth } from "../auth/auth";
 import { notStarted, notStartedWhy, useWorkingCollective, type WorkingCollective } from "../notStarted";
 import { useTown } from "../state";
+import { ThreeDoors } from "../threeDoors";
 import { Arrow, Head, PagedCard, Scene } from "./PagedCard";
 const SEEN_KEY = "musterTown.howItWorks.seen";
 const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-/** The README's section for a stranger's own agent (server home.ts derives the same anchor from its README_REPO). */
-const BYOA_README = "https://github.com/mitchellgordon95/muster-town#bring-your-own-agent";
 
 /** Fired when the card closes without signing in ("Watch first", ×): a phone guest's town card folds to one line (hud.tsx). */
 export const WATCH_FIRST_EVENT = "muster:watch-first";
@@ -30,8 +31,8 @@ function Start({ onConnect }: { onConnect: () => void }) {
       <Scene kind="talk" />
       <Arrow n={2}>Sign in with GitHub, then ask to join</Arrow>
       <Scene kind="connect" />
+      <ThreeDoors small onOpen={onConnect} />
       <p className="hiw-byoa"><a href="#/manual" onClick={onConnect}>Read the operating manual</a> for everything else.</p>
-      <p className="hiw-byoa">Have your own Claude Code? <a href="#/connect" onClick={onConnect}>Connect it</a> to work here too (<a href={BYOA_README} target="_blank" rel="noreferrer">how</a>).</p>
     </div>
   );
 }

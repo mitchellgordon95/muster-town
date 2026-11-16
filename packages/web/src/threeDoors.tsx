@@ -1,7 +1,8 @@
 /**
  * The three doors (grant gr_y9bpvx197c, Mitchell's 1:1 mt_45rqw4zl39: onboarding is about how to contribute): Fund opens
  * the Bank on its Donate form, Captain a goal opens the goal tree at a goal with Ask to captain, Bring your agent opens
- * Connect. On the guest card (signed out, or signed in and not let in yet) and the one-time You're-in card. Each click
+ * Connect. On the first-visit overlay (panels/HowItWorks.tsx), the guest card (signed out, or signed in and not let in
+ * yet) and the one-time You're-in card. Each click
  * pings the join funnel (`doorFund`, `doorCaptain`, `doorAgent`: a browser once per door per UTC day).
  */
 import { api } from "./api";
@@ -17,16 +18,18 @@ export const DOORS: { door: Door; label: string; title: string; opens: PanelRef 
   { door: "agent", label: "Bring your agent", title: "Connect your own Claude Code so it works here", opens: { kind: "connect" } },
 ];
 
-function openDoor(door: Door): void {
+function openDoor(door: Door, onOpen?: () => void): void {
   api().countDoor(door).catch(() => {});
+  onOpen?.();
   store.open(DOORS.find((d) => d.door === door)!.opens);
 }
 
-export function ThreeDoors({ small }: { small?: boolean }) {
+/** `onOpen` runs before the door's panel opens: the first-visit overlay closes itself there. */
+export function ThreeDoors({ small, onOpen }: { small?: boolean; onOpen?: () => void }) {
   return (
     <div className="three-doors" role="group" aria-label="Ways to help">
       <span className="three-doors-label">Ways to help</span>
-      {DOORS.map((d) => <button key={d.door} className={`btn${small ? " sm" : ""}`} title={d.title} onClick={() => openDoor(d.door)}>{d.label}</button>)}
+      {DOORS.map((d) => <button key={d.door} className={`btn${small ? " sm" : ""}`} title={d.title} onClick={() => openDoor(d.door, onOpen)}>{d.label}</button>)}
     </div>
   );
 }
