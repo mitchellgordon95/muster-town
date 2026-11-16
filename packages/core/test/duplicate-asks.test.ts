@@ -49,13 +49,14 @@ describe("one need, one ask: the door", () => {
     expect(refused[0]).toMatchObject({ level: "none", moved: { askId: card.id }, note: expect.stringContaining("Set up Resend for mail"), body: expect.stringContaining("Outreach also needs it.") });
   });
 
-  it("the same need rendered twice (a target) is one card: the second render's words are an entry, the card is not glued", async () => {
+  it("a second ask on a grant with a live card is refused with an error naming the open ask; its words are one entry, the card is not glued", async () => {
     const { world, manager, proposal } = setup();
     const g = proposal();
     renderNeeds(world, manager.id);
     const [ask] = world.asks.where("targetId = ? AND status = 'open'", [g.id]);
-    const r = await world.verbs.ask(manager, { type: "money", targetId: g.id, title: "Fund the banner again", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the banner ships.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund", claims: [{ text: "The banner builds", check: { kind: "manual" } }] });
-    expect(r).toMatchObject({ askId: ask!.id, folded: true });
+    const again = { type: "money" as const, targetId: g.id, title: "Fund the banner again", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the banner ships.", branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund", claims: [{ text: "The banner builds", check: { kind: "manual" as const } }] };
+    // decision-5 audit rank 1: the call fails and names the live ask, never answers as if a card were filed
+    await expect(world.verbs.ask(manager, again)).rejects.toThrow(new RegExp(`Refused: this need already has a live card, ask ${ask!.id}\\. No second card was filed[\\s\\S]*kept as one entry on its thread[\\s\\S]*askId ${ask!.id}`));
     expect(world.asks.require(ask!.id)).toMatchObject({ title: ask!.title, body: ask!.body });
     expect(refusedEntries(world, `jb_${g.id}`)).toHaveLength(1);
     expect(world.asks.count("targetId = ? AND status = 'open'", [g.id])).toBe(1);

@@ -1,6 +1,6 @@
 import { askStructure, askWarnings, grantName, grantPricingOf, type Agent, type Grant } from "@muster-town/schema";
-import { proposalTitle, refuseMissingStructure } from "../asks.ts";
-import { renderNeed } from "../ask-verb.ts";
+import { refuseMissingStructure } from "../asks.ts";
+import { renderNeed, secondCardRefused } from "../ask-verb.ts";
 import { openNeedsOn, PROPOSAL_BRANCHES } from "../needs.ts";
 import { dictionaryPairs } from "../dictionary.ts";
 import { homeOf } from "../domain.ts";
@@ -31,7 +31,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
   // the proposal writes a need (1:1 mt_t65exni4et decision 2); a card given here renders it at once, else the manager
   // renders it from the need. A card is refused only when it lacks structure (1:1 mt_ewxnhs90cq decision 5); the style
   // rules it breaks are filed as warnings in its history and named in the answer
-  const card = ask ? { body: ask.body, recommendation: ask.recommendation, claims: ask.claims ?? [] } : null;
+  const card = ask ? { title: ask.title, body: ask.body, recommendation: ask.recommendation, claims: ask.claims ?? [] } : null;
   const vetCard = card ? { ...card, branches: PROPOSAL_BRANCHES, targetKind: "grant", dictionary: dictionaryPairs(world) } : null;
   if (vetCard) refuseMissingStructure("proposal", askStructure("money", vetCard));
   const warnings = vetCard ? askWarnings("money", vetCard) : [];
@@ -39,8 +39,14 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     const proposed = open
       ? (world.grantDesk.update(me, open.id, { ...fields, note: "Revised after the counter" }), world.grantDesk.propose(me, open.id, note))
       : world.grantDesk.propose(me, world.grantDesk.create(me, bid, fields).id, note);
-    const need = card ? openNeedsOn(world, "grant", proposed.id).at(-1) : undefined;
-    if (card && need) renderNeed(world, need, { title: proposalTitle(proposed), ...card }, caller.id);
+    if (card) {
+      // the card renders the need the proposal just wrote; without that need there is nothing to render, and the call fails
+      // rather than answer as if a card were filed (decision-5 audit rank 3)
+      const need = openNeedsOn(world, "grant", proposed.id).filter((n) => n.need === "proposal").at(-1);
+      if (!need) throw new AppError("conflict", `${proposed.id} was proposed but wrote no open proposal need, so your card has nothing to render. Nothing was filed.`);
+      const r = renderNeed(world, need, card, caller.id);
+      if (r.folded) throw secondCardRefused(r.ask.id, false);
+    }
     return proposed;
   });
   const asg = caller.currentAssignmentId ? world.assignments.get(caller.currentAssignmentId) : undefined;

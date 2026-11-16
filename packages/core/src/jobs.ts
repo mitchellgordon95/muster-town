@@ -13,6 +13,7 @@ import type { Assignment, Doc, Session } from "@muster-town/schema";
 import { answer, type EntryLevel, type JobRule } from "./answer.ts";
 import { sessionTokens } from "./bank.ts";
 import { newId, nowIso } from "./util.ts";
+import { AppError } from "./errors.ts";
 import type { World } from "./world.ts";
 
 type JobStatus = "proposed" | "countered" | "open" | "held" | "closed";
@@ -355,13 +356,20 @@ function ensureJob(world: World, jobId: string): boolean {
   return has();
 }
 
+/** Whether a job's thread exists (synced from its object when it was not yet): for a caller that picks between threads. */
+export function hasJob(world: World, jobId: string): boolean {
+  return ensureJob(world, jobId);
+}
+
 /**
- * Append one entry to a job's thread, live. Written once per id (null when the thread already holds it, or the job does
- * not exist). `entry.created` carries its level: one at level manager wakes the building's manager (runtime waker).
+ * Append one entry to a job's thread, live. Written once per id: null means only "the thread already holds this id"
+ * (an idempotent write). A job that does not exist is an error naming it (decision-5 audit rank 4): the entry, a need
+ * among them, is never dropped in silence. `entry.created` carries its level: one at level manager wakes the building's
+ * manager (runtime waker).
  */
 export function appendEntry(world: World, e: NewEntry): Entry | null {
   const db = world.db;
-  if (!ensureJob(world, e.jobId)) return null;
+  if (!ensureJob(world, e.jobId)) throw new AppError("not_found", `No job ${e.jobId} to write on: the entry "${e.note.slice(0, 120)}" was not written.`);
   const id = e.id ?? newId("en");
   if (db.prepare("SELECT 1 FROM entries WHERE id = ?").get(id)) return null;
   const job = db.prepare("SELECT buildingId, pocketRef FROM jobs WHERE id = ?").get(e.jobId) as { buildingId: string; pocketRef: string | null };

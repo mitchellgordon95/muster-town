@@ -59,7 +59,7 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
   const entryId = n.sourceEntryId;
   const have = (entryId ? world.asks.first(`sourceEntryId = ? AND status IN ('open', 'deferred')`, [entryId], "ORDER BY createdAt, rowid") : undefined)
     ?? (n.need ? liveAskForNeed(world, n.need) : undefined);
-  if (have) return { ask: refuseSecondAsk(world, have, n, at, by), folded: true };
+  if (have) return refuseSecondAsk(world, have, n, at, by);
   const card = vetted(world, n.type, { title: n.title, body: n.body ?? "", recommendation: n.recommendation ?? "", claims: n.claims ?? [], branches: n.branches, targetKind: kind }, at, by);
   // every new card views an entry on a job's thread: a need, a manager's `ask` entry or the entry passed up
   if (!entryId) throw new AppError("conflict", "An ask needs the entry it views (asks.sourceEntryId): file it through `ask`, `review` with `ask` or a need.");
@@ -81,7 +81,7 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
  * card is left as it is and the second filer's words become one entry on the card's thread (once: the same words again
  * write nothing), pointing at the ask; the thread moved, so the card is marked behind for its owner to write again.
  */
-function refuseSecondAsk(world: World, have: Ask, n: NewAsk, at: string, by: string): Ask {
+function refuseSecondAsk(world: World, have: Ask, n: NewAsk, at: string, by: string): { ask: Ask; folded: boolean } {
   const adopt = (!have.recommendation.trim() || have.tags.includes(LINT_FAILED) || askStructure(have.type, have).length > 0) && !!n.recommendation?.trim();
   if (adopt) {
     const words = { title: clipWords(n.title, 200), body: n.body ?? "", recommendation: n.recommendation!, claims: n.claims ?? [] };
@@ -89,19 +89,29 @@ function refuseSecondAsk(world: World, have: Ask, n: NewAsk, at: string, by: str
     const on = have.sourceEntryId ? entryOf(world, have.sourceEntryId)?.jobId : undefined;
     const next = world.asks.upsert({ ...have, ...words, tags: card.tags, renderedSeq: on ? threadSeq(world, on) : have.renderedSeq, updatedAt: at, history: [...have.history, { at, action: "rewritten", by, note: `the town's wording replaced whole by ${n.sourceEntryId ?? by}'s card; was: ${have.title}`.slice(0, 500) }, ...card.lint] });
     queueClaimChecks(world, next.id);
-    return next;
+    // the author's card replaced a placeholder: it is the card now, nothing was refused
+    return { ask: next, folded: false };
   }
   const jobId = (have.sourceEntryId ? entryOf(world, have.sourceEntryId)?.jobId : undefined) ?? (n.sourceEntryId ? entryOf(world, n.sourceEntryId)?.jobId : undefined);
   const note = oneLine(`A second ask on this need was refused; it points at ${have.id}: ${n.title}`, 400);
   const said = [n.body?.trim() ?? "", n.recommendation?.trim() ? `Recommendation: ${n.recommendation.trim()}` : ""].filter(Boolean).join("\n\n");
   const same = (n.title.trim() === have.title.trim() && (n.body ?? "").trim() === have.body.trim())
     || (jobId && world.db.prepare("SELECT 1 FROM entries WHERE jobId = ? AND note = ? AND body = ?").get(jobId, note, said));
-  if (same) return have;
+  if (same) return { ask: have, folded: true };
   if (jobId) {
     appendEntry(world, { jobId, authorKind: answererKind(world, { kind: by === "system" ? "system" : "agent", id: by }), authorId: by, level: "none", note, body: said, moved: { kind: "ask-refused", askId: have.id, ...(n.sourceEntryId ? { entryId: n.sourceEntryId } : {}) } });
   }
   world.events.append({ type: "ask.folded", buildingId: n.buildingId, text: `A second ask on "${oneLine(have.title, 80)}" was refused at the door: ${oneLine(n.title, 120)}`, payload: { askId: have.id, sourceDocId: n.sourceDocId, sourceEntryId: n.sourceEntryId, targetKind: n.targetKind ?? null, targetId: n.targetId ?? null } });
-  return have;
+  return { ask: have, folded: true };
+}
+
+/**
+ * The error a caller throws when its card was refused at the door (decision-5 audit rank 1, grant gr_eztubyh7nf): the
+ * call fails and names the live ask, never answers as if a card were filed. `recorded`: the words were kept as an entry
+ * on the thread (the `ask` verb throws after its transaction commits); otherwise nothing was written.
+ */
+export function secondCardRefused(askId: string, recorded: boolean): AppError {
+  return new AppError("conflict", `Refused: this need already has a live card, ask ${askId}. No second card was filed and ${askId} was not changed.${recorded ? " Your words are kept as one entry on its thread." : " Nothing was written."} To change that card, \`ask\` again with askId ${askId} and the whole card (title, body, recommendation); to take it back, askId with withdraw: true.`);
 }
 
 /** The card fields an author gives (`ask`, `propose_grant` with `ask`, the Secretary's backstop). */
@@ -112,8 +122,8 @@ type Card = Required<Pick<NewAsk, "body" | "recommendation" | "claims">>;
  * explorer at `propose_grant`, or the Secretary as the backstop); its type and branches are the need's, because they map
  * onto the target's own verbs. Refused when the card lacks structure. A second render of the same need is refused at the door (`createAsk`).
  */
-export function renderNeed(world: World, n: Need, card: { title: string } & Partial<Card>, by: string, proposal: CalibrationProposal | null = null, refuse = true): { ask: Ask; folded: boolean } {
-  if (refuse) refuseMissingStructure("ask", askStructure(n.type, { title: card.title, body: card.body ?? "", recommendation: card.recommendation ?? "", claims: card.claims ?? [], branches: n.branches, targetKind: n.targetKind }));
+export function renderNeed(world: World, n: Need, card: { title: string } & Partial<Card>, by: string, proposal: CalibrationProposal | null = null): { ask: Ask; folded: boolean } {
+  refuseMissingStructure("ask", askStructure(n.type, { title: card.title, body: card.body ?? "", recommendation: card.recommendation ?? "", claims: card.claims ?? [], branches: n.branches, targetKind: n.targetKind }));
   return createAsk(world, {
     type: n.type, targetKind: n.targetKind, targetId: n.targetId, buildingId: n.buildingId, sourceDocId: n.entry.docId ?? n.targetId, sourceEntryId: n.entry.id, by,
     title: card.title, body: card.body ?? "", branches: n.branches, recommendation: card.recommendation ?? "", claims: card.claims ?? [], proposal, need: n,
@@ -122,14 +132,18 @@ export function renderNeed(world: World, n: Need, card: { title: string } & Part
 
 /**
  * Code that is its own author (the Planner's `calibrate`, the Secretary's ledger rule) writes its need on the job's
- * thread and renders it at once with its own card: the same path as a manager's render. Its caller checks the card's
- * structure (calibrate refuses; the ledger rule's card is the town's own line), so a gap is kept as a lint warning here.
- * Null when the thread is missing.
+ * thread and renders it at once with its own card: the same path as a manager's render, and the same door. A card that
+ * lacks structure is refused, and so is a second card on a need that already has one (decision-5 audit rank 2: no ask
+ * is written by code).
  */
-export function askOnOwnNeed(world: World, need: NewNeed, card: { title: string } & Partial<Card>, by: string, proposal: CalibrationProposal | null = null): Ask | null {
+export function askOnOwnNeed(world: World, need: NewNeed, card: { title: string } & Partial<Card>, by: string, proposal: CalibrationProposal | null = null): Ask {
   const e = fileNeed(world, { ...need, authorId: need.authorId ?? by });
-  const n = e ? openNeedsOn(world, need.targetKind, need.targetId).find((x) => x.entry.id === e.id) : undefined;
-  return n ? renderNeed(world, n, card, by, proposal, false).ask : null;
+  if (!e) throw new AppError("conflict", `The need ${need.id ?? "for " + need.targetId} is already on the thread of ${need.jobId}: it was filed once, so no second card is written.`);
+  const n = openNeedsOn(world, need.targetKind, need.targetId).find((x) => x.entry.id === e.id);
+  if (!n) throw new AppError("conflict", `The need ${e.id} on ${need.jobId} is not open after it was written.`);
+  const r = renderNeed(world, n, card, by, proposal);
+  if (r.folded) throw secondCardRefused(r.ask.id, false);
+  return r.ask;
 }
 
 /**
@@ -146,6 +160,8 @@ export function passUpWithAsk(world: World, me: Agent, e: Entry, buildingId: str
     // the ask remembers the entry it came from, so its decision lands back on that thread
     sourceEntryId: e.id,
   });
+  // the entry already has a live card: the whole pass-up fails and is rolled back (decision-5 audit rank 1)
+  if (folded) throw secondCardRefused(ask.id, false);
   setEntryLevel(world, e.id, "human");
   return { askId: ask.id, folded };
 }

@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import type { MapLayout } from "@muster-town/schema";
 import { World } from "../src/index.ts";
-import { proposalTitle } from "../src/asks.ts";
 import { createAsk, renderNeed, type NewAsk } from "../src/ask-verb.ts";
 import { appendEntry } from "../src/jobs.ts";
 import { unrenderedNeeds } from "../src/needs.ts";
@@ -161,7 +160,7 @@ export function renderNeeds(world: World, by = "ag_manager"): import("@muster-to
     const d = n.targetKind === "request" ? world.docs.get(n.targetId) : undefined;
     const name = g ? `"${g.title || g.objective}"` : "";
     const card = n.need === "proposal"
-      ? { title: proposalTitle(g!), body: `You have not decided on it before.\nIt asks for ${g!.askTokens} tokens. Nothing is spent yet.\nIt has ${g!.steps.length} steps, and none is done yet.`, recommendation: "Fund it." }
+      ? { title: `Fund ${name} at ${Math.round(g!.askTokens / 1000)}k`, body: `You have not decided on it before.\nIt asks for ${g!.askTokens} tokens. Nothing is spent yet.\nIt has ${g!.steps.length} steps, and none is done yet.`, recommendation: "Fund it." }
       : n.need === "gate"
         ? { title: g!.status === "checkpoint" ? `${name} is held at its ceiling: adjust or cut it` : `Adjust or cut ${name}`, body: `You funded this before.\nIt has spent ${world.grantDesk.spent(g!.id)} tokens.\nSome steps are done and some are left.`, recommendation: "Adjust it." }
         : n.need === "retainer"

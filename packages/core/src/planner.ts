@@ -186,7 +186,6 @@ export function calibrate(world: World, me: Agent, input: { title?: string; body
     need: "rule", targetKind: "rule", targetId: CALIBRATION_TARGET, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: "manager",
     note: proposalSentence(proposal), body: input.body,
   }, { title: input.title, body: input.body, recommendation: input.recommendation, claims: [] }, me.id, proposal);
-  if (!ask) throw new AppError("conflict", "There is no Town Hall thread to file the calibration ask on.");
   return { askId: ask.id, proposal, note: `Filed ${ask.id} in the Town Hall in-tray. Now submit_report (verdict stop) naming it.` };
 }
 

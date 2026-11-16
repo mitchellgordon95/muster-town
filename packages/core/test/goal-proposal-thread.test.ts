@@ -57,8 +57,7 @@ describe("goal proposals on the thread (1:1 mt_dwsxo7oms8 decision 4)", () => {
     expect(a).toMatchObject({ type: "policy", targetKind: "goalProposal", targetId: p.id, sourceEntryId: `en_${p.id}_need`, title: CARD.title });
     expect(a.branches.map((b) => b.label)).toEqual(["Accept", "Edit and accept", "Cut"]);
     expect(unrenderedNeeds(world, LAB)).toEqual([]);
-    const again = await world.verbs.ask(mei, { ...CARD, title: "Accept it again", targetId: p.id });
-    expect(again).toMatchObject({ askId: a.id, folded: true });
+    await expect(world.verbs.ask(mei, { ...CARD, title: "Accept it again", targetId: p.id })).rejects.toThrow(new RegExp(`live card, ask ${a.id}`));
     expect(world.asks.count("targetId = ?", [p.id])).toBe(1);
     // a policy card on a goal proposal states the change; a card with no rule and no change is refused
     const { proposal: q } = await world.verbs.propose_goal(mei, { action: "add-goal", parentId: goal.id, text: "Grant pages show sessions", why: "funders" });

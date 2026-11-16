@@ -13,7 +13,7 @@
 import type { Agent, Assignment, Doc, Event } from "@muster-town/schema";
 import { answer } from "./answer.ts";
 import { createAssignment, isForkingManager, managerAgentOf, moveToFront } from "./domain.ts";
-import { appendEntry, jobOf, type Entry } from "./jobs.ts";
+import { appendEntry, hasJob, jobOf, type Entry } from "./jobs.ts";
 import { DIRECTED } from "./lanes.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -41,7 +41,8 @@ export function keyResultEntry(world: World, e: Event): Entry | null {
     id: `en_ev${e.id}`, jobId, authorKind: "human", authorId: by, level, note: row.title, body: row.summary, createdAt: e.ts,
     moved: { kind: "decision", action, keyResultId: String(p.keyResultId), ...(marked ? { status: String(p.status) } : {}) },
   });
-  return (grantJob ? write(grantJob) : null) ?? write(`jb_${building.id}`);
+  // the grant's thread when the event names a grant that has one, else the building's own (a chosen thread, not a fallback on a failed write)
+  return write(grantJob && hasJob(world, grantJob) ? grantJob : `jb_${building.id}`);
 }
 
 /**
@@ -56,7 +57,7 @@ function messageEntry(world: World, buildingId: string, e: Event, m: { rule: str
     id: `en_ev${e.id}_${m.rule}`, jobId, authorKind: "human", authorId: m.userId, level: answer({ kind: "message" }).level, note: m.title.slice(0, 200), body: m.body, createdAt: e.ts,
     moved: { kind: "message", rule: m.rule },
   });
-  return (m.jobId ? write(m.jobId) : null) ?? write(`jb_${building.id}`);
+  return write(m.jobId && hasJob(world, m.jobId) ? m.jobId : `jb_${building.id}`);
 }
 
 /** The building whose in-tray takes what is addressed to `agent`: its home building when it is a forking manager, else null (it works its own queue). */
