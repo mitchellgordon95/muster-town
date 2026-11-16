@@ -104,6 +104,12 @@ One global, daily-updated estimate of what an adj. token is made of. Code: `core
 
 Tests: `core/test/token-mix.test.ts`, web `test/finance.test.tsx`.
 
+## Where the ledger starts (town meeting mt_dm14dgejml decision 4, 2026-11-16)
+
+Migration `117_ledger_cutoff.sql` deletes the Bank's records from before correct accounting began. The cutoff is the `bank.converted` event (migration 037): before it the Bank counted raw tokens split by the back-fill rule, with no real cache reads, input or cache writes. On the Workshop Collective it is 2026-10-27 00:00:24Z. Deleted: usage rows, Bank debits and ended sessions dated before it; expired Bank credits from before it that no remaining debit draws on; cancelled inputs from before it left with no credit or debit; retired donations made before it. A debit on a credit that has not expired, and the durable credits and their debits unless the durable balance (max(0, credits − debits)) stays the same, are kept, so `left` never moves. A world with no `bank.converted` event deletes nothing.
+
+What went is in `meta` under `ledgerCutoff` (`LedgerCutoff` in schema `tokens.ts`: `at`, `prunedAt`, `reason`, `removed` rows per table, `tokens` they held) and in one `bank.pruned` event. `GET /api/finance` and `GET /api/finance/spend` carry it as `cutoff` (null when nothing was deleted). The Bank page shows it as "Where the ledger starts" in the Balance, Inputs and Spending sidebars (`LedgerCutoffNote`, web `BankFinance.tsx`), with the reason grants funded before step sizes (migration 098) show no step rows. Grants and agents from before the cutoff keep their records but their spend counts only sessions from the cutoff on; agents' stored `spentTokensTotal` is not rewritten. Test: `core/test/ledger-cutoff.test.ts`.
+
 ## Unexpected out-of-tokens deaths (step 5)
 
 Code: `packages/core/src/caps.ts`; GET /api/bank `deaths` and `cap`; the Bank page's "Out-of-tokens deaths and the cap".

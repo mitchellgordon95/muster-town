@@ -61,6 +61,20 @@ export function splitRaw(raw: number, model?: string | null): TokenCounts {
 }
 
 /**
+ * Where the Bank's ledger starts (migration 117, town meeting mt_dm14dgejml decision 4): records from before `at` (the
+ * `bank.converted` event, when the Bank began counting adjusted tokens from real counters) were deleted, because they
+ * counted raw tokens split by a fixed estimate. `removed` counts the deleted rows per table; `tokens` sums what they
+ * held, in adjusted tokens. Kept in `meta` under `ledgerCutoff`; absent on a world with nothing from before.
+ */
+export interface LedgerCutoff {
+  at: string;
+  prunedAt: string;
+  reason: string;
+  removed: { sessions: number; usage: number; debits: number; credits: number; inputs: number; allocations: number };
+  tokens: { usage: number; debits: number; credits: number; donated: number; donationsSpent: number };
+}
+
+/**
  * The adjusted-token mix (1:1 mt_rbc3exb393): one global, daily-updated estimate of what an adjusted token is made of,
  * from the last `windowDays` of real usage (ended sessions with a real breakdown; back-filled ones left out). `counts`
  * sums their five counters; `adjustedTokens` prices them at the Bank model's weights (`weights`), so
