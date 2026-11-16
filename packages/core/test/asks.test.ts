@@ -227,7 +227,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(world.asks.count()).toBe(4);
   }, 30_000);
 
-  it("a manager's ask: refused when a money ask names no grant or retainer, or its target is not one of this town; a money ask folds into its grant's ask; one with no target is an ask of its own", async () => {
+  it("a manager's ask: refused when a money ask names no grant or retainer, or its target is not one of this town; a second money ask on its grant is refused naming its card; one with no target is an ask of its own", async () => {
     const { world, mei, propose } = await setup();
     const g = propose();
     const fundIt = { type: "money" as const, targetId: g.id, title: "Fund the deck grant", body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the deck ships.", claims: [{ text: "The deck builds", check: { kind: "manual" as const } }], branches: [{ label: "Fund" }, { label: "Reject" }], recommendation: "Fund" };
@@ -243,7 +243,7 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     expect(grantAsk.branches.map((b) => b.label)).toEqual(["Fund", "Counter", "Reject"]);
     expect(grantAsk.sourceEntryId).toBe(rendered.entryId);
     // a second money ask on it folds into that card, not a second one
-    expect(await world.verbs.ask(mei, { ...fundIt, title: "Fund it again" })).toMatchObject({ askId: grantAsk.id, folded: true });
+    await expect(world.verbs.ask(mei, { ...fundIt, title: "Fund it again" })).rejects.toThrow(new RegExp(`Refused: this need already has a live card, ask ${grantAsk.id}`));
     expect(asksFor(world, { kind: "grant", id: g.id })).toHaveLength(1);
     expect(world.asks.require(grantAsk.id).status).toBe("open");
     // an ask with no target is a card of its own in the queue

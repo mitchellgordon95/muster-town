@@ -386,9 +386,6 @@ const lastCounterAt = (g: Pick<Grant, "history">): string | null => [...g.histor
 /** A grant's name as a sentence quotes it: in double quotes, so it reads as a name and not as words of the sentence around it. */
 const quotedGrantName = (g: Pick<Grant, "title" | "objective">) => `"${grantName(g)}"`;
 
-/** A rendered proposal's title when its author gives a card at `propose_grant`: the grant by its title, never its objective (§5), quoted. */
-export const proposalTitle = (g: Pick<Grant, "title" | "objective" | "askTokens">) => `Fund ${quotedGrantName(g)} at ${kTokens(g.askTokens)}`;
-
 /** The recommendation of the town's old proposal card: how the boot repair tells a template card from an author's. */
 const PROPOSAL_RECOMMENDATION = "Fund it: the building proposed it as its next piece of work.";
 

@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne } from "../src/index.ts";
 import { decideAsk } from "../src/asks.ts";
-import { filePattern, policyLedgerBlock, RULE_RECOMMENDATION } from "../src/secretary.ts";
+import { filePattern, policyLedgerBlock } from "../src/secretary.ts";
 import { askStructure } from "@muster-town/schema";
 import { managerStateBlock } from "../src/prompts.ts";
 import { ensureDictionary } from "../src/dictionary.ts";
@@ -27,6 +27,9 @@ function setup() {
   return { ...s, world, manager, sec, ledger, ledgerAsks };
 }
 
+/** The Secretary's own card on a rule (decision-5 audit rank 2): the town writes none. */
+const CARD = { title: "Make CI before main a standing rule", body: "Managers asked this three times this week.\nThe rule answers it before it is asked.\nReversing it means deleting the line.", recommendation: "Add it: the same question came back this week." };
+
 describe("the policy ledger", () => {
   it("deciding a policy ask files no ledger ask; a proposed rule's Add appends the line, Skip doesn't; the ledger block is in the pinned text", () => {
     const { world, admin, manager, sec, ledger, ledgerAsks } = setup();
@@ -39,12 +42,11 @@ describe("the policy ledger", () => {
     decideAsk(world, admin, p.id, "Keep the rule");
     expect(ledgerAsks()).toHaveLength(0);
     // the pattern note's rule is the one path that proposes a line
-    const { askId } = filePattern(world, sec, { title: "Same answer twice", body: "b", rule: "Forks never push to main without CI" });
+    const { askId } = filePattern(world, sec, { title: "Same answer twice", body: "b", rule: "Forks never push to main without CI", ruleCard: CARD });
     const [add] = ledgerAsks();
     expect(add).toMatchObject({ id: askId, type: "policy", branches: [{ label: "Add", action: "ledger-add" }, { label: "Skip", action: "ledger-skip" }] });
-    expect(add!.title).toBe("Add this rule to the ledger? Forks never push to main without CI");
-    // the card is well formed (as_y7mrnayxs2): it recommends Add, so it carries no structure warning
-    expect(add!.recommendation).toBe(RULE_RECOMMENDATION);
+    // the card is the Secretary's own words, under the ledger line Add appends
+    expect(add).toMatchObject({ title: CARD.title, recommendation: CARD.recommendation, body: expect.stringContaining(CARD.body) });
     expect(askStructure("policy", { ...add!, targetKind: "rule" })).toEqual([]);
     expect(add!.history.some((h) => /structure/.test(h.note ?? ""))).toBe(false);
     const ruleLine = add!.body.split("\n")[0]!;
@@ -57,13 +59,20 @@ describe("the policy ledger", () => {
     expect(world.events.list({ types: ["policy.added"] })).toHaveLength(1);
     expect(policyLedgerBlock(world)).toBe(`## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${ruleLine}`);
     // a second proposed rule, skipped: nothing appended
-    filePattern(world, sec, { title: "Again", body: "b", rule: "Explorers stop at one proposal" });
+    filePattern(world, sec, { title: "Again", body: "b", rule: "Explorers stop at one proposal", ruleCard: CARD });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Skip");
     expect(policyLedgerBlock(world).split("\n")).toHaveLength(2);
     // "Add: <words>" appends the human's wording with the same origin
-    const { noticeId } = filePattern(world, sec, { title: "Third", body: "b", rule: "Visitors see the Bank" });
+    const { noticeId } = filePattern(world, sec, { title: "Third", body: "b", rule: "Visitors see the Bank", ruleCard: CARD });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Add: visitors see the Bank before they sign in");
     expect(policyLedgerBlock(world)).toMatch(new RegExp(`\\n- visitors see the Bank before they sign in \\(origin: ${noticeId}, `));
+    // a rule without the Secretary's card is refused and files nothing: the town writes no card (decision-5 audit rank 2)
+    const before = world.asks.count();
+    expect(() => filePattern(world, sec, { title: "Fourth", body: "b", rule: "Forks rest on Sundays" })).toThrow(/a rule needs its card, ruleCard/);
+    expect(world.asks.count()).toBe(before);
+    // a card missing its recommendation is refused too
+    expect(() => filePattern(world, sec, { title: "Fifth", body: "b", rule: "Forks rest on Sundays", ruleCard: { ...CARD, recommendation: "" } })).toThrow(/recommendation/);
+    expect(world.asks.count()).toBe(before);
     // pinned in every manager's team-lead session (the first message, managerStateBlock)
     expect(managerStateBlock(world, manager, world.buildings.require(LAB))).toContain(policyLedgerBlock(world));
   });
@@ -94,7 +103,7 @@ describe("the policy ledger", () => {
     await expect(world.verbs.write(sec, { id: ledger.id, type: "fyi", title: "Policy ledger", body: "- anything goes" })).rejects.toThrow(/humans only/);
     await expect(world.verbs.write(manager, { id: dict.id, type: "fyi", title: "Town dictionary", body: "x" })).rejects.toThrow(/humans only/);
     expect(world.docs.require(ledger.id).body).not.toContain("anything goes");
-    filePattern(world, sec, { title: "p", body: "b", rule: "Forks never push to main: Keep" });
+    filePattern(world, sec, { title: "p", body: "b", rule: "Forks never push to main: Keep", ruleCard: CARD });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Add");
     expect(world.docs.require(ledger.id).body).toContain("Forks never push to main: Keep");
   });

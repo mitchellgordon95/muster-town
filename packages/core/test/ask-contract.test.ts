@@ -68,15 +68,16 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     expect(asksFor(world, { kind: "grant", id: passed.grantId })).toEqual([]);
     expect(world.grants.require(passed.grantId).objective).toBe(long);
     // an explorer's own card with an id is filed, the rule a warning in its history and in the answer
-    const idCard = await world.verbs.propose_grant(mei, { ...plan("Show the goal first"), ask: { body: "This is a new proposal about gr_abc123. Nothing is spent yet. It has one step, and none is done yet.", recommendation: "Fund it.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } });
+    const idCard = await world.verbs.propose_grant(mei, { ...plan("Show the goal first"), ask: { title: "Fund the goal-first board", body: "This is a new proposal about gr_abc123. Nothing is spent yet. It has one step, and none is done yet.", recommendation: "Fund it.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } });
     expect(idCard.note).toMatch(/style warning\(s\)[\s\S]*no-ids/);
     const idAsk = asksFor(world, { kind: "grant", id: idCard.grantId })[0]!;
     expect(idAsk.tags).toEqual([]);
     expect(idAsk.history.find((h) => h.action === "lint")!.note).toMatch(/^warnings: [\s\S]*no-ids/);
     // one missing its recommendation is refused, every time
-    const noRec = { ...plan("Show the goal first"), ask: { body: "This is a new proposal. Nothing is spent yet. It has one step, and none is done yet.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } };
+    const noRec = { ...plan("Show the goal first"), ask: { title: "Fund the goal-first board", body: "This is a new proposal. Nothing is spent yet. It has one step, and none is done yet.", claims: [{ text: "The board lists it", check: { kind: "manual" as const } }] } };
     for (let i = 0; i < 4; i++) await expect(world.verbs.propose_grant(mei, noRec as never)).rejects.toThrow(/structure recommendation/);
     const card = {
+      title: "Fund the goal-first board",
       body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the goal shows first.\nIf you reject: the board stays as it is.",
       recommendation: "Fund: one session does it.", claims: [{ text: "The board API lists the goal", check: { kind: "api" as const, ref: "GET /api/buildings/carbon-cycle /building/goal" } }],
     };
