@@ -1,0 +1,1 @@
+- 2026-11-16 [Pix 4] docs/architecture.md: a work session that ends without `submit_report` files a dead-session entry on its job's thread (`fileDeadSession`), not a fallback report; five stale lines fixed (1:1 mt_dm14dgejml decision 12).
