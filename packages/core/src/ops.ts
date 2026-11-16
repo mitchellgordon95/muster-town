@@ -144,7 +144,7 @@ export class Ops {
    * status `retired` (row kept so documents keep their author), appends `agent.retired`. The session/container part
    * is the runtime's (`onAgentRetired`); call it after this.
    */
-  dismissAgent(actor: Actor, agentId: string, opts: { purge?: boolean } = {}): { agent: Agent; cancelledAssignments: string[]; revokedTokens: number; removedMemberships: number; deskFreed: boolean } {
+  dismissAgent(actor: Actor, agentId: string, opts: { purge?: boolean; why?: string } = {}): { agent: Agent; cancelledAssignments: string[]; revokedTokens: number; removedMemberships: number; deskFreed: boolean } {
     const agent = this.world.agents.require(agentId, "agent");
     const bid = homeOf(agent);
     if (actor) {
@@ -165,11 +165,12 @@ export class Ops {
       const deskFreed = !!this.world.layout.deskOf(agentId);
       if (deskFreed) this.world.layout.releaseDesk(agentId);
       this.world.agents.patch(agentId, { currentAssignmentId: null, currentMeetingId: null, activity: "" });
-      const retired = this.world.setStatus(agentId, "retired", `${agent.name} was dismissed`);
+      const text = opts.why ? `${agent.name} was retired: ${opts.why}` : `${agent.name} was dismissed${actor ? ` by ${actor.name}` : ""}`;
+      const retired = this.world.setStatus(agentId, "retired", opts.why ? text : `${agent.name} was dismissed`);
       // a dismissed visitor manager leaves its building unmanaged (adoptGoal); a resident manager's row is kept as before
       if (agent.kind === "visitor") for (const b of this.world.buildings.where("managerAgentId = ?", [agentId])) this.world.buildings.upsert({ ...b, managerAgentId: null });
       const by = actor ? this.world.holderOf(actor).id : "system";
-      this.world.events.append({ type: "agent.retired", agentId, buildingId: bid, text: `${agent.name} was dismissed${actor ? ` by ${actor.name}` : ""}`, payload: { by, purge: !!opts.purge, cancelledAssignments: cancelled, deskFreed } });
+      this.world.events.append({ type: "agent.retired", agentId, buildingId: bid, text, payload: { by, purge: !!opts.purge, ...(opts.why ? { why: opts.why } : {}), cancelledAssignments: cancelled, deskFreed } });
       return { agent: retired, cancelledAssignments: cancelled, revokedTokens, removedMemberships, deskFreed };
     });
   }

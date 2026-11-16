@@ -351,6 +351,26 @@ export function drawHydrant(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillStyle = "#e0584c"; g.fillRect(px + 6, py + 2, 2, 1);
   g.fillStyle = "#e8b840"; g.fillRect(px + 7, py + 0, 2, 2);
 }
+/**
+ * The Town Hall's operating manual (TILE.BOOK, place `operating-manual`): a thick book lying open on a wooden lectern,
+ * cream pages with ink lines and a red ribbon. Draws on the floor.
+ */
+export function drawBook(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 10, 1);
+  // lectern: a post on a foot, a slanted top
+  g.fillStyle = "#5a3d22"; g.fillRect(px + 7, py + 9, 2, 6); g.fillRect(px + 4, py + 14, 8, 1);
+  g.fillStyle = "#7a5530"; g.fillRect(px + 1, py + 7, 14, 3);
+  // the book's cover under its pages
+  g.fillStyle = "#2f4f8f"; g.fillRect(px + 1, py + 3, 14, 6);
+  // two open pages, a spine down the middle
+  g.fillStyle = "#f6efd8"; g.fillRect(px + 2, py + 2, 6, 6); g.fillRect(px + 8, py + 2, 6, 6);
+  g.fillStyle = "#c9bfa0"; g.fillRect(px + 8, py + 2, 1, 6);
+  // ink lines
+  g.fillStyle = "#6b6f85";
+  for (const y of [3, 5, 7]) { g.fillRect(px + 3, py + y, 4, 1); g.fillRect(px + 10, py + y, 3, 1); }
+  // ribbon
+  g.fillStyle = "#c94f4f"; g.fillRect(px + 9, py + 8, 1, 3);
+}
 /** A cork board hung on a wall face (the building board). Draw the wall first. */
 export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#5a3d22"; g.fillRect(px + 1, py + 2, T - 2, 11);

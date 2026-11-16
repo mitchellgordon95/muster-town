@@ -650,6 +650,8 @@ export const PlaceKind = z.enum([
   "bulletin",
   /** hydrant:town-hall — the Town Hall's hydrant beside the in-tray: the stream (asks settle in the in-tray, notices flow to the feed); using it opens the stream's counts (docs/legible-delegation.md §3) */
   "hydrant",
+  /** operating-manual — Town Hall: a book open on a lectern beside the library shelves; using it opens the operating manual (the first Town Hall doc tagged operating-manual, GET /api/operating-manual; Mitchell, 2026-11-16) */
+  "operating-manual",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -2721,6 +2723,8 @@ export const TILE = {
   BULLETIN: 36,
   /** the Town Hall's hydrant (place `hydrant:town-hall`, docs/legible-delegation.md §3): the stream of asks and notices pours from it, beside the in-tray the Secretary works; not walkable */
   HYDRANT: 37,
+  /** the Town Hall's operating manual (place `operating-manual`): a book open on a lectern beside the library shelves; not walkable */
+  BOOK: 38,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,

@@ -29,6 +29,18 @@ describe("furniture", () => {
     expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
   });
 
+  it("the Town Hall's operating manual is a book on a lectern right of the library shelves, read from the tile below (Mitchell, 2026-11-16)", () => {
+    const { world } = seededWorld();
+    const p = world.layout.requirePlace("operating-manual");
+    expect(p).toMatchObject({ kind: "operating-manual", buildingId: "town-hall" });
+    const lot = world.buildings.require("town-hall").lot!;
+    expect({ x: p.pos.x - lot.x, y: p.pos.y - lot.y }).toEqual({ x: 7, y: 3 });
+    expect(at(world, p.pos.x, p.pos.y - 1)).toBe(TILE.BOOK);
+    expect(at(world, p.pos.x - 1, p.pos.y - 1)).toBe(TILE.SHELF);
+    expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
+    expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
+  });
+
   it("the Town Hall's hydrant stands where the outbox counter was, used from the tile below; the old corner is open floor; no outbox, no in-tray place (flag dc_f3xcob2n9u, docs/legible-delegation.md §3)", () => {
     const { world } = seededWorld();
     const p = world.layout.requirePlace("hydrant:town-hall");

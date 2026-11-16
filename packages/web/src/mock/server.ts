@@ -653,6 +653,11 @@ export class MockApi implements Api {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, q.limit ?? 100));
   }
   async doc(id: string) { await wait(60); return clone(this.need(this.sim.docs.get(id), "doc")); }
+  async operatingManual() {
+    await wait(60);
+    const d = this.need([...this.sim.docs.values()].find((x) => x.state !== "draft" && x.tags.includes("operating-manual")), "operating manual");
+    return { id: d.id, title: d.title };
+  }
   async writeDoc(i: WriteDocInput) {
     await wait();
     return clone(this.sim.putDoc({ id: newId("dc"), type: i.type ?? "note", state: i.state ?? "draft", title: i.title, body: i.body, authorId: "us_mitchell", authorKind: "user", buildingId: i.buildingId ?? null, provenance: { sourceIds: [], urls: [] }, tags: i.tags ?? [], createdAt: now(), updatedAt: now() }));
