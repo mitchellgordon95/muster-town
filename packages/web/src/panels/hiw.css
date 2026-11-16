@@ -52,6 +52,8 @@
 }
 .hiw-byoa { margin: 10px 0 0; font-size: var(--fs-sm); color: var(--ink-2); }
 .hiw-byoa a { color: var(--ink); }
+.hiw .three-doors { margin: 14px 0 0; justify-content: center; }
+.hiw .three-doors-label { color: var(--ink-2); }
 /* The operating manual (panels/Manual.tsx): the homepage sheet's frame, scrolling, a table of contents from its h2s. */
 .manual { width: min(760px, 94vw); max-height: 94vh; display: flex; flex-direction: column; background: var(--paper); color: var(--ink);
   border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 6px 0 color-mix(in srgb, var(--ink) 45%, transparent), 0 24px 60px color-mix(in srgb, var(--black) 50%, transparent); outline: none; overflow: hidden; }
