@@ -10,13 +10,13 @@ import { createBuilding, createResident, managerIntrayBlock, repoKey, townRoleId
 import { managerSystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
 import { seededWorld } from "./helpers.ts";
 
-const MUSTER = "git@github.com:mitchellgordon95/agent-town.git";
+const MUSTER = "git@github.com:mitchellgordon95/muster-town.git";
 
 function lab(mode: "none" | "own" | "muster") {
   const s = seededWorld();
   const { world, seed } = s;
   world.host.repoUrl = MUSTER;
-  if (mode !== "none") world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: mode === "muster" ? "https://github.com/MitchellGordon95/agent-town" : "https://github.com/someone/their-app.git" } });
+  if (mode !== "none") world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: mode === "muster" ? "https://github.com/MitchellGordon95/muster-town" : "https://github.com/someone/their-app.git" } });
   const b = createBuilding(world, { name: "Lab", headcount: 2, dailyTokensPerAgent: 1000, model: "claude-opus-5-5", cheapModel: "claude-haiku-5-5" }, seed.admin.id);
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
