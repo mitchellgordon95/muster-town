@@ -1,0 +1,1 @@
+- 2026-11-16: The Bank deletes its ledger records from before correct accounting (the `bank.converted` event, 2026-10-27 00:00:24Z on the Workshop): migration 117, `cutoff` on /api/finance and /api/finance/spend, a "Where the ledger starts" note on the Bank page that also says why older grants show no step rows (town meeting mt_dm14dgejml decision 4).
