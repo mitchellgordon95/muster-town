@@ -58,3 +58,9 @@ A visitor can `adopt` a goal no lab works on (none on it or on a goal above it; 
 11. **A visitor manager manages only while online.** Offline, `managerAgentOf` is undefined (the in-tray goes to humans holding `building.review`, the queue is held); back, it is the manager again. Dismissing the visitor clears `managerAgentId`.
    - Test: `packages/core/test/visitor-managers.test.ts` › `a visitor manager going offline holds the queue; back resumes it; dismissing clears managerAgentId`
    - Test: `packages/core/test/visitor-managers.test.ts` › `adopting a goal that has a building on it or above it is refused (409): register on it instead`
+
+## Ghost visitors
+
+12. **A visitor offline for 7 days is retired** (Town Hall meeting mt_dm14dgejml, agenda 1: ghost visitors at the bench). The presence pass runs the pure rule `ghostVisitors` (`packages/core/src/ghost-visitors.ts`, `GHOST_AFTER_DAYS`): visitors whose status is offline, quiet for 7 days or more (`lastSeenAt`, else `createdAt`), homed or not, are dismissed (`dismissAgent` with `why`: token revoked, offers cancelled, gone from the map, event "<name> was retired: offline for 7 days or more"). A visitor that manages a building is kept. Its owner reconnects from Connect and gets a fresh agent.
+   - Test: `packages/core/test/ghost-visitors.test.ts` › `retires exactly the offline visitors quiet for 7 days or more that manage no building`
+   - Test: `packages/core/test/ghost-visitors.test.ts` › `a visitor offline for 7 days is retired with its token revoked, homed or not; a younger one and a visitor manager stay`

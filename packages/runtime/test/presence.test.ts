@@ -45,4 +45,14 @@ describe("v1.4 runtime presence tick", () => {
     expect(world.assignments.require(a.id).status).toBe("cancelled");
     expect(world.ops.intray("carbon-cycle").some((d) => d.title === "Offer Claude didn't pick up: Have a look")).toBe(true);
   });
+
+  it("the presence pass retires a visitor offline for 7 days (ghost visitors, mt_dm14dgejml)", () => {
+    const { world, seed, runtime, clock } = setup(async function* () { yield init(); });
+    const v = world.ops.registerVisitor(seed.admin.id, { name: "Ghost Claude" }).agent;
+    clock.t = Date.now() + 120_000;
+    expect(runtime.presenceTick()).toMatchObject({ offline: [v.id], ghosts: [] });
+    clock.t = Date.now() + 7 * 24 * 3_600_000 + 60_000;
+    expect(runtime.presenceTick().ghosts).toEqual([v.id]);
+    expect(world.agents.require(v.id).status).toBe("retired");
+  });
 });
