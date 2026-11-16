@@ -1,0 +1,1 @@
+- 2026-11-16 [Pix 1] Mitchell's flag dc_ea9wdns25e: the Secretary rests on the tile north-east of the Town Hall hydrant (`rest: { x: 1, y: -1 }`), so his sprite no longer covers it.
