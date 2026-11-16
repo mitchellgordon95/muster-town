@@ -81,6 +81,23 @@ describe("needs and asks", () => {
     expect(answer.body).toContain("# Photograph the slump from the north");
   });
 
+  it("boot migration keeps a manager's rendered request card (it cites the request, but views its need); a template request card still leaves", async () => {
+    const { world, mei } = setup();
+    const req = await world.verbs.request_human(mei, { worth: "Only a human can do this; the work waits on it.", title: "Sign up with a real inbox", body: "Click the confirm link.", kind: "observation" });
+    const r = await world.verbs.ask(mei, { type: "do", targetId: req.id, title: "Sign up for the blog with your own email", body: "Worth leaving the queue: only a human has a real inbox.\nIf you decline: signup stays checked with the test address only.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Press Done after the confirm link works." });
+    const ask = world.asks.require(r.askId);
+    expect(ask).toMatchObject({ sourceDocId: req.id, targetId: req.id, sourceEntryId: `en_${req.id}` });
+    expect(templateCardsToNeeds(world)).toBe(0); // bug as_dq2icmbqu3: every boot retired this card and the need showed unrendered again
+    expect(world.asks.require(ask.id).status).toBe("open");
+    expect(unrenderedNeeds(world, LAB)).toEqual([]);
+    // a card the town copied whole from a request before needs (it views another entry) is still taken back
+    const req2 = await world.verbs.request_human(mei, { worth: "Only a human can do this; the work waits on it.", title: "Photograph the slump", body: "From the north side.", kind: "observation" });
+    const tpl = seedAsk(world, { type: "do", targetKind: "request", targetId: req2.id, buildingId: LAB, sourceDocId: req2.id, title: "Photograph the slump", body: "From the north side.", branches: [{ label: "Done" }, { label: "Decline" }] }).ask;
+    expect(templateCardsToNeeds(world)).toBe(1);
+    expect(world.asks.require(tpl.id).status).toBe("retired");
+    expect(world.asks.require(ask.id).status).toBe("open");
+  });
+
   it("backstop: a need unrendered for an hour is listed in the Secretary read; rank render files the card and tells the manager", async () => {
     const { world, mei, sec, propose } = setup();
     const g = propose();
