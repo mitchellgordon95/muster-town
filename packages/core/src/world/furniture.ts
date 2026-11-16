@@ -66,10 +66,11 @@ function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { 
       // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
       { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },
       // the hydrant (docs/legible-delegation.md §3): the stream of asks and notices pours from it; it opens the decision
-      // queue, one item at a time (the Town Hall in-tray is gone), and the Secretary rests just north of it. It stands where the
+      // queue, one item at a time (the Town Hall in-tray is gone), and the Secretary rests just north-east of it. It stands where the
       // outbox counter was; the outbox is gone from the map (Mitchell's flag dc_f3xcob2n9u)
-      // The Secretary rests on the tile north of it, so his speech bubble doesn't cover it (Mitchell's flag dc_zkzi4xnue4)
-      { key: "hydrant", label: "Hydrant", at: { x: 2, y: 6 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: 1 }], rest: { x: 0, y: -1 } },
+      // The Secretary rests on the tile north-east of it, so neither his sprite nor his speech bubble covers it (Mitchell's flags
+      // dc_zkzi4xnue4, then dc_ea9wdns25e: straight north the sprite still covered the hydrant)
+      { key: "hydrant", label: "Hydrant", at: { x: 2, y: 6 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: 1 }], rest: { x: 1, y: -1 } },
       { key: "stats", label: "User stats stand", at: { x: 5, y: 6 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
       { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
       // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
