@@ -1,6 +1,7 @@
 /** One document: metadata, provenance, markdown, and the actions the viewer is permitted to take. */
+import { clearDraft, useDraft } from "../draft";
 import { forkTip } from "../forks";
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -71,10 +72,11 @@ function FlagDecideBox({ doc, onDone }: { doc: Doc; onDone?: () => void }) {
     const b = s.buildings.find((x) => x.id === doc.buildingId);
     return b?.managerAgentId ? s.agents[b.managerAgentId] : undefined;
   });
-  const [note, setNote] = useState("");
+  const [note, setNote] = useDraft(`flag-decide:${doc.id}`, "");
   const media = useMediaPaste(setNote);
   const decide = (decision: "approve" | "continue" | "redirect") => async () => {
     const d = await api().review(doc.id, { decision, note: note.trim() });
+    clearDraft(`flag-decide:${doc.id}`);
     store.putDocs([d]);
     store.toast(decision === "approve" ? "Flag marked handled." : `Flag queued: a fork of ${manager?.name ?? "the manager"} runs it.`, "ok");
     onDone?.();

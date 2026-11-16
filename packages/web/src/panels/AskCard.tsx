@@ -5,7 +5,8 @@
  * with their check, the sources by name, and the record one click down. A grant's card adds its
  * step strip. Names, not ids: an id only sits in a tooltip.
  */
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { clearDraft, useDraft } from "../draft";
 import type { GrantView, ScheduleView } from "@muster-town/schema";
 import { api, type AskView } from "../api";
 import { store, useTown } from "../state";
@@ -55,14 +56,16 @@ function doneLine(c: BranchCall, label: string): string {
  * from); `retainer` its target schedule (the asked per-run amount the field starts from).
  */
 export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number }) {
-  const [form, setForm] = useState<{ label: string; call: BranchCall } | null>(null);
+  // what the human has typed survives the card closing until they decide (drafts, src/draft.ts)
+  const dk = `ask:${ask.id}:`;
+  const [form, setForm] = useDraft<{ label: string; call: BranchCall } | null>(`${dk}form`, null);
   const ceiling = grant ? (grant.grantTokens ?? grant.askTokens) + (grant.forecast?.shortfall ?? 0) : 0;
-  const [tokens, setTokens] = useState(grant ? toMillions(form?.call.kind === "grant" && form.call.action === "counter" ? grant.askTokens : ceiling) : "");
-  const [note, setNote] = useState("");
-  const [noting, setNoting] = useState(false);
-  const [perRun, setPerRun] = useState(retainer ? toMillions(retainer.tokensPerRun) : "");
-  const [until, setUntil] = useState("");
-  const [words, setWords] = useState("");
+  const [tokens, setTokens] = useDraft(`${dk}tokens`, () => (grant ? toMillions(form?.call.kind === "grant" && form.call.action === "counter" ? grant.askTokens : ceiling) : ""));
+  const [note, setNote] = useDraft(`${dk}note`, "");
+  const [noting, setNoting] = useDraft(`${dk}noting`, false);
+  const [perRun, setPerRun] = useDraft(`${dk}perRun`, () => (retainer ? toMillions(retainer.tokensPerRun) : ""));
+  const [until, setUntil] = useDraft(`${dk}until`, "");
+  const [words, setWords] = useDraft(`${dk}words`, "");
   const counter = retainerCounter(perRun, until, note, retainer?.tokensPerRun);
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
@@ -86,6 +89,7 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
     }
     store.toast(c.kind === "ask" && note.trim() ? `Decided: ${label}, with your note.` : doneLine(c, label), "ok");
     setForm(null);
+    clearDraft(dk);
     onDecided();
   };
   const branches = ask.branches.map((b) => ({ b, c: branchCall(ask, b, grant) })).filter((x) => x.c.kind !== "none");

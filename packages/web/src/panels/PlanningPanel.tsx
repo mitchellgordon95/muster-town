@@ -1,4 +1,5 @@
 /** Planning desk (Town Hall): create buildings and list them (each opens its building's Settings: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: building settings leave the planning desk), roles (town and building scoped), secrets (admins: the collective's secrets and grants, docs/secrets.md), system. Donating lives at the Bank. */
+import { clearDraft, useDraft } from "../draft";
 import { useMemo, useState } from "react";
 import { api, API_BASE, tokenStore } from "../api";
 import { store, useTown } from "../state";
@@ -32,8 +33,8 @@ export function Buildings() {
   const buildings = useTown((s) => s.buildings);
   const agents = useTown((s) => s.agents);
   const root = useGoalTree();
-  const [name, setName] = useState("");
-  const [goalId, setGoalId] = useState(ROOT_GOAL_ID);
+  const [name, setName] = useDraft("new-building:name", "");
+  const [goalId, setGoalId] = useDraft("new-building:goalId", ROOT_GOAL_ID);
   const can = store.can("town.manage_buildings");
   return (
     <>
@@ -103,7 +104,7 @@ function Redeploy() {
 function Slots() {
   const slots = useTown((s) => s.health?.slots ?? null);
   const admin = useTown((s) => !!s.me?.isAdmin);
-  const [max, setMax] = useState<string>("");
+  const [max, setMax] = useDraft("slots:max", "");
   if (!slots) return null;
   const full = slots.running >= slots.max;
   return (
@@ -130,7 +131,7 @@ function ThisCollective() {
   const me = useTown((s) => s.me);
   const [sure, setSure] = useState(false);
   const town = useTown((s) => s.town);
-  const [name, setName] = useState("");
+  const [name, setName] = useDraft("collective-name", "");
   const admin = !!me?.isAdmin;
   const address = `${location.host}${API_BASE}`;
   const next = name.trim();
@@ -142,7 +143,7 @@ function ThisCollective() {
             <input value={name} placeholder={town?.name ?? ""} maxLength={80} onChange={(e) => setName(e.target.value)} aria-label="Collective name" />
           </Field>
           <div className="actions">
-            <Act disabled={!next || next === town?.name} run={async () => { await api().renameCollective(next); location.reload(); }}>Rename</Act>
+            <Act disabled={!next || next === town?.name} run={async () => { await api().renameCollective(next); clearDraft("collective-name"); location.reload(); }}>Rename</Act>
           </div>
         </>
       ) : null}

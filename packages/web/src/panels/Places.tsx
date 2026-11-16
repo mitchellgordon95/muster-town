@@ -2,6 +2,7 @@
  * Panels that belong to places on the map: the in-tray (manager's desk), the building board,
  * the filing cabinet, the schedule board and the mod station (Town Hall). Donating is at the Bank (BankFunding.tsx).
  */
+import { clearDraft, useDraft } from "../draft";
 import { useEffect, useMemo, useState } from "react";
 import { BOARD_TYPES, DocType, grantName, isJudgedKr, krStatusWords, estimateRangeOf, type AccessRequestView, type CaptainRequestView, type CheckpointEvidence, type Doc, evidenceKrLine, NO_FORK_EVIDENCE, grantStepWord, grantStopOf, topUpLine, type GrantStop, type ScheduleView, type FunderWeek, type GrantView, type IntrayRoute, type Meeting, type DigestRunView, historyActor, historyNote } from "@muster-town/schema";
 import { api, type Board, type BulletinNote, type ThreadEntry } from "../api";
@@ -102,7 +103,7 @@ export function DailyDigestButton({ run, onStarted }: { run: DigestRunView | nul
 export function PlantFlag({ targets, onClose }: { targets: { id: string; name: string; managerAgentId?: string | null }[]; onClose: () => void }) {
   const agents = useTown((s) => s.agents);
   const [buildingId, setBuildingId] = useState(targets[0]?.id ?? "");
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft("flag:text", ""); // Esc or a click away keeps the words; planting drops them
   const media = useMediaPaste(setText);
   const target = targets.find((t) => t.id === buildingId) ?? targets[0];
   const manager = target?.managerAgentId ? agents[target.managerAgentId] : undefined;
@@ -255,13 +256,15 @@ export function CaptainRow({ req, route, onDecided }: { req: CaptainRequestView;
 export function RetainerRow({ x, route, onDecided, deckSlide }: { x: ScheduleView; route?: IntrayRoute; onDecided: () => void; deckSlide?: number; onOpenDoc?: (id: string) => void }) {
   useTown((s) => s.me);
   const canDecide = (route ? route.canDecide : store.can("building.fund", x.buildingId)) && x.retainer === "asked";
-  const [note, setNote] = useState("");
-  const [perRun, setPerRun] = useState("");
-  const [until, setUntil] = useState("");
+  const dk = `retainer:${x.id}:`;
+  const [note, setNote] = useDraft(`${dk}note`, "");
+  const [perRun, setPerRun] = useDraft(`${dk}perRun`, "");
+  const [until, setUntil] = useDraft(`${dk}until`, "");
   const n = (t: number) => t.toLocaleString("en-US");
   const decide = (action: "approve" | "counter" | "reject") => async () => {
     const tokensPerRun = perRun ? Math.round(Number(perRun.replace(/[,_\s]/g, ""))) : undefined;
     await api().decideRetainer(x.id, { action, note, ...(action === "counter" && tokensPerRun ? { tokensPerRun } : {}), ...(action === "counter" && until ? { until: new Date(`${until}T23:59:59Z`).toISOString() } : {}), ...(deckSlide ? { deckSlide } : {}) });
+    clearDraft(dk);
     store.toast(action === "approve" ? `Retainer approved: ${n(x.askTokens)} tokens claimed in the Bank for "${x.title}".` : action === "counter" ? "Countered: the manager edits the schedule, which asks again." : "Retainer rejected: its runs stay held.", "ok");
     onDecided();
   };
@@ -400,14 +403,15 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
   const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
   const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
-  const [tokens, setTokens] = useState(toMillions(ceiling));
-  const [note, setNote] = useState("");
+  const dk = `grant:${g.id}:`; // what's typed survives the panel closing until it is sent (src/draft.ts)
+  const [tokens, setTokens] = useDraft(`${dk}tokens:${g.status}`, toMillions(ceiling));
+  const [note, setNote] = useDraft(`${dk}note`, "");
   // building.fund, or (step 4) the owner of the key result's goal, as the in-tray's route says (Grants.canFund)
   const canFund = store.can("building.fund", g.buildingId) || !!canDecide;
   const decidable = g.status === "proposed" || checkpoint;
   // member funding: any human may fund a proposal from their own Bank input with balance; "" = the Bank (building.fund)
   const myInputs = useMyFundingInputs(g.status === "proposed");
-  const [fundWith, setFundWith] = useState("");
+  const [fundWith, setFundWith] = useDraft(`${dk}fundWith`, "");
   const from = canFund ? fundWith : fundWith || myInputs[0]?.id || "";
   const memberFund = !canFund && g.status === "proposed" && myInputs.length > 0;
   const last = g.history[g.history.length - 1];
@@ -416,6 +420,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const decide = (action: "fund" | "counter" | "reject" | "continue" | "adjust" | "cut", msg: string) => async () => {
     const withTokens = action === "fund" || action === "adjust" || (action === "counter" && n !== g.askTokens);
     await api().decideGrant(g.id, { action, note, ...(withTokens && tokensOk ? { tokens: n } : {}), ...(action === "fund" && from ? { fundWith: from } : {}), ...(deckSlide ? { deckSlide } : {}), ...(deckSlide && meetingId ? { meetingId } : {}) });
+    clearDraft(dk);
     store.toast(msg, "ok");
     onDecided();
   };
@@ -426,16 +431,18 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   };
   const close = async () => {
     await api().closeGrant(g.id, { outcome: "done", note });
+    clearDraft(dk);
     store.toast("Grant closed: the unspent tokens are back in the Bank", "ok");
     onDecided();
   };
   // Stop grant (gr_8i952perny): a human with building.fund or the goal's captain, a reason required
-  const [stopping, setStopping] = useState(false);
-  const [reason, setReason] = useState("");
+  const [stopping, setStopping] = useDraft(`${dk}stopping`, false);
+  const [reason, setReason] = useDraft(`${dk}reason`, "");
   const stopGrant = async () => {
     await api().stopGrant(g.id, { reason });
     store.toast("Grant stopped: its forks wrap up, its queued work is cancelled and its key results are missed", "ok");
     setStopping(false);
+    clearDraft(dk);
     onDecided();
   };
   const stop = grantStopOf(g);
@@ -671,8 +678,8 @@ export function canEditBoardNote(d: Doc): boolean {
 
 /** The Town Hall board's "Post a town-wide note" (Mitchell's flag dc_ym8fjxqjiv): a type fyi doc, state building, buildingId town-hall. */
 export function TownNoteForm({ buildingId, onPosted }: { buildingId: string; onPosted: () => void }) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [title, setTitle] = useDraft(`town-note:${buildingId}:title`, "");
+  const [body, setBody] = useDraft(`town-note:${buildingId}:body`, "");
   const media = useMediaPaste(setBody);
   return (
     <div className="rules-card town-note-form">
@@ -762,8 +769,8 @@ export function canPostBulletin(): boolean {
 }
 
 export function BulletinForm({ onPosted }: { onPosted: () => void }) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
+  const [title, setTitle] = useDraft("bulletin:title", "");
+  const [body, setBody] = useDraft("bulletin:body", "");
   const media = useMediaPaste(setBody);
   return (
     <div className="rules-card bulletin-form">
@@ -884,7 +891,7 @@ function DocList({ board: list, townWide = false, onUnpublished, onEdited }: { b
 
 /** One board note: its row, plus "Edit" (title and body inline, flag dc_4itg2gxfqf) and, on the Town Hall board, "Take off the board". */
 export function BoardNoteRow({ doc: d, onOpen, onUnpublished, onEdited }: { doc: Doc; onOpen: () => void; onUnpublished?: () => void; onEdited?: () => void }) {
-  const [draft, setDraft] = useState<{ title: string; body: string } | null>(null);
+  const [draft, setDraft] = useDraft<{ title: string; body: string } | null>(`board-note:${d.id}`, null);
   const media = useMediaPaste((body) => setDraft((x) => x && { ...x, body: typeof body === "function" ? body(x.body) : body }));
   const edit = !!onEdited && canEditBoardNote(d);
   const unpublish = !!onUnpublished && canUnpublish(d);
@@ -925,7 +932,7 @@ export function BoardNoteRow({ doc: d, onOpen, onUnpublished, onEdited }: { doc:
 /** Pinned at the top of the board: the manager's standing rules, added to every session's brief in this building. */
 function StandingRules({ buildingId, rules }: { buildingId: string; rules: string }) {
   const canEdit = store.can("building.manage", buildingId);
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useDraft<string | null>(`rules:${buildingId}`, null);
   if (!rules.trim() && !canEdit) return null;
   return (
     <div className="rules-card">
@@ -1037,8 +1044,8 @@ export function ModStationPanel() {
 function ModBans({ can }: { can: boolean }) {
   const agents = useTown((s) => s.agents);
   const events = useTown((s) => s.events);
-  const [who, setWho] = useState("");
-  const [reason, setReason] = useState("");
+  const [who, setWho] = useDraft("ban:who", "");
+  const [reason, setReason] = useDraft("ban:reason", "");
   // banned agents leave the snapshot; the event log is the only list the client has
   const bans = useMemo(() => events.filter((e) => e.type === "agent.banned").slice(-20).reverse(), [events]);
   const targets = Object.values(agents).filter((a) => (a.kind === "resident" || a.kind === "visitor") && a.status !== "banned").sort((a, b) => a.name.localeCompare(b.name));

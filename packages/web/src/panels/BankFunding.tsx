@@ -3,6 +3,7 @@
  * each building's allocations, the inputs that fund the Bank, and its funding streams. Token amounts are typed in
  * millions (MTokensInput) and sent as whole tokens.
  */
+import { clearDraft, useDraft } from "../draft";
 import { useState } from "react";
 import type { AllocationAuth, BankRecurrence, BankStreams, GoalTreeNode } from "@muster-town/schema";
 import { api, API_BASE, type Bank } from "../api";
@@ -123,23 +124,23 @@ function flatGoals(n: GoalTreeNode | null, depth = 0): { id: string; text: strin
 export function Donate({ onChange }: { onChange: () => void }) {
   const me = useTown((s) => s.me);
   const buildings = useTown((s) => s.buildings).filter((b) => b.kind !== "town-hall");
-  const [to, setTo] = useState("bank");
-  const [tokens, setTokens] = useState("1");
-  const [label, setLabel] = useState("");
+  const [to, setTo] = useDraft("donate:to", "bank"); // the form survives closing until sent; the API key never does
+  const [tokens, setTokens] = useDraft("donate:tokens", "1");
+  const [label, setLabel] = useDraft("donate:label", "");
   const [apiKey, setApiKey] = useState("");
   const [rate, setRate] = useState(loadRate);
-  const [source, setSource] = useState<"api-key" | "subscription">("api-key");
-  const [recurrence, setRecurrence] = useState<BankRecurrence>("once");
+  const [source, setSource] = useDraft<"api-key" | "subscription">("donate:source", "api-key");
+  const [recurrence, setRecurrence] = useDraft<BankRecurrence>("donate:recurrence", "once");
   // "until I cancel" (default) or a number of credits: a donor can try the town for a few days first
-  const [limited, setLimited] = useState(false);
-  const [times, setTimes] = useState("3");
-  const [weeklyCap, setWeeklyCap] = useState("10");
-  const [model, setModel] = useState("claude-opus-5-5");
+  const [limited, setLimited] = useDraft("donate:limited", false);
+  const [times, setTimes] = useDraft("donate:times", "3");
+  const [weeklyCap, setWeeklyCap] = useDraft("donate:weeklyCap", "10");
+  const [model, setModel] = useDraft("donate:model", "claude-opus-5-5");
   // a hosted collective (served at /<slug>/; its health says its funding) runs on API keys only: no subscription source
   // anywhere in this form (Anthropic's subscription terms; the API refuses one too). The Workshop and self-hosted towns keep it.
   const hosted = useHosted();
-  const [picked, setAuth] = useState<AllocationAuth>(API_BASE ? "api-key" : "subscription");
-  const [goalId, setGoalId] = useState("");
+  const [picked, setAuth] = useDraft<AllocationAuth>("donate:auth", API_BASE ? "api-key" : "subscription");
+  const [goalId, setGoalId] = useDraft("donate:goalId", "");
   const streams = useLoad(() => api().bankStreams(), []);
   const tree = useLoad(() => api().goalTree(), []);
   if (!me) return <Section title="Donate"><SignInNote to="donate" /></Section>;
@@ -176,7 +177,7 @@ export function Donate({ onChange }: { onChange: () => void }) {
       await api().donate({ tokens: n, buildingId: to, auth, label: label.trim() || fallback, apiKey: auth === "donor-key" ? apiKey.trim() || undefined : undefined });
       store.toast(`Added ${fmtTokens(n)} ${ADJ} (${AUTH_LABEL[auth]}) to ${building?.name ?? to}`, "ok");
     }
-    setApiKey(""); setLabel("");
+    setApiKey(""); setLabel(""); clearDraft("donate:");
     onChange();
   };
   return (

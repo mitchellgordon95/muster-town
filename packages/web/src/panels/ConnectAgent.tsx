@@ -6,6 +6,7 @@
  * agent (`GET /api/agents/:id`) and says "Waiting for its first call" until its `lastSeenAt` moves, then "Connected"
  * (gr_uc179zv1xa): the human can see that the line worked.
  */
+import { clearDraft, useDraft } from "../draft";
 import { useEffect, useState } from "react";
 import type { AuthMe, GoalTreeNode } from "@muster-town/schema";
 import { api, API_BASE, ApiError } from "../api";
@@ -110,8 +111,8 @@ function ConnectAgentBody() {
   const auth = useAuth();
   const me = useTown((s) => s.me);
   const goals = joinableGoals(useGoalTree());
-  const [name, setName] = useState(() => defaultAgentName(me));
-  const [goalId, setGoalId] = useState("");
+  const [name, setName] = useDraft("connect-agent:name", () => defaultAgentName(me));
+  const [goalId, setGoalId] = useDraft("connect-agent:goalId", "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Registered | null>(null);
@@ -129,7 +130,7 @@ function ConnectAgentBody() {
   }
   const submit = async () => {
     setBusy(true); setError(null);
-    try { setDone(await registerAgent(name || defaultAgentName(me), goalId, location.origin)); }
+    try { setDone(await registerAgent(name || defaultAgentName(me), goalId, location.origin)); clearDraft("connect-agent:"); }
     catch (e) { setError(e instanceof ApiError || e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
