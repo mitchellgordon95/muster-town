@@ -170,10 +170,12 @@ class SecretColumn {
     }
   }
 
-  /** Encrypt every plaintext value in place (idempotent). Returns how many it converted; 0 without a key. */
+  /**
+   * Encrypt every plaintext value in place (idempotent). Returns how many it converted; 0 without a key. A malformed key
+   * throws (decision-5 audit rank 9): the back-fill never reports 0 while secrets stay in plaintext.
+   */
   encryptPlaintext(): number {
-    let key: Buffer | null;
-    try { key = dataKeyFrom(this.dataKey()); } catch { key = null; }
+    const key = dataKeyFrom(this.dataKey());
     if (!key) return 0;
     const rows = this.db.prepare(`SELECT id, apiKey FROM ${this.table} WHERE apiKey IS NOT NULL AND apiKey != '' AND apiKey NOT LIKE 'v1:%'`).all() as { id: string; apiKey: string }[];
     const up = this.db.prepare(`UPDATE ${this.table} SET apiKey = ? WHERE id = ? AND apiKey = ?`);

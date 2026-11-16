@@ -371,7 +371,7 @@ function needForProposal(world: World, g: Grant): Need | null {
     body: [
       countered ? `The human countered it at ${stamp(countered)}; this is the revised plan.` : "A new proposal: no human has decided on it before.",
       `Objective: ${g.objective}`,
-      `Steps: ${g.steps.map((st, i) => `${i + 1}. ${st.title} (${st.size ?? "M"})`).join("; ")}`,
+      `Steps: ${g.steps.map((st, i) => `${i + 1}. ${st.title} (${st.size ?? "unsized: planned before step sizes"})`).join("; ")}`,
       kr.length ? `Key results: ${kr.map((k) => `${k.id}: ${k.text}`).join("; ")}` : "",
       "Nothing is spent yet.",
     ].filter(Boolean).join("\n"),
@@ -634,7 +634,8 @@ export function retitleClippedAsks(world: World): number {
 const isGateAsk = (a: Ask) => a.branches.length === 2 && a.branches[0]?.action === "adjust" && a.branches[1]?.action === "cut";
 const word = (n: number) => (["no", "one", "two", "three", "four", "five"][n] ?? String(n));
 const Word = (n: number) => word(n).replace(/^./, (c) => c.toUpperCase());
-const sizesLine = (sizes: StepSize[]) => (["S", "M", "L"] as const).flatMap((z) => { const n = sizes.filter((s) => s === z).length; return n ? [`${word(n)} ${z}`] : []; }).join(", ");
+// an unsized step (planned before sizes) is counted as unsized, never priced as M (decision-5 audit rank 7)
+const sizesLine = (sizes: (StepSize | undefined)[]) => ([["S", "S"], ["M", "M"], ["L", "L"], [undefined, "unsized"]] as const).flatMap(([z, label]) => { const n = sizes.filter((s) => s === z).length; return n ? [`${word(n)} ${label}`] : []; }).join(", ");
 
 /**
  * What a top-up of `n` tokens rounds up to: the smallest step size of the collective's table that covers it, or past the
@@ -676,8 +677,8 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
   ];
   // steps done and left, by size
   const states = world.grantDesk.stepStates(g);
-  const doneSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [s.size ?? "M"] : []));
-  const leftSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [] : [s.size ?? "M"]));
+  const doneSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [s.size] : []));
+  const leftSizes = g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [] : [s.size]));
   const steps = !g.steps.length ? ["It has no plan steps, so none are left to price."] : [
     `${doneSizes.length ? Word(doneSizes.length) : "None"} of ${g.steps.length} steps ${doneSizes.length === 1 ? "is" : "are"} done${doneSizes.length ? `: ${sizesLine(doneSizes)}` : ""}.`,
     leftSizes.length ? `${Word(leftSizes.length)} step${leftSizes.length === 1 ? " is" : "s are"} left: ${sizesLine(leftSizes)}.` : "No steps are left.",
@@ -703,7 +704,7 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
     raise ? `If you adjust by ${fmt(raise)}: the ceiling becomes ${fmt(ceiling + raise)} tokens, and the work runs on.` : "If you adjust: the ceiling rises by what you give, and the work runs on.",
     o.held ? "If you cut: the grant closes at what it spent, and nothing more runs on it." : "If you cut: the running step wraps up, and the grant closes at what it spent.",
   ].filter(Boolean).join("\n");
-  const reportLine = report ? `The latest step report is ${report.id}, "${withoutEllipsis(report.title)}". Its verdict is ${verdict ?? "continue"}.` : "";
+  const reportLine = report ? `The latest step report is ${report.id}, "${withoutEllipsis(report.title)}". ${verdict ? `Its verdict is ${verdict}.` : "It gave no verdict."}` : "";
   const topUp = g.topUpTokens && g.whatTopUpBuys.trim() ? `The forks say ${fmt(g.topUpTokens)} more tokens finish it: ${oneLine(g.whatTopUpBuys, 300)}` : "";
   const note = o.held ? `Grant ${g.id} ${quotedGrantName(g)} reached its gate: it is held at its ${fmt(ceiling)}-token ceiling.` : `Grant ${g.id} ${quotedGrantName(g)} reached its gate: it is projected ${fmt(need)} tokens past its ceiling.`;
   return { note, body: [body, recommendation ? `Suggested: ${recommendation}` : "", reportLine, topUp].filter(Boolean).join("\n") };

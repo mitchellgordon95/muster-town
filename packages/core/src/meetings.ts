@@ -51,7 +51,8 @@ export function defaultFacilitator(world: World, buildingId: string | null, atte
       if (active(b.managerAgentId) && attendees.includes(b.managerAgentId)) return b.managerAgentId;
     }
   }
-  return attendees.find(active) ?? attendees[0] ?? null;
+  // never an agent that can't run (decision-5 audit rank 10): no active invitee means no facilitator, said by the caller
+  return attendees.find(active) ?? null;
 }
 
 /** The previous `done` meeting of the same scope (same building, or the previous town hall), by end time. */
@@ -358,9 +359,9 @@ export const SYSTEM_SPEAKER = "system";
  * A line the town posts into a live meeting itself, e.g. that the host's reply waits on a redeploy (docs/meetings.md §6).
  * No mentions, no speaker checks; a meeting that isn't discussing is left alone (returns null).
  */
-export function meetingNotice(world: World, meetingId: string, text: string): Meeting | null {
+export function meetingNotice(world: World, meetingId: string, text: string, phases: readonly Meeting["phase"][] = ["discussing"]): Meeting | null {
   const m = world.meetings.get(meetingId);
-  if (!m || m.phase !== "discussing") return null;
+  if (!m || !phases.includes(m.phase)) return null;
   const updated = world.meetings.upsert({ ...m, transcript: [...m.transcript, { speakerId: SYSTEM_SPEAKER, speakerKind: "system", text, at: nowIso() }] });
   world.events.append({ type: "meeting.utterance", agentId: null, buildingId: m.buildingId, text: `Town: ${text.slice(0, 300)}`, payload: { meetingId: m.id, speakerId: SYSTEM_SPEAKER, speakerKind: "system" } });
   return updated;

@@ -74,4 +74,15 @@ describe("Bank secrets at rest", () => {
     expect(warn.mock.calls.some((c) => String(c[0]).includes("stored in plaintext"))).toBe(true);
     expect(world.secrets.encryptBankSecrets()).toEqual({ inputs: 0, donors: 0 });
   });
+
+  it("a malformed data key fails loudly: the back-fill and the boot check throw, never 'no key' (decision-5 audit rank 9)", () => {
+    const { world } = setup(null);
+    world.users.secret.dataKey = () => "not-a-32-byte-key";
+    expect(() => world.users.secret.encryptPlaintext()).toThrow(/MUSTER_TOWN_DATA_KEY must be 32 bytes/);
+    vi.stubEnv("MUSTER_TOWN_DATA_KEY", "not-a-32-byte-key");
+    expect(() => world.secrets.requireWellFormedKey()).toThrow(/MUSTER_TOWN_DATA_KEY must be 32 bytes/);
+    vi.stubEnv("MUSTER_TOWN_DATA_KEY", "");
+    expect(world.secrets.requireWellFormedKey()).toBe(false);
+    vi.unstubAllEnvs();
+  });
 });

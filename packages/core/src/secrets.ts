@@ -66,6 +66,14 @@ export class Secrets {
   /** `dataKey` reads the host key each call (default: MUSTER_TOWN_DATA_KEY from the env). */
   constructor(private world: World, private dataKey: () => string | undefined = () => townEnv("DATA_KEY")) {}
 
+  /**
+   * Boot's check (decision-5 audit rank 9): whether a data key is set; a malformed one throws, so the server refuses to
+   * boot rather than keep secrets in plaintext believing it has no key.
+   */
+  requireWellFormedKey(): boolean {
+    return !!dataKeyFrom(this.dataKey());
+  }
+
   /** Whether the host has a usable data key (the panel says so when it doesn't). */
   keyConfigured(): boolean {
     try { return !!dataKeyFrom(this.dataKey()); } catch { return false; }
