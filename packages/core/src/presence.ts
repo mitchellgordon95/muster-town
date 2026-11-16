@@ -17,6 +17,7 @@ import { claimVisitorDesk } from "./entities.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
+import { GHOST_AFTER_DAYS, ghostVisitors } from "./ghost-visitors.ts";
 
 export const STAMP_EVERY_MS = 10_000;
 export const OFFLINE_AFTER_MS = 90_000;
@@ -85,6 +86,19 @@ export class Presence {
       out.push(a.id);
     }
     return out;
+  }
+
+  /**
+   * Ghost visitors: offline visitors quiet for GHOST_AFTER_DAYS (managing no building) are retired through
+   * `dismissAgent` (token revoked, offers cancelled, body gone from the map). Their owner reconnects from Connect and
+   * gets a fresh agent. Returns the retired ids.
+   */
+  retireGhosts(at: Date = new Date()): string[] {
+    const w = this.world;
+    const managers = new Set(w.buildings.all().map((b) => b.managerAgentId).filter((x): x is string => !!x));
+    const ids = ghostVisitors(w.agents.where("kind = 'visitor' AND status = 'offline'"), managers, at.getTime());
+    for (const id of ids) w.ops.dismissAgent(null, id, { why: `offline for ${GHOST_AFTER_DAYS} days or more` });
+    return ids;
   }
 
   /** Where a visitor sits: its desk (while online in a building), else a seat at the Town Hall visitor bench. */
