@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, SpendNode } from "../src/api";
-import { approxUsd, stepLine, stepsCheckLine, stepsSentence, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
+import { approxUsd, stepLine, stepsCheckLine, stepsSentence, cashLines, InputCredits, grantLine, grantsCheckLine, grantsSentence, dollars, donationNote, FINANCE_TERMS, mixLine, cutoffLine, LedgerCutoffNote, spendUsdCheckLine, USD_NOTE, flyCheckLine, flyWindowLabel, flyWindowTotals, HOSTED_FLY_NOTE, inputName, notFundedNote, overdrawnParts, sourcesCheckLine, pct, netPerDay, runwayText, spendCheckLine, sumCheckLine, type FinanceData } from "../src/panels/BankFinance";
 import { BANK_TABS, type TokenMix } from "@muster-town/schema";
 import { BankView } from "../src/panels/BankPanel";
 import { StepStrip, stepSpend } from "../src/panels/StepStrip";
@@ -644,5 +644,27 @@ describe("finance page: paid in cash, last 30 days", () => {
     for (const t of ["Paid in cash, last 30 days", "$250.00", "plans $200.00 · API keys $12.50 · hosting $37.50", "Each $1 paid bought ≈ $10.00", "✓ The server checked that plans + API keys + hosting"]) expect(html).toContain(t);
     expect(html.indexOf("Used so far")).toBeLessThan(html.indexOf("Paid in cash"));
     expect(tabOf("Balance", {})).not.toContain("Paid in cash");
+  });
+});
+
+describe("finance page: where the ledger starts (town meeting mt_dm14dgejml decision 4)", () => {
+  const c = {
+    at: "2026-10-27T00:00:24.216Z", prunedAt: "2026-11-16T19:00:00.000Z", reason: "raw",
+    removed: { sessions: 1200, usage: 900, debits: 1500, credits: 12, inputs: 3, allocations: 4 },
+    tokens: { usage: 40_000_000, debits: 30_000_000, credits: 50_000_000, donated: 4_629_377, donationsSpent: 4_629_443 },
+  };
+  it("says the cutoff, why, how many rows went, and why older grants show no step rows", () => {
+    const line = cutoffLine(c)!;
+    expect(line).toContain("The ledger starts 2026-10-27 00:00 UTC");
+    expect(line).toContain("raw tokens split by a fixed estimate, with no real cache reads");
+    expect(line).toContain("deleted on 2026-11-16: 1,200 sessions, 900 usage rows, 1,500 debits, 12 credits, 3 inputs, 4 donations");
+    expect(line).toContain("34,629,443 adj. tokens used, 54,629,377 received");
+    expect(line).toContain("Grants funded before step sizes existed show no step rows");
+    expect(cutoffLine({ ...c, removed: { ...c.removed, inputs: 1, allocations: 0 } })).toContain("1 input (");
+  });
+  it("shows nothing when nothing was deleted", () => {
+    expect(cutoffLine(null)).toBeNull();
+    expect(renderToStaticMarkup(<LedgerCutoffNote c={undefined} />)).toBe("");
+    expect(renderToStaticMarkup(<LedgerCutoffNote c={c} />)).toContain("Where the ledger starts");
   });
 });

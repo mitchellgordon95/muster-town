@@ -2,6 +2,7 @@ import {
   AccessRequest, Agent, Allocation, Ask, CaptainRequest, Assignment, BankCredit, BankFee, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Notice, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
   townEnv, type ServerMessage, type TokenCountKind, type TokenCounts,
   type TokenMix,
+  type LedgerCutoff,
 } from "@muster-town/schema";
 import { createHash } from "node:crypto";
 import type { DB } from "./db.ts";
@@ -264,6 +265,11 @@ export class TownMeta {
   }
   setTokenMix(mix: TokenMix): void {
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('tokenMix', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(mix));
+  }
+  /** Where the Bank's ledger starts (migration 117 wrote it once); null when nothing from before it was deleted. */
+  ledgerCutoff(): LedgerCutoff | null {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'ledgerCutoff'").get() as { value: string } | undefined;
+    return r ? (JSON.parse(r.value) as LedgerCutoff) : null;
   }
   /** Main's CI as the runtime last recorded it (runtime/pr-checks.ts), null before its first read. */
   mainCi(): MainCi | null {

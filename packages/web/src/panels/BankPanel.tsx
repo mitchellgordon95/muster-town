@@ -12,7 +12,7 @@ import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
 import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, LedgerCutoffNote, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { FreeTokensSum } from "./FreeTokens";
 import { UptimeBlock } from "./Uptime";
 import { PlansPaidFor } from "./BankFees";
@@ -67,7 +67,7 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
     </>
   );
   if (tab === "Hosting") return fin?.fly ? <FlyAbout fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
-  return <><FinanceIntro hosting={!!fin?.fly} />{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}</>;
+  return <><FinanceIntro hosting={!!fin?.fly} />{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}{fin ? <LedgerCutoffNote c={fin.f.cutoff} /> : null}</>;
 }
 
 /** How to read the Inputs tab's lists (gr_567tikzitl step 3, kr_y7derda40x). */
