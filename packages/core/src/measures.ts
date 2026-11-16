@@ -98,7 +98,13 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
   const timeToDecision: LegibleMeasures["timeToDecision"] = {};
   for (const [type, xs] of byType) timeToDecision[type] = { medianHours: Math.round(median(xs)! * 10) / 10, sample: xs.length };
   const retired = world.asks.where("status = 'retired' AND updatedAt >= ?", [since]);
+  // read = opened over the API (`seen`) or had on screen in the queue (`screen_views`: the ask, or its target, while it was live)
   const read = new Set((world.db.prepare("SELECT DISTINCT targetId FROM seen WHERE targetKind = 'ask'").all() as { targetId: string }[]).map((r) => r.targetId));
+  const queueViews = screenViews(world, since, now);
+  for (const a of retired) {
+    if (queueViews.some((v) => v.openedAt >= a.createdAt && v.openedAt <= a.updatedAt
+      && ((v.kind === "ask" && v.itemId === a.id) || (v.kind !== "ask" && a.targetId !== null && v.itemId === a.targetId)))) read.add(a.id);
+  }
 
   // ---- grants ----
   const grants = world.grants.all();
@@ -110,7 +116,7 @@ export function legibleMeasures(world: World, now: Date = new Date(), cal: StepC
   const closed = grants.filter((g) => g.status === "closed" && g.closedAt && g.closedAt >= since);
   const held = closed.filter((g) => g.history.some((h) => h.action === "checkpoint")).length;
   const gates = grants.filter((g) => g.status === "checkpoint");
-  const views = screenViews(world, since, now);
+  const views = queueViews;
   const holdAt = gates.map((g) => [...g.history].reverse().find((h) => h.action === "checkpoint")?.at ?? g.updatedAt).sort();
 
   return {

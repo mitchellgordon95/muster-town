@@ -62,6 +62,10 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     markSeen(world, admin.ownerUserId!, "ask", r1.id);
     retireAsks(world, "access", "ar_one", "Ada was let in");
     retireAsks(world, "access", "ar_two", "Bo was let in");
+    // a third one the human had on screen in the queue (its target in focus) counts as read too
+    seedAsk(world, { type: "click", targetKind: "access", targetId: "ar_three", buildingId: null, sourceDocId: null, title: "Let Cy in", branches: two("Let in") });
+    recordScreenView(world, admin.ownerUserId!, "mt_queue", { kind: "access", id: "ar_three" }, nowIso());
+    retireAsks(world, "access", "ar_three", "Cy was let in");
 
     const m = legibleMeasures(world);
     expect(m.openAsks).toBe(2);
@@ -69,7 +73,7 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     expect(m.oldestOpenAskHours).toBeCloseTo(10, 0);
     expect(m.timeToDecision.money).toEqual({ medianHours: 4, sample: 1 });
     expect(m.timeToDecision.click).toBeUndefined();
-    expect(m.retiredBeforeRead).toEqual({ retired: 2, unread: 1 });
+    expect(m.retiredBeforeRead).toEqual({ retired: 3, unread: 1 });
     expect(m.queue.byType.money).toMatchObject({ decisionHours: { median: 4, sample: 1 }, minutesOnCard: { median: 30, sample: 1 }, lines: { median: 0, sample: 1 } });
     // a decision older than the window is not counted
     world.asks.patch(money.id, { decidedAt: ago(15 * 24) });
