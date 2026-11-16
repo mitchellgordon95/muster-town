@@ -124,9 +124,10 @@ export interface Runtime {
   tickStats(): { last: TickTiming | null; slow: TickTiming | null };
   /**
    * v1.4 presence pass (tickOnce runs it every 30 s): visitors with no call for 90 s go `offline`; offers to visitors
-   * older than 24 h are cancelled with a note in the in-tray. Returns the agents marked offline and the offers expired.
+   * older than 24 h are cancelled with a note in the in-tray; visitors offline for 7 days are retired (ghost-visitors.ts).
+   * Returns the agents marked offline, the offers expired and the ghosts retired.
    */
-  presenceTick(): { offline: string[]; expiredOffers: string[] };
+  presenceTick(): { offline: string[]; expiredOffers: string[]; ghosts: string[] };
   /** Resolves when every background session/task has finished. */
   whenIdle(): Promise<void>;
   /** Whether the agent has a live work session. */
@@ -662,12 +663,13 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     }
   }
 
-  function presenceTick(): { offline: string[]; expiredOffers: string[] } {
+  function presenceTick(): { offline: string[]; expiredOffers: string[]; ghosts: string[] } {
     const at = now();
-    let offline: string[] = [], expiredOffers: string[] = [];
+    let offline: string[] = [], expiredOffers: string[] = [], ghosts: string[] = [];
     try { offline = world.presence.sweep(at); } catch (e) { log("presence")(e); }
     try { expiredOffers = world.presence.expireOffers(at).map((a) => a.id); } catch (e) { log("offer expiry")(e); }
-    return { offline, expiredOffers };
+    try { ghosts = world.presence.retireGhosts(at); } catch (e) { log("ghost visitors")(e); }
+    return { offline, expiredOffers, ghosts };
   }
 
   /** Post-mortem 2026-10-31 item 7: the last tick's phase timings, and the last tick over SLOW_TICK_MS (null until one). */
