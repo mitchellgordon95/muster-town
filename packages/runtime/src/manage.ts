@@ -323,7 +323,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   if (live && fresh.length) st.leading.add(live.sessionId);
   const out = await run;
   if (live) st.leading.delete(live.sessionId);
-  // no fallback report for this purpose: an idle building is silent; the event log says what the session did
+  // no dead-session entry for this purpose: an idle building is silent; the event log says what the session did
   const s = out.session;
   const decided = world.docs.count("type = 'report' AND decidedBy = ? AND decidedAt >= ?", [agentId, s.startedAt]);
   world.events.append({

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  appendLog, composeWorkBrief, createDoc, docGist, FALLBACK_REPORT_PREFIX, logOf, memoryBlock, READ_FIRST, recentWorkBlock, sectionOf, wikiOf, WIKI_PAGE_CAP,
+  appendLog, composeWorkBrief, createDoc, docGist, DEAD_SESSION_PREFIX, logOf, memoryBlock, READ_FIRST, recentWorkBlock, sectionOf, wikiOf, WIKI_PAGE_CAP,
 } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
@@ -16,7 +16,7 @@ describe("recent-work block", () => {
     createDoc(world, { ...base, type: "note", state: "building", title: "Old note", body: "# Heading\n\nFirst real line of the note.", createdAt: iso(600, now) });
     createDoc(world, { ...base, type: "report", state: "building", title: "Growth rate", decision: "approve", body: "## What I did\nRead NOAA.\n\n## Findings\n2.4 ppm/yr.\n\n## What I need from you\nDecide whether to use the 10-year mean.\nIt changes the dashboard.", createdAt: iso(120, now) });
     createDoc(world, { ...base, type: "article", state: "draft", title: "Airborne fraction", body: "The airborne fraction is " + "x".repeat(300), createdAt: iso(30, now) });
-    createDoc(world, { ...base, type: "report", state: "building", title: `${FALLBACK_REPORT_PREFIX} something`, body: "## What I need from you\nNothing needed.", createdAt: iso(5, now) });
+    createDoc(world, { ...base, type: "report", state: "building", title: `${DEAD_SESSION_PREFIX} something`, body: "## What I need from you\nNothing needed.", createdAt: iso(5, now) });
     await world.verbs.write(noor.id, { type: "wiki", title: "notebook topic", body: "my notes", state: "draft" });
     await world.verbs.write(noor.id, { type: "log", title: "", body: "a notebook line", state: "draft" });
     createDoc(world, { authorId: by("Mei").id, authorKind: "agent", type: "note", title: "Mei's note", body: "not mine" });
@@ -28,7 +28,7 @@ describe("recent-work block", () => {
     expect(lines[0].length).toBeLessThan(220);
     expect(lines[1]).toMatch(/^- report "Growth rate" \(dc_[\w-]+, 2 h ago\): Decide whether to use the 10-year mean\.$/);
     expect(lines[2]).toMatch(/^- note "Old note" \(dc_[\w-]+, 10 h ago\): First real line of the note\.$/);
-    expect(b).not.toContain(FALLBACK_REPORT_PREFIX);
+    expect(b).not.toContain(DEAD_SESSION_PREFIX);
     expect(b).not.toContain("notebook");
     expect(b).not.toContain("Mei's note");
     expect(b).toContain(`Your last report "Growth rate"`);

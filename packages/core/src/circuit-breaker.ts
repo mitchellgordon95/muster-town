@@ -19,7 +19,7 @@ export interface CircuitCut { agentId: string; sessionId: string }
  * SESSION_CIRCUIT_BREAKER is asked once to wrap up (`askToFileOnce`, the explorer's mechanism), in words for its kind: a
  * work session writes its draft and files, a manage session finishes the decision in hand and ends. At 100% a work
  * session is logged once and returned, and the runtime ends it the way a drain cuts one (`abortWork` with the drain's
- * kill grace: the session's own end books it and files the fallback report). A manage session is never cut: the limit
+ * kill grace: the session's own end books it and files the dead-session entry on its job's thread). A manage session is never cut: the limit
  * came from grant-lane work sessions, a manager's turn is far below it, and a wrong cut there costs more than the tokens.
  * Returns the sessions to cut now.
  */

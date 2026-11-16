@@ -327,7 +327,7 @@ export function interruptFork(world: World, me: Agent, fork: Agent, session: Ses
   const reason = why.trim();
   // read before this request's event is appended: with no marker yet, the seeding would count it twice
   const pending = pendingStops(world, now);
-  interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session and files a fallback report.`, me.name);
+  interruptNow(world, fork.id, `${me.name} asks you to stop now${reason ? `: ${reason}` : "."}\n\nDon't start anything new. Finish the step you are on (leave the code committed and pushed if you changed any), update the topic pages and log lines for what you learnt, then call submit_report right away: say what is done and what is not, and put what the next session needs in Findings (verdict continue if the work is unfinished). If you have not submitted by ${at} (${STOP_FORK_TIMEOUT_MS / 60_000} min), the town stops your session, files "Session ended without a report" as an entry on your job's thread and cancels your assignment.`, me.name);
   const req = world.events.append({ type: "system", agentId: fork.id, buildingId: bid, text: `${me.name} asked ${fork.name} to wrap up and file its report (hard stop at ${at})${reason ? `: ${reason.slice(0, 160)}` : ""}`, payload: { stopFork: "requested", forkId: fork.id, sessionId: session.id, assignmentId: session.assignmentId, by: me.id, reason: reason || null, deadline } });
   setPendingStops(world, [...pending, { eventId: req.id, forkId: fork.id, sessionId: session.id, by: me.id, deadline }]);
   return { forkId: fork.id, sessionId: session.id, deadline, note: `${fork.name} was interrupted: finish its step, write its pages and submit_report. If no report by ${at}, the town stops it and files "Session ended without a report"; either way the fork retires and its report reaches your in-tray.` };
@@ -335,7 +335,7 @@ export function interruptFork(world: World, me: Agent, fork: Agent, session: Ses
 
 /**
  * The runtime's tick: forks asked to stop (`requestForkStop`, last day) whose deadline passed and whose session is still
- * running are stopped hard (`stopAgent` → the waker aborts the session → fallback report, assignment cancelled → retired).
+ * running are stopped hard (`stopAgent` → the waker aborts the session → a dead-session entry on the job's thread, assignment cancelled → retired).
  * A fork that filed its report but is still running past the deadline is stopped too. Returns the forks stopped.
  */
 export function stopOverdueForks(world: World, now = new Date()): string[] {

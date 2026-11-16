@@ -18,7 +18,7 @@ export interface RuntimeHooks {
   interrupt(agentId: string, text: string, from?: string, now?: boolean): Promise<unknown> | unknown;
   /** A desk reported activity: append `agent.tool`/`agent.thought`/`agent.activity` events (payload.sessionId). */
   onDeskActivity?(agentId: string, input: DeskActivityInput): Promise<unknown> | unknown;
-  /** End a work session (desk session-end): fallback report, status, charge. Idempotent. */
+  /** End a work session (desk session-end): dead-session entry, status, charge. Idempotent. */
   finishWorkSession?(sessionId: string, outcome: { tokens?: number; counts?: TokenCounts; byModel?: Record<string, TokenCounts>; costUsd?: number; turns?: number; sdkSessionId?: string | null; finalText?: string | null; error?: string | null; reportSubmitted?: boolean; fundingUsed?: NonNullable<Session["funding"]>; fallback?: boolean; wallMs?: number; cpuMs?: number; stealMs?: number }): Promise<Session>;
   /** A desk polled control for its session: an adopted session (kept running through a redeploy restart) is alive. */
   deskSeen?(agentId: string, sessionId: string): void;

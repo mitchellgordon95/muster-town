@@ -70,8 +70,8 @@ export function standingRules(building: Building | undefined): string {
   return r ? `\n\nStanding rules for the ${building!.name} (from its manager; they apply to every session here and outrank your defaults, but not your assignment's explicit instructions):\n${trunc(r, 8000)}` : "";
 }
 
-/** Title prefix of the runtime's fallback reports (sessions that ended without \`submit_report\`). */
-export const FALLBACK_REPORT_PREFIX = "Session ended without a report:";
+/** Title prefix of a dead session's entry (a session that ended without \`submit_report\`); old fallback report docs carry it too. */
+export const DEAD_SESSION_PREFIX = "Session ended without a report:";
 
 /** Doc types that are an agent's private memory, never listed as its work. */
 export const MEMORY_TYPES: readonly string[] = ["notebook", "wiki", "log"];
@@ -79,7 +79,7 @@ export const MEMORY_TYPES: readonly string[] = ["notebook", "wiki", "log"];
 export const READ_FIRST = "Before answering a human or starting work, `read` the documents above that are relevant; don't restate from memory what you wrote down.";
 
 /**
- * "## Your recent work": the agent's last \`limit\` docs (any type but its memory docs and fallback reports; most
+ * "## Your recent work": the agent's last \`limit\` docs (any type but its memory docs and old fallback report docs; most
  * recently updated first), the full "What I need from you" of its last report, and its unread mentions.
  * \`short\` (meetings): just the doc lines. \`readHint\` (default on) adds the "read before answering" sentence.
  */
@@ -87,7 +87,7 @@ export function recentWorkBlock(world: World, agentId: string, opts: { limit?: n
   const limit = opts.limit ?? (opts.short ? 3 : 6);
   const now = opts.now ?? Date.now();
   const where = "authorId = ? AND type NOT IN ('notebook', 'wiki', 'log') AND NOT (type = 'report' AND title LIKE ?) AND (sessionId IS NULL OR sessionId != ?)";
-  const params = [agentId, `${FALLBACK_REPORT_PREFIX}%`, opts.excludeSessionId ?? ""];
+  const params = [agentId, `${DEAD_SESSION_PREFIX}%`, opts.excludeSessionId ?? ""];
   const docs = world.docs.where(where, params, `ORDER BY updatedAt DESC, rowid DESC LIMIT ${Math.max(1, Math.floor(limit))}`);
   const lines = docs.map((d) => `- ${d.type} "${d.title}" (${d.id}, ${fromNow(d.updatedAt, now)}): ${docGist(d)}`);
   const out = [`## Your recent work`, lines.join("\n") || "(you haven't written anything yet)"];
@@ -797,9 +797,9 @@ My recent activity:
 ${ctx.events.map((e) => `- ${stamp(e.ts)} ${e.text}`).join("\n") || "(none)"}`;
 }
 
-export function fallbackReportBody(finalText: string, error: string | null, assignment: Assignment | undefined): string {
+export function deadSessionBody(finalText: string, error: string | null, assignment: Assignment | undefined): string {
   return `## What I did
-Assignment: ${assignment ? assignment.title : "(none)"}. The session ended without \`submit_report\`${error ? ` (error: ${error})` : ""}; this is a fallback report written by the runtime.
+Assignment: ${assignment ? assignment.title : "(none)"}. The session ended without \`submit_report\`${error ? ` (error: ${error})` : ""}; the runtime wrote this entry on the job's thread.
 
 ## Findings
 ${finalText.trim() || "(no final message)"}

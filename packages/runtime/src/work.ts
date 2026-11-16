@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, bookEntryTokens, codeWorkspace, fallbackReportBody, fileDeadSession, fixedParts, FALLBACK_REPORT_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, bookEntryTokens, codeWorkspace, deadSessionBody, fileDeadSession, fixedParts, DEAD_SESSION_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
 import { isGone, countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, webFor, type Ctx } from "./session.ts";
 
@@ -100,8 +100,8 @@ export interface WorkOutcome {
 }
 
 /**
- * End a work session (both backends): write the fallback report when none was submitted (stop → decision
- * stop + assignment cancelled), end the Session row (agent status transitions, `session.ended`), charge usage.
+ * End a work session (both backends): file the dead-session entry on the job's thread when no report was
+ * submitted (no report doc; assignment cancelled), end the Session row (agent status transitions, `session.ended`), charge usage.
  * Idempotent: a session that already ended is returned unchanged.
  */
 export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutcome, allocationId?: string | null): Promise<Session> {
@@ -120,7 +120,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
 
   // Promised and available (core availability.ts): a session that died because its credential couldn't serve it (a model
   // or plan limit, billing, a revoked key) didn't fail the work. Its assignment goes back to the front of the queue to be
-  // funded by another credential, or to wait with the limit's reason; no fallback report. Only when the session ran on a
+  // funded by another credential, or to wait with the limit's reason; no dead-session entry. Only when the session ran on a
   // Bank input, so the limit is recorded and dispatch won't hand the same credential straight back.
   const credentialFailure = session.purpose === "work" && !stopped && !reportSubmitted && !!session.credentialInputId
     && !!classifyFailure([o.spendLimit, error].filter(Boolean).join(" "), session.model);
@@ -135,8 +135,8 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   if (session.purpose === "work" && !reportSubmitted && !requeue) {
     try {
       const assignment = session.assignmentId ? world.assignments.get(session.assignmentId) : undefined;
-      const body = fallbackReportBody(o.finalText ?? "", error, assignment);
-      const title = `${FALLBACK_REPORT_PREFIX} ${assignment?.title ?? "work session"}`.slice(0, 200);
+      const body = deadSessionBody(o.finalText ?? "", error, assignment);
+      const title = `${DEAD_SESSION_PREFIX} ${assignment?.title ?? "work session"}`.slice(0, 200);
       // plan dc_uwx045472m step 5: no stub report. The dead session is one `code` entry on its job's thread: a record
       // when someone stopped the agent (that decision is the answer), else it waits for the manager (retry, redirect or
       // drop with `review`). Either way the assignment ends here, so nothing stays active with no session behind it.
@@ -165,7 +165,7 @@ export async function finishWorkSession(ctx: Ctx, sessionId: string, o: WorkOutc
   // the row is settled to the desk's last word (or the host's), never below what the running bookings debited: a desk
   // lost without a session-end, or a restart, still leaves every booked token on the row and in the Bank
   const ended = endAndCharge(world, sessionId, { ...usage, byModel: o.byModel ?? {} }, { status, error, sdkSessionId: o.sdkSessionId ?? null, spendLimit: o.spendLimit ?? null, wallMs: o.wallMs, cpuMs: o.cpuMs, stealMs: o.stealMs }, charged);
-  // stamp the session's usage onto the report it produced (submitted or fallback), in adjusted output tokens (Bank step 3)
+  // stamp the session's usage onto the report it produced (a dead session has none: its entry carries the cost), in adjusted output tokens (Bank step 3)
   const adjusted = sessionView(ended).adjustedOutputTokens;
   const report = ended.reportId ? world.docs.get(ended.reportId) : undefined;
   if (report && report.sessionId === sessionId) world.docs.patch(report.id, { tokens: adjusted, costUsd: usage.costUsd, turns: usage.turns });
