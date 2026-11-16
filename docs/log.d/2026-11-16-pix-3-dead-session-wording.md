@@ -1,0 +1,1 @@
+- 2026-11-16 (Pix 3, as_6y0lbxg9v7): code says what a dead session leaves: the stop_fork message, comments in work.ts/forks.ts/circuit-breaker.ts/index.ts/manage.ts/context.ts and the dead-session body say "entry on the job's thread", not "fallback report"; fallbackReportBody → deadSessionBody, FALLBACK_REPORT_PREFIX → DEAD_SESSION_PREFIX (mechanical rename, same string value).

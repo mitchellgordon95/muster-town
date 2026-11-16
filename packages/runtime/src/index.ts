@@ -134,7 +134,7 @@ export interface Runtime {
   isWorking(agentId: string): boolean;
   /** A desk reported a tool call / thought / status (POST /api/agents/me/activity). */
   onDeskActivity(agentId: string, input: DeskActivityInput): void;
-  /** End a work session (desk session-end, or a desk that died): fallback report, status, charge. Idempotent. */
+  /** End a work session (desk session-end, or a desk that died): dead-session entry, status, charge. Idempotent. */
   finishWorkSession(sessionId: string, outcome: WorkOutcome): Promise<Session>;
   /** A desk polled control or posted activity for its session: an adopted session is alive (its watchdog resets). */
   deskSeen(agentId: string, sessionId: string): void;
@@ -521,7 +521,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         let failed: { error: unknown } | null = null;
         subTimed("work.start", () => void startWork(fork.id, a.id).then(() => startupFailures.delete(a.id), (e) => { log(`work session for ${fork.name}`)(e); failed = { error: e }; }).finally(() => {
           forkRuns.delete(fork.id);
-          // rejected before a session row existed: the desk itself failed (a session that ended in error has a fallback report)
+          // rejected before a session row existed: the desk itself failed (a session that ended in error has a dead-session entry)
           const atStartup = failed && !world.sessions.count("agentId = ? AND purpose = 'work'", [fork.id]);
           retireAfter(fork.id, atStartup ? `desk failed at startup: ${failed!.error instanceof Error ? failed!.error.message : String(failed!.error)}` : undefined);
           if (atStartup) onForkStartupFailure(a, b, failed!.error);
