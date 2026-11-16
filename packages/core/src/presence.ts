@@ -17,7 +17,7 @@ import { claimVisitorDesk } from "./entities.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
-import { GHOST_AFTER_DAYS, ghostVisitors } from "./ghost-visitors.ts";
+import { GHOST_AFTER_DAYS, ghostVisitors, keepsVisitor } from "./ghost-visitors.ts";
 
 export const STAMP_EVERY_MS = 10_000;
 export const OFFLINE_AFTER_MS = 90_000;
@@ -59,11 +59,26 @@ export class Presence {
       const agent = w.setStatus(a.id, holding ? "working" : "idle", `${a.name} is back`);
       return { agent, back: true, offlineSince: since };
     }
+    return { agent: this.stampSeen(a, at), back: false };
+  }
+
+  /**
+   * Any other authenticated agent request (the server's onResponse hook): stamps `lastSeenAt` (throttled) and nothing
+   * else. No "back" transition: an offline visitor stays offline at the bench, but a service visitor that only calls
+   * REST (CI's redeploy) is no longer quiet, so the ghost sweep leaves it. Unknown agents are ignored.
+   */
+  seen(agentId: string, at: Date = new Date()): void {
+    const a = this.world.agents.get(agentId);
+    if (a) this.stampSeen(a, at);
+  }
+
+  private stampSeen(a: Agent, at: Date): Agent {
+    const t = at.getTime();
     const last = this.stamped.get(a.id) ?? (a.lastSeenAt ? Date.parse(a.lastSeenAt) : 0);
-    if (t - last < STAMP_EVERY_MS) return { agent: a, back: false };
+    if (t - last < STAMP_EVERY_MS) return a;
     this.stamped.set(a.id, t);
     // silent: no WS churn every 10 s; the offline transition broadcasts the agent with its final lastSeenAt
-    return { agent: w.agents.upsert({ ...a, lastSeenAt: iso }, { silent: true }), back: false };
+    return this.world.agents.upsert({ ...a, lastSeenAt: at.toISOString() }, { silent: true });
   }
 
   /** Presence tick: visitors quiet for OFFLINE_AFTER_MS go offline and their bodies go home. Returns their ids. */
@@ -89,14 +104,17 @@ export class Presence {
   }
 
   /**
-   * Ghost visitors: offline visitors quiet for GHOST_AFTER_DAYS (managing no building) are retired through
+   * Ghost visitors: offline visitors quiet for GHOST_AFTER_DAYS (managing no building, holding no town role beyond
+   * `visitor`, e.g. the CI deployer) are retired through
    * `dismissAgent` (token revoked, offers cancelled, body gone from the map). Their owner reconnects from Connect and
    * gets a fresh agent. Returns the retired ids.
    */
   retireGhosts(at: Date = new Date()): string[] {
     const w = this.world;
     const managers = new Set(w.buildings.all().map((b) => b.managerAgentId).filter((x): x is string => !!x));
-    const ids = ghostVisitors(w.agents.where("kind = 'visitor' AND status = 'offline'"), managers, at.getTime());
+    const offline = w.agents.where("kind = 'visitor' AND status = 'offline'");
+    const roleHolders = new Set(offline.filter((a) => w.memberships.forHolder("agent", a.id).some((m) => keepsVisitor(m.roleId))).map((a) => a.id));
+    const ids = ghostVisitors(offline, managers, roleHolders, at.getTime());
     for (const id of ids) w.ops.dismissAgent(null, id, { why: `offline for ${GHOST_AFTER_DAYS} days or more` });
     return ids;
   }
