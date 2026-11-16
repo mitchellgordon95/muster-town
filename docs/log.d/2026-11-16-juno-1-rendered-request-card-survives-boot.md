@@ -1,0 +1,1 @@
+- 2026-11-16 Outreach (Juno 1): a request card a manager renders from its need (sourceEntryId `en_<request id>`) is no longer taken for a template by the boot repair `templateCardsToNeeds` (asks.ts `isTemplateCard`); before, every deploy retired it and the need showed unrendered again (ak_38svneo851, ak_671n3pri5x). Test in packages/core/test/needs.test.ts.

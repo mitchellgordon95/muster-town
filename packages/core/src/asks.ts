@@ -562,8 +562,10 @@ export function backfillAsks(world: World): number {
 /** Whether a live card is one the town wrote from a template (proposal, gate, request) that nobody rewrote since. */
 function isTemplateCard(a: Ask): boolean {
   if (a.history.some((h) => h.action === "rewritten")) return false;
-  // a request card the town copied whole from the request (its first source is the request itself)
-  if (a.targetKind === "request") return a.sourceDocId === a.targetId;
+  // a request card the town copied whole from the request (its first source is the request itself). A card a manager
+  // rendered from the request's need (`renderNeed`) also cites the request, but views the need entry `en_<request id>`
+  // (`needForRequest`): that card is the manager's own and survives every boot.
+  if (a.targetKind === "request") return a.sourceDocId === a.targetId && a.sourceEntryId !== `en_${a.targetId}`;
   if (a.targetKind !== "grant") return false;
   return a.recommendation === PROPOSAL_RECOMMENDATION || (isGateAsk(a) && !a.history.some((h) => h.action === "create" && h.by !== "system"));
 }
