@@ -1,7 +1,7 @@
-import { grantName, AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type MeetingFocusKind, type Membership, type RegisterVisitorInput, type Session } from "@muster-town/schema";
+import { grantName, AgentPermissionsPatch, WorkInput, isGone, NEW_LAB_LOT, desksForLot, SPEND_LIMIT, countsOf, splitRaw, type RequestAction, type TokenCounts, type Agent, type Assignment, type Interrupt, type CreateBuildingInput, type UpdateBuildingInput, type CreateMeetingInput, type CreateResidentInput, type Doc, type Meeting, type MeetingFocusKind, type Membership, type RegisterVisitorInput, type Session, type Tile } from "@muster-town/schema";
 import { createAssignment, createDoc, homeOf, intrayCount, intrayOf, moveToFront, pendingQueue, plantFlag, sendMessage, setAssignmentStatus, townHallIntray, updateDoc } from "./domain.ts";
 import { CHECK_IN } from "./prompts.ts";
-import { adoptGoal, createBuilding, createResident, createUser, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
+import { adoptGoal, createBuilding, createResident, createUser, dropAgent, ensureAvatar, registerVisitor, updateBuilding, updateFurniture } from "./entities.ts";
 import type { Furniture } from "./world/furniture.ts";
 import { AppError, badRequest, forbidden, goneError } from "./errors.ts";
 import { setMeetingFocus } from "./meeting-focus.ts";
@@ -73,6 +73,15 @@ export class Ops {
   updateFurniture(actor: Actor, id: string, furniture: Furniture) {
     this.requireLayoutEditor(actor, id);
     return updateFurniture(this.world, id, furniture, actor ? this.world.holderOf(actor).id : null);
+  }
+  /** Drag a resident or visitor on the map to a tile (flag dc_mf6oelioq5): humans with building.manage on its desk's building, like Edit layout. */
+  dropAgent(actor: Actor, agentId: string, to: Tile) {
+    const a = this.world.agents.require(agentId, "agent");
+    const row = this.world.db.prepare("SELECT buildingId FROM desks WHERE agentId = ?").get(agentId) as { buildingId: string } | undefined;
+    const buildingId = row?.buildingId ?? a.homeBuildingId;
+    if (!buildingId) throw new AppError("bad_request", `${a.name} has no desk to move.`);
+    this.requireLayoutEditor(actor, buildingId);
+    return dropAgent(this.world, agentId, to, actor ? this.world.holderOf(actor).id : null);
   }
   private requireLayoutEditor(actor: Actor, id: string) {
     if (!actor) return;

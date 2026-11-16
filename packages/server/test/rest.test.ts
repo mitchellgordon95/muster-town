@@ -541,6 +541,27 @@ describe("edit layout", () => {
     const refused = await json(app, "PUT", "/api/buildings/carbon-cycle/layout", { headers: agent, body: { furniture: {} } });
     expect(refused.status).toBe(403);
   });
+
+  it("POST /api/agents/:id/desk-drop: a human manager drops a resident on another desk (swap) or free floor (move); outside is 400; agent tokens 403 (flag dc_mf6oelioq5)", async () => {
+    const { app, world, auth } = await setup();
+    world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
+    const ravi = world.agents.first("name = 'Ravi'")!, moss = world.agents.first("name = 'Moss'")!;
+    const rDesk = world.layout.deskOf(ravi.id)!.pos, mDesk = world.layout.deskOf(moss.id)!.pos;
+    const swap = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: mDesk });
+    expect(swap.status).toBe(200);
+    expect(swap.body).toMatchObject({ kind: "swap", withAgentId: moss.id, pos: mDesk });
+    expect(world.layout.deskOf(moss.id)!.pos).toEqual(rDesk);
+    const lot = world.buildings.require("carbon-cycle").lot!;
+    const move = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: { x: lot.x + 3, y: lot.y + 1 } });
+    expect(move.status).toBe(200);
+    expect(move.body).toMatchObject({ kind: "move", withAgentId: null, pos: { x: lot.x + 3, y: lot.y + 1 } });
+    expect(world.agents.require(ravi.id).pos).toEqual({ x: lot.x + 3, y: lot.y + 1 });
+    const out = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: { x: lot.x - 2, y: lot.y } });
+    expect(out.status).toBe(400);
+    expect(JSON.stringify(out.body)).toMatch(/Drop them inside it/);
+    const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
+    expect((await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: agent, body: mDesk })).status).toBe(403);
+  });
 });
 
 describe("the map is the goal tree (docs/goals.md, build step 2)", () => {
