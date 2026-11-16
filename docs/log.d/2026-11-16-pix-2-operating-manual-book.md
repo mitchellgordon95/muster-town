@@ -1,0 +1,1 @@
+- 2026-11-16 Pix 2: the operating manual is a book in the Town Hall (Mitchell, meeting mt_dm14dgejml): a lectern right of the library shelves (place `operating-manual`, TILE.BOOK); clicking it opens the operating manual page (GET /api/operating-manual) as a sheet.

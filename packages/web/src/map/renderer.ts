@@ -30,7 +30,7 @@ import { secretaryOf } from "../panels/oneOnOne";
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
 
 /** `action`: E does this instead of opening a panel. `flow`: the Bank's town map (the zoomed-out coin flow); `plan`: town planning (the Town Hall map table). */
-export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" | "plan" }
+export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" | "plan" | "manual" }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
 const SPEED = 5 * T; // px per second
@@ -74,9 +74,16 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
 function placeTarget(p: Place): Target | null {
   if (p.kind === "bank-map") return { label: "Look at the town map", panel: { kind: "building", id: p.buildingId ?? undefined }, action: "flow" };
   if (p.kind === "town-map") return { label: "Plan the town", panel: { kind: "planning" }, action: "plan" };
+  // the operating manual book: opens the manual's page as a sheet (its doc id comes from GET /api/operating-manual)
+  if (p.kind === "operating-manual") return { label: "Read the operating manual", panel: { kind: "library" }, action: "manual" };
   const f = PLACE_PANEL[p.kind]; if (!f) return null;
   const { verb, ...panel } = f(p);
   return { label: verb, panel };
+}
+
+/** The operating manual book: open its page as a sheet; before anyone wrote one, the library instead. */
+export function openOperatingManual() {
+  api().operatingManual().then((m) => store.openSheet({ kind: "doc", id: m.id }), () => store.open({ kind: "library" }));
 }
 
 /** The panel E opens at a place (the help card's "What's here" rows walk there and open it), or null. */
@@ -178,6 +185,7 @@ export class MapRenderer {
   interact(t: Target) {
     if (t.action === "flow") this.openFlow();
     else if (t.action === "plan") openTownPlanning();
+    else if (t.action === "manual") openOperatingManual();
     else store.open(t.panel);
   }
   /** A tap or click on a place: walk to its spot, then do what E does there. */
