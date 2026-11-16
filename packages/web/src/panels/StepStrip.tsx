@@ -42,7 +42,7 @@ export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "step
           const state = i < done ? "done" : g.stepStates?.[i]?.status === "active" ? "running" : "left";
           const ss = g.stepStates?.[i];
           const spend = stepSpend(ss);
-          return <li key={i} className={`step-box size-${st.size ?? "M"} ${state}${spend?.over ? " over" : ""}`} title={`Step ${i + 1} · ${st.size ?? "planned before sizes"} · ${state}: ${st.title}${spend ? ` · ${spend.text}` : ""}`}>{st.size ?? "·"}</li>;
+          return <li key={i} className={`step-box ${st.size ? `size-${st.size}` : "unsized"} ${state}${spend?.over ? " over" : ""}`} title={`Step ${i + 1} · ${st.size ?? "planned before sizes"} · ${state}: ${st.title}${spend ? ` · ${spend.text}` : ""}`}>{st.size ?? "·"}</li>;
         })}
       </ol>
       <span className="step-strip-line">

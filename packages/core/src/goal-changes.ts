@@ -112,11 +112,22 @@ export class Reorgs {
     return meetingNotice(this.world, m.id, PLANNER_UNPAID) ?? m;
   }
 
-  /** The reorg meeting's facilitator: the Planner when it can run, else the default (the first active manager invited). */
+  /**
+   * The reorg meeting's facilitator: the Planner when it can run, else the default (the first active manager invited),
+   * else nobody. Never the Planner when it can't run (decision-5 audit rank 10); `facilitatorLine` says who and why.
+   */
   private facilitatorFor(attendees: string[]): string | null {
     const p = this.planner();
     if (p && this.canRun()) return p.id;
-    return defaultFacilitator(this.world, null, attendees.filter((id) => id !== p?.id)) ?? p?.id ?? null;
+    return defaultFacilitator(this.world, null, attendees.filter((id) => id !== p?.id));
+  }
+
+  /** The meeting notice when the Planner can't facilitate its reorg meeting: who does instead, or that nobody can. */
+  private facilitatorLine(fac: string | null): string | null {
+    const p = this.planner();
+    if (fac && fac === p?.id) return null;
+    const why = !p ? "the town has no Planner" : p.status === "stopped" ? "the Planner is stopped" : "the Planner can't start a session (the Bank has nothing the Town Hall can draw)";
+    return fac ? `${this.world.nameOf(fac)} facilitates this meeting instead of the Planner: ${why}.` : `Nobody can facilitate this meeting: ${why}, and no manager invited is active. A human facilitates it, or it waits.`;
   }
 
   // ---- "Change this goal" ----
@@ -203,6 +214,8 @@ export class Reorgs {
       // the facilitator is picked again as it opens: the Planner if it can run now, else a manager in the room
       const fac = this.facilitatorFor(m.attendeeIds);
       if (fac !== m.facilitatorId) this.world.meetings.upsert({ ...m, facilitatorId: fac });
+      const line = this.facilitatorLine(fac);
+      if (line) meetingNotice(this.world, m.id, line, ["collecting", "discussing"]);
       const g = this.world.goalTree.get(c.goalId);
       if (g && g.status === "active" && g.text !== c.toText) this.world.goalTree.update(null, g.id, { text: c.toText });
       const next = this.world.goalChanges.upsert({ ...c, status: "meeting" });

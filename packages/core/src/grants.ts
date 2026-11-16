@@ -4,7 +4,7 @@ import {
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, isJudgedKr, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { needAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
-import { syncJob } from "./jobs.ts";
+import { appendEntry, syncJob } from "./jobs.ts";
 import { statusAtClose } from "./kr-evidence.ts";
 import { shippedAtClose, type ShippedItem, closedLoopNotice, verifiedNotice } from "./notices.ts";
 import { sessionTokens } from "./bank.ts";
@@ -548,7 +548,11 @@ export class Grants {
   /** A plan's ask: the sum of its steps' sizes from the collective's table (`Town.stepSizes`). */
   private askOf(steps: GrantStep[]): number {
     const table = grantPricingOf(this.world.town.get()).stepSizes;
-    return steps.reduce((s, x) => s + table[x.size ?? "M"], 0);
+    // an unsized step (planned before sizes) is refused, never priced as M (decision-5 audit rank 7)
+    return steps.reduce((s, x, i) => {
+      if (!x.size) throw badRequest(`Step ${i + 1} ("${x.title}") has no size: it was planned before step sizes, so it can't be priced. Give every step a size (S, M or L) and propose again.`);
+      return s + table[x.size];
+    }, 0);
   }
 
   /**
@@ -564,10 +568,22 @@ export class Grants {
     const manager = managerAgentOf(this.world, building);
     if (!manager) return null;
     const forkable = manager.kind === "resident";
-    // re-checked at queue time: a model the building no longer allows falls back to its default, a page gone is dropped
+    // re-checked at queue time (decision-5 audit rank 8): a model the building no longer allows holds the step with a
+    // manager-level entry on the grant's thread naming the mismatch; it never runs on another model in silence
     let model: string | null = null;
-    try { model = forkable ? checkForkModel(building, step.model) : null; } catch { model = null; }
+    try { model = forkable ? checkForkModel(building, step.model) : null; } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      appendEntry(this.world, {
+        id: `en_${g.id}_held${k + 1}_${g.history.length}`, jobId: `jb_${g.id}`, authorKind: "code", authorId: "system", level: "manager",
+        note: `Step ${k + 1} of ${grantName(g)} is held: its plan names the model ${step.model}, which the building no longer allows. ${why}`,
+        body: `The step was not queued. Allow ${step.model} for forks again, or assign the step yourself (lane grant, grant ${g.id}) on a model the building allows; the plan's step: "${step.title}".`,
+        moved: { kind: "step-held", grantId: g.id, step: k + 1, model: step.model ?? null },
+      });
+      this.world.events.append({ type: "grant.step-held", buildingId: g.buildingId, text: `Step ${k + 1} of "${grantName(g)}" held: model ${step.model} is no longer allowed`, payload: { grantId: g.id, step: k + 1, model: step.model ?? null } });
+      return null;
+    }
     const pages = (step.pages ?? []).filter((id) => { const d = this.world.docs.get(id); return d?.type === "wiki" && d.topicOf === g.buildingId; });
+    const gone = (step.pages ?? []).filter((id) => !pages.includes(id));
     const n = g.steps.length;
     const nextLine = g.steps[k + 1] ? `When you submit your report, step ${k + 2} ("${g.steps[k + 1]!.title}") is queued by itself unless your verdict is pivot (a pivot stops the chain for the manager's review).` : `This is the grant's last step: say in your report whether its key results can be claimed (the manager closes the grant with close_grant).`;
     const a = createAssignment(this.world, {
@@ -576,7 +592,7 @@ export class Grants {
       laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
       ...(forkable ? { model } : {}),
       ...(from ? { fromAssignmentId: from.assignmentId, fromReportId: from.reportId } : {}),
-      description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
+      description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}${gone.length ? `\n\nThe plan's topic pages ${gone.join(", ")} are gone or no longer this building's: they are not loaded.` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
     });
     return this.world.assignments.patch(a.id, { grantStep: k, ...(pages.length ? { pages } : {}) });
   }

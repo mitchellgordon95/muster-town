@@ -52,6 +52,7 @@ async function main() {
   // a new volume with the backup env is a dead town's, not a new one: town.db from the newest good off-site copy before seeding
   await restoreOnFirstBoot({ dbPath: join(DATA_DIR, "town.db") });
   const world = World.open(join(DATA_DIR, "town.db"));
+  const hasDataKey = world.secrets.requireWellFormedKey(); // a malformed MUSTER_TOWN_DATA_KEY stops boot here (decision-5 audit rank 9)
   const seed = world.seedDefaults({
     adminName: townEnv("ADMIN_NAME"),
     townJsonPath: COLLECTIVE_JSON,
@@ -139,8 +140,8 @@ async function main() {
   console.log(`[server] Muster Town at ${url} (dev=${DEV})`);
   // the token itself never goes to stdout (it would land in journald): seedDefaults wrote it to <data>/admin-token (0600)
   console.log(`[server] admin (${seed.admin.name}) token: in ${join(DATA_DIR, "admin-token")}`);
-  console.log(world.secrets.keyConfigured() ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
-  if (world.secrets.keyConfigured()) {
+  console.log(hasDataKey ? "[server] MUSTER_TOWN_DATA_KEY set: collective secrets can be stored" : "[server] no MUSTER_TOWN_DATA_KEY: collective secrets can't be stored (they are never kept in plaintext)");
+  if (hasDataKey) {
     const enc = world.secrets.encryptBankSecrets();
     console.log(`[secrets] encrypted ${enc.inputs} bank inputs, ${enc.donors} donor keys`);
   } else console.log("[secrets] no MUSTER_TOWN_DATA_KEY: Bank input secrets and donor keys stay in plaintext");

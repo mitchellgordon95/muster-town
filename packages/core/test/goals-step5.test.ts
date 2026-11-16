@@ -76,6 +76,25 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
     expect(world.reorgs.get(c.id)?.decidedAt).toBeTruthy();
   });
 
+  it("when the Planner can't run, the meeting says who facilitates and why; it never falls back to an agent that can't run (audit rank 10)", () => {
+    const { world, admin, mei, goal } = setup();
+    const c = world.reorgs.file(admin, goal.id, { toText: "Every token is accounted for", why: "w" });
+    expect(world.reorgs.canRun()).toBe(false);
+    setMeetingPhase(world, c.meetingId!, "discussing");
+    const m = world.meetings.require(c.meetingId!);
+    expect(m.facilitatorId).toBe(mei.id);
+    expect(m.transcript.map((u) => u.text)).toContain("Mei facilitates this meeting instead of the Planner: the Planner can't start a session (the Bank has nothing the Town Hall can draw).");
+
+    // nobody active to facilitate: no facilitator (never the Planner that can't run, never a stopped manager), and the meeting says so
+    const goal2 = world.goalTree.create(admin, { parentId: "gl_trust", text: "Another goal" });
+    const c2 = world.reorgs.file(admin, goal2.id, { toText: "Y", why: "w" });
+    world.agents.patch(mei.id, { status: "stopped" });
+    setMeetingPhase(world, c2.meetingId!, "discussing");
+    const m2 = world.meetings.require(c2.meetingId!);
+    expect(m2.facilitatorId).toBeNull();
+    expect(m2.transcript.map((u) => u.text).join("\n")).toContain("Nobody can facilitate this meeting: the Planner can't start a session");
+  });
+
   it("a goal with no attached building opens its meeting at once", () => {
     const { world, admin } = setup();
     const lonely = world.goalTree.create(admin, { parentId: "gl_join", text: "Nobody here" });
