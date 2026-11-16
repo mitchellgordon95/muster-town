@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { store } from "../state";
 import { MapRenderer, type Target } from "./renderer";
 import { layoutEdit } from "./layoutEdit";
+import { residentDrag } from "./residentDrag";
 import { openTownPlanning, townPlan } from "./townPlan";
 
 const NUDGE: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
@@ -94,7 +95,9 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           townPlan.select(townPlan.buildingAt(t.x, t.y));
           return;
         }
-        const r = current, ed = layoutEdit.draft; if (!r || !ed) return;
+        const r = current, ed = layoutEdit.draft; if (!r) return;
+        // the normal map: a press on a resident this human manages may become a drag (the grasper hand, residentDrag.ts)
+        if (!ed) { if (!r.tour && !r.flow && e.button === 0) residentDrag.down(r, local(e).x, local(e).y); return; }
         const t = r.tileAt(local(e).x, local(e).y);
         const piece = layoutEdit.pieceAt(t.x, t.y);
         layoutEdit.select(piece?.key ?? null);
@@ -103,7 +106,10 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           drag.current = { key: piece.key, gx: t.x - ed.lot.x - a.x, gy: t.y - ed.lot.y - a.y, before: ed.anchors };
         }
       }}
-      onMouseUp={() => { if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; } }}
+      onMouseUp={(e) => {
+        if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
+        if (current) residentDrag.up(current, local(e).x, local(e).y);
+      }}
       onMouseMove={(e) => {
         const r = current; if (!r) return;
         const p = local(e);
@@ -119,6 +125,8 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
           ref.current!.style.cursor = drag.current ? "grabbing" : layoutEdit.pieceAt(t.x, t.y) ? "grab" : "default";
           return;
         }
+        const held = residentDrag.move(r, p.x, p.y);
+        if (held) { ref.current!.style.cursor = held; return; }
         if (r.tour) {
           // a tour: only its hotspots answer the mouse; hovering one shows its tooltip and lights its legend row
           const spot = r.tourSpotAt(p.x, p.y);
@@ -132,15 +140,17 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         r.hoverId = id;
         r.hoverSign = id || r.hoverBlock ? null : r.signAt(p.x, p.y);
         const table = !id && !r.hoverSign && !r.hoverBlock && (!!r.tableAt(p.x, p.y) || r.mapTableAt(p.x, p.y) || (!r.flow && !!r.placeAt(p.x, p.y)));
-        ref.current!.style.cursor = id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default";
+        ref.current!.style.cursor = residentDrag.hoverCursor(id) ?? (id || r.hoverSign || r.hoverBlock || table ? "pointer" : "default");
       }}
       onMouseLeave={() => {
         if (current?.tour && !COARSE) current.tour.setHot(null);
-        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; }
+        if (current) { current.hoverId = null; current.hoverSign = null; current.hoverBlock = null; current.tapTip = null; residentDrag.cancel(current); }
         if (drag.current) { layoutEdit.commitDrag(drag.current.before); drag.current = null; }
       }}
       onClick={(e) => {
         (document.activeElement as HTMLElement | null)?.blur();
+        // the click that ends a drag: the drop already happened
+        if (residentDrag.swallow()) return;
         const r = current; if (!r || layoutEdit.draft || townPlan.draft) return;
         const p = local(e);
         const pt = (e.nativeEvent as PointerEvent).pointerType;

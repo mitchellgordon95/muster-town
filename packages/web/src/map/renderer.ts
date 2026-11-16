@@ -128,6 +128,8 @@ export class MapRenderer {
   private pendingTile: { x: number; y: number } | null = null;
   private hitboxes: { id: string; x: number; y: number; w: number; h: number }[] = [];
   hoverId: string | null = null;
+  /** a resident held by the grasper hand (residentDrag.ts): its body follows the pointer (canvas CSS px) until it is dropped */
+  drag: { id: string; cx: number; cy: number } | null = null;
   /** when each fork's ghost first appeared on the map (its 400 ms fade-in) */
   private ghostSince = new Map<string, number>();
   /** the Town Hall hydrant's counts (the stream's particles) */
@@ -275,6 +277,18 @@ export class MapRenderer {
   tileAt(cx: number, cy: number): { x: number; y: number } {
     const { ox, oy, z } = this.view;
     return { x: Math.floor((cx / z + ox) / T), y: Math.floor((cy / z + oy) / T) };
+  }
+
+  /**
+   * Let go of a held resident. `landed`: the server took the drop, so its body starts from the drop point and walks the
+   * last step to its new desk (instead of gliding back from where it was picked up).
+   */
+  endDrag(landed: boolean) {
+    const d = this.drag; this.drag = null;
+    const b = d && landed ? this.bodies.get(d.id) : undefined;
+    if (!d || !b) return;
+    const { ox, oy, z } = this.view;
+    b.x = b.fx = d.cx / z + ox; b.y = b.fy = d.cy / z + oy + T / 2; b.key = "";
   }
 
   /** Agent under a screen point (CSS px), for click-to-open. */
@@ -651,7 +665,11 @@ export class MapRenderer {
     const sizeOf = (a: Agent | null) => avatarSize(a?.model, a?.homeBuildingId ? s.buildings.find((b) => b.id === a.homeBuildingId)?.model : null);
     for (const a of Object.values(s.agents)) {
       if (a.id === store.avatarId || a.status === "retired") continue;
-      const b = this.bodies.get(a.id); if (b) list.push({ id: a.id, a, x: b.x, y: b.y, moving: b.moving, ...sizeOf(a) });
+      const b = this.bodies.get(a.id); if (!b) continue;
+      const size = sizeOf(a);
+      // held: the body hangs from the hand at the pointer, feet half a body below it
+      if (this.drag?.id === a.id) list.push({ id: a.id, a, x: this.drag.cx / z + ox, y: this.drag.cy / z + oy + size.h / 2, moving: false, ...size });
+      else list.push({ id: a.id, a, x: b.x, y: b.y, moving: b.moving, ...size });
     }
     const meAgent = store.avatarId ? s.agents[store.avatarId] ?? null : null;
     list.push({ id: "__me", a: meAgent, x: this.me.x, y: this.me.y, moving: this.me.moving, ...sizeOf(meAgent) });
@@ -680,6 +698,17 @@ export class MapRenderer {
       g.globalAlpha = 1;
     }
 
+    if (this.drag) {
+      // the drop tile's outline under the pointer, and the grasper hand closed over the held body's head
+      const held = list.find((d) => d.id === this.drag!.id);
+      if (held) {
+        const t = this.tileAt(this.drag.cx, this.drag.cy);
+        g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1; g.setLineDash([2, 2]);
+        g.strokeRect(t.x * T + 0.5, t.y * T + 0.5, T - 1, T - 1);
+        g.setLineDash([]);
+        drawGrasp(g, Math.round(held.x - 5), Math.round(held.y - held.h - 5));
+      }
+    }
     if (ed) this.drawLayoutEdit(ed, ox, oy, cw / z, ch / z);
     const plan = townPlan.draft;
     if (plan) this.drawTownPlan(plan, z);
@@ -869,4 +898,23 @@ export class MapRenderer {
       drawTour(g, cw, ch, { x: a.x, y: a.y, w: tourLot.w * T * z, h: tourLot.h * T * z }, this.tourHits, this.tour.hot, now);
     }
   }
+}
+
+/** The grasper hand (Mitchell's flag dc_mf6oelioq5): a closed pixel fist, 11×8 world px, dark outline, white fill. */
+const GRASP = [
+  "..oo.oo.oo.",
+  ".owwowwowwo",
+  ".owwowwowwo",
+  "oowwwwwwwwo",
+  "owowwwwwwwo",
+  "owwwwwwwwo.",
+  ".owwwwwwwo.",
+  "..ooooooo..",
+];
+function drawGrasp(g: CanvasRenderingContext2D, x: number, y: number) {
+  GRASP.forEach((row, dy) => [...row].forEach((c, dx) => {
+    if (c === ".") return;
+    g.fillStyle = c === "o" ? "#1b1d2a" : "#f4efe4";
+    g.fillRect(x + dx, y + dy, 1, 1);
+  }));
 }

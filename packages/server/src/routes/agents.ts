@@ -1,5 +1,5 @@
 import { AppError, blockedBy, forkSummary, forksOf, canInteract, logOf, sessionView, townBlocked, townSchedules, buildingSchedules, createSchedule, cancelSchedule, editSchedule, decideRetainer, pressRank, scheduleView, actOrigin, topicsOf, wikiOf, type World } from "@muster-town/core";
-import { AgentModelPatch, AgentPermissionsPatch, Event, InterruptInput, RegisterVisitorInput, RetainerDecisionInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
+import { AgentModelPatch, AgentPermissionsPatch, Event, Tile, InterruptInput, RegisterVisitorInput, RetainerDecisionInput, WorkInput, type Agent, type AssignmentCard, type Session } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { actorOf, ASK_FIRST, parse, requireUser, type Params } from "../context.ts";
@@ -146,6 +146,16 @@ export async function agentRoutes(app: FastifyInstance) {
     const input = parse(WorkInput, req.body);
     const assignment = world.ops.createWork(actorOf(world, req), req.params.id, input);
     return reply.code(201).send({ assignment });
+  });
+
+  /**
+   * Drag an agent on the map and drop it on a tile (humans with building.manage, Mitchell's flag dc_mf6oelioq5): on
+   * another desk of its room the two desks swap places; on free floor its desk moves there; else 400 with the reason.
+   * → { building, kind: "swap" | "move", withAgentId, pos }
+   */
+  app.post<{ Params: Params }>("/api/agents/:id/desk-drop", async (req) => {
+    const to = parse(Tile, req.body);
+    return world.ops.dropAgent(actorOf(world, req), req.params.id, to);
   });
 
   app.post<{ Params: Params }>("/api/agents/:id/interrupt", async (req) => {
