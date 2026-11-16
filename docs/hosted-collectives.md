@@ -57,7 +57,9 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
      and the GitHub/Fly tokens are never read.
    - **No repo, no deploy/PR machinery** (1:1 mt_1vs893enaw, findings dc_ogpz8cgzow). Core `World.repoMode()` is `none`
      (no `Town.workspace`: every hosted collective), `own` (a repo that is not the one the server runs from; runtime sets
-     `host.repoUrl` from its checkout's origin) or `muster` (muster.town's own). `none`: nobody holds `town.redeploy` in a
+     `host.repoUrl` from its checkout's origin) or `muster` (muster.town's own). The stored `Town.workspace.repoUrl` must
+     name the repo by its current name: after the GitHub rename agent-town → muster-town it still said agent-town and
+     muster.town read `own` until migration 118 rewrote it (dc_1lsk4v7psx). `none`: nobody holds `town.redeploy` in a
      hosted World (admins included, so Planning → System has no "Pull main & redeploy"; `/api/me.canRedeploy`), MCP lists
      no `redeploy` tool, `{deploy}` and `{pr}` waits are refused and left out of the prompts and tool texts (schema
      `verbToolFor`), the manager's in-tray has no "Live:" line and rolls up when reports were decided, and the web hides the
