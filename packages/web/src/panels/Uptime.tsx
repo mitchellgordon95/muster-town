@@ -3,7 +3,8 @@
  * ratios, its outages and a link to its public status page, from the public `GET /api/uptime` (server/src/uptime.ts `UptimeSummary`). Shown at
  * the Bank server rack (BankPanel.tsx, the Hosting tab) and on the signed-out landing (home/main.tsx mounts it into
  * home.ts's `#uptime`). Always the root server's `/api/uptime`: a hosted collective runs on the same Machine.
- * A day UptimeRobot didn't watch is grey ("not measured"), never green.
+ * A day UptimeRobot didn't watch is grey ("not measured"), never green. With no UPTIMEROBOT_API_KEY (a self-hosted town)
+ * the block says nothing measures it and names the secret to set; the restart list still shows.
  */
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -15,6 +16,8 @@ export interface UptimeData {
   source?: "uptimerobot" | "unknown";
   /** UptimeRobot's public status page, when set */
   statusUrl?: string | null;
+  /** why there is no number: "no UPTIMEROBOT_API_KEY secret" (a self-hosted town or a dev run), or the API's failure */
+  error?: string | null;
   byDay: UptimeDay[];
   outages: { from: string; to: string; minutes: number }[];
   restarts: { from: string; to: string; seconds: number; kind: "redeploy" | "unclean" }[];
@@ -44,15 +47,21 @@ const dur = (min: number) => (min >= 120 ? `${Math.round(min / 6) / 10} h` : `${
 export function UptimeView({ u }: { u: UptimeData }) {
   const outages = [...u.outages].reverse().slice(0, 8);
   const unclean = u.restarts.filter((r) => r.kind === "unclean").length;
+  /** no key, no monitor: say so instead of crediting UptimeRobot with a number it never gave (self-host gap 10) */
+  const noKey = u.pct === null && !!u.error?.startsWith("no UPTIMEROBOT_API_KEY");
   return (
     <div className="uptime" aria-label="Uptime">
       <p style={{ margin: "0 0 6px" }}>
-        {u.pct === null
-          ? <b>Not measured yet.</b>
-          : <><b style={{ fontSize: "var(--fs-xl)" }}>{u.pct}%</b> up over the last {u.days} days</>}
-        <span className="muted"> · {u.statusUrl
-          ? <a href={u.statusUrl} target="_blank" rel="noreferrer">Measured by UptimeRobot</a>
-          : "Measured by UptimeRobot"}{u.pct !== null && u.coverage < 100 ? `; it watched ${u.coverage}% of the window` : ""}</span>
+        {noKey
+          ? <><b>Not measured.</b><span className="muted"> · No uptime monitor is set up for this town: set the UPTIMEROBOT_API_KEY secret to show uptime.</span></>
+          : <>
+            {u.pct === null
+              ? <b>{u.error ? "Not measured right now." : "Not measured yet."}</b>
+              : <><b style={{ fontSize: "var(--fs-xl)" }}>{u.pct}%</b> up over the last {u.days} days</>}
+            <span className="muted"> · {u.statusUrl
+              ? <a href={u.statusUrl} target="_blank" rel="noreferrer">Measured by UptimeRobot</a>
+              : "Measured by UptimeRobot"}{u.pct !== null && u.coverage < 100 ? `; it watched ${u.coverage}% of the window` : ""}{u.pct === null && u.error ? `; it gave no number (${u.error})` : ""}</span>
+          </>}
       </p>
       <div role="img" aria-label={`Day strip, oldest to today: ${u.byDay.map((d) => `${d.date} ${d.pct === null ? "not measured" : `${d.pct}%`}`).join(", ")}`}
         style={{ display: "flex", gap: 2, margin: "0 0 6px" }}>
