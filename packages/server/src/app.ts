@@ -159,6 +159,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     req.auth = resolveToken(opts.world, bearer(req.headers.authorization)) ?? sessionAuth(opts.world, authSettings, req);
   });
 
+  // Any authenticated agent request counts as seen (lastSeenAt, throttled, no "back" transition): a service visitor that
+  // only calls REST (CI's POST /api/admin/redeploy) must not look quiet to the ghost sweep (dc_wxs73nuq93). After the
+  // handler, so an MCP/verbs `touch` of an offline visitor still reads its old lastSeenAt for the digest window.
+  app.addHook("onResponse", async (req) => {
+    if (req.auth?.kind === "agent") opts.world.presence.seen(req.auth.agent.id);
+  });
+
   // One gate for every write (dc_f0cumcfubk): a user, or an agent acting for one, needs `town.interact`. GETs never.
   app.addHook("preHandler", async (req) => {
     if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return;
