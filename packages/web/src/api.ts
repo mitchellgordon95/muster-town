@@ -7,7 +7,7 @@ import type {
   ReviewDeck, DigestCard, DigestRunView, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
-  ServerMessage, SessionView, TokenCounts, TokenMix, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
+  ServerMessage, SessionView, TokenCounts, TokenMix, LedgerCutoff, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   Ask, AskType, Notice, NoticeKind, StepCalibration, StepSize, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
@@ -137,6 +137,8 @@ export interface Finance {
   sumCheck: { ok: boolean; diff: number; identity: string };
   /** the adjusted-token mix: what 1 adj. token is made of over the last 7 days of usage, recomputed daily (absent from an older server) */
   mix?: TokenMix;
+  /** where the ledger starts: records from before correct accounting were deleted (migration 117); null or absent when none were */
+  cutoff?: LedgerCutoff | null;
   /** dollars at API list price (display only): used = Σ sessions' list cost (each at its booking model's output price) + the rest at $20/M; left, burn and inflow at Opus 5.5's $20/M */
   usd?: { used: number; left: number; burnPerDay: number; inflowPerDay: number; pricedAt: "api-list" };
   /**
@@ -241,6 +243,8 @@ export interface FinanceSpend {
   used: number; sessionsTotal: number; unattributed: number;
   /** pre-conversion sessions priced at their own model here vs at Opus weights in the Bank's ledger: pricing, not spend */
   weightMismatch: number; weightMismatchNote: string; convertedAt: string | null;
+  /** where the ledger starts (as on GET /api/finance) */
+  cutoff?: LedgerCutoff | null;
   notFunded: number;
   /** `notFunded` by building from usage rows with no Bank debit for the same agent within 2 s (dc_cvp89lj91o), tokens desc; buildingId null = "unattributed" */
   notFundedSplit: { buildingId: string | null; buildingName: string; usageRows: number; tokens: number }[];

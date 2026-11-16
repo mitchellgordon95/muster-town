@@ -1,4 +1,4 @@
-import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type LedgerCutoff, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
@@ -969,13 +969,13 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary & { mix: TokenMix } {
-    return { ...townFinance(this.repos, now), mix: this.mix(now) };
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null } {
+    return { ...townFinance(this.repos, now), mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff() };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
-  spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes } {
-    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, now) };
+  spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes; cutoff: LedgerCutoff | null } {
+    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, now), cutoff: this.repos.town.ledgerCutoff() };
   }
 
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */

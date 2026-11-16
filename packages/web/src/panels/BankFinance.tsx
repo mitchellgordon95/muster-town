@@ -13,6 +13,7 @@
  * daily desk cap when one is set. The Bank page opens from the Bank on the map, the HUD's "$", `#/bank` or the old `#/finance`.
  */
 import { useState } from "react";
+import type { LedgerCutoff } from "@muster-town/schema";
 import { api, type Bank, type Finance, type FinanceCash, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
@@ -275,6 +276,7 @@ export function SpendingAbout({ sp }: { sp: FinanceSpend }) {
   return (
     <>
       <p className="muted">Where the {n(sp.used)} used went{sp.usd ? <> ({approxUsd(sp.usd.used)})</> : null}: by building, then grant, then assignment ({ADJ}{sp.usd ? ", dollars" : ""}, share of used). Click a building for its grants, a grant for its assignments; the breadcrumb above the table goes back. The clicked row&apos;s detail shows here. &ldquo;By goal&rdquo; switches to spend by goal.</p>
+      <LedgerCutoffNote c={sp.cutoff} />
       {grants ? <p className="spend-grants muted">{grants}</p> : null}
       {steps ? <p className="spend-steps muted">{steps} Open a step-priced grant for its steps: each names its size, price, what it spent and the ratio.</p> : null}
       {noGrant ? <p className="spend-no-grant muted">{noGrant} Open a building&apos;s &ldquo;Not under a grant&rdquo; row for its lanes: directed work names who asked, exploration the proposal it ended in.</p> : null}
@@ -517,6 +519,23 @@ export function mixLine(m: TokenMix): { line: string; formula: string } {
   };
 }
 
+/**
+ * Where the ledger starts (town meeting mt_dm14dgejml decision 4, migration 117): the records from before correct accounting
+ * were deleted, and why; and why older grants show no step rows. Null when nothing was deleted.
+ */
+export function cutoffLine(c: LedgerCutoff | null | undefined): string | null {
+  if (!c) return null;
+  const r = c.removed;
+  const parts = [[r.sessions, "session"], [r.usage, "usage row"], [r.debits, "debit"], [r.credits, "credit"], [r.inputs, "input"], [r.allocations, "donation"]] as const;
+  const list = parts.filter(([k]) => k > 0).map(([k, w]) => `${n(k)} ${w}${k === 1 ? "" : "s"}`).join(", ");
+  return `The ledger starts ${c.at.slice(0, 16).replace("T", " ")} UTC, when the Bank began counting adjusted tokens from real counters. Before that it counted raw tokens split by a fixed estimate, with no real cache reads, so those records were deleted on ${c.prunedAt.slice(0, 10)}: ${list} (${n(c.tokens.debits + c.tokens.donationsSpent)} ${ADJ} used, ${n(c.tokens.credits + c.tokens.donated)} received). Every figure here counts from the cutoff on. Grants funded before step sizes existed show no step rows: their steps had no size to price.`;
+}
+
+export function LedgerCutoffNote({ c }: { c: LedgerCutoff | null | undefined }) {
+  const line = cutoffLine(c);
+  return line ? <div className="bank-note ledger-cutoff"><b>Where the ledger starts</b><p className="muted">{line}</p></div> : null;
+}
+
 /** Tokens: total received, used, expired, left, overdrawn and its parts, with the sum check in words. */
 export function TokensView({ f }: { f: Finance }) {
   const check = sumCheckLine(f);
@@ -547,6 +566,7 @@ export function TokensAbout({ f }: { f: Finance }) {
   const notes = overdrawnParts(f).filter((p) => p.note);
   return (
     <>
+      <LedgerCutoffNote c={f.cutoff} />
       {f.mix ? (() => { const m = mixLine(f.mix); return <p className="muted token-mix" title={m.formula}>{m.line}<br /><small>{m.formula}</small></p>; })() : null}
       {notes.map((p) => <div key={p.key} className="bank-note"><b>Overdrawn: {p.label}</b><p className="muted">{p.note}</p></div>)}
       {f.usd ? <p className="muted finance-usd-note">{USD_NOTE}</p> : null}
