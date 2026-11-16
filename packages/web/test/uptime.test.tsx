@@ -33,4 +33,17 @@ describe("Uptime block", () => {
     expect(noLink).toContain("Measured by UptimeRobot");
     expect(noLink).not.toContain("stats.uptimerobot.com");
   });
+  it("without UPTIMEROBOT_API_KEY says nothing measures the town, never 'Measured by UptimeRobot' (self-host gap 10)", () => {
+    const restarts = [{ from: "2026-11-12T03:00:10.000Z", to: "2026-11-12T03:00:40.000Z", seconds: 30, kind: "unclean" as const }];
+    const html = renderToStaticMarkup(<UptimeView u={{ ...u, pct: null, coverage: 0, source: "unknown", statusUrl: null, error: "no UPTIMEROBOT_API_KEY secret", outages: [], restarts, byDay: [day("2026-11-12", 0, 0, 720)] }} />);
+    expect(html).toContain("Not measured.");
+    expect(html).toContain("set the UPTIMEROBOT_API_KEY secret to show uptime");
+    expect(html).not.toContain("Measured by UptimeRobot");
+    expect(html).toContain("1 restart in the window, 1 unclean.");
+  });
+  it("with a key but a failed API read, says UptimeRobot gave no number and why", () => {
+    const html = renderToStaticMarkup(<UptimeView u={{ ...u, pct: null, coverage: 0, source: "unknown", error: "UptimeRobot answered HTTP 503", outages: [] }} />);
+    expect(html).toContain("Not measured right now.");
+    expect(html).toContain("it gave no number (UptimeRobot answered HTTP 503)");
+  });
 });

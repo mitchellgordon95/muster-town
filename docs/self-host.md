@@ -293,5 +293,11 @@ What makes self-hosting harder than this page would like, as of 2026-11-15. Stru
    `scripts/backup/restore.sh` without `--local` is still the Fly-only scratch-app drill.
 9. ~~**Directory registration** (section 6) does not exist yet.~~ Fixed: it is live, and the 2026-11-15 Fly proof town
    was verified through `/.well-known/muster-town` and listed.
-10. **The homepage's Uptime block says "Measured by UptimeRobot"** even when no `UPTIMEROBOT_API_KEY` secret is set. Then it
-   reads "Not measured yet" and counts your restarts, all marked unclean.
+10. ~~**The homepage's Uptime block says "Measured by UptimeRobot"** even when no `UPTIMEROBOT_API_KEY` secret is set.~~
+   Fixed: with no key the block (homepage and Bank › Hosting) reads "Not measured. · No uptime monitor is set up for this
+   town: set the UPTIMEROBOT_API_KEY secret to show uptime", a grey day strip and your restart count (all marked unclean).
+   To show a number, make a free UptimeRobot HTTP(s) monitor on `https://<your host>/api/health`, then save its read-only
+   API key as the collective secret `UPTIMEROBOT_API_KEY` (Town Hall → Secrets). Within 5 minutes the block shows
+   "N% up over the last 30 days · Measured by UptimeRobot" and its outages; set `UPTIME_STATUS_URL` (or
+   `UPTIMEROBOT_STATUS_URL`) to your UptimeRobot public status page and "Measured by UptimeRobot" links to it. If the key
+   is set but UptimeRobot fails, it reads "Not measured right now" with the reason.
