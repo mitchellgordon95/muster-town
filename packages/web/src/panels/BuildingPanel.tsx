@@ -1,4 +1,5 @@
 /** Building panel (E at the door): overview, goals, grants and schedule (labs; GoalsTab.tsx), settings (managers: name, the goal it is attached to, desks, manager; 1:1 mt_n25udpflus decision 3: a building is a thin layer on the goal tree). No Members tab (flag dc_v7ejy1j5ri): roles live on the planning desk; live forks show on the map. Board, filing cabinet and in-tray are places; the collective's secrets are a planning-desk tab. */
+import { clearDraft, useDraft } from "../draft";
 import { goToQueue } from "./DecisionQueue";
 import { isFork } from "../forks";
 import { useMemo, useState, type ReactNode } from "react";
@@ -236,13 +237,15 @@ function ScheduledList({ b }: { b: SnapshotBuilding }) {
 }
 
 export function Settings({ b }: { b: SnapshotBuilding }) {
-  const [f, setF] = useState({ name: b.name, managerAgentId: b.managerAgentId });
+  // half-made edits survive the panel closing until saved (src/draft.ts)
+  const dk = `building-settings:${b.id}:`;
+  const [f, setF] = useDraft(`${dk}f`, { name: b.name, managerAgentId: b.managerAgentId });
   // Desks sets the building's size on the map (drawn from the goal tree) and its daily cap: town.manage_buildings
-  const [desks, setDesks] = useState(b.headcount);
+  const [desks, setDesks] = useDraft(`${dk}desks`, b.headcount);
   const canDesks = b.kind === "lab" && store.can("town.manage_buildings");
   // the goal it is attached to: goals.edit (admins, or the goal's owner) on both ends; never unset
   const root = useGoalTree();
-  const [goalId, setGoalId] = useState(b.goalId ?? ROOT_GOAL_ID);
+  const [goalId, setGoalId] = useDraft(`${dk}goalId`, b.goalId ?? ROOT_GOAL_ID);
   const canAttach = b.kind === "lab" && store.can("goals.edit");
   const agents = useTown((s) => s.agents);
   const admin = useTown((s) => !!s.me?.isAdmin);
@@ -279,6 +282,7 @@ export function Settings({ b }: { b: SnapshotBuilding }) {
           ...(canDesks && desks !== b.headcount ? { headcount: desks } : {}),
         });
         set("name", next.name);
+        clearDraft(dk);
         store.toast("Settings saved", "ok");
       }}>Save settings</Act></div>
     </form>
@@ -297,7 +301,7 @@ function CollectiveDefaults() {
   const labs = useMemo(() => buildings.filter((x) => x.kind === "lab"), [buildings]);
   const repo = town?.workspace;
   const d = BuildingDefaults.parse({ codeAccess: !!repo, ...town?.defaults });
-  const [f, setF] = useState({ model: d.model, cheapModel: d.cheapModel, maxTurnsPerSession: d.maxTurnsPerSession, codeAccess: d.codeAccess });
+  const [f, setF] = useDraft("town-defaults", { model: d.model, cheapModel: d.cheapModel, maxTurnsPerSession: d.maxTurnsPerSession, codeAccess: d.codeAccess });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const next = f;
   const differ = labs.filter((x) => (Object.keys(next) as (keyof typeof next)[]).some((k) => x[k] !== next[k]));
@@ -322,6 +326,7 @@ function CollectiveDefaults() {
         <div className="actions"><Act tone="primary" disabled={!f.model.trim() || !f.cheapModel.trim()} run={async () => {
           const r = await api().setTownDefaults(next);
           if (town) store.set({ town: { ...town, defaults: r.defaults } });
+          clearDraft("town-defaults");
           store.toast(`Collective defaults saved for ${r.buildings.length} building${r.buildings.length === 1 ? "" : "s"}`, "ok");
         }}>Save for every building</Act></div>
       </form>
@@ -359,7 +364,7 @@ const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
 export function PublishToGitHub() {
   const town = useTown((s) => s.town);
   const p = town?.publish;
-  const [repoUrl, setRepoUrl] = useState(p?.repoUrl ?? "");
+  const [repoUrl, setRepoUrl] = useDraft("publish-repo", p?.repoUrl ?? ""); // the token is never kept as a draft
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const line = publishLine(p);
@@ -395,7 +400,7 @@ export function PublishToGitHub() {
               const r = await api().publishSettings({ repoUrl: repoUrl.trim(), ...(token.trim() ? { token: token.trim() } : {}) });
               const now = store.state.town;
               if (now) store.set({ town: { ...now, publish: r.publish } });
-              setToken("");
+              setToken(""); clearDraft("publish-repo");
               store.toast("Publish to GitHub saved: the next hourly export pushes", "ok");
             } catch (e) { fail(e); }
           }}>Save</Act>

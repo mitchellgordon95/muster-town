@@ -3,8 +3,9 @@
  * one word on its grant state; humans mark met / missed and delete in place, and "Edit" opens the editor that used to sit
  * in Settings) and Grants (every grant of the building, decided in the decision queue). The board is notes only.
  */
+import { useDraft } from "../draft";
 import { clipText } from "./showMore";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { isJudgedKr, MAX_OBJECTIVES, grantName, type GrantView, type KeyResultStatus, type KpiKey, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type ObjectiveView, type SpendNode } from "../api";
 import { store, useTown } from "../state";
@@ -238,8 +239,8 @@ const KPI_FRAMING_SHORT = "The town goal is three standing KPIs, Fund, Join and 
 
 /** One objective: its sentence, the KPI it moves and its quarter (humans edit), delete (refused while it holds key results). */
 function ObjectiveRow({ n, o, canWrite, onChanged }: { n: number; o: ObjectiveView; canWrite: boolean; onChanged: () => void }) {
-  const [f, setF] = useState<{ text: string; kpi: KpiKey | ""; horizon: string }>({ text: o.text, kpi: o.kpi ?? "", horizon: o.horizon });
-  useEffect(() => setF({ text: o.text, kpi: o.kpi ?? "", horizon: o.horizon }), [o.text, o.kpi, o.horizon]);
+  // the draft is keyed by the saved words too: when they change on the server, the row starts from them again
+  const [f, setF] = useDraft<{ text: string; kpi: KpiKey | ""; horizon: string }>(`objective:${o.id}:${o.text}|${o.kpi ?? ""}|${o.horizon}`, { text: o.text, kpi: o.kpi ?? "", horizon: o.horizon });
   const dirty = f.text !== o.text || f.kpi !== (o.kpi ?? "") || f.horizon !== o.horizon;
   if (!canWrite) return <div className="kr-objective-head"><b>Objective {n}: {o.text}</b> <span className="muted">{objectiveLine(o)}</span></div>;
   return (
@@ -270,7 +271,7 @@ function ObjectiveRow({ n, o, canWrite, onChanged }: { n: number; o: ObjectiveVi
 }
 
 function AddObjective({ buildingId, n, onChanged }: { buildingId: string; n: number; onChanged: () => void }) {
-  const [f, setF] = useState({ text: "", kpi: "" as KpiKey | "" });
+  const [f, setF] = useDraft(`objective-add:${buildingId}`, { text: "", kpi: "" as KpiKey | "" });
   return (
     <form className="form kr-add" onSubmit={(e) => e.preventDefault()}>
       <Field label={`Objective ${n}`} hint="One sentence: what the building will achieve this quarter. 2 or 3 per goal."><input value={f.text} maxLength={300} placeholder="A stranger can …" onChange={(e) => setF({ ...f, text: e.target.value })} /></Field>
@@ -302,8 +303,7 @@ function KeyResultAuthor({ kr }: { kr: GoalKeyResult }) {
 
 /** One key result in the editor: words (humans), status (per `statuses`), delete. Dirty rows save explicitly. */
 function KeyResultRow({ n, kr, canWrite, statuses, objectives, onChanged }: { n: number; kr: GoalKeyResult; canWrite: boolean; statuses: KeyResultStatus[]; objectives: ObjectiveView[]; onChanged: () => void }) {
-  const [f, setF] = useState({ text: kr.text, howToCheck: kr.howToCheck });
-  useEffect(() => setF({ text: kr.text, howToCheck: kr.howToCheck }), [kr.text, kr.howToCheck]);
+  const [f, setF] = useDraft(`kr-edit:${kr.id}:${kr.text}|${kr.howToCheck}`, { text: kr.text, howToCheck: kr.howToCheck });
   const dirty = f.text !== kr.text || f.howToCheck !== kr.howToCheck;
   const canStatus = statuses.includes(kr.status);
   const setStatus = async (status: KeyResultStatus) => {

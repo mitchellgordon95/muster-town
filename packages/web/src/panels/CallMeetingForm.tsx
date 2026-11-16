@@ -5,7 +5,7 @@
  * above the chat, starting on slide 1; "Review the in-tray" pre-fills it with the review deck.
  * The 1:1 is not here: it stays its own "Talk to ★" button.
  */
-import { useState } from "react";
+import { useDraft, clearDraft } from "../draft";
 import { MEETING_PRESETS, REVIEW_DECK_ID, type MeetingBrings, type MeetingPreset, type SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
 import { store } from "../state";
@@ -17,18 +17,23 @@ const presetById = (id: string): MeetingPreset => MEETING_PRESETS.find((p) => p.
 
 export function CallMeetingForm({ building }: { building: SnapshotBuilding }) {
   const hall = building.kind === "town-hall";
-  const invite = useAttendees(building);
+  // the half-filled form survives closing the panel (drafts, src/draft.ts); sending it forgets the draft
+  const key = `meeting:${building.id}`;
+  const invite = useAttendees(building, key);
   const where = hall ? "Town Hall" : building.name;
-  const [preset, setPreset] = useState<MeetingPreset>(() => presetById(hall ? "town-hall" : "standup"));
-  const [title, setTitle] = useState("");
-  const [agenda, setAgenda] = useState<string[]>(() => [...preset.agenda]);
-  const [brings, setBrings] = useState<MeetingBrings>(() => ({ ...preset.brings }));
-  const [askHumans, setAskHumans] = useState<boolean>(preset.askHumans);
+  const first = presetById(hall ? "town-hall" : "standup");
+  const [presetId, setPresetId] = useDraft(`${key}:preset`, first.id);
+  const preset = presetById(presetId);
+  const [title, setTitle] = useDraft(`${key}:title`, "");
+  const [agenda, setAgenda] = useDraft<string[]>(`${key}:agenda:${preset.id}`, () => [...preset.agenda]);
+  const [brings, setBrings] = useDraft<MeetingBrings>(`${key}:brings:${preset.id}`, () => ({ ...preset.brings }));
+  const [askHumans, setAskHumans] = useDraft<boolean>(`${key}:askHumans:${preset.id}`, preset.askHumans);
   // Presentation with chat: the deck's id (REVIEW_DECK_ID or a deck doc dc_…); null = chat
-  const [deck, setDeck] = useState<string | null>(preset.deck);
+  const [deck, setDeck] = useDraft<string | null>(`${key}:deck:${preset.id}`, preset.deck);
+  const forget = (p: MeetingPreset) => { for (const f of ["agenda", "brings", "askHumans", "deck"]) clearDraft(`${key}:${f}:${p.id}`); };
   const pick = (id: string) => {
     const p = presetById(id);
-    setPreset(p); setTitle(""); setAgenda([...p.agenda]); setBrings({ ...p.brings }); setAskHumans(p.askHumans); setDeck(p.deck); invite.reset(p.attendees);
+    forget(preset); setPresetId(p.id); setTitle(""); invite.reset(p.attendees);
   };
   const deckDoc = deck !== null && deck !== REVIEW_DECK_ID;
   const setItem = (i: number, v: string) => setAgenda((a) => a.map((x, j) => (j === i ? v : x)));
@@ -75,6 +80,7 @@ export function CallMeetingForm({ building }: { building: SnapshotBuilding }) {
             kind: preset.kind, buildingId: hall ? null : building.id, startNow: true, ...attendeeInput(invite.picked),
             ...(title.trim() ? { title: title.trim() } : {}), agenda: agenda.filter((a) => a.trim()), brings, askHumans, ...(deck ? { deck: { docId: deck } } : {}),
           });
+          forget(preset); clearDraft(`${key}:preset`); clearDraft(`${key}:title`); clearDraft(`${key}:attendees`);
           store.putMeeting(m); store.open({ kind: "meeting", id: m.id });
         }}>Call meeting</Act>
       </div>

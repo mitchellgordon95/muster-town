@@ -5,6 +5,7 @@
  * collective runs on API keys only (1:1 mt_pr3347g2w2): no plans is its normal case, so the section says so and has no form.
  * collective.json `plans` seeds the Workshop's own plan (core seed.ts).
  */
+import { clearDraft, useDraft } from "../draft";
 import { useState } from "react";
 import type { BankFee } from "@muster-town/schema";
 import { api } from "../api";
@@ -62,10 +63,10 @@ function FeeRow({ f, admin, onChange }: { f: BankFee; admin: boolean; onChange: 
 
 /** The admin's add form: label, $ per month, first day, optional last day (one line). */
 function AddFee({ onChange }: { onChange: () => void }) {
-  const [label, setLabel] = useState("");
-  const [usdText, setUsd] = useState("");
-  const [from, setFrom] = useState(today());
-  const [to, setTo] = useState("");
+  const [label, setLabel] = useDraft("bank-fee:label", "");
+  const [usdText, setUsd] = useDraft("bank-fee:usd", "");
+  const [from, setFrom] = useDraft("bank-fee:from", today);
+  const [to, setTo] = useDraft("bank-fee:to", "");
   const amount = Number(usdText);
   const ready = label.trim().length > 0 && label.trim().length <= 80 && Number.isFinite(amount) && amount > 0 && !!from && (!to || to >= from);
   return (
@@ -76,7 +77,7 @@ function AddFee({ onChange }: { onChange: () => void }) {
       <input aria-label="To (optional)" type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
       <Act small tone="primary" disabled={!ready} run={async () => {
         await api().addBankFee({ label: label.trim(), usdPerMonth: amount, from, ...(to ? { to } : {}) });
-        setLabel(""); setUsd(""); setTo(""); onChange();
+        setLabel(""); setUsd(""); setTo(""); clearDraft("bank-fee:from"); onChange();
       }}>Add plan</Act>
     </form>
   );

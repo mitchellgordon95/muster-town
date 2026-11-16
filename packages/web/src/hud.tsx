@@ -1,4 +1,5 @@
 /** HUD (top-left town card: name, goal, status counts, notices), interaction hint, say box, toasts. */
+import { useDraft } from "./draft";
 import { goToQueue } from "./panels/DecisionQueue";
 import { isGone } from "@muster-town/schema";
 import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
@@ -360,7 +361,7 @@ const ASK_AGAIN_MS = 24 * 3600_000;
  * decision event refetches `me`, app.tsx onAccessDecided).
  */
 function AskToJoin({ me }: { me: AuthMe }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft("join", "");
   const [busy, setBusy] = useState(false);
   const req = me.accessRequest;
   const declined = req?.status === "declined" && !!req.decidedAt && Date.now() - Date.parse(req.decidedAt) < ASK_AGAIN_MS;
@@ -370,6 +371,7 @@ function AskToJoin({ me }: { me: AuthMe }) {
     setBusy(true);
     try {
       await api().requestAccess(text.trim());
+      setText("");
       store.set({ me: await api().me() });
     } catch (e) { store.toast((e as Error).message, "bad"); } finally { setBusy(false); }
   };
@@ -412,7 +414,7 @@ export function Hint({ target, saying, canFlag }: { target: Target | null; sayin
 }
 
 export function SayBox({ inputRef, onSend, onCancel }: { inputRef: RefObject<HTMLInputElement>; onSend: (t: string) => void; onCancel: () => void }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft("say", ""); // a click away keeps the line; Esc or sending drops it
   return (
     <form className="saybox" onSubmit={(e) => { e.preventDefault(); const t = text.trim(); if (t) onSend(t); setText(""); onCancel(); }}>
       <span>Say</span>

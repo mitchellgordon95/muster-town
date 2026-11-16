@@ -1,4 +1,5 @@
 /** Meeting: phase, attendees + summaries, live transcript, say box, decisions. */
+import { useDraft } from "../draft";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Meeting, MeetingAttachment, MeetingToolCall, SnapshotBuilding } from "@muster-town/schema";
 import { api } from "../api";
@@ -87,7 +88,7 @@ const TYPING_PING_MS = 10_000;
 function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const me = useTown((s) => s.me);
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft(`meeting-say:${m.id}`, "");
   const media = useMediaPaste(setText);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [m.transcript.length]);

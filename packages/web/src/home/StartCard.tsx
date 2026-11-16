@@ -4,6 +4,7 @@
  * `POST /api/collectives` and on to `/<slug>/` as its admin. Signed out: one step, Sign in with GitHub, which comes back
  * here. The key is sent once and never shown again.
  */
+import { clearDraft, useDraft } from "../draft";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Head, PagedCard } from "../panels/PagedCard";
 import { addressOf, errorField, SIGN_IN_TO_START, startBody, startProblems, waitForTown, type StartDraft, type StartProblems } from "./startForm";
@@ -95,13 +96,16 @@ function StartPage() {
 
 export function StartCard({ onClose }: { onClose: () => void }) {
   const [who, setWho] = useState<Who>("loading");
-  const [draft, setDraft] = useState<StartDraft>({ name: "", goal: "", apiKey: "" });
+  // name and goal survive closing the card and the GitHub sign-in round trip (src/draft.ts); the API key never is kept
+  const [kept, setKept] = useDraft<Omit<StartDraft, "apiKey">>("start-collective", { name: "", goal: "" });
+  const [apiKey, setApiKey] = useState("");
+  const draft: StartDraft = { ...kept, apiKey };
   const [problems, setProblems] = useState<StartProblems>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [made, setMade] = useState<Made | null>(null);
   useEffect(() => { void whoAmI().then(setWho); }, []);
-  const set = (k: keyof StartDraft, v: string) => { setDraft((d) => ({ ...d, [k]: v })); setProblems((p) => ({ ...p, [k]: undefined })); setFormError(null); };
+  const set = (k: keyof StartDraft, v: string) => { if (k === "apiKey") setApiKey(v); else setKept((d) => ({ ...d, [k]: v })); setProblems((p) => ({ ...p, [k]: undefined })); setFormError(null); };
 
   const start = async () => {
     const found = startProblems(draft);
@@ -114,6 +118,7 @@ export function StartCard({ onClose }: { onClose: () => void }) {
       if (res.ok && out.collective) {
         // land only once the new town answers: never on a 404 that a refresh would fix (flag dc_1kylouq1l7)
         const url = out.collective.url;
+        clearDraft("start-collective");
         setMade({ url, ready: "waiting" });
         if (await waitForTown(url)) { location.assign(url); return; }
         setMade({ url, ready: "late" });

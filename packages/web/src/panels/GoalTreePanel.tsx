@@ -6,6 +6,7 @@
  * tabs (1:1 mt_n25udpflus decision 5): a goal's spend is the Bank's "Spend by goal" (Spending tab), the queue is each
  * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
+import { clearDraft, useDraft } from "../draft";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
@@ -141,7 +142,7 @@ function KrLines({ krs, actions, cards, focus }: { krs: TreeKr[]; actions?: (k: 
 function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { root: GoalTreeNode; node: GoalTreeNode; me: { userId: string | null; townWide: boolean }; proposals: GoalProposalView[]; focusKr?: string | null; onSelect: (id: string | null) => void; onDone: () => void }) {
   const can = canEditGoal(node, me) && node.status === "active";
   const path = pathTo(root, node.id);
-  const [form, setForm] = useState<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire" | "change">("");
+  const [form, setForm] = useDraft<"" | "edit" | "goal" | "kr" | "move" | "owner" | "retire" | "change">(`goal:${node.id}:form`, "");
   const rev = useGoalRev();
   const changes = useLoad(() => api().goalChanges({ goalId: node.id, open: true }), [node.id, rev]);
   const open = changes.data?.[0] ?? null;
@@ -216,12 +217,13 @@ function ChangeBanner({ c }: { c: GoalChangeView }) {
 }
 
 function ChangeForm({ node, onDone }: { node: GoalTreeNode; onDone: () => void }) {
-  const [text, setText] = useState(node.text), [why, setWhy] = useState("");
+  const dk = `goal:${node.id}:change:`;
+  const [text, setText] = useDraft(`${dk}text`, node.text), [why, setWhy] = useDraft(`${dk}why`, "");
   return (
     <div className="goal-form">
       <Field label="Change this goal to" hint="Every building attached under it gets a prep assignment, its open key results go under review (grants keep running), and a planning meeting opens when the prep reports are in or after 24 h."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
       <Field label="Why"><textarea rows={3} maxLength={2000} value={why} onChange={(e) => setWhy(e.target.value)} /></Field>
-      <Act small tone="primary" disabled={!text.trim() || text.trim() === node.text || !why.trim()} run={() => api().changeGoal(node.id, { toText: text.trim(), why: why.trim() }).then(onDone)}>File the change</Act>
+      <Act small tone="primary" disabled={!text.trim() || text.trim() === node.text || !why.trim()} run={() => api().changeGoal(node.id, { toText: text.trim(), why: why.trim() }).then(() => { clearDraft(dk); onDone(); })}>File the change</Act>
     </div>
   );
 }
@@ -245,8 +247,8 @@ function ReviewActs({ root, k, onDone, onArchive }: { root: GoalTreeNode; k: Tre
 
 /** Missed (docs/goals.md "Postmortems on missed KRs"): the why-line is filed as the human's note, which queues one postmortem on the building. */
 function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: boolean; onCancel: () => void; onDone: () => void }) {
-  const [why, setWhy] = useState("");
-  const run = () => (archive ? api().reviewKeyResult(k.id, { action: "archive", note: why.trim() }) : api().updateKeyResult(k.id, { status: "missed", note: why.trim() })).then(onDone);
+  const [why, setWhy] = useDraft(`kr:${k.id}:why`, "");
+  const run = () => (archive ? api().reviewKeyResult(k.id, { action: "archive", note: why.trim() }) : api().updateKeyResult(k.id, { status: "missed", note: why.trim() })).then(() => { clearDraft(`kr:${k.id}:why`); onDone(); });
   return (
     <div className="goal-form">
       <Field label={`Why was "${clip(k.text, 60)}" missed?`} hint="One line. It is filed as your note, and it queues one small postmortem on the building that worked on it; the report links back here.">
@@ -365,21 +367,21 @@ function DeskLine({ node }: { node: GoalTreeNode }) {
 }
 
 function EditForm({ node, onDone }: { node: GoalTreeNode; onDone: () => void }) {
-  const [text, setText] = useState(node.text);
+  const [text, setText] = useDraft(`goal:${node.id}:edit`, node.text);
   return (
     <div className="goal-form">
       <Field label="Goal"><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
-      <Act small tone="primary" disabled={!text.trim() || text.trim() === node.text} run={() => api().updateGoal(node.id, { text: text.trim() }).then(onDone)}>Save</Act>
+      <Act small tone="primary" disabled={!text.trim() || text.trim() === node.text} run={() => api().updateGoal(node.id, { text: text.trim() }).then(() => { clearDraft(`goal:${node.id}:edit`); onDone(); })}>Save</Act>
     </div>
   );
 }
 
 function AddGoalForm({ parent, onDone }: { parent: GoalTreeNode; onDone: (id: string) => void }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useDraft(`goal:${parent.id}:add`, "");
   return (
     <div className="goal-form">
       <Field label={`A goal under "${clip(parent.text, 50)}"`} hint="A standing direction, never met. Key results under it are the dated, checkable claims."><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
-      <Act small tone="primary" disabled={!text.trim()} run={() => api().createGoal({ parentId: parent.id, text: text.trim() }).then((g) => onDone(g.id))}>Add goal</Act>
+      <Act small tone="primary" disabled={!text.trim()} run={() => api().createGoal({ parentId: parent.id, text: text.trim() }).then((g) => { clearDraft(`goal:${parent.id}:add`); onDone(g.id); })}>Add goal</Act>
     </div>
   );
 }
@@ -407,7 +409,7 @@ function MoveForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNo
  */
 function AskToCaptain({ node, userId }: { node: GoalTreeNode; userId: string | null }) {
   const asks = useLoad(() => userId ? api().captainRequests(node.id) : Promise.resolve([]), [node.id, userId]);
-  const [open, setOpen] = useState(false), [note, setNote] = useState("");
+  const [open, setOpen] = useDraft(`captain:${node.id}:open`, false), [note, setNote] = useDraft(`captain:${node.id}:note`, "");
   const mine = asks.data?.find((r) => r.userId === userId);
   if (!userId) return <div className="captain-ask"><span className="muted goal-meta">Want to captain this goal? Sign in with GitHub to ask its captain. </span><button className="btn sm primary" onClick={signInWithGithub}>Sign in to ask</button></div>;
   if (mine) return <div className="muted goal-meta captain-ask">You asked to captain this goal {timeAgo(mine.createdAt)}. It is in the decision queue for {mine.captainName} to accept or decline.</div>;
@@ -456,10 +458,10 @@ function OwnerForm({ node, me, onDone }: { node: GoalTreeNode; me: { userId: str
 
 function RetireForm({ root, node, onDone }: { root: GoalTreeNode; node: GoalTreeNode; onDone: () => void }) {
   const plan = retirePlan(root, node.id);
-  const [to, setTo] = useState(""), [note, setNote] = useState("");
+  const [to, setTo] = useState(""), [note, setNote] = useDraft(`goal:${node.id}:retire`, "");
   const [confirm, setConfirm] = useState(false);
   const mustMove = plan.openKrs.length + plan.buildings.length > 0;
-  const retire = () => api().retireGoal(node.id, { ...(to ? { moveTo: to } : {}), note }).then(onDone);
+  const retire = () => api().retireGoal(node.id, { ...(to ? { moveTo: to } : {}), note }).then(() => { clearDraft(`goal:${node.id}:retire`); onDone(); });
   const dest = plan.siblings.find((s) => s.id === to);
   if (confirm && dest) return <RetireConfirm goal={node.text} plan={plan} dest={dest.text} confirmLabel="Retire goal" onConfirm={retire} onCancel={() => setConfirm(false)} />;
   return (
@@ -532,9 +534,11 @@ function Proposals({ root, list, me, here, onDone }: { root: GoalTreeNode; list:
 export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: GoalProposalView; me: { userId: string | null; townWide: boolean }; onDone: () => void }) {
   const node = proposalNode(root, p);
   const can = canEditGoal(node, me);
-  const [mode, setMode] = useState<"" | "edit" | "cut" | "confirm">("");
-  const [text, setText] = useState(p.fields.text ?? ""), [check, setCheck] = useState(p.fields.howToCheck ?? ""), [due, setDue] = useState(p.fields.due ?? "");
-  const [note, setNote] = useState("");
+  const dk = `goal-proposal:${p.id}:`; // what's typed survives the panel closing until it is decided (src/draft.ts)
+  const [mode, setMode] = useDraft<"" | "edit" | "cut" | "confirm">(`${dk}mode`, "");
+  const [text, setText] = useDraft(`${dk}text`, p.fields.text ?? ""), [check, setCheck] = useDraft(`${dk}check`, p.fields.howToCheck ?? ""), [due, setDue] = useDraft(`${dk}due`, p.fields.due ?? "");
+  const [note, setNote] = useDraft(`${dk}note`, "");
+  const decided = () => { clearDraft(dk); onDone(); };
   const target = p.targetId ? findGoal(root, p.targetId) : null;
   const targetKr = !target && p.targetId ? subtreeKr(root, p.targetId) : null;
   const old = target?.text ?? targetKr?.text ?? null;
@@ -543,7 +547,7 @@ export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: G
   const isKr = p.action === "add-kr" || !!targetKr;
   const plan = p.action === "retire" && target ? retirePlan(root, target.id) : null;
   const words = proposalVerb(p.action, parent?.text ?? null, !!plan && plan.openKrs.length + plan.buildings.length > 0);
-  const accept = () => api().decideGoalProposal(p.id, { action: "accept" }).then(onDone);
+  const accept = () => api().decideGoalProposal(p.id, { action: "accept" }).then(decided);
   return (
     <div className={`goal-proposal ${p.outsideScope ? "outside" : ""}`}>
       <div className="goal-proposal-head"><Pill tone="warn">{ACTION[p.action]}</Pill> <b>{p.proposedByName}</b>{p.buildingId ? <span className="muted"> · {store.state.buildings.find((b) => b.id === p.buildingId)?.name ?? p.buildingId}</span> : null}{p.outsideScope ? <Pill tone="bad" title="Outside the proposing building's subtree">outside its subtree</Pill> : null}</div>
@@ -566,11 +570,11 @@ export function ProposalCard({ root, p, me, onDone }: { root: GoalTreeNode; p: G
           <Field label="Words"><textarea rows={2} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
           {isKr ? <><Field label="How to check"><textarea rows={2} maxLength={300} value={check} onChange={(e) => setCheck(e.target.value)} /></Field>
             <Field label="Due"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field></> : null}
-          <Act small tone="ok" disabled={!text.trim()} run={() => api().decideGoalProposal(p.id, { action: "accept", text: text.trim(), ...(isKr && check.trim() ? { howToCheck: check.trim() } : {}), ...(isKr && due ? { due } : {}) }).then(onDone)}>Accept with these words</Act>
+          <Act small tone="ok" disabled={!text.trim()} run={() => api().decideGoalProposal(p.id, { action: "accept", text: text.trim(), ...(isKr && check.trim() ? { howToCheck: check.trim() } : {}), ...(isKr && due ? { due } : {}) }).then(decided)}>Accept with these words</Act>
         </div> : null}
         {mode === "cut" ? <div className="goal-form">
           <Field label="Note to the proposer" hint="It goes back to them in their inbox."><input value={note} maxLength={2000} onChange={(e) => setNote(e.target.value)} /></Field>
-          <Act small tone="bad" run={() => api().decideGoalProposal(p.id, { action: "cut", note }).then(onDone)}>Cut</Act>
+          <Act small tone="bad" run={() => api().decideGoalProposal(p.id, { action: "cut", note }).then(decided)}>Cut</Act>
         </div> : null}
       </> : null}
     </div>

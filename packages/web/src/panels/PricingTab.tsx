@@ -3,7 +3,7 @@
  * the oversell setting, editable by an admin and saved through PUT /api/town/defaults, with what steps really cost
  * beside them (GET /api/town/pricing `stepCalibration`, an admin's). The Planner proposes changes as policy asks; a human decides.
  */
-import { useEffect, useState } from "react";
+import { clearDraft, useDraft } from "../draft";
 import { grantPricingOf, type StepSize } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
@@ -18,15 +18,16 @@ export function PricingTab() {
   // GET /api/town/pricing is an admin's: everyone else sees the table without the calibration lines
   const cal = useLoad(() => (admin ? api().pricing().then((p) => p.stepCalibration ?? null) : Promise.resolve(null)), [admin]);
   const cur = grantPricingOf(town ?? {});
-  const [sizes, setSizes] = useState<Record<StepSize, string>>({ S: kOf(cur.stepSizes.S), M: kOf(cur.stepSizes.M), L: kOf(cur.stepSizes.L) });
-  const [oversell, setOversell] = useState(String(Math.round(cur.oversell * 100)));
-  // the snapshot arrived (or changed elsewhere): the fields follow it
-  useEffect(() => { setSizes({ S: kOf(cur.stepSizes.S), M: kOf(cur.stepSizes.M), L: kOf(cur.stepSizes.L) }); setOversell(String(Math.round(cur.oversell * 100))); }, [cur.stepSizes.S, cur.stepSizes.M, cur.stepSizes.L, cur.oversell]);
+  // keyed by the saved table: unsaved edits survive the panel closing, and a table changed elsewhere starts the fields over (src/draft.ts)
+  const dk = `pricing:${cur.stepSizes.S}|${cur.stepSizes.M}|${cur.stepSizes.L}|${cur.oversell}:`;
+  const [sizes, setSizes] = useDraft<Record<StepSize, string>>(`${dk}sizes`, { S: kOf(cur.stepSizes.S), M: kOf(cur.stepSizes.M), L: kOf(cur.stepSizes.L) });
+  const [oversell, setOversell] = useDraft(`${dk}oversell`, String(Math.round(cur.oversell * 100)));
   const table = Object.fromEntries(SIZES.map((z) => [z, Math.round(Number(sizes[z]) * 1000)])) as Record<StepSize, number>;
   const pct = Number(oversell);
   const ok = SIZES.every((z) => Number.isFinite(table[z]) && table[z] > 0) && table.S < table.M && table.M < table.L && Number.isFinite(pct) && pct >= 0 && pct <= 100;
   const save = async () => {
     const r = await api().setGrantPricing({ stepSizes: table, oversell: pct / 100 });
+    clearDraft(dk);
     if (town) store.set({ town: { ...town, ...r } });
     store.toast(`Saved: S ${fmtTokens(r.stepSizes.S)}, M ${fmtTokens(r.stepSizes.M)}, L ${fmtTokens(r.stepSizes.L)}, oversell ${Math.round(r.oversell * 100)}%.`, "ok");
   };

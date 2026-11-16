@@ -1,17 +1,20 @@
 /** Checkbox list of who to invite to a meeting. Labs start with their residents checked; none checked = the server's defaults. */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { SnapshotBuilding } from "@muster-town/schema";
 import { useTown } from "../state";
 import { inviteCandidates } from "./attendees";
+import { useDraft } from "../draft";
 
-export function useAttendees(building: SnapshotBuilding) {
+/** `draftKey`: the form's draft key, so the ticks survive the form closing (src/draft.ts) */
+export function useAttendees(building: SnapshotBuilding, draftKey: string) {
   const agents = useTown((s) => s.agents);
   const hall = building.kind === "town-hall";
   const { home, others, unavailable } = useMemo(() => inviteCandidates(Object.values(agents), hall ? null : building.id), [agents, building.id, hall]);
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(home.map((a) => a.id)));
-  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const [ids, setIds] = useDraft<string[]>(`${draftKey}:attendees`, () => home.map((a) => a.id));
+  const picked = useMemo(() => new Set(ids), [ids]);
+  const toggle = (id: string) => setIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   /** a preset's attendees: `default` = the residents checked (as on open), `none` = pick by hand */
-  const reset = (to: "default" | "none") => setPicked(new Set(to === "default" ? home.map((a) => a.id) : []));
+  const reset = (to: "default" | "none") => setIds(to === "default" ? home.map((a) => a.id) : []);
   return { home, others, unavailable, picked, toggle, reset, hall };
 }
 
