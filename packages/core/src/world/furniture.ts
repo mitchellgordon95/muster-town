@@ -174,12 +174,16 @@ export function validateLayout(kind: "lab" | "town-hall", lot: { w: number; h: n
 
 /**
  * The anchors to build with: each stored anchor that keeps the room legal, else the piece's default.
- * Unknown keys (e.g. a desk beyond a lowered headcount) are dropped. Tries again after each accepted piece, so
- * swaps survive (A takes B's old spot only once B has moved).
+ * Unknown keys (e.g. a desk beyond a lowered headcount) are dropped. The whole stored set wins when it is legal (so an
+ * exchange of two pieces survives); else piece by piece, trying again after each accepted one (A takes B's old spot
+ * only once B has moved).
  */
 export function resolveFurniture(kind: "lab" | "town-hall", lot: Lot, pieces: Piece[], stored: Furniture | undefined, side: Side = defaultSide(kind)): { anchors: Furniture; dropped: string[] } {
   const anchors: Furniture = {};
   let pending = Object.keys(stored ?? {}).filter((key) => pieces.some((p) => p.key === key)).sort();
+  // the whole set first: two pieces that traded places (a dragged resident's desk swap) are legal only together
+  const all = Object.fromEntries(pending.map((key) => [key, stored![key]]));
+  if (pending.length && !validateLayout(kind, lot, pieces, all, side).length) return { anchors: all, dropped: [] };
   for (let progress = true; progress && pending.length;) {
     progress = false;
     for (const key of [...pending]) {

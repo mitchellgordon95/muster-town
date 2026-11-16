@@ -565,6 +565,8 @@ export interface Api {
   layout(buildingId: string): Promise<RoomLayout>;
   previewLayout(buildingId: string, furniture: Record<string, Tile>): Promise<LayoutPreview>;
   saveLayout(buildingId: string, furniture: Record<string, Tile>): Promise<Building>;
+  /** POST /api/agents/:id/desk-drop: drop a dragged resident on a tile (its desk swaps or moves; 400 says why not) */
+  dropAgent(agentId: string, to: Tile): Promise<{ kind: "swap" | "move"; withAgentId: string | null; pos: Tile }>;
   /** Town planning (humans with town.manage_buildings): dry run / save new lots, optionally plus one new building. */
   // agents
   /** pending reports for the building's in-tray, oldest first; the Town Hall's also has the grants awaiting a human */
@@ -909,6 +911,7 @@ class HttpApi implements Api {
   layout(id: string) { return this.get<RoomLayout>(`/api/buildings/${id}/layout`); }
   previewLayout(id: string, furniture: Record<string, Tile>) { return this.call<LayoutPreview>("PUT", `/api/buildings/${id}/layout`, { furniture, dryRun: true }); }
   async saveLayout(id: string, furniture: Record<string, Tile>) { return unwrap<Building>(await this.call("PUT", `/api/buildings/${id}/layout`, { furniture }), "building"); }
+  dropAgent(id: string, to: Tile) { return this.call<{ kind: "swap" | "move"; withAgentId: string | null; pos: Tile }>("POST", `/api/agents/${id}/desk-drop`, to); }
   async intray(id: string) {
     return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }

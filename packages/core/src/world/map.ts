@@ -140,6 +140,10 @@ export class WorldMap {
   door(buildingId: string): Tile | undefined {
     return this.doors.get(buildingId);
   }
+  /** The wall a building's door is in (its room is laid out from it). */
+  side(buildingId: string): Side | undefined {
+    return this.sides.get(buildingId);
+  }
   deskSlots(buildingId: string): DeskSlot[] {
     return this.desks.get(buildingId) ?? [];
   }
