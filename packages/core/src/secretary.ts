@@ -13,7 +13,7 @@
  * - **Surface patterns** (the weekly run, `PATTERN_RUN_PROMPT`): reads the week's asks, shipped notices and events and files one
  *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
  * - **Propose a rule**: only from the pattern note's rule (never after a decided policy ask or `act_in_1on1`), the policy
- *   ask "Add this rule to the ledger?" (`proposeRule`); deciding "Add" appends the line to the policy ledger (a Town Hall doc
+ *   ask on a rule, with the Secretary's own card (`proposeRule`; the town writes none); deciding "Add" appends the line to the policy ledger (a Town Hall doc
  *   of type `policy`, `policyLedgerBlock` pins it in every session's first message). It never appends on its own.
  *
  * - **Render the backstop** (1:1 mt_t65exni4et decision 2 point 3): a need its manager left unrendered for an hour
@@ -25,7 +25,7 @@
  */
 import { grantName, isGone, NOT_GONE, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
 import { deferAsk, entriesSinceCard, foldAsk, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
-import { askOnOwnNeed, renderNeed } from "./ask-verb.ts";
+import { askOnOwnNeed, renderNeed, secondCardRefused } from "./ask-verb.ts";
 import { createAssignment, createDoc, managerAgentOf, sendMessage, updateDoc } from "./domain.ts";
 import { openNeed, overdueNeeds, type Need } from "./needs.ts";
 import { syncManagerRoles } from "./entities.ts";
@@ -107,7 +107,7 @@ const DECISION_RUN_PROMPT = `A human just decided on the Town Hall queue (you ar
 const PATTERN_RUN_PROMPT = `Write this week's pattern note for the humans (you are the Secretary; docs/legible-delegation.md §6, "Surface patterns"). You never fund, decide or approve anything.
 1. Call \`rank\` with \`week: true\`. It lists the last 7 days of asks (with how each ended), what shipped, and the town's events by kind with the notable ones. If it says the week was empty, submit_report at once (verdict stop) and end.
 2. Find the convergences and repeats a single building can't see: several buildings blocked on the same thing ("four buildings hit the test account's permissions"), a burst with one cause ("ten proposals landed in one day because the explore tick fired after a deploy"), the same ask raised again and again, a kind of ask the humans always answer the same way.
-3. Call \`rank\` with \`pattern\`: a title, a short body (one plain line per pattern, the ids it rests on cited), and, only when one pattern is a standing answer the humans keep giving, \`rule\`: one line the managers should follow. The rule is filed as a policy ask "Add this rule to the ledger?"; the humans decide it.
+3. Call \`rank\` with \`pattern\`: a title, a short body (one plain line per pattern, the ids it rests on cited), and, only when one pattern is a standing answer the humans keep giving, \`rule\`: one line the managers should follow, with \`ruleCard\`: your own card for the policy ask on it (a title, a body that says what repeated, what the rule answers and what reversing it costs, and your recommendation). The town writes no card for you: a rule without ruleCard is refused. The humans decide it.
 4. submit_report (verdict stop): the notice id. Nothing else.`;
 
 /** The Secretary's 1:1 prompt (it answers 1:1s like the Planner; manage.ts appends it to the brief). */
@@ -318,27 +318,20 @@ export function policyLedgerBlock(world: World): string {
 }
 
 /**
- * File the policy ask "Add this rule to the ledger?" (the Secretary's; it never appends on its own): the proposed line
- * `- <rule> (origin: <id>, <date>)` as its body's first line (what Add appends), branches Add / Skip, recommending Add. One live ask per origin (a second folds in).
+ * File the policy ask on a rule the Secretary saw repeat (it never appends on its own). The card is the Secretary's own:
+ * its title, body and recommendation (decision-5 audit rank 2: no ask is written by code). The proposed line
+ * `- <rule> (origin: <id>, <date>)` is the body's first line (what Add appends); branches Add / Skip. One live ask per
+ * origin: a second is refused.
  */
-function proposeRule(world: World, p: { rule: string; origin: string; buildingId?: string | null; sourceDocId?: string | null; why: string }): Ask {
+function proposeRule(world: World, by: Agent, p: { rule: string; card: { title: string; body: string; recommendation: string }; origin: string; sourceDocId?: string | null; why: string }): Ask {
   const line = `- ${oneLine(p.rule, 300)} (origin: ${p.origin}, ${utcDate(nowIso())})`;
-  const by = world.secretary.agent()?.id ?? "system";
-  const targetId = `ledger:${p.origin}`;
   const branches = [{ label: "Add", action: LEDGER_ADD }, { label: "Skip", action: "ledger-skip" }];
   // the Secretary is its card's author: its need goes on the Town Hall's thread and is rendered at once (decision 7)
-  const ask = askOnOwnNeed(world, {
-    need: "rule", targetKind: "rule", targetId, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: by === "system" ? "code" : "secretary",
+  return askOnOwnNeed(world, {
+    need: "rule", targetKind: "rule", targetId: `ledger:${p.origin}`, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: "secretary",
     note: oneLine(p.why, 300), body: line, docId: p.sourceDocId ?? null,
-  }, { title: `Add this rule to the ledger? ${oneLine(p.rule, 150)}`, body: `${line}\n\n${RULE_CARD_TAIL}`, recommendation: RULE_RECOMMENDATION, claims: [] }, by);
-  if (!ask) throw new AppError("conflict", "There is no Town Hall thread to file the rule ask on.");
-  return ask;
+  }, { title: p.card.title, body: `${line}\n\n${p.card.body}`, recommendation: p.card.recommendation, claims: [] }, by.id);
 }
-
-/** The ledger card's recommendation (as_y7mrnayxs2): the Secretary files a rule only from a pattern it saw repeat. */
-export const RULE_RECOMMENDATION = "Add it. The same question came back this week, and this rule answers it before it is asked again.";
-/** Under the card's first line (the ledger line that Add appends): the policy contract's rule and reversing cost. */
-const RULE_CARD_TAIL = "If you add it, every manager reads this rule in its first message. Reversing it means deleting the line from the ledger.";
 
 const isLedgerAsk = (a: Ask) => a.branches.some((b) => b.action === LEDGER_ADD);
 
@@ -569,7 +562,8 @@ export function applyRank(world: World, by: Agent, input: RankInput, at: Date = 
     const rewritten = (input.rewrite ?? []).map((r) => rewriteAsk(world, by, r.askId, r).id);
     // the backstop: a need its manager left unrendered; its manager hears that the Secretary rendered it
     const rendered = renders.map(({ r, n }) => {
-      const { ask } = renderNeed(world, n, { title: r.title, body: r.body, recommendation: r.recommendation, claims: r.claims ?? [] }, by.id);
+      const { ask, folded } = renderNeed(world, n, { title: r.title, body: r.body, recommendation: r.recommendation, claims: r.claims ?? [] }, by.id);
+      if (folded) throw secondCardRefused(ask.id, false);
       const manager = managerAgentOf(world, world.buildings.get(n.buildingId));
       if (manager) sendMessage(world, { kind: "system", fromId: by.id, fromKind: "agent", toId: manager.id, body: `${by.name} rendered your need ${n.entry.id} (${oneLine(n.entry.note, 120)}) as ask ${ask.id}: it waited more than an hour unrendered. Read the card; the Secretary owns its words from now on.` });
       return ask.id;
@@ -661,11 +655,13 @@ export function weekInputsText(world: World, at: Date = new Date()): string {
 const CITED = /\b(?:ak|gr|dc|sc|kr|mt|cr|ar|nt)_[a-z0-9]+\b/g;
 
 /** File the weekly pattern notice (the `rank` tool with `pattern`; only the Secretary); its rule, if any, as a policy ask. */
-export function filePattern(world: World, by: Agent, p: { title: string; body: string; rule?: string }): { noticeId: string; askId: string | null; note: string } {
+export function filePattern(world: World, by: Agent, p: { title: string; body: string; rule?: string; ruleCard?: { title: string; body: string; recommendation: string } }): { noticeId: string; askId: string | null; note: string } {
   if (!world.secretary.isSecretary(by)) throw forbidden("building.fund", "Only the Town Hall's Secretary files the pattern note.");
+  if (p.rule && !p.ruleCard) throw badRequest("pattern: a rule needs its card, ruleCard {title, body, recommendation}: the policy ask on it is yours to write, the town writes none. Leave rule out to file the note alone.");
+  if (p.ruleCard && !p.rule) throw badRequest("pattern: ruleCard is the card on a rule; give the rule line too, or leave ruleCard out.");
   return world.transaction(() => {
     const n = fileNotice(world, { kind: "pattern", buildingId: TOWN_HALL_ID, goalId: null, picture: null, title: oneLine(p.title, 160), body: p.body.trim(), refs: [...new Set(p.body.match(CITED) ?? [])] });
-    const ask = p.rule ? proposeRule(world, { rule: p.rule, origin: n.id, sourceDocId: null, why: `The week's pattern note ${n.id}: ${oneLine(p.title, 120)}` }) : null;
+    const ask = p.rule && p.ruleCard ? proposeRule(world, by, { rule: p.rule, card: p.ruleCard, origin: n.id, sourceDocId: null, why: `The week's pattern note ${n.id}: ${oneLine(p.title, 120)}` }) : null;
     return { noticeId: n.id, askId: ask?.id ?? null, note: `Filed ${n.id}${ask ? ` and the policy ask ${ask.id}` : ""}. Now submit_report (verdict stop).` };
   });
 }

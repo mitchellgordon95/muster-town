@@ -21,6 +21,7 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", mei.id)}` };
     const card = {
+      title: "Fund the banner line at 100k",
       body: "This is a new proposal. You have not decided on it before.\nNothing is spent yet. It has one step, and none is done yet.\nIf you fund: the banner ships.\nIf you reject: nothing runs.",
       recommendation: "Fund: one session does it.",
       claims: [{ text: "The lab has a name", check: { kind: "api" as const, ref: "GET /api/buildings/carbon-cycle /building/name" } }],

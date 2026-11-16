@@ -13,7 +13,6 @@
  *   manager; past `NEED_BACKSTOP_MS` the Secretary renders it and the manager is told (secretary.ts).
  */
 import type { Ask, AskBranch, AskTargetKind, AskType, GoalProposal } from "@muster-town/schema";
-import { AppError } from "./errors.ts";
 import { answerEntry, appendEntry, entryOf, type Entry } from "./jobs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
@@ -57,7 +56,7 @@ export interface NewNeed {
 /**
  * Write a need on a job's thread (level human), superseding an open need of the same kind on the same target (a new gate
  * replaces the old gate; it is answered with a pointer to the new one). A need of another kind on that target stays
- * open: one need, one ask (1:1 mt_dwsxo7oms8 decision 3). Null when the thread does not exist or the id was already written.
+ * open: one need, one ask (1:1 mt_dwsxo7oms8 decision 3). Null only when this id is already on the thread; a missing thread throws (appendEntry).
  */
 export function fileNeed(world: World, n: NewNeed): Entry | null {
   const older = openNeedsOn(world, n.targetKind, n.targetId).filter((o) => o.need === n.need);
@@ -111,7 +110,6 @@ export function fileGoalProposal(world: World, p: GoalProposal, w: GoalProposalW
     note: `Goal proposal ${p.id}: ${what}`.slice(0, 500), body: lines,
     moved: { kind: "goal-proposal", proposalId: p.id, action: p.action, targetId: p.targetId, parentId: p.parentId, fields: p.fields, why: p.why, sourceDocIds: p.sourceDocIds, reorgId: p.reorgId },
   });
-  if (!entry && !entryOf(world, `en_${p.id}`)) throw new AppError("conflict", `Goal proposal ${p.id} has no thread to go on: job ${jobId} does not exist.`);
   const need = fileNeed(world, {
     need: "goal", targetKind: "goalProposal", targetId: p.id, type: "policy", branches: GOAL_BRANCHES,
     id: `en_${p.id}_need`, jobId, authorKind: "code", authorId: "system", createdAt: p.createdAt,

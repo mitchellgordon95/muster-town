@@ -11,7 +11,7 @@ import { adoptGoal } from "../entities.ts";
 import { calibrate } from "../planner.ts";
 import { applyRank, filePattern, rankInputsText, weekInputsText } from "../secretary.ts";
 import { accept_assignment, assignments, ban, go, inbox, look, say, stop_fork, tell, town } from "./social.ts";
-import { askHumans } from "../ask-verb.ts";
+import { askHumans, secondCardRefused } from "../ask-verb.ts";
 import { rewriteOwnAsk, withdrawAsk } from "../asks.ts";
 import { entryOf } from "../jobs.ts";
 import type { VerbIn, VerbRawIn } from "./types.ts";
@@ -38,8 +38,10 @@ export const verbImpls = {
     }
     if (!input.type || !input.title || !input.branches) throw new AppError("bad_request", "ask: a new ask needs type, title and branches (or askId to rewrite or withdraw one of your building's asks).");
     const r = world.transaction(() => askHumans(world, me, bid, { ...input, type: input.type!, title: input.title!, branches: input.branches! }));
+    // a second card on a need is refused loudly, after the commit that keeps its words as an entry on the thread (decision-5 audit rank 1)
+    if (r.folded) throw secondCardRefused(r.askId, true);
     const { warnings, ...filed } = r;
-    return { ...filed, ...(warnings.length ? { warnings } : {}), note: `Filed as ask ${r.askId}${r.folded ? " (refused as a second card: that need already has this ask. Your words are an entry on its thread; to change its card, `ask` again with askId and the whole card)" : ""} in the humans' decision queue, on the thread of ${r.jobId}. Their decision comes back to your in-tray as an entry on that thread; don't wait in this session.${warnings.length ? ` It is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ").slice(0, 1200)}.` : ""}` };
+    return { ...filed, ...(warnings.length ? { warnings } : {}), note: `Filed as ask ${r.askId} in the humans' decision queue, on the thread of ${r.jobId}. Their decision comes back to your in-tray as an entry on that thread; don't wait in this session.${warnings.length ? ` It is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ").slice(0, 1200)}.` : ""}` };
   },
   rank: async (world: World, me: Agent, input: VerbIn<"rank">) => {
     if (!world.secretary.isSecretary(me)) throw new AppError("forbidden", "Only the Town Hall's Secretary ranks the asks.");

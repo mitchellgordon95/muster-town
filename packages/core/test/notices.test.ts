@@ -69,7 +69,7 @@ describe("notices", () => {
     const [v] = listNotices(world, { kind: "verified" });
     expect(v).toMatchObject({ title: "The banner shows today's spend", refs: [kr.id, g.id], buildingId: LAB });
     expect(v!.body).toMatch(/verified it met: checked it live\n\nHow to check: Open Map → Bank$/);
-    const pattern = await world.verbs.rank(sec, { pattern: { title: "Two buildings hit the same permission", body: `Both ${g.id} and ${kr.id} stalled on it.`, rule: "Forks ask for a scoped token before starting" } }) as { noticeId: string; askId: string };
+    const pattern = await world.verbs.rank(sec, { pattern: { title: "Two buildings hit the same permission", body: `Both ${g.id} and ${kr.id} stalled on it.`, rule: "Forks ask for a scoped token before starting", ruleCard: { title: "Ask for a scoped token first", body: "Two buildings stalled on the same permission.\nThe rule answers it before it is asked.\nReversing it means deleting the line.", recommendation: "Add it: it stalled two buildings." } } }) as { noticeId: string; askId: string };
     expect(world.notices.require(pattern.noticeId, "notice")).toMatchObject({ kind: "pattern", refs: [g.id, kr.id] });
     expect(world.asks.require(pattern.askId)).toMatchObject({ type: "policy", targetId: `ledger:${pattern.noticeId}` });
     expect(listNotices(world)[0]!.id).toBe(pattern.noticeId);
