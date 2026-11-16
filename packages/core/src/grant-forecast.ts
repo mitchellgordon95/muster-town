@@ -11,15 +11,19 @@ import type { World } from "./world.ts";
  * Read-only arithmetic except `fileForecast`, which stores the forecast on the grant and appends its events.
  */
 
-/** Every step carries a size. Steps of grants funded before sizes (migration 098 sizes only unfunded proposals) don't. */
-function allSized(g: Grant): boolean {
-  return g.steps.every((s) => !!s.size);
+/**
+ * Every step's size, or null when a step has none: steps of grants funded before sizes (migration 098 sizes only unfunded
+ * proposals) are not priced at all, never guessed as M (decision-5 audit rank 7).
+ */
+function sizesOf(g: Grant): StepSize[] | null {
+  const sizes = g.steps.map((s) => s.size);
+  return sizes.every((z): z is StepSize => !!z) ? sizes : null;
 }
 
 /** The sizes of a grant's steps not done yet (a step is done when its latest assignment is). */
-function stepsLeft(world: World, g: Grant): StepSize[] {
+function stepsLeft(world: World, g: Grant, sizes: StepSize[]): StepSize[] {
   const states = world.grantDesk.stepStates(g);
-  return g.steps.flatMap((s, i) => (states[i]?.status === "done" ? [] : [s.size ?? "M"]));
+  return sizes.filter((_, i) => states[i]?.status !== "done");
 }
 
 /**
@@ -28,9 +32,10 @@ function stepsLeft(world: World, g: Grant): StepSize[] {
  * expected to spend its ceiling's remainder: there is nothing to price it by.
  */
 export function expectedRemaining(world: World, g: Grant, cal: StepCalibration, ceilingRemaining: number): number {
-  if (!g.steps.length || !allSized(g)) return ceilingRemaining;
+  const sizes = sizesOf(g);
+  if (!g.steps.length || !sizes) return ceilingRemaining;
   const table = grantPricingOf(world.town.get()).stepSizes;
-  return Math.max(0, Math.round(stepsLeft(world, g).reduce((s, size) => s + table[size] * calibratedRatio(cal, size), 0)));
+  return Math.max(0, Math.round(stepsLeft(world, g, sizes).reduce((s, size) => s + table[size] * calibratedRatio(cal, size), 0)));
 }
 
 /**
@@ -48,7 +53,8 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
   if (!g || !g.steps.length || !g.grantTokens) return null;
   // only a running grant forecasts: a stopping or closed one files no ask and no notice
   if (g.status !== "funded" && g.status !== "checkpoint") return null;
-  if (!allSized(g)) {
+  const sizes = sizesOf(g);
+  if (!sizes) {
     // funded before step sizes (migration 098 leaves funded grants' steps unsized): no forecast, no ask, no notice, said once per report
     world.events.append({
       type: "grant.forecast", buildingId: g.buildingId,
@@ -62,8 +68,7 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
   const states = world.grantDesk.stepStates(g);
   const left: Record<StepSize, number> = { S: 0, M: 0, L: 0 };
   let doneSize = 0, stepsDone = 0, expected = 0;
-  g.steps.forEach((s, i) => {
-    const size = s.size ?? "M";
+  sizes.forEach((size, i) => {
     if (states[i]?.status === "done") { stepsDone++; doneSize += table[size]; return; }
     left[size]++;
     expected += table[size] * calibratedRatio(cal, size);

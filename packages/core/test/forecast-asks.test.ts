@@ -186,6 +186,39 @@ describe("an over-ceiling forecast writes the gate's need, an on-budget one a no
   });
 });
 
+describe("the gate's facts never coerce (decision-5 audit ranks 6-7)", () => {
+  it("a step report with no verdict reads as 'It gave no verdict', never 'continue'", async () => {
+    const { world, fund, runStep, gateNeeds } = lab();
+    const g = fund();
+    const { r } = await runStep(40_000);
+    const { verdict: _dropped, ...noVerdict } = world.docs.require(r.id);
+    world.docs.upsert(noVerdict as never);
+    world.sessions.upsert({
+      id: newId("se"), agentId: world.grants.require(g.id).proposedBy ?? "system", assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+      sdkSessionId: null, output: 600_000, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: g.id,
+    } as never);
+    world.grantDesk.checkpoints(g.buildingId);
+    const body = gateNeeds(g.id).at(-1)!.body;
+    expect(body).toContain(`The latest step report is ${r.id}, "Report on Check the banner". It gave no verdict.`);
+    expect(body).not.toContain("Its verdict is continue");
+  });
+
+  it("unsized steps are counted as unsized in the gate's facts, never priced as M; proposing them is refused", async () => {
+    const { world, fund, runStep, gateNeeds, b } = lab();
+    const g = fund();
+    world.grants.upsert({ ...world.grants.require(g.id), steps: STEPS.map(({ title, description }) => ({ title, description })) as never });
+    await runStep(650_000);
+    world.grantDesk.checkpoints(g.buildingId);
+    const body = gateNeeds(g.id).at(-1)!.body;
+    expect(body).toMatch(/steps? (is|are) left: two unsized\./);
+    expect(body).not.toMatch(/one M|two M/);
+    // a draft whose steps carry no size can't be priced: propose names the step
+    const d = world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "Old plan", steps: STEPS, stopCondition: "s" });
+    world.grants.upsert({ ...world.grants.require(d.id), steps: STEPS.map(({ title, description }) => ({ title, description })) as never });
+    expect(() => world.grantDesk.propose(null, d.id)).toThrow(/Step 1 \("Check the banner"\) has no size: it was planned before step sizes, so it can't be priced/);
+  });
+});
+
 describe("the checkpoint's need", () => {
   it("a grant held with no forecast and no report writes its need with what the town knows, and no suggestion it can't back", () => {
     const { world, fund, b, gateNeeds, gateAsks } = lab();

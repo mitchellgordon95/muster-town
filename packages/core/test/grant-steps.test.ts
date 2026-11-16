@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyDecision, buildingQueue, reviewDeck, createBuilding, createDoc, createResident, forkManager, retireFork, updateBuilding } from "../src/index.ts";
+import { applyDecision, buildingQueue, reviewDeck, createBuilding, createDoc, createResident, forkManager, jobThread, retireFork, updateBuilding } from "../src/index.ts";
 import { migrate } from "../src/db.ts";
 import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
@@ -70,6 +70,21 @@ describe("grant B: funding queues step 1, no kickoff session", () => {
     const d = world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "o", steps: [STEPS[1]!], stopCondition: "s", askTokens: 1 });
     world.grants.upsert({ ...world.grants.require(d.id), steps: [] });
     expect(() => world.grantDesk.propose(null, d.id)).toThrow(/1-5 steps/);
+  });
+});
+
+describe("a step's model the building no longer allows (decision-5 audit rank 8)", () => {
+  it("holds the step: nothing queued on another model, a manager-level entry on the grant's thread names the mismatch", () => {
+    const { world, b, propose, admin } = lab();
+    const g = propose();
+    world.buildings.patch(b.id, { cheapModel: "claude-opus-5-5" });
+    world.grantDesk.decide(admin, g.id, { action: "fund" });
+    expect(buildingQueue(world, b.id)).toHaveLength(0);
+    const held = jobThread(world, `jb_${g.id}`)!.entries.filter((e) => e.moved.kind === "step-held");
+    expect(held).toHaveLength(1);
+    expect(held[0]).toMatchObject({ level: "manager", authorKind: "code", moved: { grantId: g.id, step: 1, model: "claude-haiku-5-5" } });
+    expect(held[0]!.note).toMatch(/^Step 1 of A banner is held: its plan names the model claude-haiku-5-5, which the building no longer allows\. Steppy runs forks on claude-opus-5-5/);
+    expect(world.events.list({ types: ["grant.step-held"] })).toHaveLength(1);
   });
 });
 

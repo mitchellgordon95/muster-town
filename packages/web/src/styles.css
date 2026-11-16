@@ -1118,7 +1118,7 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .step-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; font-size: var(--fs-sm); }
 .step-strip-boxes { display: flex; gap: 3px; list-style: none; margin: 0; padding: 0; }
 .step-box { border: 1px solid var(--line-2); border-radius: 3px; text-align: center; font-size: var(--fs-xs); line-height: 18px; color: var(--muted); }
-.step-box.size-S { width: 20px; } .step-box.size-M { width: 34px; } .step-box.size-L { width: 56px; }
+.step-box.size-S { width: 20px; } .step-box.size-M { width: 34px; } .step-box.size-L { width: 56px; } .step-box.unsized { width: 34px; border-style: dashed; }
 .step-box.done { background: color-mix(in srgb, var(--green) 40%, var(--panel)); color: var(--text); }
 .step-box.running { background: color-mix(in srgb, var(--blue) 30%, var(--panel)); color: var(--text); }
 .step-strip.over .step-box:not(.done) { border-color: var(--bad); }
