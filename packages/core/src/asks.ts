@@ -585,7 +585,7 @@ export function templateCardsToNeeds(world: World): number {
       // the need it goes back to (written now when the target has none open)
       if (!openNeedsOn(world, a.targetKind!, a.targetId).length) {
         if (g?.status === "proposed") needForProposal(world, g);
-        else if (g?.status === "checkpoint" || (g && isGateAsk(a))) needAtCheckpoint(world, g, world.grantDesk.spent(g.id), g.status !== "checkpoint");
+        else if (g?.status === "checkpoint") needAtCheckpoint(world, g, world.grantDesk.spent(g.id));
       }
       if (!openNeedsOn(world, a.targetKind!, a.targetId).length) continue;
       const at = nowIso();
@@ -667,9 +667,10 @@ function latestStepReport(world: World, g: Grant): Doc | null {
  * the card: the human's prior decision and when, spent against the ceiling, steps done and left by size, the
  * projection and the shortfall, the step in flight and its latest report, what each branch does, a suggested branch
  * (adjust by the shortfall rounded up to a whole number of the smallest step size; cut when the latest step report's verdict is stop or pivot, or nothing is left) and the latest step report.
- * `held`: the grant is at its ceiling now; `spent`: its spend now. Facts the town lacks are left out, never guessed.
+ * The grant is held at its ceiling now (the hold is the only gate: 1:1 mt_vdu3iqhasi decision 2); `spent`: its spend now.
+ * Facts the town lacks are left out, never guessed.
  */
-function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): { note: string; body: string } {
+function gateFacts(world: World, g: Grant, o: { spent: number; report?: Doc | null }): { note: string; body: string } {
   const ceiling = g.grantTokens ?? 0;
   const f = g.forecast ?? null;
   const report = o.report === undefined ? latestStepReport(world, g) : o.report;
@@ -703,7 +704,7 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
   const need = leftExpected !== null ? Math.max(0, Math.round(o.spent + leftExpected - ceiling)) : g.topUpTokens ?? 0;
   const raise = need ? roundUpToStep(need, table) : 0;
   const projection = f && leftExpected !== null ? [
-    `${o.held ? "At what its steps have left, it is projected to spend" : "At the sizes left, it is projected to spend"} ${fmt(Math.round(o.spent + leftExpected))} tokens in all.`,
+    `At what its steps have left, it is projected to spend ${fmt(Math.round(o.spent + leftExpected))} tokens in all.`,
     need ? `That is ${fmt(need)} tokens past the ceiling.` : "That is within the ceiling.",
   ] : [];
   const verdict = report?.verdict ?? null;
@@ -714,45 +715,56 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
     : "";
   const body = [
     ...prior,
-    `It has spent ${fmt(o.spent)} of its ${fmt(ceiling)}-token ceiling.${o.held ? " New sessions on it wait for you." : ""}`,
+    `It has spent ${fmt(o.spent)} of its ${fmt(ceiling)}-token ceiling. New sessions on it wait for you.`,
     ...steps, flightLine, ...projection,
     raise ? `If you adjust by ${fmt(raise)}: the ceiling becomes ${fmt(ceiling + raise)} tokens, and the work runs on.` : "If you adjust: the ceiling rises by what you give, and the work runs on.",
-    o.held ? "If you cut: the grant closes at what it spent, and nothing more runs on it." : "If you cut: the running step wraps up, and the grant closes at what it spent.",
+    "If you cut: the grant closes at what it spent, and nothing more runs on it.",
   ].filter(Boolean).join("\n");
   const reportLine = report ? `The latest step report is ${report.id}, "${withoutEllipsis(report.title)}". ${verdict ? `Its verdict is ${verdict}.` : "It gave no verdict."}` : "";
   const topUp = g.topUpTokens && g.whatTopUpBuys.trim() ? `The forks say ${fmt(g.topUpTokens)} more tokens finish it: ${oneLine(g.whatTopUpBuys, 300)}` : "";
-  const note = o.held ? `Grant ${g.id} ${quotedGrantName(g)} reached its gate: it is held at its ${fmt(ceiling)}-token ceiling.` : `Grant ${g.id} ${quotedGrantName(g)} reached its gate: it is projected ${fmt(need)} tokens past its ceiling.`;
+  const note = `Grant ${g.id} ${quotedGrantName(g)} reached its gate: it is held at its ${fmt(ceiling)}-token ceiling.`;
   return { note, body: [body, recommendation ? `Suggested: ${recommendation}` : "", reportLine, topUp].filter(Boolean).join("\n") };
 }
 
 /**
  * Write the gate's need on the grant's thread (1:1 mt_t65exni4et decision 2: its manager renders the adjust / cut card).
- * A later forecast or the hold supersedes an open gate need; a live ask on the grant stays and is marked behind.
+ * A later hold supersedes an open gate need; a live ask on the grant stays and is marked behind.
  */
 function fileGateNeed(world: World, g: Grant, facts: { note: string; body: string }, sourceDocId: string | null): void {
   fileNeed(world, { need: "gate", targetKind: "grant", targetId: g.id, type: "money", branches: GATE_BRANCHES, jobId: `jb_${g.id}`, note: facts.note, body: facts.body, docId: sourceDocId });
 }
 
+/** A funded grant held at its ceiling (`Grants.checkpoints`): the gate's need, its facts from the grant's history and latest forecast. */
+export function needAtCheckpoint(world: World, g: Grant, spent: number): void {
+  fileGateNeed(world, g, gateFacts(world, g, { spent }), null);
+}
+
 /**
- * A step report's forecast projected the grant past its ceiling (`fileForecast`): the gate's need before the hold,
- * written while the next step keeps running.
+ * Boot repair (1:1 mt_vdu3iqhasi decision 2): a forecast no longer asks; a funded grant runs to its end or its ceiling,
+ * and the hold is the only gate. A gate ask or gate need left open on a grant still running (status funded, so not
+ * held) was filed by a forecast: the ask retires and the need is settled, each with a note citing the decision. A held
+ * grant's gate is left alone. Idempotent. Returns how many asks and needs it closed.
  */
-export function needAtForecast(world: World, g: Grant, report: Doc | null): void {
-  fileGateNeed(world, g, gateFacts(world, g, { held: false, spent: g.forecast?.spent ?? world.grantDesk.spent(g.id), report }), null);
-}
-
-/** A later forecast is back within the ceiling: the open gate need of a still-running grant is settled, and its gate ask retires. */
-export function retireGateAsk(world: World, g: Grant, reason: string): Ask[] {
-  if (g.status !== "funded") return [];
-  const live = liveAskOn(world, "grant", g.id);
-  if (live && isGateAsk(live)) return retireAsks(world, "grant", g.id, reason);
-  settleNeeds(world, "grant", g.id, reason, false, null);
-  return [];
-}
-
-/** A funded grant held at its ceiling (`Grants.checkpoints`), or `forecast`: the gate's need, its facts from the grant's history and latest forecast. */
-export function needAtCheckpoint(world: World, g: Grant, spent: number, forecast = false): void {
-  fileGateNeed(world, g, gateFacts(world, g, { held: !forecast, spent }), null);
+export function retireForecastGates(world: World): number {
+  const reason = "A forecast no longer asks: a funded grant runs to its end or its ceiling, and the hold at the ceiling is the only gate (1:1 mt_vdu3iqhasi decision 2).";
+  let n = 0;
+  world.transaction(() => {
+    for (const g of world.grants.where("status = 'funded'", [], "ORDER BY updatedAt, rowid")) {
+      const at = nowIso();
+      for (const a of world.asks.where(`targetKind = 'grant' AND targetId = ? AND ${LIVE_ASK}`, [g.id], "ORDER BY createdAt, rowid")) {
+        if (!isGateAsk(a)) continue;
+        world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: "system", note: reason }] });
+        world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: "grant", targetId: g.id, reason, human: false } });
+        reopenDeferred(world, [a.id], reason);
+        n++;
+      }
+      for (const need of openNeedsOn(world, "grant", g.id)) {
+        if (need.need !== "gate") continue;
+        if (answerEntry(world, need.entry.id, { kind: "system", id: "system" }, "settled", reason)) n++;
+      }
+    }
+  });
+  return n;
 }
 
 // ---- legible delegation step 5: the Secretary's rank ----
