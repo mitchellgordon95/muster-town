@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, focusBlock, inForce, humanDecisionsBlock, humanTyping, managePrompt, managerQueue, type QueueItem, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, pinnedPagesBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, noteOneOnOneWorking, focusBlock, inForce, humanDecisionsBlock, humanTyping, managePrompt, managerQueue, type QueueItem, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, pinnedPagesBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -149,6 +149,7 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
         const [prompt, images] = seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agent.id, side ? live : undefined)), humanLines(m));
         if (talker.input.push(busy ? `${oneOnOneCutIn(m)}\n\n${prompt}\n\n${RESUME_IN_TRAY}` : prompt, images)) {
           st.fed.set(m.id, { sessionId: talker.sessionId, idx: m.transcript.length });
+          noteOneOnOneWorking(world, agent.id, m.id);
           if (busy) {
             if (st.busyNoticed.get(m.id) !== talker.sessionId) { st.busyNoticed.set(m.id, talker.sessionId); meetingNotice(world, m.id, `${agent.name} is in a team-lead session; it answers between steps.`); }
             cutIn(ctx, talker, `1:1 ${m.id} opened`);
@@ -164,6 +165,8 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
         const [line, images] = seeing(world, `${onScreen ? `${onScreen}\n\n` : ""}${oneOnOneUtterance(m, nameOf(u.speakerId), u.text, u.at)}`, [u]);
         said = talker.input.push(line + (busy ? `\n\n${RESUME_IN_TRAY}` : ""), images) || said;
       }
+      // the human's line is in: "<name> is writing…" from now, not from the agent's first tool call
+      if (said) noteOneOnOneWorking(world, agent.id, m.id);
       f.idx = m.transcript.length;
       if (said && busy) cutIn(ctx, talker, `a line in 1:1 ${m.id}`);
     }
@@ -312,7 +315,7 @@ async function runManageSession(ctx: Ctx, st: ManageState, agentId: string, fres
   // runAgentSession registered the live session before its first await: queue what the prompt didn't cover
   const live = work ? ctx.talking.get(agentId) : ctx.live.get(agentId);
   if (live && first) {
-    for (const m of talks) st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length });
+    for (const m of talks) { st.fed.set(m.id, { sessionId: live.sessionId, idx: m.transcript.length }); noteOneOnOneWorking(world, agentId, m.id); }
     for (const m of more) live.input.push(...seeing(world, oneOnOnePrompt(m, nameOf, talkBlocks(world, m, agentId, work)), humanLines(m)));
     for (const d of fresh) live.input.push(managerNewReport(d, nameOf));
   } else if (live && resume) {
