@@ -2272,7 +2272,7 @@ export const VerbInputs = {
   }),
   skills: z.object({ query: z.string().optional().describe("filter by words in the name or description"), limit: z.number().int().positive().max(100).default(30) }),
   pin: PinInput.extend({
-    docId: Id.optional().describe("the doc to pin (today: a skill)"),
+    docId: Id.optional().describe("the doc to pin: a skill, a topic page, a library or Town Hall doc"),
     skillId: Id.optional().describe("old name for docId, kept for one release"),
     remove: z.boolean().default(false).describe("unpin instead"),
   }),

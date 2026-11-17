@@ -54,3 +54,44 @@ describe("120_town_pins migration (design dc_8194l8soj4 §4): the back-fill", ()
     expect(rows()).toEqual(want);
   });
 });
+
+describe("121_page_pins migration (design dc_8194l8soj4 §3-4, step 3): the back-fill", () => {
+  it("pins published topic pages building/listed, a manager's private pages agent/listed, Town Hall town pages town/listed; skips drafts, residents' pages and untagged docs; a second run adds nothing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mig-page-pins-"));
+    const PAGES = "121_page_pins.sql";
+    for (const f of readdirSync(MIGRATIONS)) if (f.endsWith(".sql") && f < PAGES) copyFileSync(join(MIGRATIONS, f), join(dir, f));
+    const db = new Database(":memory:");
+    migrate(db, dir);
+    const cols = (db.prepare("PRAGMA table_info(buildings)").all() as { name: string; notnull: number; dflt_value: unknown }[]).filter((c) => c.notnull && c.dflt_value == null).map((c) => c.name);
+    const bld = (id: string, manager: string | null) => {
+      const vals: Record<string, unknown> = Object.fromEntries(cols.map((c) => [c, c === "id" ? id : c === "name" ? id : 0]));
+      vals.managerAgentId = manager;
+      const keys = Object.keys(vals);
+      db.prepare(`INSERT INTO buildings (${keys.join(", ")}) VALUES (${keys.map(() => "?").join(", ")})`).run(...keys.map((k) => vals[k]));
+    };
+    bld("bl_a", "ag_boss");
+    bld("bl_b", null);
+    const doc = db.prepare("INSERT INTO docs (id, type, state, title, body, authorId, authorKind, buildingId, topicOf, tags, createdAt, updatedAt) VALUES (?, ?, ?, 't', 'b', ?, 'agent', ?, ?, ?, ?, ?)");
+    const at = "2026-11-01T00:00:00Z";
+    const add = (id: string, type: string, state: string, author: string, building: string, topicOf: string | null, tags: string[] = []) => doc.run(id, type, state, author, building, topicOf, JSON.stringify(tags), at, at);
+    add("dc_topic", "wiki", "building", "ag_boss", "bl_a", "bl_a");
+    add("dc_topicdraft", "wiki", "draft", "ag_boss", "bl_a", "bl_a");
+    add("dc_bosswiki", "wiki", "draft", "ag_boss", "bl_a", null);
+    add("dc_reswiki", "wiki", "draft", "ag_res", "bl_a", null);
+    add("dc_townpage", "article", "building", "ag_sec", "town-hall", null, ["town-page"]);
+    add("dc_townpagedraft", "article", "draft", "ag_sec", "town-hall", null, ["town-page"]);
+    add("dc_elsewhere", "article", "building", "ag_boss", "bl_a", null, ["town-page"]);
+    add("dc_note", "note", "building", "ag_sec", "town-hall", null);
+    copyFileSync(join(MIGRATIONS, PAGES), join(dir, PAGES));
+    migrate(db, dir);
+    const rows = () => db.prepare("SELECT docId, scope, targetId, mode, seeded, pinnedBy FROM pins ORDER BY docId").all();
+    const want = [
+      { docId: "dc_bosswiki", scope: "agent", targetId: "ag_boss", mode: "listed", seeded: 1, pinnedBy: "system" },
+      { docId: "dc_topic", scope: "building", targetId: "bl_a", mode: "listed", seeded: 1, pinnedBy: "system" },
+      { docId: "dc_townpage", scope: "town", targetId: null, mode: "listed", seeded: 1, pinnedBy: "system" },
+    ];
+    expect(rows()).toEqual(want);
+    db.exec(readFileSync(join(MIGRATIONS, PAGES), "utf8"));
+    expect(rows()).toEqual(want);
+  });
+});

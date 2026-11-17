@@ -141,7 +141,7 @@ describe("work brief carries memory", () => {
     const m = composeWorkBrief(world, s.id);
     expect(m.prompt).toContain("## Your team (you are the manager");
     expect(m.system).not.toContain("## Your team");
-    // a manager gets the index of its wiki, the pages read on demand
+    // a manager gets the index of its wiki, the pages read on demand (written before it managed: no pin, so listed here)
     expect(m.prompt).toMatch(/- "Dashboard" \(dc_/);
     expect(m.prompt).not.toContain("### Dashboard (dc_");
     expect(b.prompt).toContain("## Your recent work");

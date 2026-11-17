@@ -12,6 +12,12 @@ import { docGist } from "./text.ts";
 /** One cap for the always-on text of every pinned page together (today's two 8,000-char caps, manual + skills). */
 const PINS_ALWAYS_CAP = 16_000;
 
+/**
+ * Most listed lines per scope (the old topic index's cap, TOPIC_INDEX_MAX; design dc_8194l8soj4 §10): past it the oldest
+ * pins of that scope give way to the newest, and one line says how many more `search` finds.
+ */
+const PINS_LISTED_PER_SCOPE = 50;
+
 /** Scope order in the block: the town first, so the most stable text sits at the top of the prompt (docs/prompt-caching.md). */
 const SCOPE_RANK: Record<PinScope, number> = { town: 0, building: 1, agent: 2 };
 
@@ -55,6 +61,9 @@ function pinView({ doc, files }: PinnedDoc): PinPage | null {
     return { title: doc.title, gist: `${rules.length} rule${rules.length === 1 ? "" : "s"} the humans set`, heading: LEDGER_HEADING, text: rules.join("\n") };
   }
   if (doc.type === "dictionary") return { title: doc.title, gist: dictionaryGist(doc.body), heading: doc.title, text: doc.body.trim() };
+  // a wiki page (a topic page, a manager's page) is rewritten every few sessions: its listed line is its title alone, so
+  // a rewrite doesn't change the cached system prompt (docs/prompt-caching.md); only a new page does
+  if (doc.type === "wiki") return { title: doc.title, gist: "", heading: doc.title, text: doc.body.trim() };
   return { title: doc.title, gist: docGist(doc), heading: doc.title, text: doc.body.trim() };
 }
 
@@ -102,21 +111,27 @@ export function resolvePins(pins: readonly PinRow[], docs: ReadonlyMap<string, P
  * "## Pinned pages" for a session prompt: `always` entries in full, in order, until their text reaches `cap` (an always
  * entry that doesn't fit is listed instead, and the count is named); then one line per listed entry. "" when none.
  */
-export function pinnedPagesBlock(entries: readonly PinEntry[], cap: number = PINS_ALWAYS_CAP): string {
+export function pinnedPagesBlock(entries: readonly PinEntry[], cap: number = PINS_ALWAYS_CAP, listedPerScope: number = PINS_LISTED_PER_SCOPE): string {
   if (!entries.length) return "";
   const full: string[] = [];
   const listed: string[] = [];
   let used = 0;
   let overflow = 0;
+  // listed pins past the per-scope cap: the oldest of the scope drop out (entries are oldest first within a scope)
+  const listedIn = (scope: PinScope) => entries.filter((e) => e.mode === "listed" && e.scope === scope).length;
+  const skip = new Map<PinScope, number>((["town", "building", "agent"] as const).map((sc) => [sc, Math.max(0, listedIn(sc) - listedPerScope)]));
+  const dropped = [...skip.values()].reduce((n, k) => n + k, 0);
   for (const e of entries) {
+    if (e.mode === "listed" && skip.get(e.scope)! > 0) { skip.set(e.scope, skip.get(e.scope)! - 1); continue; }
     if (e.mode === "always") {
       const keep = e.writable ? `\nYou keep this page: when what it says changes, rewrite it whole with \`write\` (id ${e.doc.id}).` : "";
       const text = `### ${e.heading} (${e.doc.id}, ${e.scope} pin, always on)${keep}\n${e.text}`;
       if (used + text.length <= cap) { full.push(text); used += text.length; continue; }
       overflow++;
     }
-    listed.push(`- ${e.title} (${e.doc.id}, ${e.scope} pin): ${e.gist}`);
+    listed.push(`- ${e.title} (${e.doc.id}, ${e.scope} pin)${e.gist ? `: ${e.gist}` : ""}`);
   }
+  if (dropped) listed.push(`- (${dropped} older listed page${dropped === 1 ? "" : "s"} not shown: \`search\` finds ${dropped === 1 ? "it" : "them"})`);
   const out = ["## Pinned pages", "Pages pinned into your sessions: always-on ones in full, listed ones one line each. Before you use a listed one, load it with `read` (its id); `read` with `file` opens a skill's bundled file (on a desk you can save it and run it). `skills` lists every skill you can use."];
   if (full.length) out.push(full.join("\n\n"));
   if (listed.length) {
