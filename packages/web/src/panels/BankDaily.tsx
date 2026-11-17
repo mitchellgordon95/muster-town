@@ -11,10 +11,10 @@ import type { Finance, FinanceDaily } from "../api";
 const SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500"];
 const OTHER = "#7d8197";
 const CREDIT = "#e8e9f0";
-export const DAILY_TOP = 4;
+const DAILY_TOP = 4;
 const n = (x: number) => x.toLocaleString("en-US");
 
-export interface DailyStack { key: string; name: string; color: string }
+interface DailyStack { key: string; name: string; color: string }
 
 /** The stack's series: the top `DAILY_TOP` buildings by window total, then "Other" when more buildings used tokens. */
 export function dailyStacks(d: FinanceDaily): DailyStack[] {
