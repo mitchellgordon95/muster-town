@@ -13,5 +13,7 @@ describe("residentDrag.canDrag", () => {
     expect(canDrag(agent({ status: "retired" }), manages(["bl_a"]))).toBe(false);
     expect(canDrag(agent({}), manages(["bl_b"]))).toBe(false);
     expect(canDrag(undefined, manages(["bl_a"]))).toBe(false);
+    // the Secretary lives in the Town Hall: whoever manages it (an admin) may move him (flag dc_d2wkuhoh1l)
+    expect(canDrag(agent({ name: "Secretary", homeBuildingId: "town-hall", buildingId: "town-hall" }), manages(["town-hall"]))).toBe(true);
   });
 });

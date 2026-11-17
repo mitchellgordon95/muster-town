@@ -2,6 +2,7 @@ import { BANK_FIXTURES, BULLETIN_PLACE, bankPlaces, labSize, MAX_HEADCOUNT, TILE
 import { piecesFor, resolveFurniture } from "./furniture.ts";
 import { deriveRoads, doorOf, type Side } from "./road.ts";
 import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
+import { restTile, type RestSpot } from "./rest-spot.ts";
 import type { MapLayout } from "@muster-town/schema";
 
 /** Row-major tile grid, same shape as the WS snapshot's `grid`. */
@@ -63,9 +64,11 @@ export interface LayoutResult {
 
 /**
  * Build the tile grid and places from the goal tree (`treeLayout` decides every lot and plaza; a building's stored lot
- * is not read) and desk occupancy. `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name.
+ * is not read) and desk occupancy. `occupancy`: buildingId -> (deskIndex -> agentId); `names`: agentId -> name;
+ * `spots`: agentId -> where a human dropped it (rest-spot.ts): its `desk:<agentId>` place goes there while the tile can
+ * be stood on; its desk slot keeps the default tile.
  */
-export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree", rests: Map<string, string> = new Map()): LayoutResult {
+export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree", rests: Map<string, string> = new Map(), spots: ReadonlyMap<string, RestSpot> = new Map()): LayoutResult {
   const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })), shape);
   const lots = buildings.filter((b) => tree.lots.has(b.id)).map((b) => ({ ...b, lot: tree.lots.get(b.id)! }));
   const { w, h } = tree;
@@ -199,6 +202,12 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     places.push({ id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: board.x, y: board.y + 1 } });
   }
   const grid = { w, h, tiles };
+  // a dragged agent's home place is where it was dropped (flag dc_d2wkuhoh1l); the desk stays put
+  for (const [i, p] of places.entries()) {
+    if (p.kind !== "desk" || p.id.startsWith("desk:free:")) continue;
+    const id = p.id.slice("desk:".length), spot = spots.get(id), t = spot && restTile(spot, tree.lots, grid);
+    if (t) places[i] = { ...p, pos: t, name: `${names.get(id) ?? id}'s spot` };
+  }
   const seats = new Map<string, Tile[]>();
   for (const [id, table] of tables) {
     const room = places.find((p) => p.id === id)!.pos;
