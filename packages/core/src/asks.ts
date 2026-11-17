@@ -19,6 +19,7 @@ import { queueClaimChecks } from "./ask-checks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { managerAgentOf, sendMessage } from "./domain.ts";
 import { maySettle } from "./overtake.ts";
+import { expectedLeft, stepCalibration } from "./grant-estimate.ts";
 import { answerEntry, appendEntry, entryOf, jobThread, threadSeq } from "./jobs.ts";
 import { cardShown, DO_BRANCHES, fileGoalProposal, fileNeed, GATE_BRANCHES, openNeedsOn, PROPOSAL_BRANCHES, requestType, settleNeeds, type Need } from "./needs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
@@ -638,13 +639,18 @@ const Word = (n: number) => word(n).replace(/^./, (c) => c.toUpperCase());
 const sizesLine = (sizes: (StepSize | undefined)[]) => ([["S", "S"], ["M", "M"], ["L", "L"], [undefined, "unsized"]] as const).flatMap(([z, label]) => { const n = sizes.filter((s) => s === z).length; return n ? [`${word(n)} ${label}`] : []; }).join(", ");
 
 /**
- * What a top-up of `n` tokens rounds up to: the smallest step size of the collective's table that covers it, or past the
- * largest, `n` rounded up to a whole number of the smallest size.
+ * What a top-up of `n` tokens rounds up to: a whole number of the smallest step size of the collective's table (never the
+ * next size: a shortfall 179 tokens past M is not an L, gr_76e81kdpvy).
  */
 function roundUpToStep(n: number, table: Record<StepSize, number>): number {
-  const sizes = Object.values(table).filter((s) => s > 0).sort((a, b) => a - b);
-  if (n <= 0 || !sizes.length) return Math.max(0, n);
-  return sizes.find((s) => s >= n) ?? Math.ceil(n / sizes[0]!) * sizes[0]!;
+  const smallest = Math.min(...Object.values(table).filter((s) => s > 0));
+  if (n <= 0 || !Number.isFinite(smallest)) return Math.max(0, n);
+  return Math.ceil(n / smallest) * smallest;
+}
+
+/** The latest report filed on a step (any of its assignments: a parked report sits on the one before its continuation); null when none. */
+function stepReport(world: World, g: Grant, index: number): Doc | null {
+  return world.docs.first("type = 'report' AND assignmentId IN (SELECT id FROM assignments WHERE grantId = ? AND grantStep = ?)", [g.id, index], "ORDER BY createdAt DESC, rowid DESC") ?? null;
 }
 
 /** The report of the grant's latest done step, else of its latest grant-lane session; null when it has none. */
@@ -659,8 +665,8 @@ function latestStepReport(world: World, g: Grant): Doc | null {
 /**
  * The facts of a grant's gate (docs/legible-delegation.md §7.3 point 4), written on its need for the manager who renders
  * the card: the human's prior decision and when, spent against the ceiling, steps done and left by size, the
- * projection and the shortfall, what each branch does, a suggested branch (adjust by the shortfall rounded up to a step
- * size; cut when the latest step report's verdict is stop or pivot, or nothing is left) and the latest step report.
+ * projection and the shortfall, the step in flight and its latest report, what each branch does, a suggested branch
+ * (adjust by the shortfall rounded up to a whole number of the smallest step size; cut when the latest step report's verdict is stop or pivot, or nothing is left) and the latest step report.
  * `held`: the grant is at its ceiling now; `spent`: its spend now. Facts the town lacks are left out, never guessed.
  */
 function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; report?: Doc | null }): { note: string; body: string } {
@@ -683,12 +689,21 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
     `${doneSizes.length ? Word(doneSizes.length) : "None"} of ${g.steps.length} steps ${doneSizes.length === 1 ? "is" : "are"} done${doneSizes.length ? `: ${sizesLine(doneSizes)}` : ""}.`,
     leftSizes.length ? `${Word(leftSizes.length)} step${leftSizes.length === 1 ? " is" : "s are"} left: ${sizesLine(leftSizes)}.` : "No steps are left.",
   ];
-  // the projection, and what a top-up needs: spent now + what the forecast expected of the steps left − the ceiling
-  const leftExpected = f ? Math.max(0, f.projected - f.spent) : null;
+  // the projection, and what a top-up needs: spent now + what the steps left are expected to spend now − the ceiling.
+  // Recomputed from the step states, never the last forecast's figure: that priced the step now in flight at its full
+  // size, so its spend since was counted twice (gr_76e81kdpvy, findings dc_94qevcrr7x)
+  const left = f ? expectedLeft(world, g, stepCalibration(world)) : null;
+  const leftExpected = f ? (left ? left.tokens : Math.max(0, f.projected - f.spent)) : null;
+  const flight = left?.inFlight ?? null;
+  const flightReport = flight ? stepReport(world, g, flight.index) : null;
+  const flightLine = flight ? [
+    `Step ${flight.index + 1} is in flight${flightReport ? `: "${withoutEllipsis(flightReport.title)}"` : ""}.`,
+    `It has spent ${fmt(flight.spent)} tokens against its ${fmt(flight.price)}-token size, so it is priced at what is left of it, not its full size.`,
+  ].join(" ") : "";
   const need = leftExpected !== null ? Math.max(0, Math.round(o.spent + leftExpected - ceiling)) : g.topUpTokens ?? 0;
   const raise = need ? roundUpToStep(need, table) : 0;
   const projection = f && leftExpected !== null ? [
-    `${o.held ? "Its last forecast projects" : "At the sizes left, it is projected to spend"} ${fmt(Math.round(o.spent + leftExpected))} tokens in all.`,
+    `${o.held ? "At what its steps have left, it is projected to spend" : "At the sizes left, it is projected to spend"} ${fmt(Math.round(o.spent + leftExpected))} tokens in all.`,
     need ? `That is ${fmt(need)} tokens past the ceiling.` : "That is within the ceiling.",
   ] : [];
   const verdict = report?.verdict ?? null;
@@ -700,7 +715,7 @@ function gateFacts(world: World, g: Grant, o: { held: boolean; spent: number; re
   const body = [
     ...prior,
     `It has spent ${fmt(o.spent)} of its ${fmt(ceiling)}-token ceiling.${o.held ? " New sessions on it wait for you." : ""}`,
-    ...steps, ...projection,
+    ...steps, flightLine, ...projection,
     raise ? `If you adjust by ${fmt(raise)}: the ceiling becomes ${fmt(ceiling + raise)} tokens, and the work runs on.` : "If you adjust: the ceiling rises by what you give, and the work runs on.",
     o.held ? "If you cut: the grant closes at what it spent, and nothing more runs on it." : "If you cut: the running step wraps up, and the grant closes at what it spent.",
   ].filter(Boolean).join("\n");
