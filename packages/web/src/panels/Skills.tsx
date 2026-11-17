@@ -1,13 +1,13 @@
 /** Skills (docs/skills.md): the library's Skills tab, and a skill's files and pins under its doc. */
 import { useState } from "react";
-import type { Doc, SkillPinMode, SkillPinScope, SkillPinView, SkillView } from "@muster-town/schema";
+import type { Doc, PinMode, PinScope, PinView, SkillView } from "@muster-town/schema";
 import { api, API_BASE } from "../api";
 import { store, useTown } from "../state";
 import { Act, Empty, ErrorLine, Loading, Pill, Section, timeAgo, useLoad } from "./ui";
 
-const SCOPE_LABEL: Record<SkillPinScope, string> = { agent: "agent", building: "building", town: "town" };
+const SCOPE_LABEL: Record<PinScope, string> = { agent: "agent", building: "building", town: "town" };
 
-function pinLabel(p: SkillPinView): string {
+function pinLabel(p: PinView): string {
   return `${p.scope === "town" ? "town-wide" : `${SCOPE_LABEL[p.scope]}: ${p.targetName ?? p.targetId}`} · ${p.mode}`;
 }
 
@@ -45,8 +45,8 @@ export function SkillDetails({ doc }: { doc: Doc }) {
   const me = useTown((s) => s.me);
   const [v, setV] = useState(0);
   const skill = useLoad(() => api().skill(doc.id), [doc.id, doc.updatedAt, v]);
-  const [scope, setScope] = useState<SkillPinScope>("building");
-  const [mode, setMode] = useState<SkillPinMode>("listed");
+  const [scope, setScope] = useState<PinScope>("building");
+  const [mode, setMode] = useState<PinMode>("listed");
   const [buildingId, setBuildingId] = useState(doc.buildingId ?? buildings[0]?.id ?? "");
   const k: SkillView | null = skill.data;
   if (!k) return skill.loading ? <Loading /> : <ErrorLine error={skill.error} />;
@@ -83,7 +83,7 @@ export function SkillDetails({ doc }: { doc: Doc }) {
         )}
         {canTown || canBuilding ? (
           <form className="skill-pin-form" onSubmit={(e) => e.preventDefault()}>
-            <select value={scope} onChange={(e) => setScope(e.target.value as SkillPinScope)} aria-label="Scope">
+            <select value={scope} onChange={(e) => setScope(e.target.value as PinScope)} aria-label="Scope">
               <option value="building">Building</option>
               {canTown ? <option value="town">Whole town</option> : null}
             </select>
@@ -92,7 +92,7 @@ export function SkillDetails({ doc }: { doc: Doc }) {
                 {buildings.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             ) : null}
-            <select value={mode} onChange={(e) => setMode(e.target.value as SkillPinMode)} aria-label="Mode">
+            <select value={mode} onChange={(e) => setMode(e.target.value as PinMode)} aria-label="Mode">
               <option value="listed">Listed (name + when to use)</option>
               <option value="always">Always (full text in every prompt)</option>
             </select>

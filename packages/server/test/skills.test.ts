@@ -35,7 +35,7 @@ describe("skills routes", () => {
     const pinned = await json(app, "POST", `/api/skills/${id}/pins`, { headers: auth, body: { scope: "town", mode: "always" } });
     expect(pinned.status).toBe(201);
     const resident = world.agents.first("kind = 'resident'")!;
-    expect(world.skills.forAgent(resident.id).map((k) => [k.md.name, k.mode])).toEqual([["mitchell-style", "always"]]);
+    expect(world.skills.forAgent(resident.id).map((k) => [k.title, k.mode])).toEqual([["mitchell-style", "always"]]);
     expect((await json(app, "GET", `/api/skills/${id}`)).body.skill.pins).toHaveLength(1);
 
     // a resident can't remove the town pin; the admin can

@@ -212,7 +212,7 @@ export class Secrets {
       const g = SecretGrants.parse(JSON.parse(r.grants));
       let via: SecretVia | null = g.town ? "town" : bid && g.buildings.includes(bid) ? "building" : g.agents.includes(agent.id) ? "agent" : null;
       if (!via && g.skills.length) {
-        skillIds ??= new Set(this.world.skills.forAgent(agent.id).map((s) => s.doc.id));
+        skillIds ??= new Set(this.world.skills.forAgent(agent.id).filter((e) => e.doc.type === "skill").map((e) => e.doc.id));
         if (g.skills.some((id) => skillIds!.has(id))) via = "skill";
       }
       if (!via) continue;

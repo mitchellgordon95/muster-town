@@ -813,33 +813,36 @@ export const SkillFileInfo = z.object({ path: z.string(), chars: z.number().int(
 export type SkillFileInfo = z.infer<typeof SkillFileInfo>;
 
 /** agent = one resident's sessions; building = every session in the building; town = every session in the town. */
-export const SkillPinScope = z.enum(["agent", "building", "town"]);
-export type SkillPinScope = z.infer<typeof SkillPinScope>;
+export const PinScope = z.enum(["agent", "building", "town"]);
+export type PinScope = z.infer<typeof PinScope>;
 /** listed = name + description in the prompt (the agent `read`s it when needed); always = the full text in the prompt. */
-export const SkillPinMode = z.enum(["listed", "always"]);
-export type SkillPinMode = z.infer<typeof SkillPinMode>;
-export const SkillPin = z.object({
+export const PinMode = z.enum(["listed", "always"]);
+export type PinMode = z.infer<typeof PinMode>;
+/** A pin places one doc into the sessions of a scope, in a mode (docs/skills.md, design dc_8194l8soj4). */
+export const Pin = z.object({
   id: Id,
-  skillId: Id,
-  scope: SkillPinScope,
+  docId: Id,
+  scope: PinScope,
   /** agent id (agent scope), building id (building scope), null (town) */
   targetId: Id.nullable(),
-  mode: SkillPinMode,
+  mode: PinMode,
   pinnedBy: Id,
   pinnedByKind: z.enum(["agent", "user"]),
   /** pinned by a human (a human's avatar or a user): needed for pins into others' sessions of skills with files */
   byHuman: z.boolean(),
+  /** placed by code under a standing human decision (not by an actor); never re-created once a human removes it */
+  seeded: z.boolean().default(false),
   createdAt: Iso,
 });
-export type SkillPin = z.infer<typeof SkillPin>;
-/** A pin as listed with its skill: plus who it reaches and whether it is suspended. */
-export const SkillPinView = SkillPin.extend({
+export type Pin = z.infer<typeof Pin>;
+/** A pin as listed with its doc: plus who it reaches and whether it is suspended. */
+export const PinView = Pin.extend({
   targetName: z.string().nullable(),
   pinnedByName: z.string(),
   /** why the pin doesn't load (e.g. files were added after an agent pinned it into others' sessions); null = it loads */
   suspended: z.string().nullable(),
 });
-export type SkillPinView = z.infer<typeof SkillPinView>;
+export type PinView = z.infer<typeof PinView>;
 export const SkillView = z.object({
   id: Id,
   name: z.string(),
@@ -849,19 +852,19 @@ export const SkillView = z.object({
   authorId: Id,
   author: z.string(),
   files: z.array(SkillFileInfo),
-  pins: z.array(SkillPinView),
+  pins: z.array(PinView),
   /** `skill.used` events (a session `read` the skill or one of its files) in the last 7 / 30 days */
   uses7d: z.number().int(),
   uses30d: z.number().int(),
   updatedAt: Iso,
 });
 export type SkillView = z.infer<typeof SkillView>;
-export const PinSkillInput = z.object({
-  scope: SkillPinScope.default("agent"),
+export const PinInput = z.object({
+  scope: PinScope.default("agent"),
   targetId: Id.optional().describe("scope agent: the agent (default you); scope building: the building (default yours); ignored for town"),
-  mode: SkillPinMode.default("listed").describe("listed = name + description in the prompt; always = the full text"),
+  mode: PinMode.default("listed").describe("listed = name + description in the prompt; always = the full text"),
 });
-export type PinSkillInput = z.infer<typeof PinSkillInput>;
+export type PinInput = z.infer<typeof PinInput>;
 
 // ---------- assignments ----------
 /**
@@ -2268,8 +2271,9 @@ export const VerbInputs = {
     files: z.array(SkillFileInput).max(SKILL_LIMITS.files).optional().describe("type 'skill' only: bundled files (scripts, references) stored in the skill's folder; when given, replaces the skill's whole file set"),
   }),
   skills: z.object({ query: z.string().optional().describe("filter by words in the name or description"), limit: z.number().int().positive().max(100).default(30) }),
-  pin: PinSkillInput.extend({
-    skillId: Id,
+  pin: PinInput.extend({
+    docId: Id.optional().describe("the doc to pin (today: a skill)"),
+    skillId: Id.optional().describe("old name for docId, kept for one release"),
     remove: z.boolean().default(false).describe("unpin instead"),
   }),
   submit_report: z.object({
@@ -2467,7 +2471,7 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   read: "Read one document by id. For a skill (type \"skill\") it also lists the skill's bundled files; pass `file` to read one of them.",
   write: "Create or update a document. Drafts are private. State 'building' publishes it: type 'fyi' (a building-wide FYI everyone needs) goes on the board; anything else is filed in the building's filing cabinet. Anyone whose home building it is (its manager, forks, residents, visitors registered there) files in its cabinet; only its manager, forks and admins post to its board.",
   skills: "List the skills I can use: those pinned into my sessions first, then my building's and the library's, with when to use each, their bundled files and how often they're used. `read` a skill to load it.",
-  pin: "Pin a skill into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
+  pin: "Pin a doc (`docId`; today a skill) into sessions: scope agent (just me, `listed` only, unless I'm a manager), building (a manager) or town (an admin). Pins into others' sessions of skills with files, `always` pins for others, and town pins need a human. remove=true unpins.",
   submit_report: "End my work session with a report. Required at the end of every session. The report goes to my manager's in-tray and I go idle until someone gives me a new assignment. If I'm blocked waiting on something (a redeploy, a colleague's assignment, a review decision, your PR's CI checks ({pr: N}, never an {after} guess), a time), pass resumeWhen and next: my work parks and resumes by itself when that holds.",
   request_human: "Ask a human to do something in the real world that no button and no agent can do (observe, fetch data, contact someone, sign up for a service). It is a \"do\" ask in the humans' decision queue, the kind to avoid: it takes the human out of the queue, so say in `worth` why it is worth that. The human answers Done with a report, or Decline with a note.",
   withdraw_request: "Withdraw an open outbox request of yours (or, as a building's manager or its fork, one of that building's) with a note saying why: it leaves the outbox (listed under Declined or withdrawn, the note on it) and nobody waits on it. A claimed one stays: the human doing it reports back. Admins delete; this is the author's own move.",
