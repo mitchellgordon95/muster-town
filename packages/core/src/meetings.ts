@@ -487,6 +487,29 @@ export function noteAgentDrafting(world: World, meetingId: string, agentId: stri
   if (!m.has(agentId)) m.set(agentId, now);
 }
 
+/** The live 1:1s an agent answers (it is their facilitator), or just `meetingId` when given. */
+function oneOnOnesOf(world: World, agentId: string, meetingId?: string): string[] {
+  return world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND phase = 'discussing'", [agentId]).map((m) => m.id).filter((id) => !meetingId || id === meetingId);
+}
+
+/**
+ * A manager's 1:1 conversation is working: the runtime fed it the human's line, or its session made a tool call. A 1:1
+ * answer never goes through `listen` (the runtime pushes the human's lines into the session), so this is what puts
+ * "<name> is writing…" and its live tool calls under the transcript, also after an "On it…" line while the work goes on
+ * (flag dc_1nduwk2af8). Unlike noteAgentDrafting it restarts the AGENT_DRAFTING_MS clock: a long answer stays shown.
+ */
+export function noteOneOnOneWorking(world: World, agentId: string, meetingId?: string, now = Date.now()): void {
+  for (const id of oneOnOnesOf(world, agentId, meetingId)) {
+    noteAgentDrafting(world, id, agentId, now);
+    drafting.get(world)?.get(id)?.set(agentId, now);
+  }
+}
+
+/** The 1:1 conversation's turn ended with nothing queued: it is waiting for the human, not writing. */
+export function clearOneOnOneWorking(world: World, agentId: string): void {
+  for (const id of oneOnOnesOf(world, agentId)) clearAgentDrafting(world, agentId, id);
+}
+
 /** Clear an agent's drafting mark in one meeting, or (no meetingId) in every meeting. */
 export function clearAgentDrafting(world: World, agentId: string, meetingId?: string): void {
   const map = drafting.get(world);

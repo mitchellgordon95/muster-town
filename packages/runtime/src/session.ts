@@ -6,7 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DesksConfig } from "@muster-town/schema";
-import { sessionTokens, AppError, booked, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
+import { sessionTokens, AppError, booked, clearOneOnOneWorking, noteOneOnOneWorking, NoCredential, resultLine, type Booked, type Credential, type Funding, type World } from "@muster-town/core";
 import { countsOf, mergeUsage, rawTokens, splitRaw, subTokens, UsageMeter, VERB_NAMES, ZERO_TOKENS, type AllocationAuth, type Session, type TokenUsage, type VerbName } from "@muster-town/schema";
 import { CODE_TOOLS, codeGuard, type CodeCheckout, type CodeSource } from "./code.ts";
 import { describeTool } from "./describe.ts";
@@ -301,6 +301,9 @@ function keepHostTranscript(ctx: Ctx, session: Session, sdkSessionId: string | n
   }
 }
 
+/** The meeting verb's tool name: its listen and speak are the chat, not the work. */
+const MEETING_TOOL = "mcp__town__meeting";
+
 export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<SessionOutcome> {
   const { world } = ctx;
   const agent = world.agents.require(spec.agentId, "agent");
@@ -352,6 +355,9 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
         for (const b of blocksOf(m)) {
           if (b.type === "tool_use" && b.name) {
             emit("agent.tool", describeTool(world, b.name, b.input), { tool: b.name, input: clipJson(b.input), ...(b.id ? { toolUseId: b.id } : {}) });
+            // a manager working while its 1:1 is open shows "is writing…" there with these calls (flag dc_1nduwk2af8);
+            // its meeting calls are the chat itself (speak clears the mark, as in a group meeting)
+            if (spec.purpose === "manage" && b.name !== MEETING_TOOL) noteOneOnOneWorking(world, agent.id);
             if (live.reportSubmitted && ++toolsAfterReport > 2) void q.interrupt?.().catch(() => undefined);
           } else if (b.type === "text" && b.text?.trim()) {
             const t = b.text.trim();
@@ -381,6 +387,8 @@ export async function runAgentSession(ctx: Ctx, spec: SessionSpec): Promise<Sess
           break;
         }
         live.idle = live.input.pending === 0;
+        // the turn is over and nothing waits: a 1:1 it answers shows nobody writing until the human's next line
+        if (live.idle && spec.purpose === "manage") clearOneOnOneWorking(world, agent.id);
       }
       if (!live.reportSubmitted && world.sessions.get(session.id)?.reportId) {
         live.reportSubmitted = true;
