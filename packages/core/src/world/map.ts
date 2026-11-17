@@ -5,6 +5,7 @@ import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
 import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_ID, TOWN_HALL_RESTS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
+import type { RestSpot } from "./rest-spot.ts";
 import type { Side } from "./road.ts";
 import type { Plaza } from "./tree.ts";
 
@@ -77,7 +78,9 @@ export class WorldMap {
     const names = new Map(agents.map((a) => [a.id, a.name]));
     // the Planner and the Secretary rest by the goal tree and the hydrant (the decision queue) (flag dc_r7u6bkaei4)
     const rests = new Map(agents.filter((a) => a.homeBuildingId === TOWN_HALL_ID && a.kind === "resident" && !a.forkOf && a.title && TOWN_HALL_RESTS[a.title]).map((a) => [a.id, TOWN_HALL_RESTS[a.title!]]));
-    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests);
+    // where humans dropped agents with the grasper hand (flag dc_d2wkuhoh1l)
+    const spots = new Map((this.db.prepare("SELECT agentId, buildingId, x, y FROM rest_spots").all() as (RestSpot & { agentId: string })[]).map(({ agentId, ...s }) => [agentId, s]));
+    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests, spots);
   }
 
   /**
@@ -133,9 +136,27 @@ export class WorldMap {
     if (!p) throw notFound("place", id);
     return p;
   }
-  /** The `desk:<agentId>` place, if the agent has a desk. */
+  /** The `desk:<agentId>` place, if the agent has a desk: where its body goes home to (its dropped spot when it has one). */
   deskOf(agentId: string): Place | undefined {
     return this.byId.get(`desk:${agentId}`);
+  }
+  /** The agent's default home tile, ignoring a dropped spot: its desk's stand tile, or its Town Hall rest. */
+  defaultHomeOf(agentId: string): Tile | undefined {
+    for (const slots of this.desks.values()) {
+      const s = slots.find((d) => d.agentId === agentId);
+      if (s) return s.pos;
+    }
+    return undefined;
+  }
+  /** Every building's lot now (rest spots inside a building are kept relative to it). */
+  lots(): Map<string, Lot> {
+    return new Map(this.repos.buildings.all().filter((b) => b.lot).map((b) => [b.id, b.lot!]));
+  }
+  /** Store where a human dropped the agent (null = back to its default spot) and rebuild, so its home place moves. */
+  setRestSpot(agentId: string, spot: RestSpot | null, at: string): void {
+    if (spot) this.db.prepare("INSERT INTO rest_spots (agentId, buildingId, x, y, updatedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(agentId) DO UPDATE SET buildingId = excluded.buildingId, x = excluded.x, y = excluded.y, updatedAt = excluded.updatedAt").run(agentId, spot.buildingId, spot.x, spot.y, at);
+    else this.db.prepare("DELETE FROM rest_spots WHERE agentId = ?").run(agentId);
+    this.rebuild();
   }
   door(buildingId: string): Tile | undefined {
     return this.doors.get(buildingId);

@@ -7,7 +7,7 @@ import { buildingRoleId, townRoleId } from "./permissions.ts";
 import { suggestResidentName } from "./names.ts";
 import { newId, nowIso } from "./util.ts";
 import type { Furniture } from "./world/furniture.ts";
-import { deskDrop } from "./world/desk-drop.ts";
+import { restDrop } from "./world/rest-spot.ts";
 import type { Before, Moved } from "./world/map.ts";
 import { MAX_HEADCOUNT } from "./world/layout.ts";
 import { nearestWalkable } from "./world/path.ts";
@@ -155,28 +155,24 @@ export function updateFurniture(world: World, id: string, furniture: Furniture, 
 }
 
 /**
- * A human dragged an agent on the map and dropped it on `to` (Mitchell's flag dc_mf6oelioq5): its desk swaps places
- * with the desk dropped on, or moves so the agent stands on the drop tile (world/desk-drop.ts `deskDrop` decides).
- * Saved like Edit layout (`updateFurniture`), whose rebuild moves bodies at the desks; the dragged agent, unless it
- * is in a meeting or walking, is put at its new desk at once. Throws with the reason on a refused drop.
+ * Drag only the body (Mitchell's flag dc_d2wkuhoh1l): the drop tile becomes where the agent rests (rest-spot.ts
+ * `restDrop`; its own default tile clears it) and the body moves there at once unless it is in a meeting or walking.
+ * Its desk never moves; Edit layout moves furniture. Throws 400 with the reason for a tile a body can't stand on.
  */
-export function dropAgent(world: World, agentId: string, to: Tile, by: string | null): { building: Building; kind: "swap" | "move"; withAgentId: string | null; pos: Tile } {
+export function dropAgent(world: World, agentId: string, to: Tile): { pos: Tile; home: boolean } {
   const agent = world.agents.require(agentId, "agent");
-  const row = world.db.prepare("SELECT buildingId, n FROM desks WHERE agentId = ?").get(agentId) as { buildingId: string; n: number } | undefined;
-  const b = world.buildings.require(row?.buildingId ?? agent.homeBuildingId ?? agent.buildingId ?? "", "building");
-  if (!b.lot) throw badRequest(`${b.name} has no room yet.`);
-  const r = deskDrop({ kind: b.kind, name: b.name, lot: b.lot, side: world.layout.side(b.id), pieces: world.layout.pieces(b.id).pieces }, agent.name, row?.n ?? null, to);
+  const home = world.layout.defaultHomeOf(agentId);
+  if (agent.kind === "human" || !home) throw badRequest(`${agent.name} has no home spot to move.`);
+  const r = restDrop(world.layout.grid, world.layout.lots(), agent.name, home, to);
   if (!r.ok) throw badRequest(r.message);
-  const withAgentId = r.withAgentN == null ? null
-    : (world.db.prepare("SELECT agentId FROM desks WHERE buildingId = ? AND n = ?").get(b.id, r.withAgentN) as { agentId: string } | undefined)?.agentId ?? null;
-  const building = updateFurniture(world, b.id, r.furniture, by);
-  const desk = world.layout.deskOf(agentId)!;
+  world.layout.setRestSpot(agentId, r.spot, nowIso());
+  const pos = world.layout.deskOf(agentId)!.pos;
   const now = world.agents.require(agentId, "agent");
-  if (!now.currentMeetingId && !world.movement.isWalking(agentId) && (now.pos.x !== desk.pos.x || now.pos.y !== desk.pos.y)) {
-    world.agents.upsert({ ...now, pos: desk.pos }, { silent: true });
-    world.changes.emit({ type: "agents.pos", positions: [{ id: agentId, x: desk.pos.x, y: desk.pos.y, status: now.status }] });
+  if (!now.currentMeetingId && !world.movement.isWalking(agentId) && (now.pos.x !== pos.x || now.pos.y !== pos.y)) {
+    world.agents.upsert({ ...now, pos }, { silent: true });
+    world.changes.emit({ type: "agents.pos", positions: [{ id: agentId, x: pos.x, y: pos.y, status: now.status }] });
   }
-  return { building, kind: r.kind, withAgentId, pos: desk.pos };
+  return { pos, home: r.spot == null };
 }
 
 /**
