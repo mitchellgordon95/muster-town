@@ -148,7 +148,7 @@ Decided in docs/goals.md "Streams" (1:1 mt_529jbnwvmi), go-ahead in 1:1 mt_cz11a
 - **GET /api/bank/streams** (public): every live input and every earmark with its balance, whether it covers a session, days to cover, last draw and idle reason, plus `expectedSessionTokens`. The Bank's Inputs tab shows it as Streams; the Donate tab's "Funding the town now" table reads its balance and last draw for every active input.
 - **One balance** (how-work-gets-done.md §7; PR #169, migration 067): pools are deleted, every building draws the general balance. Free tokens per goal and the optional exploration cap are in docs/goals.md "Free tokens and the optional exploration cap".
 - **Exploration reservations** (how-work-gets-done.md §3; PR #173, migration 068): the runtime tick's explore step opens a `bank_reservations` row (one chunk, 100,000 by default) per explorer; while open it claims its tokens less what its sessions spent, and it closes once its assignment ends (core `explore.ts`).
-- **Not yet**: the desk's per-session key cap, and the key's own `dailyLimitTokens` (a daily key's `tokens` is its daily amount today).
+- **Not yet**: the desk's per-session key cap, and the key's own dailyLimitTokens (a daily key's `tokens` is its daily amount today).
 
 ## The funder filter (goal tree step 8)
 
