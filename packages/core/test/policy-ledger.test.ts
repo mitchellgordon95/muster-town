@@ -1,15 +1,15 @@
 /**
  * The policy ledger (docs/legible-delegation.md §6, build step 5): a Town Hall doc of type `policy`, one rule per line
- * with its origin, pinned in managers' prompts (`policyLedgerBlock`). The Secretary's pattern note may file "Add this rule
+ * with its origin, a town pin always on (its rule lines in every session's "## Pinned pages", design dc_8194l8soj4 §2). The Secretary's pattern note may file "Add this rule
  * to the ledger?"; only a human's "Add" appends it. Deciding a policy ask (Keep) and act_in_1on1 file no ledger ask
  * (Mitchell's 1:1 mt_msnjkpgwdb, decisions 6 and 8: a line is proposed only when a human asks for a standing rule).
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne } from "../src/index.ts";
 import { decideAsk } from "../src/asks.ts";
-import { filePattern, policyLedgerBlock } from "../src/secretary.ts";
+import { filePattern } from "../src/secretary.ts";
 import { askStructure } from "@muster-town/schema";
-import { managerStateBlock } from "../src/prompts.ts";
+import { pinnedPagesBlock } from "../src/pins.ts";
 import { ensureDictionary } from "../src/dictionary.ts";
 import { creditBank, seededWorld, seedAsk } from "./helpers.ts";
 
@@ -24,7 +24,13 @@ function setup() {
   const sec = world.secretary.ensure()!;
   const ledger = world.secretary.ensurePolicyLedger()!;
   const ledgerAsks = () => world.asks.where("type = 'policy' AND targetKind = 'rule' AND status = 'open'");
-  return { ...s, world, manager, sec, ledger, ledgerAsks };
+  // the ledger's part of the manager's pinned pages: its heading line and its rule lines, "" with no rule yet
+  const ledgerBlock = () => {
+    const block = pinnedPagesBlock(world.skills.forAgent(manager.id));
+    const at = block.indexOf("### Policy ledger");
+    return at < 0 ? "" : block.slice(at).split("\nListed:")[0]!.split("\n\n")[0]!;
+  };
+  return { ...s, world, manager, sec, ledger, ledgerAsks, ledgerBlock };
 }
 
 /** The Secretary's own card on a rule (decision-5 audit rank 2): the town writes none. */
@@ -32,10 +38,11 @@ const CARD = { title: "Make CI before main a standing rule", body: "Managers ask
 
 describe("the policy ledger", () => {
   it("deciding a policy ask files no ledger ask; a proposed rule's Add appends the line, Skip doesn't; the ledger block is in the pinned text", () => {
-    const { world, admin, manager, sec, ledger, ledgerAsks } = setup();
+    const { world, admin, manager, sec, ledger, ledgerAsks, ledgerBlock } = setup();
+    expect(world.pins.where("docId = ?", [ledger.id])).toMatchObject([{ scope: "town", mode: "always", seeded: true }]);
     expect(ledger).toMatchObject({ type: "policy", buildingId: "town-hall", title: "Policy ledger" });
     expect(world.secretary.ensurePolicyLedger()!.id).toBe(ledger.id);
-    expect(policyLedgerBlock(world)).toBe("");
+    expect(ledgerBlock()).toBe("");
     const { ask: p } = seedAsk(world, { type: "policy", buildingId: LAB, sourceDocId: null, by: manager.id, title: "Forks never push to main without CI", branches: [{ label: "Keep the rule" }, { label: "Change it" }] });
     // a manager can't decide it, a human can; pressing Keep files no twin "Add this rule?" card
     expect(() => decideAsk(world, manager, p.id, "Keep the rule")).toThrow(/Only a human/);
@@ -57,15 +64,15 @@ describe("the policy ledger", () => {
     expect(ledgerAsks()).toHaveLength(0);
     expect(world.docs.require(ledger.id).body.trimEnd().split("\n").at(-1)).toBe(ruleLine);
     expect(world.events.list({ types: ["policy.added"] })).toHaveLength(1);
-    expect(policyLedgerBlock(world)).toBe(`## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${ruleLine}`);
+    expect(ledgerBlock()).toBe(`### Policy ledger (rules the humans set; follow them and don't ask what a rule already answers) (${ledger.id}, town pin, always on)\n${ruleLine}`);
     // a second proposed rule, skipped: nothing appended
     filePattern(world, sec, { title: "Again", body: "b", rule: "Explorers stop at one proposal", ruleCard: CARD });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Skip");
-    expect(policyLedgerBlock(world).split("\n")).toHaveLength(2);
+    expect(ledgerBlock().split("\n")).toHaveLength(2);
     // "Add: <words>" appends the human's wording with the same origin
     const { noticeId } = filePattern(world, sec, { title: "Third", body: "b", rule: "Visitors see the Bank", ruleCard: CARD });
     decideAsk(world, admin, ledgerAsks()[0]!.id, "Add: visitors see the Bank before they sign in");
-    expect(policyLedgerBlock(world)).toMatch(new RegExp(`\\n- visitors see the Bank before they sign in \\(origin: ${noticeId}, `));
+    expect(ledgerBlock()).toMatch(new RegExp(`\\n- visitors see the Bank before they sign in \\(origin: ${noticeId}, `));
     // a rule without the Secretary's card is refused and files nothing: the town writes no card (decision-5 audit rank 2)
     const before = world.asks.count();
     expect(() => filePattern(world, sec, { title: "Fourth", body: "b", rule: "Forks rest on Sundays" })).toThrow(/a rule needs its card, ruleCard/);
@@ -73,8 +80,8 @@ describe("the policy ledger", () => {
     // a card missing its recommendation is refused too
     expect(() => filePattern(world, sec, { title: "Fifth", body: "b", rule: "Forks rest on Sundays", ruleCard: { ...CARD, recommendation: "" } })).toThrow(/recommendation/);
     expect(world.asks.count()).toBe(before);
-    // pinned in every manager's team-lead session (the first message, managerStateBlock)
-    expect(managerStateBlock(world, manager, world.buildings.require(LAB))).toContain(policyLedgerBlock(world));
+    // a human's rule: no agent is told it keeps the page, not even the Secretary, its author
+    expect(pinnedPagesBlock(world.skills.forAgent(sec.id))).not.toContain(`write\` (id ${ledger.id})`);
   });
 
   it("act_in_1on1 doing a decision the human said files no ledger ask", async () => {

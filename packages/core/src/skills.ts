@@ -9,9 +9,12 @@ import {
 } from "@muster-town/schema";
 import { canSeeDoc, homeOf } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
+import { canWriteTopic } from "./memory.ts";
+import { OPERATING_MANUAL_TAG, operatingManualDoc } from "./operating-manual.ts";
 import { holderOf, type Holder } from "./permissions.ts";
 import { pinSuspended, resolvePins, type PinEntry, type PinnedDoc } from "./pins.ts";
 import { whereOf } from "./table.ts";
+import { TOWN_HALL_ID } from "./world/layout.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -237,6 +240,26 @@ export class Skills {
       if (doc) docs.set(doc.id, { doc, files: doc.type === "skill" ? this.files(doc.id) : [] });
     }
     const holder = holderOf(agent);
-    return resolvePins(pins, docs, { agentId: agent.id, buildingId: bid, canSee: (d) => canSeeDoc(holder, d) });
+    // who may rewrite a page: the ledger and the dictionary are humans' only; a topic page its building's manager and
+    // forks; anything else its author (the `write` verb's rule)
+    const canWrite = (d: Doc) => d.type !== "policy" && d.type !== "dictionary" && (d.type === "wiki" && d.topicOf ? canWriteTopic(this.world, agent, d.topicOf) : d.authorId === holder.id);
+    return resolvePins(pins, docs, { agentId: agent.id, buildingId: bid, canSee: (d) => canSeeDoc(holder, d), canWrite });
+  }
+
+  /**
+   * Seed a doc's town pin as it is published (design dc_8194l8soj4 §3-4, Mitchell's mapping in 1:1 mt_uarrn0kco1): the
+   * operating manual and the policy ledger always on, the town dictionary listed; any other doc gets none. INSERT OR
+   * IGNORE with seeded = 1, called once per doc (on creation, or when a draft is first published), never at boot, so a
+   * pin a human removes stays removed. Migration 120 back-filled the docs that existed before.
+   */
+  seed(doc: Doc): void {
+    if (doc.buildingId !== TOWN_HALL_ID || doc.state === "draft") return;
+    const first = (type: string) => this.world.docs.first("type = ? AND buildingId = ?", [type, TOWN_HALL_ID], "ORDER BY createdAt, rowid")?.id === doc.id;
+    const mode = doc.type === "policy" && first("policy") ? "always"
+      : doc.type === "dictionary" && first("dictionary") ? "listed"
+        : doc.tags.includes(OPERATING_MANUAL_TAG) && operatingManualDoc(this.world)?.id === doc.id ? "always" : null;
+    if (!mode) return;
+    this.world.db.prepare("INSERT OR IGNORE INTO pins (id, docId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, seeded, createdAt) VALUES (?, ?, 'town', NULL, ?, 'system', 'user', 1, 1, ?)")
+      .run(newId("sp"), doc.id, mode, nowIso());
   }
 }

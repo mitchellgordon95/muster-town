@@ -4,7 +4,7 @@ import { countMemberAct } from "../access.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { homeOf, pickUpFlag, sendMessage, setAssignmentStatus } from "../domain.ts";
 import { mainRedLine } from "../main-fix.ts";
-import { operatingManualBlock } from "../operating-manual.ts";
+import { pinnedPagesBlock } from "../pins.ts";
 import { notifyMentions } from "../mentions.ts";
 import { actOrigin } from "../origin.ts";
 import { interruptNow, isWorking, relayWake } from "../wakes.ts";
@@ -78,9 +78,10 @@ function welcomeFor(world: World, me: Agent): VisitorWelcome {
     : b
       ? `Read your building's \`board\`, then \`tell\` ${manager ? `${manager.name} (${manager.id}), its manager,` : `the building (${b.id})`} what you'd like to work on toward its goal.`
       : "You have no building yet: you sit at the Town Hall visitor bench. Call `town` to see every building with its goal and manager, then `tell` the manager whose goal you'd like to work on.";
-  // the operating manual (1:1 mt_t65exni4et): a visitor's own agent has no town-built first message, so its welcome carries it
-  const manual = operatingManualBlock(world, me);
-  return { goal: b ? world.goalTree.purposeOf(b) : null, building: b ? { id: b.id, name: b.name } : null, manager, offers, firstStep, ...(manual ? { manual } : {}) };
+  // its pinned pages (the operating manual, the policy ledger, the dictionary, its skills: design dc_8194l8soj4 §5): a
+  // visitor's own agent has no town-built first message, so its welcome carries the block
+  const pinned = pinnedPagesBlock(world.skills.forAgent(me.id));
+  return { goal: b ? world.goalTree.purposeOf(b) : null, building: b ? { id: b.id, name: b.name } : null, manager, offers, firstStep, ...(pinned ? { pinned } : {}) };
 }
 
 /** How many names `town` lists per building before it just counts the rest. */

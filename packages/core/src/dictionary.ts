@@ -1,8 +1,8 @@
 /**
  * The town dictionary (docs/legible-delegation.md §5 "A town dictionary", build step 10): one meaning per word. A Town
  * Hall doc of type `dictionary`, created once at boot (`ensureDictionary`, beside the policy ledger), one entry per line
- * (`- **word**: meaning`) and an "Avoid → use" list (`- top-up → adjust`). Every manager's first message pins a short
- * block naming the words (`dictionaryBlock`), and the ask linter's `dictionary` rule warns on an avoided word with its
+ * (`- **word**: meaning`) and an "Avoid → use" list (`- top-up → adjust`). It is a town pin, listed: every session's
+ * "## Pinned pages" carries one line naming the words (`dictionaryGist`), and the ask linter's `dictionary` rule warns on an avoided word with its
  * replacement: core passes the doc's pairs in at vet time (`dictionaryPairs`), so the schema rule stays pure.
  */
 import type { Doc, DictionaryPair } from "@muster-town/schema";
@@ -115,13 +115,10 @@ export function dictionaryPairs(world: World): DictionaryPair[] {
 }
 
 /**
- * The block pinned in every session's first message (`townRulesBlock`): the dictionary's words and its avoid → use pairs, under 120 words
- * (the meanings are a `read` away). "" before the dictionary exists.
+ * The dictionary's line in "## Pinned pages" (a town pin, listed: design dc_8194l8soj4 §2): its words and up to 8 avoid →
+ * use pairs, under 120 words, so the line carries what the ask linter checks; the meanings are a `read` away.
  */
-export function dictionaryBlock(world: World): string {
-  const d = dictionaryDoc(world);
-  if (!d) return "";
-  const words = wordsOf(d.body);
-  const pairs = pairsOf(d.body).slice(0, 8);
-  return `## Town dictionary (${d.id}: \`read\` it for the meanings)\nOne meaning per word. Use these words as the dictionary defines them: ${words.join(", ")}.${pairs.length ? ` Avoid → use: ${pairs.map((p) => `${p.avoid} → ${p.use}`).join(", ")}. Write the word to use, never the avoided one.` : ""}`;
+export function dictionaryGist(body: string): string {
+  const pairs = pairsOf(body).slice(0, 8);
+  return `One meaning per word. Use these words as the dictionary defines them: ${wordsOf(body).join(", ")}.${pairs.length ? ` Avoid → use: ${pairs.map((p) => `${p.avoid} → ${p.use}`).join(", ")}. Write the word to use, never the avoided one.` : ""}`;
 }
