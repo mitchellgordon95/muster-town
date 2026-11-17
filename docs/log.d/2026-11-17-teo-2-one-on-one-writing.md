@@ -1,0 +1,1 @@
+- 2026-11-17: A manager's 1:1 shows "<name> is writing…" and its live tool calls while it works: the runtime marks it drafting when it feeds the human's line and on each non-meeting tool call of its manage session, and clears it when the turn ends; before, the mark came only from `listen`, which a 1:1 answer never calls (Mitchell's flag dc_1nduwk2af8).

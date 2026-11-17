@@ -219,7 +219,8 @@ function ToolCalls({ calls, live, name }: { calls: MeetingToolCall[]; live?: boo
   const n = `${calls.length} tool call${calls.length === 1 ? "" : "s"}`;
   return (
     <details className={`utt-tools${live ? " live" : ""}`}>
-      <summary>{live ? `${name ?? "The agent"}: ${n} so far` : n}</summary>
+      {/* live: the newest call beside the count, so the work shows without opening the fold */}
+      <summary>{live ? `${name ?? "The agent"}: ${n} so far · ${calls[calls.length - 1].what}` : n}</summary>
       <ol>
         {calls.map((c, i) => (
           <li key={i} className={c.isError ? "bad" : undefined}>

@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { intrayOf } from "@muster-town/core";
 import { HostBackend, startRuntime, type CmdResult, type CommandRunner, type RuntimeOptions } from "../src/index.ts";
 import { drainNudgeOneOnOne } from "../src/redeploy.ts";
-import { callVerb, deferred, fakeSdk, init, result, setup, text, type Script } from "./helpers.ts";
+import { callVerb, deferred, fakeSdk, init, result, setup, text, toolUse, type Script } from "./helpers.ts";
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5)); expect(ok()).toBe(true); };
 
@@ -53,6 +53,41 @@ describe("the manager's 1:1", () => {
     expect(world.sessions.require(live.id)).toMatchObject({ status: "done", reportId: null });
     expect(world.meetings.require(m.id).notesDocId).not.toBeNull();
     expect(world.agents.require(mei.id).status).toBe("idle");
+  });
+
+  test("the 1:1 shows the manager writing from the human's line, through an \"On it\" line while its tool calls go on, and nobody once its turn ends (flag dc_1nduwk2af8)", async () => {
+    const seen: string[][] = [];
+    const look = (s: { world: { ops: { meetingDrafting(id: string): { name: string }[] } } }, mid: string) => seen.push(s.world.ops.meetingDrafting(mid).map((d) => d.name));
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      look(s, mid); // 0: opened, before any call
+      yield toolUse("Read", { file_path: "docs/goals.md" });
+      look(s, mid); // 1: working
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "On it." });
+      look(s, mid); // 2: just spoke
+      yield toolUse("Grep", { pattern: "keyResult" });
+      look(s, mid); // 3: working again after its line
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Here is the map." });
+      yield toolUse("Read", { file_path: "docs/log.d/README.md" });
+      yield result(100, 0.01);
+      look(s, mid); // 4: turn over, waiting for the human
+      const said = await s.next();
+      expect(said).toContain("thanks");
+      look(s, mid); // 5: the human's line is in
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Welcome." });
+      yield result(200, 0.02);
+      expect(await s.next()).toContain("is over");
+      yield result(250, 0.03);
+    });
+    const { world, runtime, lab, admin } = env;
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    await until(() => seen.length === 5);
+    world.ops.meetingSay(admin, m.id, "thanks");
+    await until(() => world.meetings.require(m.id).transcript.length === 4);
+    world.ops.endMeeting(admin, m.id);
+    await runtime.whenIdle();
+    expect(seen).toEqual([["Mei"], ["Mei"], [], ["Mei"], [], ["Mei"]]);
   });
 
   test("the human's line carries the item open on their screen, read live when the line arrives; none, no block", async () => {
