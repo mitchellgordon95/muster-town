@@ -1,4 +1,4 @@
-/** v1.3: POST /api/admin/redeploy needs `town.redeploy` (admin, or the town `deployer` role). */
+/** v1.3: POST /api/admin/redeploy needs `town.redeploy`: a human admin or deployer; no agent since 1:1 mt_vdu3iqhasi. */
 import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
@@ -7,7 +7,7 @@ let close: (() => Promise<void>) | null = null;
 afterEach(async () => { await close?.(); close = null; });
 
 describe("POST /api/admin/redeploy", () => {
-  it("checks town.redeploy, then hands off to the runtime", async () => {
+  it("checks town.redeploy (humans only), then hands off to the runtime", async () => {
     const calls: { image: boolean; requestedBy: string }[] = [];
     let running = false;
     const t = await seededApp({ runtime: {
@@ -22,13 +22,16 @@ describe("POST /api/admin/redeploy", () => {
     expect(denied.status).toBe(403);
     expect(calls).toHaveLength(0);
 
+    // no agent redeploys, even with the deployer role: the server pulls prod itself (1:1 mt_vdu3iqhasi)
     t.world.permissions.grant(noor, townRoleId("deployer"));
-    const ok = await json(t.app, "POST", "/api/admin/redeploy", { headers: agentAuth, body: { image: true } });
+    expect((await json(t.app, "POST", "/api/admin/redeploy", { headers: agentAuth, body: { image: true } })).status).toBe(403);
+    expect(calls).toHaveLength(0);
+
+    // a human admin keeps the path (an image rebuild, a deliberate restart); a second request while one runs gets { running: true }
+    const ok = await json(t.app, "POST", "/api/admin/redeploy", { headers: t.auth, body: { image: true } });
     expect(ok.status).toBe(202);
     expect(ok.body).toEqual({ started: true });
-    expect(calls[0]).toEqual({ image: true, requestedBy: "Noor" });
-
-    // admin holds every permission; a second request while one runs gets { running: true }
+    expect(calls[0]!.image).toBe(true);
     const again = await json(t.app, "POST", "/api/admin/redeploy", { headers: t.auth, body: {} });
     expect(again.status).toBe(200);
     expect(again.body).toEqual({ running: true });

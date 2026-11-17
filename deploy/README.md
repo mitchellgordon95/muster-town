@@ -46,8 +46,10 @@ alternative; that box was deleted.
   the live commit and the tip is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md` (schema
   `deployable`, the same filter the `deploy` monitor key uses); and at most one restart it asks for per 10 min (`PULL_SPACING_MS`: none within
   10 min of the server's start or of its last request; a tick while a redeploy runs is skipped; the same tip after a failed run is retried
-  after an hour). A failed `git fetch` is one system event ("Prod watch: …"), then quiet until a fetch works. The `redeploy` verb and the
-  planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
+  after an hour). A failed `git fetch` is one system event ("Prod watch: …"), then quiet until a fetch works. Nobody calls redeploy after a merge,
+  and agents can't: the `redeploy` tool is gone and no agent holds `town.redeploy` (1:1 mt_vdu3iqhasi). The planning desk button
+  (`POST /api/admin/redeploy`, a human admin) stays for what the puller never does: a deliberate restart with nothing new, and a desk image
+  rebuild (`image: true`). Agents wait for a commit with `{deploy: sha}`, which the puller resolves. Rollback: `git revert` on main and let CI
   promote it; emergency: point `prod` at the last good sha (the puller only fast-forwards, so a reset prod is left for a redeploy by hand).
   A red run leaves the live town where it was and shows in the Actions tab. Until 2026-11-17 CI itself POSTed `/api/admin/redeploy` with the
   Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`; the ghost sweep revoked that token on 11-16 (FYI dc_4yrb3979ty) and the step is gone.
@@ -408,9 +410,8 @@ Do this after the smoke test, with the Mac's world as the one source of truth fr
 5. From then on the Mac is dev only: don't start `collectives/workshop` there again (it would fork the world).
 
 ## Every deploy after that
-Push to main → CI green → `prod` moves → redeploy (pull `prod`, rebuild, drain, exit 75, the supervisor restarts).
-CI's redeploy uses the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN` (the "CI" visitor's token, deployer role);
-without it CI only moves `prod`, and the `redeploy` tool or the planning desk button ships it.
+Push to main → CI green → `prod` moves → the server's prod watch pulls it within about a minute (pull `prod`, rebuild, drain,
+exit 75, the supervisor restarts). See "CI and redeploy (CI promotes, the server pulls)" above.
 Rollback: `git revert` on main. Emergency: point `prod` at the last good sha and redeploy.
 
 ## Logs and backups (legacy: the OVH box is gone)
@@ -424,7 +425,7 @@ Open internet out, per-second billing, no prepayment. Code: `packages/runtime/sr
   `FLY_APP=muster-desks` in the collective's `.env` (host secrets, never `DESK_ENV_*`). Build and push the desk image to Fly's registry
   (`fly deploy --build-only --push --image-label desk -c fly.desk.toml`, run with `FLY_ACCESS_TOKEN` set to that token; Fly's remote builder is amd64).
 - **New desk image:** the town does it itself when the host has the secret `FLY_DESKS_ACCESS_TOKEN` (a muster-desks deploy token): a host env var, or the collective secret of that name at Town Hall → Secrets (on prod it's the collective secret; a staged `fly secrets set` only reaches the server after a Machine restart, which a redeploy isn't):
-  `redeploy` with the desk image (planning desk "also rebuild desk image", or the `redeploy` tool with `image: true`) runs `scripts/fly-desk-image.sh`
+  a human admin's redeploy with the desk image (planning desk "also rebuild desk image": the puller never rebuilds the image) runs `scripts/fly-desk-image.sh`
   (installs flyctl into `/data/flyctl` if missing, then `fly deploy --build-only --push --remote-only --image-label desk -c fly.desk.toml`), and after the drain
   destroys every idle resident's desk Machine (`DELETE /machines/<id>?force=true`; the `deskhome-*` volumes stay), so the next session creates it from the new `:desk`.
   By hand: `FLY_ACCESS_TOKEN=<token> bash scripts/fly-desk-image.sh`, then `fly machine destroy --force <id>` per desk-* Machine (never `fly volumes destroy`):

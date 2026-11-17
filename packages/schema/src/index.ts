@@ -282,7 +282,7 @@ export const BUILTIN_ROLES = {
     admin: Permission.options, // everything
     /** signed in, read-only until an admin lets them in (`member`) */
     visitor: ["meeting.attend"] as Permission[],
-    /** may redeploy the running town from main (workshop residents; building managers and their forks hold town.redeploy without it outside a hosted collective) */
+    /** a human who may restart the server or rebuild the desk image (POST /api/admin/redeploy); agents never hold town.redeploy (1:1 mt_vdu3iqhasi) */
     deployer: ["town.redeploy", "town.interact"] as Permission[],
     /** let in by an admin (an access request granted): may move, talk, message agents and write */
     member: ["town.interact", "meeting.attend", "doc.request_human"] as Permission[],
@@ -2401,10 +2401,6 @@ export const VerbInputs = {
   promote: z.object({ docId: Id, state: z.enum(["building", "library"]) }),
   adopt: z.object({ goalId: Id.describe("an active goal no building works on (none on it or on a goal above it)") }),
   ban: z.object({ agentId: Id, reason: z.string() }),
-  redeploy: z.object({
-    image: z.boolean().default(false).describe("also rebuild the desk image and recreate idle desk containers"),
-    restart: z.string().trim().min(1).max(500).optional().describe("a deliberate restart with nothing new on prod: say why; logged in the event (without it, or image, a redeploy with nothing new ends without restarting)"),
-  }),
   // ---- legible delegation step 5: the Secretary's ranking and weekly pattern runs (core secretary.ts) ----
   rank: z.object({
     week: z.boolean().optional().describe("the weekly pattern run: read the last 7 days of asks, shipped notices and events instead of the open asks"),
@@ -2496,7 +2492,6 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   ban: "(admin) Ban an agent town-wide pending review.",
   calibrate: "(Planner) The weekly calibration run. With no arguments: the budget measures, the Planner's lines, which are crossed and the town's one proposed change to the step-size table. With title, body and recommendation: file that change as one policy ask (Adopt / Keep as is) for a human; refused when no line is crossed or one already waits. It never changes the table itself.",
   rank: "(Secretary) The Town Hall's ranking runs. With no arguments: every open ask with its type, age, building, body, branches and recommendation, then the last 30 money decisions with their notes; with week: true, the last 7 days of asks, rollups and events (the weekly run). With order: rank the open asks; slate: file the money slate (fund now, hold until, skip) as a notice; defer: park an ask behind the one it is moot without; overtaken: close a click or policy ask a human's decision already made moot, with a note citing that decision; fold: fold a later ask into another live ask on the same thing raised on a different job (any type): it leaves the queue, its thread says where it went, and the human's decision on the survivor lands on both threads; pattern: file the weekly pattern notice (and its rule as a policy ask). It never funds or approves anything, and decides nothing a human has not already decided.",
-  redeploy: "Pull the deploy branch on the host (`prod` on muster.town), rebuild, and restart the collective's server. CI fast-forwards `prod` after every green push to main and the server pulls `prod` itself within minutes (at most one restart per 10 min; docs-only changes don't restart it), so do not call this after a merge: a call before CI has moved `prod` finds nothing new and ends without restarting. Use it for an image deploy (image=true: also rebuilds the desk image and recreates idle desks) or a deliberate restart with nothing new (restart: \"<why>\", logged in the event). Desk work sessions keep running through a restart (a town call during the few seconds the server is down is retried for you). Never poll or wait for the new build in the same session: say in your report which commit should be live, submit the report, and verify on your next session (park with resumeWhen {deploy: sha}).",
 };
 
 /** The wait union narrowed to the kinds a collective in `mode` may set (`waitKindsFor`). */
@@ -2922,7 +2917,7 @@ export const MeetingFocusInput = z.object({ kind: MeetingFocusKind, id: z.string
 export const MeetingPresentInput = z.object({ docId: z.string().trim().min(1).nullable(), slide: z.number().int().positive().default(1) });
 export const MeetingSayInput = z.object({ text: z.string(), attach: z.string().optional() });
 export const SeedInput = z.object({ importDir: z.string().optional() });
-/** POST /api/admin/redeploy (permission `town.redeploy`); also the `redeploy` verb's input */
+/** POST /api/admin/redeploy (permission `town.redeploy`: a human admin or deployer; no agent holds it, 1:1 mt_vdu3iqhasi) */
 export const RedeployInput = z.object({ image: z.boolean().default(false), restart: z.string().trim().min(1).max(500).optional() });
 /**
  * `{ started: true }` (runs in the background, progress as `system` events) or `{ queued: true }` when one is in flight:
