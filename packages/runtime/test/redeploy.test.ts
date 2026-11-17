@@ -3,7 +3,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
-import { townRoleId } from "@muster-town/core";
 import { makeRedeployer, type CmdResult, type CommandRunner, type RedeployDeps } from "../src/index.ts";
 import { drainNudge, drainNudgeManage, imageTags, parseChanges, repoWebUrl } from "../src/redeploy.ts";
 import { result, setup } from "./helpers.ts";
@@ -308,14 +307,11 @@ describe("redeploy", () => {
     expect(holds).toEqual([true, false]);
   });
 
-  test("startRuntime registers the host hook; the verb needs town.redeploy (deployer role)", async () => {
+  test("startRuntime registers the host hook (the admin route and the prod puller call it); stop removes it", async () => {
     const runner = fakeRunner(base());
     const exit = vi.fn();
-    const { world, runtime, by } = setup(async function* () { yield result(1, 0); }, { redeploy: { run: runner.run, exit, exitDelayMs: 1 }, repoRoot: "/repo" });
-    const noor = by("Noor");
-    await expect(world.verbs.redeploy(noor.id, {})).rejects.toThrow(/town\.redeploy/);
-    world.permissions.grant(noor, townRoleId("deployer"));
-    expect(await world.verbs.redeploy(noor.id, {})).toEqual({ started: true });
+    const { world, runtime } = setup(async function* () { yield result(1, 0); }, { redeploy: { run: runner.run, exit, exitDelayMs: 1 }, repoRoot: "/repo" });
+    expect(await world.host.redeploy!({ image: false, requestedBy: "Noor" })).toEqual({ started: true });
     expect(runtime.redeploy({ image: false, requestedBy: "x" })).toEqual({ queued: true });
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75));
     await runtime.stop();

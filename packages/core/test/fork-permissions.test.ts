@@ -1,6 +1,6 @@
-/** Forks step 2 friction 1 (dc_6tsgcif8r1): a live fork of the manager inherits town.redeploy and the Town Hall board; nothing else. */
-import { describe, expect, it, vi } from "vitest";
-import { canPostTownBoard, createBuilding, createDoc, createResident, forkManager, retireFork, townRoleId, updateBuilding } from "../src/index.ts";
+/** Forks step 2 friction 1 (dc_6tsgcif8r1): a live fork of the manager inherits the Town Hall board; nothing else (town.redeploy is human-only since 1:1 mt_vdu3iqhasi). */
+import { describe, expect, it } from "vitest";
+import { canPostTownBoard, createBuilding, createDoc, createResident, forkManager, townRoleId, updateBuilding } from "../src/index.ts";
 import { creditBank, musterWorld } from "./helpers.ts";
 
 const TOWN_HALL_ID = "town-hall";
@@ -26,48 +26,15 @@ async function forkOf(lab: ReturnType<typeof forkLab>) {
 }
 
 describe("fork permissions: what a fork inherits from its manager", () => {
-  it("a fork redeploys with its manager's town.redeploy; a plain resident still can't; a retired fork can't", async () => {
+  it("no agent redeploys (1:1 mt_vdu3iqhasi): not a manager with the deployer role, not its fork; a human admin does", async () => {
     const lab = forkLab();
-    const { world, ann } = lab;
+    const { world, pix, ann, seed } = lab;
     const fork = await forkOf(lab);
-    const hook = vi.fn(() => ({ started: true }));
-    world.host.redeploy = hook;
-    expect(world.permissions.can(fork, "town.redeploy")).toBe(true);
-    expect(await world.verbs.redeploy(fork.id, {})).toEqual({ started: true });
-    expect(hook).toHaveBeenCalledWith({ image: false, requestedBy: fork.name });
-    await expect(world.verbs.redeploy(ann.id, {})).rejects.toThrow(/town\.redeploy/);
-    retireFork(world, fork.id);
-    expect(world.permissions.can(world.agents.require(fork.id), "town.redeploy")).toBe(false);
-  });
-
-  it("only what the manager holds: in a hosted collective a fork of a manager without the deployer role can't redeploy", async () => {
-    const lab = forkLab();
-    lab.world.host.hosted = true;
-    lab.world.permissions.revoke(lab.pix, townRoleId("deployer"));
-    const fork = await forkOf(lab);
-    expect(lab.world.permissions.can(fork, "town.redeploy")).toBe(false);
-  });
-
-  it("outside a hosted collective every manager redeploys without the deployer role, and so do its forks (mt_e1uoil9mx5 decision 1)", async () => {
-    const lab = forkLab();
-    const { world, pix, ann } = lab;
-    world.permissions.revoke(pix, townRoleId("deployer"));
-    const hook = vi.fn(() => ({ started: true }));
-    world.host.redeploy = hook;
-    expect(world.permissions.can(pix, "town.redeploy")).toBe(true);
-    expect(await world.verbs.redeploy(pix.id, { image: true })).toEqual({ started: true });
-    expect(hook).toHaveBeenLastCalledWith({ image: true, requestedBy: pix.name });
-    const fork = await forkOf(lab);
-    expect(world.permissions.can(fork, "town.redeploy")).toBe(true);
-    expect(await world.verbs.redeploy(fork.id, { image: true })).toEqual({ started: true });
-    // a resident who manages nothing still can't
-    expect(world.permissions.can(ann, "town.redeploy")).toBe(false);
-    await expect(world.verbs.redeploy(ann.id, { image: true })).rejects.toThrow(/town\.redeploy/);
-    // a hosted collective: its manager is refused
+    for (const a of [pix, fork, ann]) expect(world.permissions.can(a, "town.redeploy")).toBe(false);
+    expect("redeploy" in world.verbs).toBe(false);
+    expect(world.permissions.can({ kind: "user", id: seed.admin.id }, "town.redeploy")).toBe(true);
     world.host.hosted = true;
-    expect(world.permissions.can(pix, "town.redeploy")).toBe(false);
-    await expect(world.verbs.redeploy(pix.id, { image: true })).rejects.toThrow(/town\.redeploy/);
-    expect(world.permissions.can(fork, "town.redeploy")).toBe(false);
+    expect(world.permissions.can({ kind: "user", id: seed.admin.id }, "town.redeploy")).toBe(false);
   });
 
   it("a fork posts an FYI to the Town Hall board and to its own building's board", async () => {

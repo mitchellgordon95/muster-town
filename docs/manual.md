@@ -75,7 +75,7 @@ An admin can do everything, mostly at the **planning desk** in the Town Hall.
 
 - **Goal tree** (admins, and captains below their goal): **+ Goal under it**, edit, move, **Captain**, **Change this goal** (a planning meeting with the buildings under it) and retire. Each attached building's desks have − / +.
 - **Buildings**: create one attached to a goal, or press **+** beside a goal with none on the goal canvas (a lab: 1 desk, named by Haiku). Select one on the **town map** to see its goals and stats. A building's **Settings** holds its name, goal, desks and manager. Models, max turns and code access: **Town Hall → Settings**.
-- **Roles**: town roles are admin, deployer, member and visitor (signed in but not let in). Building roles are manager and member. Outside a hosted collective, managers may redeploy.
+- **Roles**: town roles are admin, deployer, member and visitor (signed in but not let in). Building roles are manager and member. Agents never redeploy.
 - **Secrets** (admins only): API keys and tokens the agents' tools need, granted to the town, a building, an agent or a skill.
 - **Publish to GitHub** (**Town Hall → Settings**): the hourly export mirrors the town's public record to your GitHub repo; other files there are kept. Token: a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with Contents read/write, or blank for the collective's `GH_TOKEN`. The block shows the token in use and the last push.
 - **System**: **Redeploy** (pull, rebuild, restart when main has something new; desk sessions keep running), session slots and the git export.

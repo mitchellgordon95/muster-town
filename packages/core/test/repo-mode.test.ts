@@ -39,14 +39,14 @@ describe("repoMode", () => {
 });
 
 describe("town.redeploy follows the repo mode", () => {
-  it("muster: a manager holds it without the deployer role; own: only admins and deployers; hosted: nobody, admins included", () => {
+  it("no agent holds it in any mode, deployer role or not (1:1 mt_vdu3iqhasi); a human admin does; hosted: nobody, admins included", () => {
     const m = lab("muster");
-    expect(m.world.permissions.can(m.pix, "town.redeploy")).toBe(true);
+    expect(m.world.permissions.can(m.pix, "town.redeploy")).toBe(false);
     const o = lab("own");
     expect(o.world.permissions.can(o.pix, "town.redeploy")).toBe(false);
     expect(o.world.permissions.can({ kind: "user", id: o.seed.admin.id }, "town.redeploy")).toBe(true);
     o.world.permissions.grant(o.pix, townRoleId("deployer"));
-    expect(o.world.permissions.can(o.pix, "town.redeploy")).toBe(true);
+    expect(o.world.permissions.can(o.pix, "town.redeploy")).toBe(false);
     const n = lab("none");
     n.world.host.hosted = true;
     expect(n.world.permissions.can({ kind: "user", id: n.seed.admin.id }, "town.redeploy")).toBe(false);
@@ -98,15 +98,15 @@ describe("prompts follow the repo mode", () => {
     expect(seed).toBeTruthy();
   });
 
-  it("own: PR waits stay, deploy waits and the redeploy line go", () => {
+  it("own: PR waits stay, deploy waits and the merge-ships-itself line go", () => {
     const { world, b, pix } = lab("own");
     const work = workSystemPrompt(pix, b, world.town.get(), { repo: world.repoMode() });
     expect(work).toMatch(/\{pr: <number>\}/);
     expect(work).not.toMatch(/\{deploy/);
-    expect(workshopPrompt({ dir: "/w", base: "main" }, "their-app", "own")).not.toMatch(/redeploy/);
+    expect(workshopPrompt({ dir: "/w", base: "main" }, "their-app", "own")).not.toMatch(/redeploy|ships itself/);
   });
 
-  it("muster: the Workshop's brief is as today (Live line, deploy and PR waits, the redeploy line)", () => {
+  it("muster: the Workshop's brief is as today (Live line, deploy and PR waits, the merge-ships-itself line)", () => {
     const { world, b, pix } = lab("muster");
     world.host.commit = "fa73e88aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const work = workSystemPrompt(pix, b, world.town.get(), { repo: world.repoMode() });
@@ -115,7 +115,7 @@ describe("prompts follow the repo mode", () => {
     expect(work).toMatch(/"Merge PR #12\."/);
     expect(managerIntrayBlock(world, b, pix.id)).toMatch(/Live: fa73e88/);
     expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/merge rights/);
-    expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/If you call `redeploy`/);
+    expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/A merge to main ships itself/);
   });
 });
 

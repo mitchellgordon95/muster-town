@@ -119,7 +119,7 @@ describe("v1.4 generic verbs endpoint", () => {
     const visitor = await connect(token);
     expect(visitor.getInstructions()).toMatch(/Muster Town[\s\S]*`look` first[\s\S]*`submit_report`/);
     const names = (await visitor.listTools()).tools.map((t) => t.name);
-    for (const hidden of ["assign", "review", "propose_grant", "close_grant", "fork_status", "promote", "ban", "rank", "calibrate", "redeploy"]) expect(names).not.toContain(hidden);
+    for (const hidden of ["assign", "review", "propose_grant", "close_grant", "fork_status", "promote", "ban", "rank", "calibrate"]) expect(names).not.toContain(hidden);
     for (const kept of ["look", "inbox", "tell", "write", "submit_report", "accept_assignment", "adopt"]) expect(names).toContain(kept);
     // a hidden verb still answers by name with the verb's own refusal
     const denied = await visitor.callTool({ name: "ban", arguments: { agentId, reason: "x" } });

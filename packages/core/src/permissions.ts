@@ -1,4 +1,4 @@
-import { isGone, BUILTIN_ROLES, Permission, type Agent, type RepoMode, type Role } from "@muster-town/schema";
+import { BUILTIN_ROLES, Permission, type Agent, type Role } from "@muster-town/schema";
 import { AppError, forbidden } from "./errors.ts";
 import { BUDGET_POLICY } from "./policy.ts";
 import type { Repos } from "./store.ts";
@@ -23,20 +23,12 @@ export function holderOf(x: Holder | Agent): Holder {
 export const townRoleId = (name: TownRoleName) => `role:${name}`;
 export const buildingRoleId = (buildingId: string, name: BuildingRoleName) => `role:${buildingId}:${name}`;
 
-/**
- * What a live fork of a building's manager inherits from that manager (forks step 2, Mitchell's 1:1 mt_8t3alpkquv): so a
- * queued fork can finish "commit, redeploy, announce" itself. Posting to the Town Hall board follows the manager too
- * (`canPostTownBoard`). Nothing else: building.manage/assign/review stay with the manager.
- */
-const FORK_INHERITED: readonly Permission[] = ["town.redeploy"];
-
 export class Permissions {
   /**
    * `hosted`: whether this World is a hosted collective (docs/hosted-collectives.md): nobody there redeploys, admins
-   * included (the hub's server is not theirs). `repoMode`: managers and forks hold `town.redeploy` only on this server's
-   * own repo (`muster`); elsewhere only the admins and the deployer role do (to upgrade the server).
+   * included (the hub's server is not theirs).
    */
-  constructor(private repos: Repos, private hosted: () => boolean = () => false, private repoMode: () => RepoMode = () => "muster") {}
+  constructor(private repos: Repos, private hosted: () => boolean = () => false) {}
 
   /** Whether this World is a hosted collective (served by the hub at `/<slug>/`): it runs on Anthropic API keys only. */
   isHosted(): boolean { return this.hosted(); }
@@ -53,27 +45,22 @@ export class Permissions {
    *   inherited = agent.inheritsOwner && ownerCan   (human avatars always inherit)
    *   result    = owner ? (own || inherited) && ownerCan : own   — an agent never exceeds its owner
    * then `deniedPermissions` removes it. `building.fund` is never effective for agents (only human avatars, as their
-   * user): otherwise a manager agent whose owner is admin could fund its own proposal. A live fork of its building's
-   * manager also counts the manager's grant for the permissions in FORK_INHERITED (still capped by the owner).
-   * On this server's own repo (`repoMode` muster) a building's manager holds `town.redeploy` without the deployer role
-   * (Mitchell, town hall mt_e1uoil9mx5 decision 1: every manager and fork of this collective may rebuild the desk image),
-   * so its forks do too. In a hosted collective nobody holds it, admins included (1:1 mt_1vs893enaw).
+   * user): otherwise a manager agent whose owner is admin could fund its own proposal. `town.redeploy` is a human's only
+   * (Mitchell, 1:1 mt_vdu3iqhasi decision 1: the server pulls prod itself, the agent-facing redeploy retires): an admin
+   * or a user with the deployer role, or their human avatar; never an agent, whatever its roles. In a hosted collective
+   * nobody holds it, admins included (1:1 mt_1vs893enaw).
    */
   can(holder: Holder | Agent, permission: Permission, buildingId?: string | null): boolean {
     const x = this.resolve(holder);
     // open question 3 (BUDGET_POLICY.funders): "admins" = only town-level roles fund, not a building's manager role
     if (permission === "building.fund" && BUDGET_POLICY.funders === "admins") buildingId = null;
     if (permission === "town.redeploy" && this.hosted()) return false;
+    if (permission === "town.redeploy" && holderOf(x).kind === "agent") return false;
     if (!isAgent(x)) return this.rolesGrant(x, permission, buildingId);
     if (x.deniedPermissions?.includes(permission)) return false;
     if (permission === "building.fund" && x.kind !== "human") return false;
     const owner = this.ownerOf(x);
     let own = this.rolesGrant({ kind: "agent", id: x.id }, permission, buildingId);
-    if (!own && permission === "town.redeploy" && this.repoMode() === "muster") own = this.managesABuilding(x);
-    if (!own && FORK_INHERITED.includes(permission)) {
-      const manager = this.managerOfFork(x);
-      own = !!manager && this.can(manager, permission, buildingId);
-    }
     if (!owner) return own;
     const ownerCan = this.rolesGrant(owner, permission, buildingId);
     return (own || this.inherits(x)) && ownerCan;
@@ -118,12 +105,6 @@ export class Permissions {
     if (!agent.forkOf || agent.status === "retired" || !agent.homeBuildingId) return null;
     if (this.repos.buildings.get(agent.homeBuildingId)?.managerAgentId !== agent.forkOf) return null;
     return this.repos.agents.get(agent.forkOf) ?? null;
-  }
-
-  /** A live agent named some lab's manager (`managerAgentId`; the Town Hall's, the Planner, doesn't count). */
-  private managesABuilding(agent: Agent): boolean {
-    if (isGone(agent) || agent.forkOf) return false;
-    return !!this.repos.buildings.first("managerAgentId = ? AND kind != 'town-hall'", [agent.id]);
   }
 
   private inherits(agent: Agent): boolean {
