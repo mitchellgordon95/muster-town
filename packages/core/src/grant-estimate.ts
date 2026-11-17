@@ -124,7 +124,7 @@ export function stepCalibration(world: Pick<Repos, "town" | "assignments" | "ses
 }
 
 /** The ratio a forecast or an earmark prices a size at: the collective's calibrated median once its sample is big enough, else 1.0 (the table). */
-export function calibratedRatio(c: StepCalibration, size: StepSize): number {
+function calibratedRatio(c: StepCalibration, size: StepSize): number {
   const r = c.sizes[size];
   return r.ratio !== null && r.sample >= c.minSample ? r.ratio : 1;
 }
@@ -209,4 +209,33 @@ export function parseModelEstimate(text: string): { low: number; high: number; n
   const low = Math.round(num(r.low)), high = Math.round(num(r.high));
   if (!Number.isFinite(low) || !Number.isFinite(high) || low <= 0 || high < low) return null;
   return { low, high, note: typeof r.reason === "string" ? r.reason.trim().slice(0, 300) : "" };
+}
+
+/** A step not done that has already booked spend (a session ran on it, e.g. parked on its PR's CI): its index, spend so far and table price. */
+interface StepInFlight { index: number; spent: number; price: number; assignmentId: string }
+
+/**
+ * What a funded grant's steps not done are expected still to spend (gr_76e81kdpvy, findings dc_94qevcrr7x): a step not
+ * started at its size × the calibrated ratio; the step in flight at what is left of that, minus its spend so far, never
+ * below half the smallest size (a step past its price is wrapping up: a merge session, not a fresh step), so a step's
+ * spend is never counted twice (once in `spent`, once at its full size); a fork's top-up filed since the last decision
+ * (`topUpTokens`) is the floor of the whole. Null when a step has no size (planned before sizes: nothing to price by).
+ */
+export function expectedLeft(world: World, g: Grant, cal: StepCalibration): { tokens: number; inFlight: StepInFlight | null } | null {
+  if (!g.steps.every((s) => !!s.size)) return null;
+  const table = grantPricingOf(world.town.get()).stepSizes;
+  const smallest = Math.min(...Object.values(table).filter((n) => n > 0));
+  const states = world.grantDesk.stepStates(g);
+  let tokens = 0, inFlight: StepInFlight | null = null;
+  g.steps.forEach((s, i) => {
+    const st = states[i];
+    if (st?.status === "done") return;
+    const full = table[s.size!] * calibratedRatio(cal, s.size!);
+    const spent = st?.spentTokens ?? 0;
+    if (spent > 0 && st) {
+      inFlight ??= { index: i, spent, price: table[s.size!], assignmentId: st.assignmentId };
+      tokens += Math.max(full - spent, Number.isFinite(smallest) ? smallest / 2 : 0);
+    } else tokens += full;
+  });
+  return { tokens: Math.max(Math.round(tokens), g.topUpTokens ?? 0), inFlight };
 }

@@ -1,6 +1,6 @@
 import { grantName, grantPricingOf, type Grant, type GrantForecast, type StepCalibration, type StepSize } from "@muster-town/schema";
 import { needAtForecast, retireGateAsk } from "./asks.ts";
-import { calibratedRatio, stepCalibration } from "./grant-estimate.ts";
+import { expectedLeft, stepCalibration } from "./grant-estimate.ts";
 import { fileNotice } from "./notices.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -20,27 +20,20 @@ function sizesOf(g: Grant): StepSize[] | null {
   return sizes.every((z): z is StepSize => !!z) ? sizes : null;
 }
 
-/** The sizes of a grant's steps not done yet (a step is done when its latest assignment is). */
-function stepsLeft(world: World, g: Grant, sizes: StepSize[]): StepSize[] {
-  const states = world.grantDesk.stepStates(g);
-  return sizes.filter((_, i) => states[i]?.status !== "done");
-}
-
 /**
- * What a funded grant is expected still to spend: the sizes of its steps left × the calibrated ratio per size (1.0 while
- * a size has too few completed steps), never below 0. A grant with no plan steps (funded before migration 096) is
- * expected to spend its ceiling's remainder: there is nothing to price it by.
+ * What a funded grant is expected still to spend (`expectedLeft`: steps not started at their size × the calibrated ratio,
+ * 1.0 while a size has too few completed steps; the step in flight at what is left of it), never below 0. A grant with
+ * no plan steps (funded before migration 096) or unsized ones is expected to spend its ceiling's remainder: there is
+ * nothing to price it by.
  */
 export function expectedRemaining(world: World, g: Grant, cal: StepCalibration, ceilingRemaining: number): number {
-  const sizes = sizesOf(g);
-  if (!g.steps.length || !sizes) return ceilingRemaining;
-  const table = grantPricingOf(world.town.get()).stepSizes;
-  return Math.max(0, Math.round(stepsLeft(world, g, sizes).reduce((s, size) => s + table[size] * calibratedRatio(cal, size), 0)));
+  if (!g.steps.length) return ceilingRemaining;
+  return expectedLeft(world, g, cal)?.tokens ?? ceilingRemaining;
 }
 
 /**
  * A step of a funded grant filed its report: compute the forecast (steps done and left by size, spent, the ceiling, this
- * grant's spent over size so far, projected = spent + the sizes left × the calibrated ratio), store it on the grant with
+ * grant's spent over size so far, projected = spent + `expectedLeft`), store it on the grant with
  * `needsTopUp` = projected past the ceiling, and append `grant.forecast`; past the ceiling also `grant.top-up-needed`
  * with the shortfall. Then the gate (§7.3 point 4): past the ceiling the forecast writes the gate's need on the grant
  * (`needAtForecast`: its manager renders the Adjust / Cut ask) and no notice; within it, a `gate` notice "Step N of M
@@ -67,12 +60,13 @@ export function fileForecast(world: World, grantId: string, reportId: string | n
   const cal = stepCalibration(world);
   const states = world.grantDesk.stepStates(g);
   const left: Record<StepSize, number> = { S: 0, M: 0, L: 0 };
-  let doneSize = 0, stepsDone = 0, expected = 0;
+  let doneSize = 0, stepsDone = 0;
   sizes.forEach((size, i) => {
     if (states[i]?.status === "done") { stepsDone++; doneSize += table[size]; return; }
     left[size]++;
-    expected += table[size] * calibratedRatio(cal, size);
   });
+  // the step in flight at what is left of it, never its full size again (gr_76e81kdpvy)
+  const expected = expectedLeft(world, g, cal)?.tokens ?? 0;
   const spent = Math.round(world.grantDesk.spent(g.id));
   const ceiling = g.grantTokens;
   const projected = Math.round(spent + expected);

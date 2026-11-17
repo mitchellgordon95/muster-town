@@ -25,9 +25,9 @@ function lab() {
   const pix = createResident(world, { buildingId: b.id, name: "Pix" });
   updateBuilding(world, b.id, { managerAgentId: pix.id });
   creditBank(world);
-  const fund = () => world.grantDesk.decide(admin, world.grantDesk.propose(null, world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "A banner", steps: STEPS, stopCondition: "s" }).id).id, { action: "fund" });
+  const fund = (steps: typeof STEPS = STEPS) => world.grantDesk.decide(admin, world.grantDesk.propose(null, world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "A banner", steps, stopCondition: "s" }).id).id, { action: "fund" });
   /** a fork takes the building's first queued step, spends `tokens` on it (a booked session) and files its report */
-  const runStep = async (tokens: number, verdict: "continue" | "pivot" | "stop" = "continue") => {
+  const runStep = async (tokens: number, verdict: "continue" | "pivot" | "stop" = "continue", park?: { title: string }) => {
     const a = buildingQueue(world, b.id)[0]!;
     const { fork } = forkManager(world, b.id, a.id);
     world.assignments.patch(a.id, { status: "active" });
@@ -35,7 +35,9 @@ function lab() {
       id: newId("se"), agentId: fork.id, assignmentId: a.id, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
       sdkSessionId: null, output: tokens, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: a.grantId,
     } as never);
-    const r = await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict, left: "The rest of the plan." });
+    const r = park
+      ? await world.verbs.submit_report(fork, { title: park.title, body: REPORT, verdict, resumeWhen: { after: new Date(Date.now() + 3_600_000).toISOString() }, next: "Merge the PR" })
+      : await world.verbs.submit_report(fork, { title: `Report on ${a.title}`, body: REPORT, verdict, left: "The rest of the plan." });
     retireFork(world, fork.id);
     return { a, r };
   };
@@ -234,5 +236,60 @@ describe("the checkpoint's need", () => {
     expect(need.body).toContain("It has spent 600,000 of its 600,000-token ceiling.");
     expect(need.body).not.toContain("Suggested:");
     expect(need.body).not.toContain("latest step report");
+  });
+});
+
+describe("the step in flight is priced at what is left of it (gr_76e81kdpvy, findings dc_94qevcrr7x)", () => {
+  /** the Pins grant gr_y4s2j99vgm: three M steps, a 450,000 ceiling */
+  const PINS = [0, 1, 2].map((i) => ({ size: "M" as const, title: `Pins step ${i + 1}`, description: "Ship its PR" }));
+
+  it("the Pins numbers: held at 453,179 with step 3 at 195,685 and parked on CI, the gate suggests 50,000, not 400,000, and names step 3", async () => {
+    const { world, fund, runStep, gateNeeds } = lab();
+    const g = fund(PINS);
+    expect(g.grantTokens).toBe(450_000);
+    await runStep(100_000);
+    await runStep(157_494); // 257,494 after two steps: projected 407,494, within the ceiling
+    expect(gateNeeds(g.id)).toHaveLength(0);
+    await runStep(195_685, "continue", { title: "Pins step 3 in draft PR #486; parked on its CI" });
+    expect(world.grantDesk.stepStates(world.grants.require(g.id))[2]).toMatchObject({ status: "pending", spentTokens: 195_685 });
+    world.grantDesk.checkpoints(g.buildingId);
+    expect(world.grants.require(g.id).status).toBe("checkpoint");
+    const body = gateNeeds(g.id).at(-1)!.body;
+    expect(body).toContain("It has spent 453,179 of its 450,000-token ceiling.");
+    expect(body).toContain("One step is left: one M.");
+    // step 3 is past its 150,000 price: priced at the floor, half the smallest size (25,000), never a full M again
+    expect(body).toContain("At what its steps have left, it is projected to spend 478,179 tokens in all.");
+    expect(body).toContain("That is 28,179 tokens past the ceiling.");
+    expect(body).toContain("Suggested: Pix recommends adjust by 50,000 tokens.");
+    expect(body).not.toContain("400,000");
+    expect(body).toContain(`Step 3 is in flight: "Pins step 3 in draft PR #486; parked on its CI". It has spent 195,685 tokens against its 150,000-token size`);
+    // the free-tokens earmark (under oversell) reads the same remainder
+    const { expectedRemaining } = await import("../src/grant-forecast.ts");
+    const { stepCalibration } = await import("../src/grant-estimate.ts");
+    expect(expectedRemaining(world, world.grants.require(g.id), stepCalibration(world), 0)).toBe(25_000);
+  });
+
+  it("a step in flight under its price is priced at its price less its spend", async () => {
+    const { world, fund, runStep } = lab();
+    const g = fund(PINS);
+    await runStep(100_000);
+    await runStep(150_000);
+    await runStep(90_000, "continue", { title: "Step 3 parked on its CI" });
+    const { expectedRemaining } = await import("../src/grant-forecast.ts");
+    const { stepCalibration } = await import("../src/grant-estimate.ts");
+    expect(expectedRemaining(world, world.grants.require(g.id), stepCalibration(world), 0)).toBe(60_000);
+  });
+
+  it("a step not started is still priced at its full size: the projection does not change, and no step is named in flight", async () => {
+    const { fund, runStep, gateNeeds } = lab();
+    const g = fund(PINS);
+    await runStep(100_000);
+    await runStep(260_000); // 360,000 spent, step 3 queued with no spend: 360,000 + a full M = 510,000
+    const body = gateNeeds(g.id).at(-1)!.body;
+    expect(body).toContain("At the sizes left, it is projected to spend 510,000 tokens in all.");
+    expect(body).toContain("That is 60,000 tokens past the ceiling.");
+    // rounded up to whole smallest sizes (S 50,000): 100,000, never the next size L
+    expect(body).toContain("Suggested: Pix recommends adjust by 100,000 tokens.");
+    expect(body).not.toContain("in flight");
   });
 });
