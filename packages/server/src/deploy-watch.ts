@@ -3,20 +3,21 @@
  * deploy branch's tip from GitHub (`prod` on muster.town: CI fast-forwards it to each green main) and, when the tip is not
  * the live commit, the compare between them. Live 8.5 h behind prod on 11-16 (CI's deploy token revoked, FYI dc_4yrb3979ty)
  * and on 11-04 (dc_uzwcg5xw3u) raised nothing; the monitor's `deploy` key (monitor.ts) now does, from this view.
- * `behindSince` is when this server first saw the tip carry a change CI would deploy (not only docs/, .github/ or top-level
- * *.md, but docs/manual.md counts: ci.yml's promote filter), kept in meta `deployWatch` so a restart that brings no new
+ * `behindSince` is when this server first saw the tip carry a change the puller deploys (not only docs/, .github/ or top-level
+ * *.md, but docs/manual.md counts: schema `deployable`, shared with runtime prod-watch.ts), kept in meta `deployWatch` so a restart that brings no new
  * commit keeps the clock. A GitHub error leaves the state `unknown`: the monitor then changes nothing.
  * Off unless MUSTER_TOWN_DEPLOY_BRANCH is set and the repo is on GitHub. Anonymous GitHub allows 60 calls/h per IP: one
  * branch read per poll, plus one compare when the pair (live, tip) is new; the town's GH_TOKEN is used when set.
  */
 import type { World } from "@muster-town/core";
+import { deployable } from "@muster-town/schema";
 
 const DEPLOY_POLL_MS = 5 * 60_000;
 
 export interface DeployView {
   /** the branch the redeploy pulls */
   branch: string;
-  /** current: live is the tip (or ahead); behind: a deployable change waits; docs-only: only files CI never deploys wait; unknown: never read, or the last read failed */
+  /** current: live is the tip (or ahead); behind: a deployable change waits; docs-only: only files that need no restart wait; unknown: never read, or the last read failed */
   state: "current" | "behind" | "docs-only" | "unknown";
   live: string | null;
   prodTip: string | null;
@@ -30,11 +31,6 @@ export interface DeployView {
   error: string | null;
 }
 
-/** ci.yml promote: a change CI redeploys for (anything but docs/, .github/ and top-level *.md; docs/manual.md is served, so it counts). */
-export function deployable(file: string): boolean {
-  if (file === "docs/manual.md") return true;
-  return !/^(docs\/|\.github\/|[^/]+\.md$)/.test(file);
-}
 
 interface Persisted { live: string; behindSince: string }
 
