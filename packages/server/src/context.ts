@@ -8,6 +8,7 @@ import type { Hub } from "./hub.ts";
 import type { CapacityProbe } from "./capacity.ts";
 import type { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
+import type { DeployWatch } from "./deploy-watch.ts";
 
 /** Hooks the in-process runtime exposes to the server (`startRuntime` returns this). */
 /** where the web client is served (Vite `base`); `/` is the collectives homepage (`home.ts`) */
@@ -61,6 +62,8 @@ declare module "fastify" {
     throwaway: boolean;
     /** the in-process monitor (null in tests and hosted collectives): `GET /api/health` `monitor`, `POST /api/admin/monitor/test` */
     monitor: Monitor | null;
+    /** live vs the deploy branch's tip on GitHub (deploy-watch.ts); null when not watched */
+    deployWatch: DeployWatch | null;
     /** the hosted collectives (root app only; null in a hosted collective's app and without a hub) */
     hub: Hub | null;
     /** the self-hosted towns directory (root app where MUSTER_TOWN_DIRECTORY is on; else null): `GET /api/health` `directory` */

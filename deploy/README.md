@@ -241,6 +241,15 @@ cleared, and once when health itself is down.
 | `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 | `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
+| `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change CI would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
+
+**Live behind prod** (`deploy` key). `GET /api/health` `deploy` is `{branch, state, live, prodTip, behindCommits,
+behindSince, checkedAt, error}`; `state` is `current`, `behind` (a deployable change waits), `docs-only` (CI skips that
+redeploy on purpose) or `unknown` (never read, or the last GitHub read failed: `error` says why). `behindSince` is kept in
+meta `deployWatch`, so a restart with no new commit keeps the clock. GitHub is read with the town's `GH_TOKEN` when set,
+else anonymously (60 calls/h per IP; one branch read per poll, plus one compare per new live/tip pair). When it is red:
+read CI's last `promote` run on main (a 401 from `redeploy muster.town` means the CI token was revoked, as on 11-16,
+FYI dc_4yrb3979ty), then redeploy once from the Town Hall.
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
 performance-1x, 2048 MB ($33/month = $0.0458/h in iad): on shared-cpu-2x ($0.0186/h) desk sessions measured 84–91 % steal.
