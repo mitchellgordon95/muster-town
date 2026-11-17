@@ -18,6 +18,9 @@ import { TOWN_HALL_ID } from "./world/layout.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
+/** A Town Hall doc tagged this is a town page (the decision queue; jobs and threads): listed in every session (dc_8194l8soj4 §3). */
+const TOWN_PAGE_TAG = "town-page";
+
 export interface SkillMd { name: string; description: string; instructions: string }
 
 const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -53,6 +56,16 @@ export class Skills {
   require(id: string, holder?: Holder): Doc {
     const d = this.world.docs.get(id);
     if (!d || d.type !== "skill" || (holder && !canSeeDoc(holder, d))) throw new AppError("not_found", `No skill ${id}.`);
+    return d;
+  }
+
+  /**
+   * Any doc `holder` may see, to pin (design dc_8194l8soj4 §7: a pin may point at any doc, a skill or a page), or
+   * not_found (also for someone else's draft).
+   */
+  requirePinnable(id: string, holder: Holder): Doc {
+    const d = this.world.docs.get(id);
+    if (!d || !canSeeDoc(holder, d)) throw new AppError("not_found", `No document ${id} (or it's someone's draft).`);
     return d;
   }
 
@@ -160,36 +173,37 @@ export class Skills {
     const human = me.kind === "human" || removing;
     const needHuman = (what: string) => { if (!human) throw new AppError("forbidden", `${what} needs a human (an admin or a human manager), not an agent.`); };
     if (input.scope === "town") {
-      if (!perms.isAdmin(me)) throw new AppError("forbidden", "Only an admin pins skills town-wide.");
+      if (!perms.isAdmin(me)) throw new AppError("forbidden", "Only an admin pins docs town-wide.");
       needHuman("A town pin");
-      if (!removing && skill.state !== "library") throw badRequest("Only library skills can be pinned town-wide: a manager promotes it first.");
+      if (!removing && !(skill.state === "library" || (skill.state !== "draft" && skill.buildingId === TOWN_HALL_ID))) throw badRequest("Only a library doc or a published Town Hall doc can be pinned town-wide: a manager promotes it first.");
       return null;
     }
     if (input.scope === "building") {
       const bid = input.targetId ?? homeOf(me);
       if (!bid) throw badRequest("You're not in a building; pass targetId.");
       this.world.buildings.require(bid, "building");
-      if (!perms.can(me, "building.manage", bid)) throw new AppError("forbidden", "Only the building's manager pins skills into its sessions (needs building.manage).");
-      if (!removing && !(skill.state === "library" || (skill.state === "building" && skill.buildingId === bid))) throw badRequest("A building pin needs a skill published in that building or in the library.");
+      if (!perms.can(me, "building.manage", bid)) throw new AppError("forbidden", "Only the building's manager pins docs into its sessions (needs building.manage).");
+      if (!removing && !(skill.state === "library" || (skill.state === "building" && skill.buildingId === bid))) throw badRequest("A building pin needs a doc published in that building or in the library.");
       if (input.mode === "always") needHuman("An always-on building pin");
       if (fileCount > 0) needHuman("Pinning a skill with bundled files into others' sessions");
       return bid;
     }
     const target = this.world.agents.require(input.targetId ?? me.id, "agent");
     if (target.id === me.id) {
-      if (input.mode === "always" && !human && !perms.can(me, "building.manage", homeOf(me))) throw new AppError("forbidden", "You can pin skills into your own sessions as `listed` only; ask your manager for `always`.");
+      if (input.mode === "always" && !human && !perms.can(me, "building.manage", homeOf(me))) throw new AppError("forbidden", "You can pin docs into your own sessions as `listed` only; ask your manager for `always`.");
       return target.id;
     }
-    if (!perms.can(me, "building.manage", homeOf(target))) throw new AppError("forbidden", `Only ${target.name}'s building manager pins skills into its sessions.`);
-    if (!removing && skill.state === "draft") throw badRequest("Publish the skill before pinning it into someone else's sessions.");
+    if (!perms.can(me, "building.manage", homeOf(target))) throw new AppError("forbidden", `Only ${target.name}'s building manager pins docs into its sessions.`);
+    if (!removing && skill.state === "draft") throw badRequest("Publish the doc before pinning it into someone else's sessions.");
     if (input.mode === "always") needHuman("An always-on pin into another agent's sessions");
     if (fileCount > 0) needHuman("Pinning a skill with bundled files into others' sessions");
     return target.id;
   }
 
+  /** Pin any doc the actor may see (a skill, a topic page, a library or Town Hall doc) where `authorize` allows. */
   pin(me: Agent, skillId: string, input: PinInput): PinView {
     const holder = holderOf(me);
-    const skill = this.require(skillId, holder);
+    const skill = this.requirePinnable(skillId, holder);
     const files = this.files(skill.id).length;
     const targetId = this.authorize(me, skill, input, files);
     const cur = this.world.pins.first("docId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
@@ -200,14 +214,14 @@ export class Skills {
       pinnedBy: self ? me.id : holder.id, pinnedByKind: self ? "agent" : holder.kind, byHuman: me.kind === "human", seeded: false, createdAt: nowIso(),
     });
     const where = input.scope === "town" ? "town-wide" : input.scope === "building" ? `in ${this.world.buildings.get(targetId!)?.name ?? targetId}` : `for ${this.world.nameOf(targetId!)}`;
-    this.world.events.append({ type: "skill.pinned", agentId: me.kind === "human" ? null : me.id, buildingId: input.scope === "building" ? targetId : homeOf(me), text: `${me.name} pinned the skill "${skill.title}" ${where} (${input.mode})`, payload: { docId: skill.id, pinId: pin.id, scope: input.scope, targetId, mode: input.mode } });
+    this.world.events.append({ type: "skill.pinned", agentId: me.kind === "human" ? null : me.id, buildingId: input.scope === "building" ? targetId : homeOf(me), text: `${me.name} pinned the ${skill.type === "skill" ? "skill" : "page"} "${skill.title}" ${where} (${input.mode})`, payload: { docId: skill.id, pinId: pin.id, scope: input.scope, targetId, mode: input.mode } });
     return this.pinView(pin, files);
   }
 
   /** Remove a pin: whoever made it, or anyone who could make it. */
   unpin(me: Agent, skillId: string, input: Pick<PinInput, "scope" | "targetId">): { removed: boolean } {
     const holder = holderOf(me);
-    const skill = this.require(skillId, holder);
+    const skill = this.requirePinnable(skillId, holder);
     const targetId = input.scope === "town" ? null : input.scope === "building" ? input.targetId ?? homeOf(me) : input.targetId ?? me.id;
     const pin = this.world.pins.first("docId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
     if (!pin) return { removed: false };
@@ -221,7 +235,7 @@ export class Skills {
     if (!mine && skill) this.authorize(me, skill, { scope: pin.scope, targetId: pin.targetId ?? undefined, mode: "listed" }, 0, true);
     else if (!mine) throw new AppError("forbidden", "Not your pin.");
     this.world.db.prepare("DELETE FROM pins WHERE id = ?").run(pin.id);
-    this.world.events.append({ type: "skill.unpinned", agentId: me.kind === "human" ? null : me.id, buildingId: pin.scope === "building" ? pin.targetId : homeOf(me), text: `${me.name} unpinned the skill "${skill?.title ?? pin.docId}"`, payload: { docId: pin.docId, pinId: pin.id, scope: pin.scope, targetId: pin.targetId } });
+    this.world.events.append({ type: "skill.unpinned", agentId: me.kind === "human" ? null : me.id, buildingId: pin.scope === "building" ? pin.targetId : homeOf(me), text: `${me.name} unpinned ${skill?.type === "skill" ? "the skill" : "the page"} "${skill?.title ?? pin.docId}"`, payload: { docId: pin.docId, pinId: pin.id, scope: pin.scope, targetId: pin.targetId } });
     return { removed: true };
   }
 
@@ -247,19 +261,35 @@ export class Skills {
   }
 
   /**
-   * Seed a doc's town pin as it is published (design dc_8194l8soj4 §3-4, Mitchell's mapping in 1:1 mt_uarrn0kco1): the
-   * operating manual and the policy ledger always on, the town dictionary listed; any other doc gets none. INSERT OR
-   * IGNORE with seeded = 1, called once per doc (on creation, or when a draft is first published), never at boot, so a
-   * pin a human removes stays removed. Migration 120 back-filled the docs that existed before.
+   * Seed a doc's pin as it is created or first published (design dc_8194l8soj4 §3-4, Mitchell's mapping in 1:1
+   * mt_uarrn0kco1): `seedOf` says which. INSERT OR IGNORE with seeded = 1, called once per doc (on creation, or when a
+   * draft is first published), never at boot, so a pin a human removes stays removed. Migrations 120 and 121
+   * back-filled the docs that existed before.
    */
   seed(doc: Doc): void {
-    if (doc.buildingId !== TOWN_HALL_ID || doc.state === "draft") return;
+    const s = this.seedOf(doc);
+    if (!s) return;
+    this.world.db.prepare("INSERT OR IGNORE INTO pins (id, docId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, seeded, createdAt) VALUES (?, ?, ?, ?, ?, 'system', 'user', 1, 1, ?)")
+      .run(newId("sp"), doc.id, s.scope, s.targetId, s.mode, nowIso());
+  }
+
+  /**
+   * The mapping: the operating manual and the policy ledger town/always, the town dictionary and Town Hall docs tagged
+   * `town-page` town/listed, a building's topic pages building/listed, a building manager's private wiki pages
+   * agent (the manager)/listed. Any other doc gets none.
+   */
+  private seedOf(doc: Doc): { scope: Pin["scope"]; targetId: string | null; mode: Pin["mode"] } | null {
+    if (doc.type === "wiki") {
+      if (doc.topicOf) return doc.state === "draft" ? null : { scope: "building", targetId: doc.topicOf, mode: "listed" };
+      const manages = doc.authorKind === "agent" && this.world.buildings.exists("managerAgentId = ?", [doc.authorId]);
+      return manages ? { scope: "agent", targetId: doc.authorId, mode: "listed" } : null;
+    }
+    if (doc.buildingId !== TOWN_HALL_ID || doc.state === "draft") return null;
     const first = (type: string) => this.world.docs.first("type = ? AND buildingId = ?", [type, TOWN_HALL_ID], "ORDER BY createdAt, rowid")?.id === doc.id;
-    const mode = doc.type === "policy" && first("policy") ? "always"
-      : doc.type === "dictionary" && first("dictionary") ? "listed"
-        : doc.tags.includes(OPERATING_MANUAL_TAG) && operatingManualDoc(this.world)?.id === doc.id ? "always" : null;
-    if (!mode) return;
-    this.world.db.prepare("INSERT OR IGNORE INTO pins (id, docId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, seeded, createdAt) VALUES (?, ?, 'town', NULL, ?, 'system', 'user', 1, 1, ?)")
-      .run(newId("sp"), doc.id, mode, nowIso());
+    if (doc.type === "policy" && first("policy")) return { scope: "town", targetId: null, mode: "always" };
+    if (doc.type === "dictionary" && first("dictionary")) return { scope: "town", targetId: null, mode: "listed" };
+    if (doc.tags.includes(OPERATING_MANUAL_TAG) && operatingManualDoc(this.world)?.id === doc.id) return { scope: "town", targetId: null, mode: "always" };
+    if (doc.tags.includes(TOWN_PAGE_TAG)) return { scope: "town", targetId: null, mode: "listed" };
+    return null;
   }
 }

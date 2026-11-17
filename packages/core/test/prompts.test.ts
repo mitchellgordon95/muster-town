@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Agent, Building, Meeting, Town } from "@muster-town/schema";
 import { facilitatePrompt, managePrompt, managerIntrayBlock, managerStateBlock, managerSystemPrompt, meetingReplyPrompt, meetingReplySystemPrompt, REPORT_FORMAT, sessionMemory, summarySystemPrompt, workshopPrompt, workSystemPrompt } from "../src/prompts.ts";
-import { composeWorkBrief, createBuilding, createResident, forkManager, TOWN_HALL_ID, updateBuilding } from "../src/index.ts";
+import { composeWorkBrief, createBuilding, createResident, forkManager, pinnedPagesBlock, TOWN_HALL_ID, updateBuilding } from "../src/index.ts";
 import { REPO_ROOT, seededWorld, musterWorld } from "./helpers.ts";
 
 describe("the team-lead prompt is split for the provider's cache (docs/prompt-caching.md)", () => {
@@ -36,14 +36,14 @@ describe("the team-lead prompt is split for the provider's cache (docs/prompt-ca
     expect(state).not.toMatch(/Last rollup|reports decided since/);
     expect(state).toContain("## Your team (you are the manager of");
     expect(state).toContain("## Grants (this building is goal-directed)");
-    // the wiki as an index (title, id, gist), never the page; the pages are `read` on demand
+    // the wiki is a listed agent pin (in the system prompt's Pinned pages, by title); here only a pointer, never the page
     expect(state).toMatch(/## Your wiki \(`read` the pages that matter/);
-    expect(state).toMatch(/- "The sink" \(dc_[a-z0-9]+, .*\): The ocean sink is 2\.4 GtC\/yr/);
+    expect(state).toContain('1 page is listed under "## Pinned pages" (agent pins).');
+    expect(pinnedPagesBlock(world.skills.forAgent(mei.id))).toMatch(/- The sink \(dc_[a-z0-9]+, agent pin\)/);
     expect(state).not.toContain("### The sink");
     expect(state).toContain("## Your log");
     // the in-tray comes before the memory, so the first doc id in the message is a report, not a wiki page
     expect(state.indexOf("## Your in-tray")).toBeLessThan(state.indexOf("## Your wiki"));
-    expect(state.indexOf(r.id)).toBeLessThan(state.indexOf("The sink"));
   });
 });
 
@@ -180,16 +180,18 @@ describe("a work session's prompt is split for the provider's cache (gr_9kt5t7w5
       const { world, b, pix, write, fork, admin } = forky();
       vi.setSystemTime(Date.parse("2026-11-05T21:00:00Z"));
       const page1 = (await write({ title: "The Bank", body: "Bank page: counts adjusted tokens.", topicOf: b.id })).id;
+      const page2 = (await write({ title: "Desk image", body: "Desk page v1.", topicOf: b.id })).id;
       await write({ title: "How Mitchell likes things", body: "Short answers, wiki v1." });
       await write({ type: "log", title: "log", body: "decided X" });
       const s1 = await fork("Fix the HUD", { gap: "the HUD is wrong", pages: [page1] });
       const one = composeWorkBrief(world, s1.id);
 
-      // between the two: the clock, the manager's wiki and log, a new topic page, a town-wide FYI
+      // between the two: the clock, the manager's wiki and log, a topic page rewritten, a town-wide FYI (a new topic
+      // page would change it: pages are listed pins by title, design dc_8194l8soj4 §3)
       vi.setSystemTime(Date.parse("2026-11-05T21:40:00Z"));
       await write({ title: "How Mitchell likes things", body: "Short answers, wiki v2." });
       await write({ type: "log", title: "log", body: "decided Y" });
-      const page2 = (await write({ title: "Desk image", body: "Desk page: ffmpeg is in the image.", topicOf: b.id })).id;
+      await write({ title: "Desk image", body: "Desk page: ffmpeg is in the image.", topicOf: b.id });
       await world.verbs.write(admin, { type: "fyi", state: "building", buildingId: TOWN_HALL_ID, title: "Town rule", body: "No redeploy after a merge." });
       const s2 = await fork("Write the Bank tab", { gap: "no Bank tab", pages: [page2] });
       const two = composeWorkBrief(world, s2.id);
@@ -214,14 +216,15 @@ describe("a work session's prompt is split for the provider's cache (gr_9kt5t7w5
       expect(at(`You are ${two.agent.name} (agent id ${two.agent.id}), a fork of Pix.`)).toBeGreaterThan(0);
       expect(at(", exploration on gap: no Bank tab")).toBeGreaterThan(at("You are "));
       expect(at("## What Pix knows")).toBeGreaterThan(at("This session:"));
-      expect(two.prompt).toContain("wiki v2");
+      expect(two.prompt).not.toContain("wiki v2"); // the manager's wiki is a listed pin now, \`read\` on demand
+      expect(two.system).toMatch(/- How Mitchell likes things \(dc_[a-z0-9]+, agent pin\)/);
       expect(two.prompt).toContain("Desk page: ffmpeg");
       expect(two.prompt).toContain("## Pix's log");
       expect(two.prompt).toContain("No redeploy after a merge.");
       expect(one.prompt).not.toContain("No redeploy after a merge.");
       expect(at(`## Your branch\nYour checkout at /home/agent/work/agent-town is on branch \`${two.workspace!.branch}\``)).toBeGreaterThan(at("## Pix's log"));
       expect(at("Your assignment (")).toBeGreaterThan(at("## Your branch"));
-      expect(one.prompt).toContain("wiki v1");
+      expect(one.prompt).toContain("Bank page: counts adjusted tokens."); // its attached page, in full
       expect(one.prompt).toContain(", exploration on gap: the HUD is wrong");
       void pix;
     } finally { vi.useRealTimers(); }
@@ -265,8 +268,9 @@ describe("a work session's prompt is split for the provider's cache (gr_9kt5t7w5
       expect(at("## Your in-tray (you work it")).toBeGreaterThan(0);
       expect(at("## Your team")).toBeGreaterThan(at("## Your in-tray"));
       expect(at("## Grants (this building is goal-directed)")).toBeGreaterThan(at("## Your team"));
-      // the wiki as an index, never the page
-      expect(two.prompt).toMatch(/- "The sink" \(dc_[a-z0-9]+, .*\): The ocean sink is 2\.6 GtC\/yr/);
+      // the wiki is a listed agent pin by title: in the (identical) system prompt, the rewrite didn't change it; never the page
+      expect(two.system).toMatch(/- The sink \(dc_[a-z0-9]+, agent pin\)/);
+      expect(two.prompt).toContain('1 page is listed under "## Pinned pages" (agent pins).');
       expect(two.prompt).not.toContain("### The sink");
       expect(at("Your assignment (")).toBeGreaterThan(at("## Your wiki"));
     } finally { vi.useRealTimers(); }

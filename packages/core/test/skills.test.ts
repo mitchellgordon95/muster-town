@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, composeWorkBrief, newId, nowIso, parseSkillMd, pinnedPagesBlock } from "../src/index.ts";
+import { buildingRoleId, composeWorkBrief, createDoc, newId, nowIso, parseSkillMd, pinnedPagesBlock, TOWN_HALL_ID } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -96,6 +96,26 @@ describe("skills", () => {
     expect(world.skills.forAgent(other.id)).toEqual([]);
     // with files, a manager agent can't pin into others' sessions
     await expect(world.verbs.pin(manager, { skillId: id, scope: "agent", targetId: other.id })).rejects.toThrow(/human/);
+  });
+
+  it("pin takes any doc (design dc_8194l8soj4 §7, step 3): a manager pins a building article; an admin human pins a library doc town-wide; a Town Hall doc tagged town-page is seeded town/listed; an agent's always pin into others is refused", async () => {
+    const { world, writer, other, manager, admin } = setup();
+    const { id } = await world.verbs.write(writer, { type: "article", title: "How we deploy", body: "CI deploys green main.", state: "building" });
+    await world.verbs.pin(manager, { docId: id, scope: "building" });
+    expect(pinnedPagesBlock(world.skills.forAgent(other.id))).toContain(`- How we deploy (${id}, building pin): CI deploys green main.`);
+    await expect(world.verbs.pin(manager, { docId: id, scope: "building", mode: "always" })).rejects.toThrow(/human/);
+    await expect(world.verbs.pin(manager, { docId: id, scope: "agent", targetId: other.id, mode: "always" })).rejects.toThrow(/human/);
+    await expect(world.verbs.pin(admin, { docId: id, scope: "town" })).rejects.toThrow(/library/);
+    await world.verbs.promote(manager, { docId: id, state: "library" });
+    await world.verbs.pin(admin, { docId: id, scope: "town", mode: "always" });
+    expect(pinnedPagesBlock(world.skills.forAgent(other.id))).toContain(`### How we deploy (${id}, town pin, always on)\nCI deploys green main.`);
+    // a draft is someone's own: not pinnable by others, not even found
+    const draft = await world.verbs.write(writer, { type: "note", title: "mine", body: "x" });
+    await expect(world.verbs.pin(manager, { docId: draft.id, scope: "building" })).rejects.toThrow(/No document/);
+    // a town page: a published Town Hall doc tagged town-page gets its town/listed pin as it is created
+    const tp = createDoc(world, { type: "article", state: "building", title: "The decision queue", body: "How asks reach a human.", authorId: admin.id, authorKind: "agent", buildingId: TOWN_HALL_ID, tags: ["town-page"] });
+    expect(world.pins.where("docId = ?", [tp.id]).map((p) => [p.scope, p.mode, p.seeded])).toEqual([["town", "listed", true]]);
+    expect(pinnedPagesBlock(world.skills.forAgent(other.id))).toContain(`- The decision queue (${tp.id}, town pin): How asks reach a human.`);
   });
 
   it("skills verb: pinned first, then building + library + own drafts", async () => {
