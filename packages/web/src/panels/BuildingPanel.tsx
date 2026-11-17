@@ -65,9 +65,6 @@ function repoLabel(ws: Workspace): string {
   return ws.repoUrl ? ws.repoUrl.replace(/^(?:https:\/\/|ssh:\/\/)?(?:git@)?github\.com[:/]/, "").replace(/\.git$/, "") : ws.path;
 }
 
-/** Whether the "Go to" fold is open: kept across buildings and tabs for the page's life. */
-let walkOpen = false;
-
 function Overview({ b }: { b: SnapshotBuilding }) {
   const agents = useTown((s) => s.agents);
   const repo = useTown((s) => s.town?.workspace);
@@ -91,7 +88,8 @@ function Overview({ b }: { b: SnapshotBuilding }) {
   const hasRoom = places.some((p) => p.id === `meeting-room:${b.id}`);
   const hasHydrant = places.some((p) => p.id === `hydrant:${b.id}`);
   const purpose = purposeOf(b, places);
-  const goTo = [hasBoard && "board", hasCabinet && "filing cabinet", hasTray && "manager's desk", hasHydrant && "decision queue", hasRoom && "meeting table", b.kind !== "town-hall" && "goal tree"].filter(Boolean);
+  const canEditLayout = store.can("building.manage", b.id) && !api().mock;
+  const anyWalk = hasBoard || hasCabinet || hasTray || hasHydrant || hasRoom || b.kind !== "town-hall" || canEditLayout;
   return (
     <>
       {purpose ? <div className="goal-card"><span>Goal</span>{purpose}</div> : null}
@@ -102,31 +100,28 @@ function Overview({ b }: { b: SnapshotBuilding }) {
       ) : null}
       {b.kind !== "town-hall" ? <GoalOwner b={b} /> : null}
       {b.kind !== "town-hall" ? <GoalTabsSummary b={b} /> : null}
-      {/* the places here and the goal tree, folded to one line (gr_zak30564zh step 4: the first screen keeps the summary) */}
-      {goTo.length ? <details className="walk-fold" open={walkOpen} onToggle={(e) => { walkOpen = (e.currentTarget as HTMLDetailsElement).open; }}>
-        <summary>Go to: {goTo.join(" · ")}{b.intray && (hasTray || hasHydrant) ? <> <Pill tone="warn">{b.intray} waiting</Pill></> : null}</summary>
-        <div className="walk-links">
-          {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
-          {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
-          {hasTray ? (
-            <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
-              <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
-            </button>
-          ) : null}
-          {hasHydrant ? (
-            <button className="walk-link" onClick={goToQueue}>
-              <Glyph kind="hydrant" /><span>Walk to the hydrant (the decision queue, one item at a time)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
-            </button>
-          ) : null}
-          {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
-          {b.kind !== "town-hall" ? <button className="walk-link" onClick={() => store.open({ kind: "goals", id: b.goalId ?? ROOT_GOAL_ID })}><Glyph kind="building" /><span>This goal in the town goal tree</span></button> : null}
-          {store.can("building.manage", b.id) && !api().mock ? (
-            <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
-              <Glyph kind="building" /><span>Edit layout</span>
-            </button>
-          ) : null}
-        </div>
-      </details> : null}
+      {/* the places here and the goal tree, always shown (Mitchell's flag dc_7jyij2euj6 undid gr_zak30564zh step 4's fold) */}
+      {anyWalk ? <div className="walk-links">
+        {hasBoard ? <button className="walk-link" onClick={() => walk(`board:${b.id}`, { kind: "board", id: b.id })}><Glyph kind="board" /><span>Walk to the board</span></button> : null}
+        {hasCabinet ? <button className="walk-link" onClick={() => walk(`cabinet:${b.id}`, { kind: "cabinet", id: b.id })}><Glyph kind="cabinet" /><span>Walk to the filing cabinet</span></button> : null}
+        {hasTray ? (
+          <button className="walk-link" onClick={() => walk(`intray:${b.id}`, { kind: "intray", id: b.id })}>
+            <Glyph kind="intray" /><span>Walk to the manager's desk (reports to read)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+          </button>
+        ) : null}
+        {hasHydrant ? (
+          <button className="walk-link" onClick={goToQueue}>
+            <Glyph kind="hydrant" /><span>Walk to the hydrant (the decision queue, one item at a time)</span>{b.intray ? <Pill tone="warn">{b.intray} waiting</Pill> : null}
+          </button>
+        ) : null}
+        {hasRoom ? <button className="walk-link" onClick={() => walk(`meeting-room:${b.id}`, { kind: "meeting", id: `room:${b.id}` })}><Glyph kind="meeting" /><span>Walk to the meeting table</span></button> : null}
+        {b.kind !== "town-hall" ? <button className="walk-link" onClick={() => store.open({ kind: "goals", id: b.goalId ?? ROOT_GOAL_ID })}><Glyph kind="building" /><span>This goal in the town goal tree</span></button> : null}
+        {canEditLayout ? (
+          <button className="walk-link" onClick={() => layoutEdit.start(b.id).catch((e) => store.toast((e as Error).message, "bad"))}>
+            <Glyph kind="building" /><span>Edit layout</span>
+          </button>
+        ) : null}
+      </div> : null}
       {b.kind !== "town-hall" && ((b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id)) || flagHere) ? (
         <div className="actions">
           {b.managerAgentId && agents[b.managerAgentId] && canTalkToManager(b.id) ? <Act tone="primary" run={() => openOneOnOne(b.id)}>Talk to ★ {agents[b.managerAgentId].name}</Act> : null}
