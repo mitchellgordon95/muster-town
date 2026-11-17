@@ -5,7 +5,7 @@
  * "What you'd see" line and picture), a funded grant closed as done (`closed-loop`: funded on, for, closed at, what it
  * bought), a key result a human marked met (`verified`), and the Secretary's runs (`slate`, `pattern`; secretary.ts).
  * `gate` is a grant's step gate: a step report whose forecast is within the ceiling (`fileForecast`, grant-forecast.ts;
- * past it the gate is a money ask instead). Nothing here asks or decides anything.
+ * past it the forecast is recorded on the grant and its events, and asks nothing: the hold at the ceiling is the only gate). Nothing here asks or decides anything.
  */
 import { grantName, NoticeKind, Notice, type Grant, type KeyResult } from "@muster-town/schema";
 import { badRequest } from "./errors.ts";

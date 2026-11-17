@@ -7,7 +7,7 @@ import { freeTokens } from "./free-tokens.ts";
 import { Reorgs } from "./goal-changes.ts";
 import { Secretary } from "./secretary.ts";
 import { backfillJobs } from "./jobs.ts";
-import { rerenderAsks, requestsToDoAsks, backfillAsks, retitleClippedAsks, templateCardsToNeeds } from "./asks.ts";
+import { rerenderAsks, requestsToDoAsks, backfillAsks, retitleClippedAsks, retireForecastGates, templateCardsToNeeds } from "./asks.ts";
 import { Streams } from "./streams.ts";
 import { Grants } from "./grants.ts";
 import { ruleHold } from "./lanes.ts";
@@ -305,6 +305,8 @@ export class World {
     requestsToDoAsks(this);
     // asks (docs/legible-delegation.md §4): what already waits for a human gets its need or its ask; idempotent
     backfillAsks(this);
+    // 1:1 mt_vdu3iqhasi decision 2: a forecast no longer asks; gate asks and needs left open on running grants close; idempotent
+    retireForecastGates(this);
     // needs and asks (1:1 mt_t65exni4et decision 2): live template cards leave the queue, their needs wait for the manager; idempotent
     templateCardsToNeeds(this);
     // every live ask points at the entry that raised it (migration 115); idempotent
