@@ -2549,7 +2549,7 @@ export const VisitorWelcome = z.object({
   manager: z.object({ id: Id, name: z.string() }).nullable().describe("`tell` this agent (or the building id) what you'd like to work on"),
   offers: z.array(z.object({ id: Id, title: z.string() })).describe("assignments offered to you: `accept_assignment` one"),
   firstStep: z.string(),
-  manual: z.string().optional().describe("the town's operating manual, kept by the Secretary: how jobs, threads, reports, needs and asks work here"),
+  pinned: z.string().optional().describe("the pages pinned into your sessions (## Pinned pages): the town's operating manual (how jobs, threads, reports, needs and asks work here), the policy ledger, the dictionary and your skills"),
 });
 export type VisitorWelcome = z.infer<typeof VisitorWelcome>;
 export const LookResult = z.object({
