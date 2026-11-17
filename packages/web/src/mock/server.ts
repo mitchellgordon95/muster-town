@@ -1009,7 +1009,37 @@ export class MockApi implements Api {
       // the toy's sessions are all Opus-booked: every token at $20 per million
       usd: { used: toyUsd(used), left: toyUsd(left), burnPerDay: toyUsd(burn), inflowPerDay: toyUsd(b.dailyInflowTokens), pricedAt: "api-list" },
       ...this.toyCash(toyUsd(burn * 30)),
+      // the toy Bank has drawn nothing yet: the chart gets a toy 120M over the window so its bars show
+      ...this.toyDaily(usedBank || 120_000_000, b.dailyInflowTokens),
       at: now(),
+    };
+  }
+  // the Balance tab's "Day by day" chart (core finance-daily.ts): `usedBank` spread over 30 UTC days and the toy's
+  // buildings (a weekday wave, so the bars move), one credit a day; the rows sum to usedBank exactly, so the check is ✓
+  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck"> {
+    const DAY = 86_400_000, days = 30, today = Date.parse(now().slice(0, 10) + "T00:00:00.000Z");
+    const bs = this.sim.buildings.filter((b) => b.kind !== "town-hall");
+    const weights = Array.from({ length: days }, (_, i) => 1 + 0.6 * Math.sin(i / 2.3) + (i % 7 === 5 ? -0.5 : 0));
+    const wsum = weights.reduce((a, w) => a + w, 0);
+    let given = 0;
+    const rows = weights.map((w, i) => {
+      const used = i === days - 1 ? usedBank - given : Math.floor((usedBank * w) / wsum);
+      given += used;
+      const byBuilding: Record<string, number> = {};
+      let left = used;
+      bs.forEach((b, j) => {
+        const t = j === bs.length - 1 ? left : Math.floor(left * (j === 0 ? 0.4 : 0.35 + 0.1 * Math.sin(i + j)));
+        if (t > 0) byBuilding[b.id] = t;
+        left -= t;
+      });
+      return { day: new Date(today - (days - 1 - i) * DAY).toISOString().slice(0, 10), used, credited: inflow || 1_000_000, byBuilding };
+    });
+    const totals = new Map<string, number>();
+    for (const r of rows) for (const [id, t] of Object.entries(r.byBuilding)) totals.set(id, (totals.get(id) ?? 0) + t);
+    const buildings = [...totals].map(([id, tokens]) => ({ id, name: bs.find((b) => b.id === id)?.name ?? id, tokens })).sort((a, z) => z.tokens - a.tokens);
+    return {
+      daily: { days, from: rows[0]!.day, to: rows[days - 1]!.day, rows, buildings, usedBefore: 0, undatedUsed: 0, usageLedgerInWindow: usedBank },
+      dailyCheck: { ok: true, diff: 0, rowsUsed: usedBank, usedSinceStart: usedBank, buildingDiff: 0, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used" },
     };
   }
   // Paid in cash, last 30 days (gr_qggxximtru step 2) as core finance-cash.ts counts it: the toy fees prorated over the

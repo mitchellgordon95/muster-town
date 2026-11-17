@@ -419,6 +419,10 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.cash).toMatchObject({ windowDays: 30, plans: 0, pricedAt: "cash" });
     expect(finance.body.cash.hosting).toBeGreaterThanOrEqual(0);
     expect(finance.body.cashCheck).toMatchObject({ ok: true });
+    // Day by day (gr_epbcgb0hvs step 1): today's row carries the key's credit; the rows close on the Bank's used
+    expect(finance.body.dailyCheck).toMatchObject({ ok: true, diff: 0, buildingDiff: 0 });
+    expect(finance.body.daily.rows.at(-1)).toMatchObject({ day: finance.body.at.slice(0, 10) });
+    expect(finance.body.daily.rows.at(-1).credited).toBeGreaterThanOrEqual(2000);
     expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);

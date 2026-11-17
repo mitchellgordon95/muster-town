@@ -62,6 +62,27 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...stepChecks(s),
     // paid in cash, last 30 days (gr_qggxximtru step 2): the parts add up, the ratio is list value / cash
     ...cashChecks(f.cash, f.cashCheck),
+    // the Balance tab's "Day by day" chart (gr_epbcgb0hvs): the days and their buildings close on the Bank's used
+    ...dailyChecks(f),
+  ];
+}
+
+/** GET /api/finance `daily`: dailyCheck ok; Σ rows' used + debits before the window = usedBank; each day's buildings sum to its used; Σ buildings = Σ rows. */
+function dailyChecks(f: Json): Check[] {
+  const d = f.daily, c = f.dailyCheck;
+  if (!d) return [flag("daily", false, "GET /api/finance has no `daily` (server older than gr_epbcgb0hvs step 1)")];
+  const rows: Json[] = d.rows ?? [];
+  const rowsUsed = sum(rows.map((r) => r.used));
+  const off = rows.filter((r) => sum(Object.values(r.byBuilding ?? {}).map(Number)) !== r.used);
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    flag("dailyCheck", c?.ok, `ok ${c?.ok}, diff ${fmt(c?.diff)}, buildings diff ${fmt(c?.buildingDiff)} (${c?.identity})`),
+    eq("daily used", "Σ daily.rows[].used + daily.usedBefore", rowsUsed + d.usedBefore, "finance.usedBank", f.usedBank),
+    eq("daily undated", "daily.undatedUsed", d.undatedUsed, "finance.usedDonations", f.usedDonations),
+    flag("daily buildings per day", off.length === 0, off.length ? `days whose buildings don't sum to used: ${off.map((r) => r.day).join(", ")}` : `each of ${rows.length} days' byBuilding sums to its used`),
+    eq("daily buildings", "Σ daily.buildings[].tokens", sum((d.buildings ?? []).map((b: Json) => b.tokens)), "Σ daily.rows[].used", rowsUsed),
+    flag("daily window", rows.length === d.days && rows.length <= 30 && d.to === today && rows.every((r, i) => i === 0 || Date.parse(r.day) - Date.parse(rows[i - 1].day) === 86_400_000),
+      `${rows.length} consecutive UTC days ${d.from} → ${d.to} (today ${today}), at most 30`),
   ];
 }
 

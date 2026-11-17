@@ -13,6 +13,7 @@ import { api, type Bank } from "../api";
 import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
 import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, LedgerCutoffNote, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { DailyAbout, DailyChart } from "./BankDaily";
 import { FreeTokensSum } from "./FreeTokens";
 import { UptimeBlock } from "./Uptime";
 import { PlansPaidFor } from "./BankFees";
@@ -67,7 +68,7 @@ function BankAbout({ tab, bank, fin }: ViewProps) {
     </>
   );
   if (tab === "Hosting") return fin?.fly ? <FlyAbout fly={fin.fly} /> : <p className="muted">No hosting figures yet.</p>;
-  return <><FinanceIntro hosting={!!fin?.fly} />{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}{fin ? <LedgerCutoffNote c={fin.f.cutoff} /> : null}</>;
+  return <><FinanceIntro hosting={!!fin?.fly} />{fin?.f.daily ? <DailyAbout /> : null}{bank?.free ? <FreeTokensSum free={bank.free} /> : null}{fin ? <ProjectionAbout f={fin.f} /> : null}{fin ? <LedgerCutoffNote c={fin.f.cutoff} /> : null}</>;
 }
 
 /** How to read the Inputs tab's lists (gr_567tikzitl step 3, kr_y7derda40x). */
@@ -93,6 +94,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: Vi
   if (tab === "Hosting") return <><Section title="Uptime"><UptimeBlock /></Section>{fin?.fly ? <FlyView fly={fin.fly} /> : null}</>;
   return (
     <>
+      {fin?.f.daily ? <Section title="Day by day"><DailyChart f={fin.f} /></Section> : null}
       <Section title="Balance">
         {!bank ? <Loading /> : (
           <table className="table" title={breakdownTitle(bank.creditedCounts)}>
