@@ -5,6 +5,7 @@ import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from 
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { tickMemo } from "./tick-memo.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
+import { financeDaily, type FinanceDaily, type FinanceDailyCheck } from "./finance-daily.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
@@ -969,8 +970,14 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null } {
-    return { ...townFinance(this.repos, now), mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff() };
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck } {
+    const f = townFinance(this.repos, now);
+    // the Balance tab's "Day by day" chart (finance-daily.ts, gr_epbcgb0hvs): Bank debits and credits per UTC day, by building
+    const { daily, dailyCheck } = financeDaily({
+      debits: this.repos.bankDebits.all(), credits: this.repos.bankCredits.all(), usage: this.repos.usage.all(),
+      buildingNames: new Map(this.repos.buildings.all().map((b) => [b.id, b.name])), usedBank: f.usedBank, usedDonations: f.usedDonations,
+    }, now);
+    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */

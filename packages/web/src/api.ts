@@ -149,7 +149,19 @@ export interface Finance {
   cash?: FinanceCash;
   /** plans + apiKeys + hosting = total within $0.01 */
   cashCheck?: { ok: boolean; diff: number; text: string };
+  /** the last 30 UTC days (at most back to the ledger's start), one row per day: Bank debits (by building) and credits (core finance-daily.ts, gr_epbcgb0hvs); absent from an older server */
+  daily?: FinanceDaily;
+  /** Σ daily used = the Bank's used since the window start, and each day's buildings sum to its used */
+  dailyCheck?: { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; identity: string };
   at: string;
+}
+/** `GET /api/finance` `daily`: one row per UTC day, oldest first (core FinanceDaily). */
+export interface FinanceDaily {
+  days: number; from: string; to: string;
+  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number> }[];
+  /** buildings by their window total, largest first */
+  buildings: { id: string; name: string; tokens: number }[];
+  usedBefore: number; undatedUsed: number; usageLedgerInWindow: number;
 }
 export interface FinanceCash {
   windowDays: number; from: string; to: string;
