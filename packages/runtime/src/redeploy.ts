@@ -94,7 +94,7 @@ export interface RedeployDeps {
   drainMeetingMs?: number;
   /**
    * Whether the agent's live session is a team-lead (manage) session working its in-tray. The drain waits for those up to
-   * `drainManageMs` (longer than `drainTimeoutMs`: CI deploys aren't urgent, and a cut one is resumed, not redone) and
+   * `drainManageMs` (longer than `drainTimeoutMs`: deploys aren't urgent, and a cut one is resumed, not redone) and
    * nudges them with `drainNudgeManage`. Default: none are.
    */
   isManage?(agentId: string): boolean;
@@ -320,7 +320,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     if (liveCommit && !o.image && !o.restart) {
       if (now && now === liveCommit) {
         run_ = { ...run_, state: "done", commits: 0, changes: [], working: [], blocked: [], head: now };
-        say(`Redeploy: nothing new on ${branch} (live ${now.slice(0, 7)}); no restart. CI deploys a merge once main is green. Give restart: "<reason>" for a deliberate restart.`,
+        say(`Redeploy: nothing new on ${branch} (live ${now.slice(0, 7)}); no restart. CI promotes a green main to ${branch} and the server pulls it by itself. Give restart: "<reason>" for a deliberate restart.`,
           { step: "nothing new", phase: "end", ok: true, noop: true, head: now });
         return;
       }

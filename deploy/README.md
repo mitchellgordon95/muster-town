@@ -36,17 +36,21 @@ alternative; that box was deleted.
   `fly deploy` fails on purpose (the Dockerfile wants `.git` shipped as `gitdir` and a clean tree). The build does not touch the live checkout:
   ship code with the town's `redeploy`. To reset the checkout itself to the image's, `fly ssh console -a muster-town -C "rm -rf /data/repo"` and
   restart the Machine: with the state at `/data/workshop` that loses only the checkout and its `node_modules`.
-- **CI and redeploy:** `.github/workflows/ci.yml` runs typecheck, tests and the web build on every PR and every push to `main`. A green `main`
-  commit is fast-forwarded to the `prod` branch and the workflow POSTs `/api/admin/redeploy` as the "CI" visitor (an agent with the town
-  `deployer` role and no inherited permissions; its token is the Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`). The town's redeploy then does what
-  it always did (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75; see the drain policy below), but it pulls `prod`
-  (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml), so a red commit on `main` never goes live. The Workshop's manager and its forks push to `main` as before;
-  nobody waits on a PR review; what they can't do is take the town down with a commit that fails its own tests. The `redeploy` verb and the
+- **CI and redeploy (CI promotes, the server pulls):** `.github/workflows/ci.yml` runs typecheck, tests and the web build on every PR and every
+  push to `main`. A green `main` commit is fast-forwarded to the `prod` branch; that is all CI does for the town, and it holds no town token.
+  The server pulls its own deploys (`packages/runtime/src/prod-watch.ts`, Mitchell 1:1 mt_vdu3iqhasi, 2026-11-17): every minute it runs
+  `git fetch origin prod` in the host checkout and, when `origin/prod` is ahead of the live commit (a fast-forward), starts the town's redeploy
+  as "prod branch" (pull, install if the lockfile changed, build, drain up to 30 min, pull again, exit 75; see the drain policy below). It pulls
+  `prod` (`MUSTER_TOWN_DEPLOY_BRANCH` in fly.town.toml; the puller is off where that is unset), so a red commit on `main` never goes live. The
+  Workshop's manager and its forks push to `main` as before. Two guards keep restarts fewer than pushes: no restart when everything between
+  the live commit and the tip is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md` (schema
+  `deployable`, the same filter the `deploy` monitor key uses); and at most one restart it asks for per 10 min (`PULL_SPACING_MS`: none within
+  10 min of the server's start or of its last request; a tick while a redeploy runs is skipped; the same tip after a failed run is retried
+  after an hour). A failed `git fetch` is one system event ("Prod watch: …"), then quiet until a fetch works. The `redeploy` verb and the
   planning desk button still work (they also pull `prod`), for a redeploy without a new commit. Rollback: `git revert` on main and let CI
-  ship it; emergency: point `prod` at the last good sha and redeploy. A red run leaves the live town where it was and shows in the Actions tab.
-  CI asks for fewer restarts than pushes (the redeploy tool and the planning desk button are unchanged): no redeploy when everything since the live
-  commit is under `docs/` (except `docs/manual.md`, which the server serves), `.github/` or a top-level `*.md`; and at most one CI restart per 15 min
-  (when the server started less than 15 min ago the promote job waits out the rest; a newer push cancels the waiting run and redeploys its own commit).
+  promote it; emergency: point `prod` at the last good sha (the puller only fast-forwards, so a reset prod is left for a redeploy by hand).
+  A red run leaves the live town where it was and shows in the Actions tab. Until 2026-11-17 CI itself POSTed `/api/admin/redeploy` with the
+  Actions secret `MUSTER_TOWN_DEPLOY_TOKEN`; the ghost sweep revoked that token on 11-16 (FYI dc_4yrb3979ty) and the step is gone.
 - **Drain policy:** the drain holds new work sessions and waits up to 30 min for running *work* sessions (a restart would orphan
   them; at startup the orphans are stopped and their assignments re-queued). A *meeting* session (a facilitation, or the manager answering a 1:1)
   holds it only 2 min (`drainMeetingMs`): a human can talk for an hour, so the deploy does not block on a meeting. Instead: post the notice,
@@ -241,15 +245,15 @@ cleared, and once when health itself is down.
 | `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 | `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
-| `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change CI would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
+| `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change the puller would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
 
 **Live behind prod** (`deploy` key). `GET /api/health` `deploy` is `{branch, state, live, prodTip, behindCommits,
-behindSince, checkedAt, error}`; `state` is `current`, `behind` (a deployable change waits), `docs-only` (CI skips that
-redeploy on purpose) or `unknown` (never read, or the last GitHub read failed: `error` says why). `behindSince` is kept in
+behindSince, checkedAt, error}`; `state` is `current`, `behind` (a deployable change waits), `docs-only` (the puller skips that
+restart on purpose) or `unknown` (never read, or the last GitHub read failed: `error` says why). `behindSince` is kept in
 meta `deployWatch`, so a restart with no new commit keeps the clock. GitHub is read with the town's `GH_TOKEN` when set,
 else anonymously (60 calls/h per IP; one branch read per poll, plus one compare per new live/tip pair). When it is red:
-read CI's last `promote` run on main (a 401 from `redeploy muster.town` means the CI token was revoked, as on 11-16,
-FYI dc_4yrb3979ty), then redeploy once from the Town Hall.
+read the town's "Prod watch: …" and "Redeploy: …" system events (a failed fetch, a failed build, a dirty tree, a drain
+still waiting), then redeploy once from the Town Hall. This key is the safety net behind the server's own pull.
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
 performance-1x, 2048 MB ($33/month = $0.0458/h in iad): on shared-cpu-2x ($0.0186/h) desk sessions measured 84–91 % steal.
