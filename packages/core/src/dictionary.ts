@@ -18,7 +18,7 @@ const SEED_ENTRIES: readonly [string, string][] = [
   ["need", "a fact on a job's thread that only a human can settle: a grant wants funding, a grant reached its gate, a request asks a human. It follows no presentation rule. An ask renders it."],
   ["notice", "a state change with nothing to do: something shipped, a grant closed, a key result verified."],
   ["record", "what an ask or a notice came from: a rollup, a report, a grant plan. It is one click down from the card."],
-  ["gate", "the point where a grant waits for a human: at its ceiling, or a step report whose forecast is past it."],
+  ["gate", "the point where a grant waits for a human: it holds at its ceiling. A forecast past the ceiling is recorded, not asked."],
   ["ceiling", "the tokens a human funded a grant for. The grant runs to it and holds there, never before."],
   ["size", "a step's price class: S, M or L, priced by the collective's table. A step bigger than L is split."],
   ["verified", "a key result a human saw live, or one whose check the server ran and passed."],

@@ -1,12 +1,13 @@
 /**
- * Build step 7 of docs/legible-delegation.md (§7.3 point 4, §8): a step report's forecast is the gate. Past the ceiling it
- * writes the gate's need on the grant (its facts for the manager, who renders the Adjust / Cut ask: 1:1 mt_t65exni4et);
- * a later hold at the ceiling supersedes it; within the ceiling it is a `gate` notice and no need.
+ * Build step 7 of docs/legible-delegation.md (§7.3 point 4, §8), as changed by 1:1 mt_vdu3iqhasi decision 2: a step
+ * report's forecast is recorded and asks nothing; within the ceiling it is a `gate` notice. The hold at the ceiling is the
+ * only gate: it writes the gate's need on the grant (its facts for the manager, who renders the Adjust / Cut ask).
  */
 import { describe, expect, it } from "vitest";
 import { buildingQueue, createBuilding, createResident, forkManager, jobThread, listNotices, newId, nowIso, openAsks, retireFork, updateBuilding } from "../src/index.ts";
 import { fileForecast } from "../src/grant-forecast.ts";
 import { openNeedsOn } from "../src/needs.ts";
+import { needAtCheckpoint, retireForecastGates } from "../src/asks.ts";
 import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
@@ -50,54 +51,20 @@ function lab() {
   return { ...s, b, pix, fund, runStep, gateAsks, gateNeeds };
 }
 
-describe("an over-ceiling forecast writes the gate's need, an on-budget one a notice", () => {
-  it("an over-ceiling forecast writes one gate need with Adjust and Cut and the gate's facts, and no card", async () => {
+describe("a forecast asks nothing; the hold at the ceiling is the only gate (1:1 mt_vdu3iqhasi decision 2)", () => {
+  it("an over-ceiling forecast writes no need and no ask; the forecast and its events are the record", async () => {
     const { world, fund, runStep, gateAsks, gateNeeds } = lab();
     const g = fund();
     await runStep(40_000);
-    const { r } = await runStep(300_000); // the M step at 2× its size: projected 740k against 600k
+    await runStep(300_000); // the M step at 2× its size: projected 740k against 600k
     expect(gateAsks(g.id)).toHaveLength(0);
-    const needs = gateNeeds(g.id);
-    expect(needs).toHaveLength(1);
-    const need = needs[0]!;
-    expect(need).toMatchObject({ open: true, level: "human", authorKind: "code", moved: { need: "gate", targetKind: "grant", targetId: g.id, type: "money", branches: [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }] } });
-    expect(need.note).toBe(`Grant ${g.id} "A banner" reached its gate: it is projected 140,000 tokens past its ceiling.`);
-    expect(need.body).toContain("You funded this at 600,000 tokens on");
-    expect(need.body).toContain("It has spent 340,000 of its 600,000-token ceiling.");
-    expect(need.body).toContain("Two of 3 steps are done: one S, one M.");
-    expect(need.body).toContain("One step is left: one L.");
-    expect(need.body).toContain("That is 140,000 tokens past the ceiling.");
-    expect(need.body).toContain("If you adjust by 150,000: the ceiling becomes 750,000 tokens, and the work runs on.");
-    // the shortfall rounded up to the next step size (140k → M 150k), by the building's manager
-    expect(need.body).toContain("Suggested: Pix recommends adjust by 150,000 tokens.");
-    expect(need.body).toContain(`The latest step report is ${r.id}, "Report on Build the banner". Its verdict is continue.`);
-    // the need is the particle: no gate notice for this step
+    expect(gateNeeds(g.id)).toHaveLength(0);
+    expect(world.grants.require(g.id)).toMatchObject({ status: "funded", needsTopUp: true, forecast: { spent: 340_000, ceiling: 600_000, projected: 740_000, overCeiling: true, shortfall: 140_000 } });
+    const [up] = world.events.list({ types: ["grant.top-up-needed"] });
+    expect(up!.payload).toMatchObject({ grantId: g.id, shortfallTokens: 140_000, projected: 740_000, ceiling: 600_000 });
+    expect(world.events.list({ types: ["grant.forecast"] })).toHaveLength(2);
+    // no gate notice for the step past the ceiling either: the forecast is the record
     expect(listNotices(world, { kind: "gate" }).map((n) => n.title)).toEqual(["Step 1 of 3 landed: 40,000 of 600,000 spent, projected 590,000"]);
-  });
-
-  it("a step report with verdict stop suggests cut", async () => {
-    const { fund, runStep, gateNeeds } = lab();
-    const g = fund();
-    await runStep(40_000);
-    await runStep(300_000, "stop");
-    expect(gateNeeds(g.id)[0]!.body).toContain("Suggested: Pix recommends cut: the latest step report says stop.");
-  });
-
-  it("a later ceiling hold supersedes the forecast's need; a card rendered from the first stays and is marked behind", async () => {
-    const { world, fund, runStep, gateAsks, gateNeeds } = lab();
-    const g = fund();
-    await runStep(40_000);
-    await runStep(300_000);
-    const [card] = renderNeeds(world);
-    await runStep(300_000); // the L step: 640k spent, past the 600k ceiling
-    world.grantDesk.checkpoints(g.buildingId);
-    expect(world.grants.require(g.id).status).toBe("checkpoint");
-    const needs = gateNeeds(g.id);
-    expect(needs.filter((n) => n.open)).toHaveLength(1);
-    expect(needs.at(-1)!.note).toBe(`Grant ${g.id} "A banner" reached its gate: it is held at its 600,000-token ceiling.`);
-    expect(needs.at(-1)!.body).toContain("New sessions on it wait for you.");
-    expect(gateAsks(g.id).map((a) => a.id)).toEqual([card!.id]);
-    expect(openAsks(world).filter((a) => a.targetId === g.id)).toHaveLength(1);
   });
 
   it("an on-budget forecast files a gate notice and no need", async () => {
@@ -109,35 +76,41 @@ describe("an over-ceiling forecast writes the gate's need, an on-budget one a no
     expect(n).toMatchObject({ kind: "gate", buildingId: g.buildingId, title: "Step 1 of 3 landed: 40,000 of 600,000 spent, projected 590,000", refs: [g.id, r.id] });
   });
 
-  it("a later forecast back within the ceiling settles the gate need, and retires its card", async () => {
+  it("the hold at the ceiling writes one gate need with Adjust and Cut and the gate's facts, and no card", async () => {
     const { world, fund, runStep, gateAsks, gateNeeds } = lab();
     const g = fund();
     await runStep(40_000);
     await runStep(300_000);
-    renderNeeds(world);
-    await runStep(100_000); // the L step far under its size: 440k in all, within 600k
-    expect(world.grants.require(g.id).status).toBe("funded");
-    expect(gateNeeds(g.id).every((n) => !n.open)).toBe(true);
-    expect(gateAsks(g.id)[0]).toMatchObject({ status: "retired" });
-    expect(gateAsks(g.id)[0]!.retiredBy).toContain("The forecast is back within the ceiling");
+    const { r } = await runStep(300_000); // the L step: 640k spent, past the 600k ceiling
+    world.grantDesk.checkpoints(g.buildingId);
+    expect(world.grants.require(g.id).status).toBe("checkpoint");
+    expect(gateAsks(g.id)).toHaveLength(0);
+    const needs = gateNeeds(g.id);
+    expect(needs).toHaveLength(1);
+    const need = needs[0]!;
+    expect(need).toMatchObject({ open: true, level: "human", authorKind: "code", moved: { need: "gate", targetKind: "grant", targetId: g.id, type: "money", branches: [{ label: "Adjust", action: "adjust" }, { label: "Cut", action: "cut" }] } });
+    expect(need.note).toBe(`Grant ${g.id} "A banner" reached its gate: it is held at its 600,000-token ceiling.`);
+    expect(need.body).toContain("You funded this at 600,000 tokens on");
+    expect(need.body).toContain("It has spent 640,000 of its 600,000-token ceiling. New sessions on it wait for you.");
+    expect(need.body).toContain("Three of 3 steps are done: one S, one M, one L.");
+    expect(need.body).toContain(`The latest step report is ${r.id}, "Report on Build the board". Its verdict is continue.`);
   });
 
-  it("an unrendered gate need is settled too when the forecast is back within the ceiling", async () => {
+  it("a held grant whose latest step report says stop suggests cut", async () => {
     const { world, fund, runStep, gateNeeds } = lab();
     const g = fund();
     await runStep(40_000);
-    await runStep(300_000);
-    await runStep(100_000);
-    expect(world.grants.require(g.id).status).toBe("funded");
-    expect(gateNeeds(g.id)).toHaveLength(1);
-    expect(gateNeeds(g.id)[0]!.open).toBe(false);
+    await runStep(600_000, "stop");
+    world.grantDesk.checkpoints(g.buildingId);
+    expect(gateNeeds(g.id)[0]!.body).toContain("Suggested: Pix recommends cut: the latest step report says stop.");
   });
 
-  it("the human's adjust settles the need and retires the card, keeping the card they saw on the answer entry", async () => {
+  it("the human's adjust at the hold settles the need and retires the card, keeping the card they saw on the answer entry", async () => {
     const { world, admin, fund, runStep, gateAsks, gateNeeds } = lab();
     const g = fund();
     await runStep(40_000);
-    await runStep(300_000);
+    await runStep(600_000);
+    world.grantDesk.checkpoints(g.buildingId);
     const [card] = renderNeeds(world);
     world.grantDesk.decide(admin, g.id, { action: "adjust", tokens: 750_000 });
     expect(gateAsks(g.id)[0]).toMatchObject({ status: "retired" });
@@ -146,17 +119,33 @@ describe("an over-ceiling forecast writes the gate's need, an on-budget one a no
     const answer = jobThread(world, g.id)!.entries.find((e) => e.answers === need.id)!;
     expect(answer).toMatchObject({ authorKind: "human", moved: { decision: "decided", card: { askId: card!.id, title: card!.title, branches: ["Adjust", "Cut"] } } });
     expect(answer.body).toContain(card!.title);
-    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", grantTokens: 750_000, needsTopUp: false, forecast: { ceiling: 750_000, overCeiling: false, shortfall: 0 } });
+    expect(world.grantDesk.get(g.id)).toMatchObject({ status: "funded", grantTokens: 750_000 });
   });
 
-  it("Cut on a running grant stops it", async () => {
-    const { world, admin, fund, runStep, gateNeeds } = lab();
+  it("the boot repair retires a forecast gate ask and settles its need on a running grant, and leaves a held grant's gate alone", async () => {
+    const { world, fund, runStep, gateAsks, gateNeeds } = lab();
+    // a running grant with a gate need and card a forecast filed before the change
     const g = fund();
     await runStep(40_000);
-    await runStep(300_000);
-    world.grantDesk.decide(admin, g.id, { action: "cut" });
-    expect(["stopping", "closed"]).toContain(world.grants.require(g.id).status);
-    expect(gateNeeds(g.id)[0]!.open).toBe(false);
+    needAtCheckpoint(world, world.grants.require(g.id), 340_000);
+    const [card] = renderNeeds(world);
+    expect(card).toBeTruthy();
+    // a held grant with its own gate need
+    const h = fund();
+    world.sessions.upsert({
+      id: newId("se"), agentId: "system", assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+      sdkSessionId: null, output: 600_000, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: h.id,
+    } as never);
+    world.grantDesk.checkpoints(h.buildingId);
+    expect(world.grants.require(h.id).status).toBe("checkpoint");
+    expect(retireForecastGates(world)).toBe(2);
+    expect(gateAsks(g.id)[0]).toMatchObject({ status: "retired" });
+    expect(gateAsks(g.id)[0]!.retiredBy).toContain("mt_vdu3iqhasi decision 2");
+    expect(gateNeeds(g.id).every((n) => !n.open)).toBe(true);
+    expect(world.grants.require(g.id).status).toBe("funded");
+    expect(gateNeeds(h.id).filter((n) => n.open)).toHaveLength(1);
+    // idempotent
+    expect(retireForecastGates(world)).toBe(0);
   });
 
   it("a funded grant whose steps were planned before sizes files no forecast, no need and no notice; an event says why", async () => {
@@ -281,15 +270,21 @@ describe("the step in flight is priced at what is left of it (gr_76e81kdpvy, fin
   });
 
   it("a step not started is still priced at its full size: the projection does not change, and no step is named in flight", async () => {
-    const { fund, runStep, gateNeeds } = lab();
+    const { world, fund, runStep, gateNeeds } = lab();
     const g = fund(PINS);
     await runStep(100_000);
     await runStep(260_000); // 360,000 spent, step 3 queued with no spend: 360,000 + a full M = 510,000
+    expect(world.grants.require(g.id).forecast).toMatchObject({ projected: 510_000, shortfall: 60_000 });
+    // held at the ceiling with step 3 still unstarted: priced at its full size, never named in flight
+    world.sessions.upsert({
+      id: newId("se"), agentId: "system", assignmentId: null, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+      sdkSessionId: null, output: 90_000, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "grant", grantId: g.id,
+    } as never);
+    world.grantDesk.checkpoints(g.buildingId);
     const body = gateNeeds(g.id).at(-1)!.body;
-    expect(body).toContain("At the sizes left, it is projected to spend 510,000 tokens in all.");
-    expect(body).toContain("That is 60,000 tokens past the ceiling.");
-    // rounded up to whole smallest sizes (S 50,000): 100,000, never the next size L
-    expect(body).toContain("Suggested: Pix recommends adjust by 100,000 tokens.");
+    expect(body).toContain("At what its steps have left, it is projected to spend 600,000 tokens in all.");
+    expect(body).toContain("That is 150,000 tokens past the ceiling.");
+    expect(body).toContain("Suggested: Pix recommends adjust by 150,000 tokens.");
     expect(body).not.toContain("in flight");
   });
 });
