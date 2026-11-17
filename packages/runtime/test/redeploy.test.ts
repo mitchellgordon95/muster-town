@@ -430,7 +430,7 @@ describe("redeploy status for the UI", () => {
       expect(h.runner.calls.some((c) => c.startsWith("npm"))).toBe(false);
       expect(h.runner.calls.filter((c) => c.startsWith("git pull"))).toHaveLength(1);
       const last = h.world.events.latestWith("system", "redeploy")!;
-      expect(last.text).toBe('Redeploy: nothing new on main (live abc123); no restart. CI deploys a merge once main is green. Give restart: "<reason>" for a deliberate restart.');
+      expect(last.text).toBe('Redeploy: nothing new on main (live abc123); no restart. CI promotes a green main to main and the server pulls it by itself. Give restart: "<reason>" for a deliberate restart.');
       expect(last.payload).toMatchObject({ terminal: true, noop: true, run: { state: "done", commits: 0 } });
       expect(h.r.running()).toBe(false);
     });

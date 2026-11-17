@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
 import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
-import { DeployWatch, deployable, type DeployView } from "../src/deploy-watch.ts";
+import { deployable } from "@muster-town/schema";
+import { DeployWatch, type DeployView } from "../src/deploy-watch.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;

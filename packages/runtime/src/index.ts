@@ -5,8 +5,9 @@
  */
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import { AppError, type SubTimer, withTickMemo, checkWaits, circuitBreakerTick, originUrl, deskSizeFor, exploreTick, fireSchedules, setAssignmentStatus, codeWorkspace, deskSlotRows, forkableQueue, forkDeskSlot, forkManager, freeDesks, isForkingManager, liveForks, meetingNotice, walkIdleHome, nextStartable, nowIso, PRESENCE_TICK_MS, retireFork, sendMessage, stopOverdueForks, slugify, syncManagerRoles, type World } from "@muster-town/core";
-import { DesksConfig, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
+import { DesksConfig, townEnv, type Agent, type Assignment, type Building, type DeskActivityInput, type RedeployResult, type Session } from "@muster-town/schema";
 import { codeSource } from "./code.ts";
+import { makeProdWatch } from "./prod-watch.ts";
 import { DockerBackend, dockerSafe, HostBackend, type DeskBackend, type SlotResolver, type WorkBackend } from "./desk/backend.ts";
 import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
@@ -898,6 +899,14 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     return v;
   };
   world.host.isLive = hostIsLive;
+  // the server pulls its own deploys (prod-watch.ts): only where the redeploy pulls a named branch (prod on muster.town) from a git origin
+  const deployBranch = townEnv("DEPLOY_BRANCH")?.trim();
+  const prodWatch = redeployer && deployBranch && commit && originUrl(ctx.repoRoot) ? makeProdWatch({
+    repoRoot: ctx.repoRoot, branch: deployBranch, redeployer, gitEnv: () => gitAuthEnv(world, desks.ghToken),
+    live: () => world.host.commit ?? null, startedAt: () => world.host.startedAt ?? null,
+    event: (text, payload) => world.events.append({ type: "system", text, payload }),
+  }) : null;
+  prodWatch?.start();
   const hostPrChecks = (pr: number) => prPoller.get(pr);
   world.host.prChecks = hostPrChecks;
   const hostMainCi = () => prPoller.main();
@@ -921,7 +930,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       for (const id of [...ctx.live.keys()]) abortWork(ctx, id);
       for (const t of ctx.talking.values()) { t.stopped = true; t.input.close(); void t.q?.interrupt?.()?.catch(() => undefined); }
       // the redeployer runs in the background and writes events: it must be done before the caller closes the DB
-      await Promise.all([whenIdle(), redeployer?.stop()]);
+      await Promise.all([whenIdle(), redeployer?.stop(), prodWatch?.stop()]);
     },
     interrupt: async (agentId, text, from, now) => interrupt(ctx, agentId, text, from, now),
     onMeetingStart: (meetingId) => track(onMeetingStart(ctx, mst, meetingId)),
