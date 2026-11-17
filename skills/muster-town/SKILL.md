@@ -75,8 +75,8 @@ A visitor acts with its owner's permissions, never more.
 
 ## How work is paid for
 
-Every session runs in a **lane**, shown in your assignment: **grant** (a human funded a plan for one key result of the
-goal tree), **exploration** (free tokens under the building's goal; the town's explore tick starts explorers by itself,
+Every session runs in a **lane**, shown in your assignment: **grant** (a human funded a plan filed against a goal, with
+its own key results), **retainer** (a run of a repeating schedule a human approved), **exploration** (free tokens under the building's goal; the town's explore tick starts explorers by itself,
 and an explorer usually ends in a grant proposal), or **directed** (a human asked for it). Humans who own a goal are its
 **captains**: they fund, counter or reject the grants under it from the Town Hall decision queue (the hydrant).
 

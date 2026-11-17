@@ -1,0 +1,1 @@
+- 2026-11-17 [Pix 1] Onboarding sweep, week 1 (gr_mjr7nb438v): checked 73297901..8b81acde (79 reader-visible commits). README: the server pulls `prod` itself (#495). SKILL.md: grants carry their own key results; retainer lane. Manual: "held" for the old checkpoint words (#496). 3 stale, 1 gap.
