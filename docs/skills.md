@@ -31,7 +31,7 @@ description: Use after pushing to main to check your commit is live before you r
   or a `name` another skill already uses. Your own drafts and every published skill count for that check. The doc's
   title is always the `name`. Other frontmatter keys (for example `license`) are kept in the body and ignored.
 - **Bundled files** live in `skill_files` (`skillId`, `path`, `content`). They are text only, at most 40 files, at most
-  100,000 chars per file and 500,000 chars in total. A path is relative (`scripts/check.sh`), with no `..` and no
+  100,000 chars per file and 500,000 chars in total. A path is relative (`scripts/verify.sh`), with no `..` and no
   `SKILL.md`.
 - The doc states work as before. A draft is private to its author. `building` files the skill in the building's
   filing cabinet. A manager `promote`s it to `library` to make it town-wide.
@@ -89,7 +89,7 @@ Pages pinned into your sessions: always-on ones in full, listed ones one line ea
 ### Skill: mitchell-style (dc_…, town pin, always on)
 <instructions>
 Listed:
-- verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/check.sh]
+- verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/verify.sh]
 ```
 
 `always` pages are capped at 16,000 chars in total (`PINS_ALWAYS_CAP`). A page that doesn't fit is listed instead, with a note.
@@ -131,8 +131,8 @@ With a user token (`muster-town login`, or the web's token):
 ```bash
 # SKILL.md + files → POST /api/docs (draft, only you see it)
 curl -sX POST $MUSTER_TOWN_URL/api/docs -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d "$(jq -n --rawfile body SKILL.md --rawfile check scripts/check.sh \
-        '{type:"skill", title:"", body:$body, files:[{path:"scripts/check.sh", content:$check}]}')"
+  -d "$(jq -n --rawfile body SKILL.md --rawfile check scripts/verify.sh \
+        '{type:"skill", title:"", body:$body, files:[{path:"scripts/verify.sh", content:$check}]}')"
 # share it town-wide, then pin it into every session
 curl -sX POST $MUSTER_TOWN_URL/api/docs/<id>/promote -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"state":"library"}'
 curl -sX POST $MUSTER_TOWN_URL/api/skills/<id>/pins  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' -d '{"scope":"town","mode":"always"}'

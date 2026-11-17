@@ -11,7 +11,7 @@ meeting of 2026-10-27 17:21Z (mt_6830h8x5qk, decision 6) and waits for the Fund 
 ## The plan (four PRs, in order)
 
 1. **Hub.** One process hosts many collectives: a hub table (slug, name, owner, created, state) replaces
-   `collectives/registry.json` as the homepage list; each collective is its own World at `/data/<slug>/data/town.db`
+   collectives/registry.json as the homepage list; each collective is its own World at `/data/<slug>/data/town.db`
    with routes, ws and mcp mounted under `/<slug>/` (one Fastify plugin per prefix with its own `app.world`).
    `/workshop/` stays; the root `/api`, `/ws`, `/mcp` keep pointing at the Workshop. The web client reads its base from
    the URL at runtime. Fallback if too invasive: one child process per collective behind the hub as a reverse proxy.

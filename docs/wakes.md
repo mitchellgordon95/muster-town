@@ -17,7 +17,7 @@ that is already running. Today there are four kinds of wake, each wired separate
 - **M, meetings.** `meeting.created`/`meeting.phase` start summary and facilitation sessions. An @mention in a live
   meeting by the facilitator or a human starts a reply session (`onMeetingMention`).
 - **I, interrupts.** These go to a session that is already running: a human's message to a working agent
-  (the old `ops.messageAgent`, removed by 1:1 mt_wql34b8gkl) and the redeploy notice (runtime/index.ts ~445).
+  (the old ops.messageAgent, removed by 1:1 mt_wql34b8gkl) and the redeploy notice (runtime/index.ts ~445).
 
 Everything else lands in the **inbox** (`sendMessage`). The inbox never wakes anyone (it is seen at the next `look`).
 
@@ -96,7 +96,7 @@ Assignment and Session. It is stamped and passed on by the town, never claimed b
 
 The rule for Mitchell's case: **a `tell` (or @mention) with an origin, sent to an idle resident, becomes a directed
 assignment** ("Message from Pix for Mitchell: …", at the front of the queue). It is appended to that recipient's pending
-message assignment for the same origin, in the same way `messageAgent` merges follow-ups today. The lane is `directed`
+message assignment for the same origin, in the same way messageAgent merges follow-ups today. The lane is `directed`
 ("a human asked for it"), which every lab allows when a human created the work. If the recipient is
 working, the message is delivered as an interrupt (I). Without an origin, a tell stays inbox-only, as today.
 
@@ -108,10 +108,10 @@ the acting session's origin. `Grants.decide` and the KR setters stop calling `no
 `resolveLane` treats an assignment with an origin as human-created, so it is directed.
 
 **Runtime.** A new `waker.ts` takes over the branches of `onEvent`: meeting starts, mention replies, 1:1, in-tray,
-stop/ban. `ManageState.offered` (in memory: "a restart offers the in-tray again") becomes the in-tray items' `wakeKey`s.
+stop/ban. `ManageState.offered` (in memory: "a restart offers the in-tray again") becomes the in-tray items' wakeKeys.
 
 **Migration.** Move the existing branches into rules first, with no change in behaviour and the existing tests as the
-oracle. Then add the new rules one at a time. The ad-hoc creators (`blockedAssignment`, the checkpoint assignment,
+oracle. Then add the new rules one at a time. The ad-hoc creators (blockedAssignment, the checkpoint assignment,
 `wait-expired`, the "Message from" assignment) can stay where they are, because they already write state. Each can
 become a rule later if it is touched anyway.
 
@@ -119,7 +119,7 @@ become a rule later if it is touched anyway.
 - *Loops.* Agent → agent tells without an origin never wake anyone, as today. An origin carries `hops` (cap 3) and expires
   24 h after the human acted. A recipient gets at most one pending message assignment per origin (merged). The
   meeting-reply cap (`MEETING_REPLIES_MAX`) stays.
-- *Double wakes.* `wakeKey` uniqueness, together with the cursor that only advances after state is written, makes replays
+- *Double wakes.* wakeKey uniqueness, together with the cursor that only advances after state is written, makes replays
   idempotent. The level-triggered sweeps never create items: they only start what exists.
 - *Allowance.* Wakes never bypass `canStart`. Human-origin work is directed, so it doesn't spend the exploration allowance,
   but it does spend the building's budget. Manager wakes on grant and KR events are in-tray rows, so a burst of ten
@@ -152,15 +152,15 @@ become a rule later if it is touched anyway.
    queue (sourceId = `origin.via`, origin copied). Later tells for the same human and path merge into it while it is
    pending. The description carries `wake:relay:<eventId>:<agentId>`, so a replay is a no-op. A busy recipient, a tell
    with no origin, or one past the caps stays inbox only (`idleNote`). `canStart` stays the gate. No migration. A
-   human's REST tell (the removed `messageAgent`, hop 0) used to do this. Since work routing step 2 (2026-11-08), a
-   tell to a forking manager is a pending in-tray row instead (`intrayRow`, rule `relay`, one per tell, whatever its
+   human's REST tell (the removed messageAgent, hop 0) used to do this. Since work routing step 2 (2026-11-08), a
+   tell to a forking manager is a pending in-tray row instead (intrayRow, rule `relay`, one per tell, whatever its
    status), never an assignment. Tests: core test/wakes-relay.test.ts.
 3. **Manager wakes on grant and KR events** — done 2026-10-26. Grant decisions as assignments (Mitchell's ask, 1:1
-   mt_f45m8hbmct: `Grants.decisionAssignment`, the same hook as the checkpoint assignment; fund → grant lane, counter /
+   mt_f45m8hbmct: Grants.decisionAssignment, the same hook as the checkpoint assignment; fund → grant lane, counter /
    reject → directed). Superseded: fund now queues the grant's step 1 on the building queue (`Grants.queueStep`), and
-   since work routing step 2 counter / reject write a pending in-tray row (`intrayRow`, rules `grant-countered` /
+   since work routing step 2 counter / reject write a pending in-tray row (intrayRow, rules `grant-countered` /
    `grant-rejected`), not an assignment. The rest (continue, adjust, cut or close by a human, and a human's `kr.created` / `kr.updated` /
-   `kr.deleted`) write one town-authored in-tray row (`managerIntrayRow`, core/src/wakes.ts; author `system`, shown as
+   `kr.deleted`) write one town-authored in-tray row (managerIntrayRow, core/src/wakes.ts; author `system`, shown as
    Town; tag `wake:manager-intray:<eventId>:<buildingId>` so a replay writes nothing), now the Waker's
    `manager-intray-row` rule (step 4); the row's `doc.created` wakes the manager through T like a resident's report, and it acknowledges it with
    `review` approve. Grant events carry `payload.action` (the history entry) so the rule can tell fund from continue.
@@ -196,7 +196,7 @@ become a rule later if it is touched anyway.
      origin, past the caps, a busy target, or a mention inside a live meeting the target attends (M covers it) stay
      inbox only.
    Since work routing step 2 (2026-11-08), `request-answer` and `mention` to a forking manager write a pending in-tray
-   row (`intrayRow`) instead of an interrupt or an assignment, and a retired fork's outbox answer is a directed job on
+   row (intrayRow) instead of an interrupt or an assignment, and a retired fork's outbox answer is a directed job on
    its building queue, on the chain of the work that asked.
    Not done: the per-agent subscription table (no use for it yet). The one remaining "gap" in §1, a human messaging a
    resident of a managed building, is refused on purpose.

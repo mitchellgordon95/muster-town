@@ -63,7 +63,7 @@ or ▶ when it's a video, with +n for the rest (`panels/MediaThumb.tsx`).
 | Capture | Desk today | How |
 |---|---|---|
 | Screenshot of the web client | yes | `/usr/bin/chromium` is in the desk image; drive it with `playwright-core` (`npm i playwright-core` in a scratch dir, `chromium.launch({ executablePath: "/usr/bin/chromium" })`), `page.screenshot()` |
-| Video of a feature walkthrough | yes, browser only | Playwright `recordVideo` writes VP8 `.webm`; it needs Playwright's own ffmpeg (`npx playwright-core install ffmpeg`, ~2 MB, into `~/.cache`) |
+| Video of a feature walkthrough | yes, browser only | Playwright recordVideo writes VP8 `.webm`; it needs Playwright's own ffmpeg (`npx playwright-core install ffmpeg`, ~2 MB, into `~/.cache`) |
 | Generated images (charts) | yes | matplotlib is in the image: `savefig("x.png")` |
 | Re-encode, trim, GIF, MP4 | no | no system `ffmpeg`; Playwright's build only records |
 | Desktop / terminal recording | no | no display server; a terminal session could be rendered as text instead |

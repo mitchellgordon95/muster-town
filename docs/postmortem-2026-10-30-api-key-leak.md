@@ -73,7 +73,7 @@ First commit:
 - **Host sessions carry exactly one credential.** `sessionEnv` strips both from the allowlisted env and sets one: the
   funding's own key (a donor's or a Bank input's) → `ANTHROPIC_API_KEY`; else the host's subscription token; else the
   host's key (a host that has no token at all).
-- **The host's key is never an implicit funding source** once the host has a token (`hostApiKey`). A failover key is
+- **The host's key is never an implicit funding source** once the host has a token (hostApiKey). A failover key is
   only ever one the Bank lists: a donor-key allocation's key or the Bank's api-key input's own key (`fundingFor`,
   `deskAuth`). An api-key share or allocation with no key of its own runs on the subscription and is recorded as such.
 - **A failover is never silent.** `finishWorkSession` appends a `system` event with `alert: funding-failover` naming the
