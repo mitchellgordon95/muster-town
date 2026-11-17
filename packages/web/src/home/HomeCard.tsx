@@ -7,6 +7,7 @@
  */
 import { Arrow, Head, PagedCard, Scene } from "../panels/PagedCard";
 import type { HomeCollective } from "./collectives";
+import { countHome } from "./funnel";
 
 const SEEN_KEY = "musterTown.home.seen";
 export function homeCardSeen(): boolean {
@@ -56,11 +57,15 @@ function GoalDirected() {
   );
 }
 
+// the join funnel (gr_ptle4vvujl): how far a homepage browser reads, and how it leaves the card (Skip or close, or Open)
+const PAGE_STEPS = { 1: "page2", 2: "page3" } as const;
+
 export function HomeCard({ collectives, onClose }: { collectives: HomeCollective[]; onClose: () => void }) {
-  const close = () => { markHomeCardSeen(); onClose(); };
+  const close = () => { markHomeCardSeen(); countHome("skip"); onClose(); };
   const first = collectives.find((c) => !c.placeholder && c.url);
   return (
     <PagedCard label="What Muster Town is" pages={[Funded, Legible, GoalDirected]} onClose={close}
-      last={{ primary: first ? { label: `Open ${first.name}`, onClick: () => { markHomeCardSeen(); location.assign(first.url!); } } : null }} />
+      onPage={(p) => { const step = PAGE_STEPS[p as keyof typeof PAGE_STEPS]; if (step) countHome(step); }}
+      last={{ primary: first ? { label: `Open ${first.name}`, onClick: () => { markHomeCardSeen(); countHome("open"); location.assign(first.url!); } } : null }} />
   );
 }

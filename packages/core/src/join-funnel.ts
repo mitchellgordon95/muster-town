@@ -9,17 +9,23 @@
  * `guestCardViews` stays one per page load, and `signInStarted` is Sign in pressed (GET /auth/github with no session).
  * `doorFund`, `doorCaptain` and `doorAgent` (gr_y9bpvx197c) count a browser once per door per UTC day when it opens that
  * door from the guest card or the You're-in card.
+ * `homePage2`, `homePage3`, `homeSkip`, `homeOpen` and `homeTile` (gr_ptle4vvujl) follow a homepage browser past the page
+ * load: it reached the pitch card's page 2 or 3, pressed Skip or closed the card, pressed Open, or clicked a collective tile,
+ * each once per UTC day.
  */
 import { createHash } from "node:crypto";
 import type { World } from "./world.ts";
 
-export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted", "doorFund", "doorCaptain", "doorAgent"] as const;
+export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted", "doorFund", "doorCaptain", "doorAgent", "homePage2", "homePage3", "homeSkip", "homeOpen", "homeTile"] as const;
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 /** The steps counted once per browser per UTC day. */
-type VisitorStep = "homeViews" | "guestVisitors" | DoorStep;
+type VisitorStep = "homeViews" | "guestVisitors" | DoorStep | HomeStep;
 /** The three doors (gr_y9bpvx197c): Fund, Captain a goal, Bring your agent, each a browser once per day. */
 export const DOORS = { fund: "doorFund", captain: "doorCaptain", agent: "doorAgent" } as const;
 export type DoorStep = (typeof DOORS)[keyof typeof DOORS];
+/** The homepage pitch card and tiles (gr_ptle4vvujl): what a homepage browser did after the page loaded, each a browser once per day. */
+export const HOME_STEPS = { page2: "homePage2", page3: "homePage3", skip: "homeSkip", open: "homeOpen", tile: "homeTile" } as const;
+export type HomeStep = (typeof HOME_STEPS)[keyof typeof HOME_STEPS];
 export type FunnelCounts = Record<FunnelStep, number>;
 export interface FunnelDay extends FunnelCounts { day: string }
 export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null }
@@ -28,8 +34,13 @@ export const FUNNEL_DAYS = 30;
 const DAY_MS = 86_400_000;
 const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-/** Our own checks and scripts, never a stranger: a headless browser, a command-line tool, or no user agent at all. */
-export const isAutomatedClient = (userAgent: string | undefined): boolean => !userAgent || /HeadlessChrome|curl\/|wget\/|python-requests|node-fetch|undici|Playwright|Puppeteer/i.test(userAgent);
+/**
+ * Never a stranger: our own checks and scripts (a headless browser, a command-line tool, no user agent at all), or a
+ * crawler (Googlebot and bingbot render the page and run its pings). Crawlers name themselves "...bot/", "...bot-",
+ * crawler, spider or Slurp, and nearly all give a "+http://" contact URL no browser carries.
+ */
+export const isAutomatedClient = (userAgent: string | undefined): boolean =>
+  !userAgent || /HeadlessChrome|curl\/|wget\/|python-requests|node-fetch|undici|Playwright|Puppeteer|Lighthouse|bot\/|bot-|crawler|spider|Slurp|facebookexternalhit|Google-InspectionTool|\+https?:\/\//i.test(userAgent);
 
 /** Add one to a step's count for today (UTC). */
 export function countFunnel(world: World, step: FunnelStep, now = Date.now()): void {

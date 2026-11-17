@@ -20,6 +20,11 @@ import { Act, Empty, ErrorLine, Loading, Section, Tabs, timeAgo, useLoad } from 
 /** The steps in funnel order: short column label and what the number is. */
 export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string }[] = [
   { key: "homeViews", label: "Home", what: "browsers that opened the homepage (muster.town), each counted once per day" },
+  { key: "homePage2", label: "Home: page 2", what: "homepage browsers that reached page 2 of the pitch card (Publicly legible), each counted once per day" },
+  { key: "homePage3", label: "Home: page 3", what: "homepage browsers that reached page 3 of the pitch card (Goal-directed, with the Open button), each counted once per day" },
+  { key: "homeSkip", label: "Home: Skip", what: "homepage browsers that pressed Skip or closed the pitch card (×, Esc or a click outside it) without pressing Open, each counted once per day" },
+  { key: "homeOpen", label: "Home: Open", what: "homepage browsers that pressed Open on the pitch card's last page (it opens the Workshop), each counted once per day" },
+  { key: "homeTile", label: "Home: tile", what: "homepage browsers that clicked a collective's tile on the page behind the card, each counted once per day" },
   { key: "guestCardViews", label: "Saw card", what: "page loads that showed the signed-out guest card: reloads count again" },
   { key: "guestVisitors", label: "Visitors", what: "browsers that saw the guest card, each counted once per day: the number of strangers at the door" },
   { key: "signInStarted", label: "Pressed Sign in", what: "times Sign in was pressed by a browser with no session, whether or not GitHub was finished" },
@@ -58,7 +63,7 @@ export function waitLabel(ms: number): string {
 export function byDay(f: JoinFunnelView): ({ day: string } & JoinFunnelCounts)[] {
   const m = new Map<string, { day: string } & JoinFunnelCounts>();
   for (const c of f.collectives) for (const d of c.daily) {
-    const row = m.get(d.day) ?? { day: d.day, homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 };
+    const row = m.get(d.day) ?? { day: d.day, ...(Object.fromEntries(COLUMNS.map((c) => [c.key, 0])) as unknown as JoinFunnelCounts) };
     for (const col of COLUMNS) row[col.key] += d[col.key] ?? 0;
     m.set(d.day, row);
   }
@@ -118,7 +123,7 @@ export function StatsView({ f }: { f: JoinFunnelView }) {
           {COLUMNS.map((c) => <div key={c.key}><dt>{c.label}</dt><dd>{c.what}.</dd></div>)}
           <div><dt>Typical wait</dt><dd>the median time from asking to join to an admin letting the account in or declining it.</dd></div>
         </dl>
-        <div className="muted">Counts only: no login or account id is kept for these numbers. Each day is a UTC day. A browser counts once per day by a random id it keeps itself; headless browsers and command-line tools (our own checks) are not counted.</div>
+        <div className="muted">Counts only: no login or account id is kept for these numbers. Each day is a UTC day. A browser counts once per day by a random id it keeps itself; headless browsers and command-line tools (our own checks) and search-engine crawlers (Googlebot, bingbot and the like) are not counted.</div>
       </Section>
     </>
   );

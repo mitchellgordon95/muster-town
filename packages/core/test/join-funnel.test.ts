@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db.ts";
-import { countFunnel, countMemberAct, countVisitor, decideAccess, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
+import { countFunnel, countMemberAct, countVisitor, decideAccess, HOME_STEPS, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // The join funnel (grant gr_fibsfwr4tz step 3): counted where each step happens, counts only, never who.
@@ -53,6 +53,35 @@ describe("join funnel", () => {
     expect(isAutomatedClient("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Safari/604.1")).toBe(false);
   });
 
+  it("crawlers never count (gr_ptle4vvujl): Googlebot, bingbot and the other named bots; real browsers, a Cubot phone included, still do", () => {
+    for (const ua of [
+      "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+      "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/116.0.1938.76 Safari/537.36",
+      "DuckDuckBot-Https/1.1; (+https://duckduckgo.com/duckduckbot)",
+      "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+      "Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)",
+      "Mozilla/5.0 (compatible; Yahoo! Slurp; http://help.yahoo.com/help/us/ysearch/slurp)",
+      "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)",
+      "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)",
+      "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Chrome-Lighthouse",
+    ]) expect(isAutomatedClient(ua), ua).toBe(true);
+    for (const ua of [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.6; rv:132.0) Gecko/20100101 Firefox/132.0",
+      "Mozilla/5.0 (Linux; Android 9; CUBOT X19) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    ]) expect(isAutomatedClient(ua), ua).toBe(false);
+  });
+
+  it("the homepage card steps (gr_ptle4vvujl) count a browser once per step per day, each its own column", () => {
+    const { world } = seededWorld();
+    const now = Date.parse("2026-11-17T12:00:00Z");
+    const id = "home-card-visitor-0001";
+    for (const step of [HOME_STEPS.page2, HOME_STEPS.page3, HOME_STEPS.page2, HOME_STEPS.open, HOME_STEPS.tile, HOME_STEPS.skip]) countVisitor(world, step, id, now);
+    expect(joinFunnel(world, 30, now).totals).toMatchObject({ homePage2: 1, homePage3: 1, homeSkip: 1, homeOpen: 1, homeTile: 1, homeViews: 0 });
+  });
+
   it("keeps 30 days: an older day drops out; the median is over the window's waits", () => {
     const { world } = seededWorld();
     const now = Date.parse("2026-11-01T12:00:00Z");
@@ -83,8 +112,8 @@ describe("join funnel", () => {
     for (const f of files.filter((f) => f.includes("join_funnel"))) copyFileSync(join(all, f), join(dir, f));
     migrate(db, dir);
     expect(db.prepare("SELECT * FROM join_funnel ORDER BY day").all()).toEqual([
-      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 },
-      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0 },
+      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0 },
+      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0 },
     ]);
     expect(db.prepare("SELECT * FROM join_funnel_waits").all()).toEqual([{ day: "2026-10-30", waitMs: 7_200_000 }]);
   });

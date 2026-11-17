@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, DOORS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countFunnel, countVisitor, DOORS, HOME_STEPS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -239,10 +239,14 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const v = visitorOf(req.body);
     return { counted: true, visitor: v ? countVisitor(opts.world, "guestVisitors", v) : false };
   });
+  // with a `step` (gr_ptle4vvujl): what the homepage browser did next: the pitch card's page 2 or 3, Skip or close, Open, a tile
   if (!prefix) app.post("/api/join-funnel/home", async (req) => {
     if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
+    const raw = typeof req.body === "object" && req.body ? (req.body as { step?: unknown }).step : undefined;
+    const step = raw === undefined ? "homeViews" : typeof raw === "string" && Object.hasOwn(HOME_STEPS, raw) ? HOME_STEPS[raw as keyof typeof HOME_STEPS] : null;
+    if (!step) throw new AppError("bad_request", "step must be page2, page3, skip, open or tile");
     const v = visitorOf(req.body);
-    return { counted: !!v && countVisitor(opts.world, "homeViews", v) };
+    return { counted: !!v && countVisitor(opts.world, step, v) };
   });
   // the three doors (gr_y9bpvx197c): the guest card or You're-in card pings which door this browser opened, once per door per UTC day
   app.post(`${prefix}/api/join-funnel/door`, async (req) => {

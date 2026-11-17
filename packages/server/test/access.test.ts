@@ -186,6 +186,22 @@ describe("who may interact", () => {
   });
 });
 
+describe("the homepage card steps (gr_ptle4vvujl)", () => {
+  it("a step counts a browser once per step per day; crawlers never count; a bad step is 400", async () => {
+    const { app } = await setup();
+    const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
+    const before = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    const visitor = "0b1f2e3d-4c5b-4a69-8f70-home-card-test";
+    for (const step of ["page2", "page3", "page2", "skip", "open", "tile"]) await json(app, "POST", "/api/join-funnel/home", { headers: ua, body: { visitor, step } });
+    const bot = { "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" };
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: bot, body: { visitor: "crawler-visitor-id" } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: bot, body: { visitor: "crawler-visitor-id", step: "open" } })).body).toEqual({ counted: false });
+    expect((await json(app, "POST", "/api/join-funnel/home", { headers: ua, body: { visitor, step: "toString" } })).status).toBe(400);
+    const after = (await json(app, "GET", "/api/join-funnel")).body.totals;
+    expect(after).toEqual({ ...before, homePage2: before.homePage2 + 1, homePage3: before.homePage3 + 1, homeSkip: before.homeSkip + 1, homeOpen: before.homeOpen + 1, homeTile: before.homeTile + 1 });
+  });
+});
+
 describe("the three doors (gr_y9bpvx197c)", () => {
   it("a door counts a browser once per door per day, headless never; a bad door is 400", async () => {
     const { app } = await setup();

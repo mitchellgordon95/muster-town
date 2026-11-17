@@ -19,16 +19,20 @@ export const Head = ({ pre, big, sub }: { pre: string; big: string; sub: string 
 
 interface CardButton { label: string; onClick: () => void }
 
-/** `last` decides the last page's buttons (the one next step); earlier pages end on Next. */
-export function PagedCard({ label, pages, onClose, last }: {
+/** `last` decides the last page's buttons (the one next step); earlier pages end on Next. `onPage` hears each page shown (0 first). */
+export function PagedCard({ label, pages, onClose, last, onPage }: {
   label: string;
   pages: ComponentType[];
   onClose: () => void;
   last: { primary: CardButton | null; secondary?: CardButton | null };
+  onPage?: (page: number) => void;
 }) {
   const [page, setPage] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.focus(); }, []);
+  const heard = useRef(onPage);
+  heard.current = onPage;
+  useEffect(() => { heard.current?.(page); }, [page]);
   const isLast = page === pages.length - 1;
   const Page = pages[page]!;
   const primary = isLast ? last.primary : { label: "Next", onClick: () => setPage(page + 1) };
