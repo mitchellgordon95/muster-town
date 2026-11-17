@@ -1,9 +1,11 @@
 /**
- * Drag a resident to a new spot with the grasper hand (Mitchell's flag dc_mf6oelioq5). In the normal map view a human
- * with building.manage where the agent works presses on its body and drags: the cursor is a grab hand, then a closed
- * one, and the body hangs from a pixel fist (renderer.ts `drag`). On drop the server decides (core world/desk-drop.ts):
- * on another desk of its room the two desks swap; on free floor its desk moves there; anywhere else it snaps back with a
- * toast saying why. A press that doesn't move past DRAG_PX stays a click (it opens the agent's panel).
+ * Drag an agent's body to a new spot with the grasper hand (Mitchell's flags dc_mf6oelioq5, dc_d2wkuhoh1l). In the
+ * normal map view a human with building.manage where the agent works (the Town Hall's residents: an admin) presses on
+ * its body and drags: the cursor is a grab hand, then a closed one, and the body hangs from a pixel fist (renderer.ts
+ * `drag`). On drop the server decides (core world/rest-spot.ts): any tile a body can stand on, inside or outside a
+ * building, becomes where the agent rests and walks back to; its own desk's tile puts it back at its desk; a wall,
+ * furniture, water or a doorway snaps it back with a toast saying why. Only the body moves, never the desk. A press
+ * that doesn't move past DRAG_PX stays a click (it opens the agent's panel).
  */
 import type { Agent, Tile } from "@muster-town/schema";
 import { api } from "../api";
@@ -65,8 +67,7 @@ async function drop(r: MapRenderer, id: string, to: Tile) {
     const res = await api().dropAgent(id, to);
     store.livePos.set(id, { ...res.pos, at: performance.now() });
     r.endDrag(true);
-    const other = res.withAgentId ? store.state.agents[res.withAgentId]?.name : null;
-    store.toast(res.kind === "swap" ? (other ? `${name} and ${other} swapped desks` : `${name} moved to the free desk`) : `${name}'s desk moved here`, "ok");
+    store.toast(res.home ? `${name} is back at their usual spot` : `${name} will rest here`, "ok");
   } catch (e) {
     r.endDrag(false);
     store.toast((e as Error).message, "bad");

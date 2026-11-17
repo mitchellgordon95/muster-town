@@ -149,11 +149,12 @@ export async function agentRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Drag an agent on the map and drop it on a tile (humans with building.manage, Mitchell's flag dc_mf6oelioq5): on
-   * another desk of its room the two desks swap places; on free floor its desk moves there; else 400 with the reason.
-   * → { building, kind: "swap" | "move", withAgentId, pos }
+   * Drag an agent's body on the map and drop it on a tile (flags dc_mf6oelioq5, dc_d2wkuhoh1l; humans with
+   * building.manage on its desk's building, or admins): the tile becomes where it rests and the body moves there; its
+   * own default tile clears that; its desk never moves. 400 with the reason on a tile a body can't stand on.
+   * → { pos, home } (home: back at its default spot)
    */
-  app.post<{ Params: Params }>("/api/agents/:id/desk-drop", async (req) => {
+  app.post<{ Params: Params }>("/api/agents/:id/drop", async (req) => {
     const to = parse(Tile, req.body);
     return world.ops.dropAgent(actorOf(world, req), req.params.id, to);
   });

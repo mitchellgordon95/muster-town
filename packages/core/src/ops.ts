@@ -74,14 +74,19 @@ export class Ops {
     this.requireLayoutEditor(actor, id);
     return updateFurniture(this.world, id, furniture, actor ? this.world.holderOf(actor).id : null);
   }
-  /** Drag a resident or visitor on the map to a tile (flag dc_mf6oelioq5): humans with building.manage on its desk's building, like Edit layout. */
+  /**
+   * Drag an agent's body on the map to a tile (flags dc_mf6oelioq5, dc_d2wkuhoh1l): humans with building.manage on its
+   * desk's building (the Secretary and the Planner: the Town Hall's), or admins. Human avatars are never moved.
+   */
   dropAgent(actor: Actor, agentId: string, to: Tile) {
     const a = this.world.agents.require(agentId, "agent");
+    if (a.kind === "human") throw new AppError("bad_request", `${a.name} is a person: only they move themselves.`);
     const row = this.world.db.prepare("SELECT buildingId FROM desks WHERE agentId = ?").get(agentId) as { buildingId: string } | undefined;
     const buildingId = row?.buildingId ?? a.homeBuildingId;
-    if (!buildingId) throw new AppError("bad_request", `${a.name} has no desk to move.`);
+    if (!buildingId) throw new AppError("bad_request", `${a.name} has no home spot to move.`);
+    if (actor && actor.kind !== "human") throw new AppError("forbidden", "Only humans can move agents on the map.");
     this.requireLayoutEditor(actor, buildingId);
-    return dropAgent(this.world, agentId, to, actor ? this.world.holderOf(actor).id : null);
+    return dropAgent(this.world, agentId, to);
   }
   private requireLayoutEditor(actor: Actor, id: string) {
     if (!actor) return;

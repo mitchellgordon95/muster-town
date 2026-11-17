@@ -542,25 +542,27 @@ describe("edit layout", () => {
     expect(refused.status).toBe(403);
   });
 
-  it("POST /api/agents/:id/desk-drop: a human manager drops a resident on another desk (swap) or free floor (move); outside is 400; agent tokens 403 (flag dc_mf6oelioq5)", async () => {
+  it("POST /api/agents/:id/drop: a human manager moves only the body (the desk stays); its desk tile clears the spot; a wall is 400; agent tokens 403 (flag dc_d2wkuhoh1l)", async () => {
     const { app, world, auth } = await setup();
     world.town.set({ mapLayout: "tree" }); world.layout.rebuild();
     const ravi = world.agents.first("name = 'Ravi'")!, moss = world.agents.first("name = 'Moss'")!;
-    const rDesk = world.layout.deskOf(ravi.id)!.pos, mDesk = world.layout.deskOf(moss.id)!.pos;
-    const swap = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: mDesk });
-    expect(swap.status).toBe(200);
-    expect(swap.body).toMatchObject({ kind: "swap", withAgentId: moss.id, pos: mDesk });
-    expect(world.layout.deskOf(moss.id)!.pos).toEqual(rDesk);
+    const rDesk = world.layout.deskOf(ravi.id)!.pos;
     const lot = world.buildings.require("carbon-cycle").lot!;
-    const move = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: { x: lot.x + 3, y: lot.y + 1 } });
+    const furniture = world.buildings.require("carbon-cycle").furniture;
+    const spot = { x: lot.x + 3, y: lot.y + 1 };
+    const move = await json(app, "POST", `/api/agents/${ravi.id}/drop`, { headers: auth, body: spot });
     expect(move.status).toBe(200);
-    expect(move.body).toMatchObject({ kind: "move", withAgentId: null, pos: { x: lot.x + 3, y: lot.y + 1 } });
-    expect(world.agents.require(ravi.id).pos).toEqual({ x: lot.x + 3, y: lot.y + 1 });
-    const out = await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: auth, body: { x: lot.x - 2, y: lot.y } });
-    expect(out.status).toBe(400);
-    expect(JSON.stringify(out.body)).toMatch(/Drop them inside it/);
+    expect(move.body).toEqual({ pos: spot, home: false });
+    expect(world.agents.require(ravi.id).pos).toEqual(spot);
+    expect(world.layout.deskOf(ravi.id)!.pos).toEqual(spot);
+    expect(world.buildings.require("carbon-cycle").furniture).toEqual(furniture);
+    const back = await json(app, "POST", `/api/agents/${ravi.id}/drop`, { headers: auth, body: rDesk });
+    expect(back.body).toEqual({ pos: rDesk, home: true });
+    const wall = await json(app, "POST", `/api/agents/${ravi.id}/drop`, { headers: auth, body: { x: lot.x, y: lot.y + 3 } });
+    expect(wall.status).toBe(400);
+    expect(JSON.stringify(wall.body)).toMatch(/wall, furniture or water/);
     const agent = { authorization: `Bearer ${world.tokens.getOrCreate("agent", moss.id)}` };
-    expect((await json(app, "POST", `/api/agents/${ravi.id}/desk-drop`, { headers: agent, body: mDesk })).status).toBe(403);
+    expect((await json(app, "POST", `/api/agents/${ravi.id}/drop`, { headers: agent, body: spot })).status).toBe(403);
   });
 });
 
