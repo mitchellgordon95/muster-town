@@ -1,17 +1,17 @@
 /**
- * Build step 10 of docs/legible-delegation.md (§5 "A town dictionary"): the Town Hall's dictionary doc, the block every
- * manager's first message pins, and the ask linter's `dictionary` rule reading its avoid → use pairs.
+ * Build step 10 of docs/legible-delegation.md (§5 "A town dictionary"): the Town Hall's dictionary doc, its listed town
+ * pin's line in every session's "## Pinned pages" (design dc_8194l8soj4 §2), and the ask linter's `dictionary` rule reading its avoid → use pairs.
  */
 import { lintAskBody } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
-import { createBuilding, createResident, managerStateBlock, updateBuilding } from "../src/index.ts";
-import { dictionaryBlock, dictionaryPairs, ensureDictionary } from "../src/dictionary.ts";
+import { createBuilding, createResident, pinnedPagesBlock, updateBuilding } from "../src/index.ts";
+import { dictionaryGist, dictionaryPairs, ensureDictionary } from "../src/dictionary.ts";
 import { seededWorld, seedAsk } from "./helpers.ts";
 
 describe("the town dictionary (docs/legible-delegation.md §5)", () => {
   it("seeded at boot: one Town Hall dictionary doc with the words and the avoid → use list, made once", () => {
     const { world } = seededWorld();
-    expect(dictionaryBlock(world)).toBe("");
+    expect(dictionaryPairs(world)).toEqual([]);
     const d = ensureDictionary(world)!;
     expect(d).toMatchObject({ type: "dictionary", buildingId: "town-hall", title: "Town dictionary" });
     for (const w of ["ask", "notice", "record", "gate", "ceiling", "size", "verified", "claimed", "unknown", "fund / counter / reject", "adjust / cut", "hold", "slate", "ledger"]) expect(d.body).toContain(`- **${w}**:`);
@@ -21,16 +21,17 @@ describe("the town dictionary (docs/legible-delegation.md §5)", () => {
     expect(dictionaryPairs(world)).toEqual(expect.arrayContaining([{ avoid: "top-up", use: "adjust" }, { avoid: "checkpoint card", use: "gate" }, { avoid: "approve a grant", use: "fund" }]));
   });
 
-  it("the pinned block is in every manager's first message, under 120 words", () => {
+  it("a listed town pin: one line in every session's pinned pages, its words and pairs under 120 words", () => {
     const { world, seed } = seededWorld();
-    ensureDictionary(world);
+    const d = ensureDictionary(world)!;
+    expect(world.pins.where("docId = ?", [d.id])).toMatchObject([{ scope: "town", mode: "listed", seeded: true }]);
     const b = createBuilding(world, { name: "Lab", headcount: 2 }, seed.admin.id);
     const pix = createResident(world, { buildingId: b.id, name: "Pix" });
     updateBuilding(world, b.id, { managerAgentId: pix.id });
-    const block = dictionaryBlock(world);
-    expect(block.split(/\s+/).filter(Boolean).length).toBeLessThan(120);
-    expect(block).toContain("Avoid → use: top-up → adjust, checkpoint card → gate, approve a grant → fund");
-    expect(managerStateBlock(world, pix, world.buildings.require(b.id))).toContain(block);
+    const gist = dictionaryGist(d.body);
+    expect(gist.split(/\s+/).filter(Boolean).length).toBeLessThan(120);
+    expect(gist).toContain("Avoid → use: top-up → adjust, checkpoint card → gate, approve a grant → fund");
+    expect(pinnedPagesBlock(world.skills.forAgent(pix.id))).toContain(`- Town dictionary (${d.id}, town pin): ${gist}`);
   });
 
   it("the lint rule warns on an avoided word and names the replacement", () => {

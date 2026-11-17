@@ -5,6 +5,7 @@
  * `resolvePins`, and a session prompt renders the result with `pinnedPagesBlock` as one "## Pinned pages" block.
  */
 import type { Doc, Pin, PinScope, SkillFileInfo } from "@muster-town/schema";
+import { dictionaryGist } from "./dictionary.ts";
 import { parseSkillMd } from "./skills.ts";
 import { docGist } from "./text.ts";
 
@@ -20,19 +21,24 @@ export type PinRow = Pick<Pin, "id" | "docId" | "scope" | "targetId" | "mode" | 
 /** A pinned doc with its bundled files (skills; [] for any other doc). */
 export interface PinnedDoc { doc: Doc; files: SkillFileInfo[] }
 
-/** Whose sessions: the agent (a fork passes its manager), its home building, and which docs it may see. */
-export interface PinViewer { agentId: string; buildingId: string | null; canSee: (doc: Doc) => boolean }
+/**
+ * Whose sessions: the agent (a fork passes its manager), its home building, which docs it may see, and which it may
+ * rewrite (an always entry it may write says so: "you keep this page"; design dc_8194l8soj4 §5).
+ */
+export interface PinViewer { agentId: string; buildingId: string | null; canSee: (doc: Doc) => boolean; canWrite?: (doc: Doc) => boolean }
 
 /** How a doc shows in the block: its title, a one-line gist (listed) and its text (always). */
 interface PinPage { title: string; gist: string; text: string; heading: string }
 
 /** One doc as it reaches a session: the strongest pin that reaches the viewer, and how the doc shows. */
-export interface PinEntry extends PinPage { doc: Doc; files: SkillFileInfo[]; scope: PinScope; mode: Pin["mode"]; createdAt: string }
+export interface PinEntry extends PinPage { doc: Doc; files: SkillFileInfo[]; scope: PinScope; mode: Pin["mode"]; createdAt: string; writable: boolean }
 
 const filePaths = (files: SkillFileInfo[]) => `${files.slice(0, 6).map((f) => f.path).join(", ")}${files.length > 6 ? ", …" : ""}`;
 const fileNote = (files: SkillFileInfo[]) => (files.length ? ` [${files.length} file${files.length === 1 ? "" : "s"}: ${filePaths(files)}]` : "");
 
-/** How a doc shows, per type; null when it can't show (a skill whose SKILL.md doesn't parse). */
+const LEDGER_HEADING = "Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)";
+
+/** How a doc shows, per type; null when it can't show (a skill whose SKILL.md doesn't parse, a ledger with no rule yet). */
 function pinView({ doc, files }: PinnedDoc): PinPage | null {
   if (doc.type === "skill") {
     let md;
@@ -42,7 +48,14 @@ function pinView({ doc, files }: PinnedDoc): PinPage | null {
       text: `${md.instructions}${files.length ? `\n(Bundled files: ${filePaths(files)}; \`read\` with \`file\` opens one.)` : ""}`,
     };
   }
-  return { title: doc.title, gist: docGist(doc), heading: doc.title, text: doc.body };
+  if (doc.type === "policy") {
+    // only its rule lines: the head says how the ledger works, which the rules don't need repeated in every session
+    const rules = doc.body.split("\n").filter((l) => l.startsWith("- "));
+    if (!rules.length) return null;
+    return { title: doc.title, gist: `${rules.length} rule${rules.length === 1 ? "" : "s"} the humans set`, heading: LEDGER_HEADING, text: rules.join("\n") };
+  }
+  if (doc.type === "dictionary") return { title: doc.title, gist: dictionaryGist(doc.body), heading: doc.title, text: doc.body.trim() };
+  return { title: doc.title, gist: docGist(doc), heading: doc.title, text: doc.body.trim() };
 }
 
 /** A pin reaches others' sessions unless it is an agent's pin into its own. */
@@ -80,7 +93,7 @@ export function resolvePins(pins: readonly PinRow[], docs: ReadonlyMap<string, P
   for (const p of [...best.values()].sort(order)) {
     const d = docs.get(p.docId)!;
     const page = pinView(d);
-    if (page) out.push({ ...page, doc: d.doc, files: d.files, scope: p.scope, mode: p.mode, createdAt: p.createdAt });
+    if (page) out.push({ ...page, doc: d.doc, files: d.files, scope: p.scope, mode: p.mode, createdAt: p.createdAt, writable: viewer.canWrite?.(d.doc) ?? false });
   }
   return out;
 }
@@ -97,7 +110,8 @@ export function pinnedPagesBlock(entries: readonly PinEntry[], cap: number = PIN
   let overflow = 0;
   for (const e of entries) {
     if (e.mode === "always") {
-      const text = `### ${e.heading} (${e.doc.id}, ${e.scope} pin, always on)\n${e.text}`;
+      const keep = e.writable ? `\nYou keep this page: when what it says changes, rewrite it whole with \`write\` (id ${e.doc.id}).` : "";
+      const text = `### ${e.heading} (${e.doc.id}, ${e.scope} pin, always on)${keep}\n${e.text}`;
       if (used + text.length <= cap) { full.push(text); used += text.length; continue; }
       overflow++;
     }

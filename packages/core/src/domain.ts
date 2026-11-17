@@ -37,6 +37,8 @@ export function createDoc(world: World, fields: Omit<Partial<Doc>, "id" | "creat
   const doc = world.docs.upsert(Doc.parse({ state: "draft", ...fields, id: fields.id ?? newId("dc"), createdAt: fields.createdAt ?? ts, updatedAt: fields.createdAt ?? ts }));
   const agentId = doc.authorKind === "agent" ? doc.authorId : null;
   world.events.append({ type: "doc.created", agentId, buildingId: doc.buildingId, text: eventText ?? `${world.nameOf(doc.authorId)} wrote ${doc.type} "${doc.title}"`, payload: { docId: doc.id, docType: doc.type, state: doc.state } });
+  // the town's standing pages get their town pin as they are published (design dc_8194l8soj4 §4)
+  world.skills.seed(doc);
   return doc;
 }
 

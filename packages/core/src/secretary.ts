@@ -14,7 +14,7 @@
  *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
  * - **Propose a rule**: only from the pattern note's rule (never after a decided policy ask or `act_in_1on1`), the policy
  *   ask on a rule, with the Secretary's own card (`proposeRule`; the town writes none); deciding "Add" appends the line to the policy ledger (a Town Hall doc
- *   of type `policy`, `policyLedgerBlock` pins it in every session's first message). It never appends on its own.
+ *   of type `policy`, a town pin always on: its rule lines are in every session's "## Pinned pages"). It never appends on its own.
  *
  * - **Render the backstop** (1:1 mt_t65exni4et decision 2 point 3): a need its manager left unrendered for an hour
  *   (`overdueNeeds`) queues one run (`needsOverdue`, from the runtime tick); `rank` with `render` files the card and the
@@ -305,16 +305,6 @@ function policyLedger(world: World): Doc | undefined {
 /** The ledger's rules, one `- ` line each. */
 function ledgerRules(world: World): string[] {
   return (policyLedger(world)?.body ?? "").split("\n").filter((l) => l.startsWith("- "));
-}
-
-/**
- * The ledger as pinned in every manager's prompt (docs/legible-delegation.md §6): its rules, or "" when it has none. It
- * changes only when a human adds or edits a rule, so it may sit in a cached prompt (docs/prompt-caching.md).
- */
-export function policyLedgerBlock(world: World): string {
-  const rules = ledgerRules(world);
-  if (!rules.length) return "";
-  return `## Policy ledger (rules the humans set; follow them and don't ask what a rule already answers)\n${rules.join("\n")}`;
 }
 
 /**

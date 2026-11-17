@@ -260,6 +260,8 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
       });
     });
     world.events.append({ type: "doc.updated", agentId: holder.kind === "agent" ? me.id : null, buildingId: doc.buildingId, text: `${me.name} updated "${doc.title}"`, payload: { docId: doc.id } });
+    // a draft published for the first time gets its seeded town pin, as a doc created published does (createDoc)
+    if (cur.state === "draft" && doc.state !== "draft") world.skills.seed(doc);
     // only newly added mentions notify; a draft being published notifies everyone it mentions
     if (doc.state !== "draft") notifyMentions(world, me, `${doc.title}\n${doc.body}`, { where: docWhere(doc), docId: doc.id, buildingId: doc.buildingId }, cur.state !== "draft" ? `${cur.title}\n${cur.body}` : undefined);
     return { id: doc.id, state: doc.state, ...timeWarn(input.body), ...(doc.type === "skill" ? { files: world.skills.files(doc.id).map((f) => f.path) } : {}) };
