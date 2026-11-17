@@ -1,0 +1,1 @@
+- 2026-11-17 [Teo 2] Building Overview: the walk-to buttons (board, filing cabinet, manager's desk, hydrant, meeting table, goal tree, Edit layout) show directly again, two per row, no "Go to: …" fold (Mitchell's flag dc_7jyij2euj6; undoes gr_zak30564zh step 4's fold).

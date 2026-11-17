@@ -529,11 +529,8 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .confirm .actions { margin: 6px 0 0; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-sm); cursor: pointer; }
 .check input { width: auto; }
-.walk-fold { margin: 10px 0; }
-.walk-fold > summary { cursor: pointer; font-size: var(--fs-md); color: var(--soft); }
-.walk-fold > .walk-links { margin-top: 8px; }
 .walk-links { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
-.walk-link { flex: 1; min-width: 150px; display: flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--link) 4%, var(--panel)); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; text-align: left; }
+.walk-link { flex: 1 1 200px; max-width: calc(50% - 4px); display: flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--link) 4%, var(--panel)); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; cursor: pointer; text-align: left; }
 .walk-link:hover { border-color: var(--accent); }
 .walk-link span { flex: 1; }
 .walk-link .glyph { width: 24px; height: 24px; }
