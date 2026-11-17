@@ -124,7 +124,7 @@ export function stepCalibration(world: Pick<Repos, "town" | "assignments" | "ses
 }
 
 /** The ratio a forecast or an earmark prices a size at: the collective's calibrated median once its sample is big enough, else 1.0 (the table). */
-export function calibratedRatio(c: StepCalibration, size: StepSize): number {
+function calibratedRatio(c: StepCalibration, size: StepSize): number {
   const r = c.sizes[size];
   return r.ratio !== null && r.sample >= c.minSample ? r.ratio : 1;
 }
@@ -212,7 +212,7 @@ export function parseModelEstimate(text: string): { low: number; high: number; n
 }
 
 /** A step not done that has already booked spend (a session ran on it, e.g. parked on its PR's CI): its index, spend so far and table price. */
-export interface StepInFlight { index: number; spent: number; price: number; assignmentId: string }
+interface StepInFlight { index: number; spent: number; price: number; assignmentId: string }
 
 /**
  * What a funded grant's steps not done are expected still to spend (gr_76e81kdpvy, findings dc_94qevcrr7x): a step not
