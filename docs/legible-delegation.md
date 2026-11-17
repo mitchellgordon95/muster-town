@@ -96,6 +96,8 @@ The hydrant is literal: a Town Hall object the stream pours from, with the Secre
 |---|---|---|
 | **money** | fund / counter / reject a proposal; continue / adjust / cut a grant at its gate; approve a retainer | the human's own prior decision on this grant and when; spent against funded; steps done and left; the forecast at completion (§7); each branch and what follows from it; the manager's recommendation; 1-2 load-bearing claims with their check |
 | **click** | an action in the town UI or on a service only a human may touch | who is parked on it and since when; what the click unblocks; the one-time permission that would make this ask never recur |
+
+A click ask's branch carries out its act only when the town wires its `action`: today `redeploy` (no target; the decider must hold `town.redeploy`, and `POST /api/asks/:id/decide` starts the runtime's redeploy as that human, or refuses and leaves the ask open). Any other action on an untargeted click ask only records the label: the human still does the act where it lives, and the card must say where. Test: `packages/server/test/redeploy.test.ts` › `starts the redeploy as the deciding human`.
 | **credential** | issue, reissue or scope a token or key | the exact scope; which key result it unblocks; the fallback if refused |
 | **meeting** | a 1:1 or meeting the manager wants | the one question to settle; the manager's recommended answer, so the human can reply in a line instead of meeting |
 | **policy** | keep or change a rule the manager applied, or a procedure the Planner proposes changing (§7) | the rule as a sentence; what the manager did; what reversing costs; where the rule would be written; for a Planner proposal, the data behind it |

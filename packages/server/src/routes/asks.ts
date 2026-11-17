@@ -28,7 +28,20 @@ export async function askRoutes(app: FastifyInstance) {
 
   app.post<{ Params: Params }>("/api/asks/:id/decide", async (req) => {
     const body = parse(DecideBody, req.body);
-    return { ask: decideAsk(world, actorOf(world, req), req.params.id, body.decision, body.note) };
+    const actor = actorOf(world, req);
+    // a branch whose action is "redeploy" does what it says (operating manual: an ask does the small tasks itself). Until
+    // 2026-11-17 it only recorded its label, so Mitchell's "Press redeploy" on ak_nugzl9rheu started nothing (dc_4yrb3979ty).
+    // Checked before deciding: a decider who cannot redeploy, or a server with no runtime, is refused and the ask stays open.
+    const ask = world.asks.get(req.params.id);
+    const branch = ask?.branches.find((b) => b.label.trim().toLowerCase() === body.decision.toLowerCase());
+    const redeploy = branch?.action?.trim().toLowerCase() === "redeploy" && !ask?.targetKind;
+    if (redeploy) {
+      world.permissions.require(actor, "town.redeploy");
+      if (!app.runtime?.redeploy) throw new AppError("internal", "This server has no runtime to redeploy: the ask stays open.", 503);
+    }
+    const decided = decideAsk(world, actor, req.params.id, body.decision, body.note);
+    if (!redeploy) return { ask: decided };
+    return { ask: decided, redeploy: await app.runtime!.redeploy!({ image: false, requestedBy: actor.name }) };
   });
 
   app.post<{ Params: Params }>("/api/asks/:id/defer", async (req) => ({

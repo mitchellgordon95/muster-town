@@ -1,5 +1,5 @@
 /** v1.3: POST /api/admin/redeploy needs `town.redeploy` (admin, or the town `deployer` role). */
-import { townRoleId } from "@muster-town/core";
+import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -62,5 +62,43 @@ describe("GET /api/admin/redeploy and health in the snapshot", () => {
     expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: true, repoMode: "none" });
     t.world.host.docker = false;
     expect((await json(t.app, "GET", "/api/town")).body.health).toEqual({ docker: false, repoMode: "none" });
+  });
+});
+
+describe("a click ask's \"redeploy\" branch (ak_nugzl9rheu: deciding it started nothing)", () => {
+  async function askWithRedeploy(runtime: NonNullable<Parameters<typeof seededApp>[0]>["runtime"]) {
+    const t = await seededApp({ runtime });
+    close = t.close;
+    const mei = t.by("Mei");
+    t.world.ops.updateBuilding(t.world.ops.ensureAvatar(t.seed.admin.id), "carbon-cycle", { managerAgentId: mei.id });
+    t.world.permissions.grant(mei, buildingRoleId("carbon-cycle", "manager"));
+    const r = await t.world.verbs.ask(mei, {
+      type: "click", title: "Press redeploy once so the merges go live",
+      body: "Press redeploy once. Mei has waited on this since Nov 6.\nIf you press: main goes live.\nIf you decline: nothing goes live.",
+      recommendation: "Press redeploy: one click ships main.",
+      branches: [{ label: "Press redeploy", action: "redeploy" }, { label: "Decline", action: "decline" }],
+    } as never) as { askId?: string; id?: string; ask?: { id: string } };
+    const id = r.askId ?? r.ask?.id ?? r.id;
+    expect(id).toMatch(/^ak_/);
+    return { t, id: id! };
+  }
+
+  it("starts the redeploy as the deciding human", async () => {
+    const calls: { image: boolean; requestedBy: string }[] = [];
+    const { t, id } = await askWithRedeploy({ interrupt: async () => undefined, redeploy: (o) => { calls.push(o); return { started: true }; } });
+    const res = await json(t.app, "POST", `/api/asks/${id}/decide`, { headers: t.auth, body: { decision: "Press redeploy" } });
+    expect(res.status).toBe(200);
+    expect(res.body.ask).toMatchObject({ status: "decided", decision: "Press redeploy" });
+    expect(res.body.redeploy).toEqual({ started: true });
+    expect(calls).toEqual([{ image: false, requestedBy: t.world.agents.get(t.world.ops.ensureAvatar(t.seed.admin.id).id)!.name }]);
+  });
+
+  it("without a runtime it is refused and the ask stays open", async () => {
+    const { t, id } = await askWithRedeploy(null);
+    const res = await json(t.app, "POST", `/api/asks/${id}/decide`, { headers: t.auth, body: { decision: "Press redeploy" } });
+    expect(res.status).toBe(503);
+    expect(t.world.asks.get(id)!.status).toBe("open");
+    // Decline is a plain decision: it records the label and needs no runtime
+    expect((await json(t.app, "POST", `/api/asks/${id}/decide`, { headers: t.auth, body: { decision: "Decline" } })).body.ask.status).toBe("decided");
   });
 });
