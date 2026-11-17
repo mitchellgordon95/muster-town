@@ -40,7 +40,8 @@ export async function townRoutes(app: FastifyInstance) {
    * `tick` `{last, slow}`: the runtime's last tick and last tick over 500 ms, `{at, ms, phase, phaseMs, phases}` (null without a runtime).
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
-   * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `directory` (root app, only where the
+   * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `deploy` (root app with MUSTER_TOWN_DEPLOY_BRANCH, else null): `{branch,
+   * state: current | behind | docs-only | unknown, live, prodTip, behindCommits, behindSince, checkedAt, error}` (deploy-watch.ts). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
    * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
@@ -80,7 +81,7 @@ export async function townRoutes(app: FastifyInstance) {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
     return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
-      budgets, backup, monitor: app.monitor?.view() ?? null, desks, main: mainHealth(world),
+      budgets, backup, monitor: app.monitor?.view() ?? null, deploy: app.deployWatch?.view() ?? null, desks, main: mainHealth(world),
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
       // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only

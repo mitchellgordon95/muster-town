@@ -4,7 +4,7 @@
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
 import { markBoot } from "./capacity.ts";
-import { World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
+import { REPO_TOKEN_SECRET, World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -17,6 +17,7 @@ import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
 import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { DeployWatch } from "./deploy-watch.ts";
 import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
 import { runtimeOff, startRuntimeUnlessOff } from "./throwaway.ts";
@@ -91,7 +92,14 @@ async function main() {
   });
   // in-process monitor (dc_f2hpf9u1ya): town events + Prod FYIs; outside alerts come from the VPS pinger reading /api/health (deploy/pinger)
   const counters = new Counters();
-  const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters);
+  // live vs the deploy branch's tip on GitHub (grant gr_h2iocyzfjm): only where the redeploy pulls a named branch (prod on muster.town)
+  const deployBranch = townEnv("DEPLOY_BRANCH")?.trim();
+  const deployWatch = deployBranch ? new DeployWatch({
+    world, branch: deployBranch, live: () => world.host.commit ?? null,
+    repo: () => { const m = /github\.com[/:]+([\w.-]+)\/([\w.-]+?)(?:\.git)?\/*$/.exec(world.host.repoUrl ?? world.town.get().workspace?.repoUrl ?? ""); return m ? { owner: m[1]!, repo: m[2]! } : null; },
+    token: () => world.secrets.value(REPO_TOKEN_SECRET) ?? process.env.GH_TOKEN ?? null, log: (m) => console.warn(m),
+  }) : null;
+  const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters, () => deployWatch?.view() ?? null);
   const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters });
   // the self-hosted towns directory (design dc_d6chojzl2a): muster.town only; behind Fly's proxy the client IP is Fly-Client-IP.
   // MUSTER_TOWN_DIRECTORY=on|off decides; unset, it is on where MUSTER_TOWN_PUBLIC_URL is muster.town (an [env] change in
@@ -133,7 +141,7 @@ async function main() {
   });
   await hub.openAll();
   console.log(`[server] hub ${HOSTED_DIR}: ${hub.count} hosted collective(s)${hub.count ? ": " + hub.list("active").map((r) => "/" + r.slug + "/").join(", ") : ""}`);
-  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
+  const app = await buildApp({ world, dev: DEV, auth, collective: basename(COLLECTIVE_DIR), backup, monitor, deployWatch, hub, directory, healthRefreshMs: HEALTH_REFRESH_MS, throwaway: RUNTIME_OFF });
   world.host.claimChecks = true; // an ask's claim checks run as it is filed (core ask-checks.ts); tests leave them off
   await app.listen({ port: PORT, host: HOST });
   url = `http://localhost:${PORT}`;
@@ -158,6 +166,8 @@ async function main() {
       return runtimeMod.startRuntime({ world, mcpUrl: `${url}/mcp`, repoRoot: REPO_ROOT, collective: basename(COLLECTIVE_DIR), codeDir: join(REPO_ROOT, ".tmp", "code-main") });
     });
     if (rt) { app.runtime = rt; console.log("[server] runtime started"); }
+    // after the runtime: it sets world.host.commit, the live side of the compare
+    deployWatch?.start();
   } catch (e) {
     console.warn(`[server] runtime not started (${e instanceof Error ? e.message : String(e)}); interrupts queue for the desk`);
   }
