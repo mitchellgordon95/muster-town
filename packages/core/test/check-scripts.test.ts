@@ -43,6 +43,15 @@ describe("town log", () => {
   it("the repo's own log passes", () => expect(logProblems(REPO_ROOT)).toEqual([]));
 });
 
+describe("pre-push hook", () => {
+  it("is tracked as executable, or git ignores it", () => {
+    // PR #417 committed it as 100644: git skipped it on every desk ("hook was ignored because it's not set as
+    // executable") and 12 of 14 first-run PR failures in the week after were knip or check:docs, which it runs
+    const mode = execFileSync("git", ["ls-files", "-s", ".githooks/pre-push"], { cwd: REPO_ROOT, encoding: "utf8" }).split(" ")[0];
+    expect(mode).toBe("100755");
+  });
+});
+
 describe("check --fast: tests that read a changed non-code file", () => {
   const sources = testSources(REPO_ROOT, TESTED);
 

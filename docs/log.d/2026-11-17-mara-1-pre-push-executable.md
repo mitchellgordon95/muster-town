@@ -1,0 +1,1 @@
+- 2026-11-17: `.githooks/pre-push` is now tracked executable (100755). PR #417 committed it as 100644, so git ignored it on every desk; in the week after, 14 of 81 PRs (17%) failed their first CI run, 12 of them on knip or check:docs, which the hook runs. A test in packages/core/test/check-scripts.test.ts keeps the mode (grant gr_baf19xtg7p).
