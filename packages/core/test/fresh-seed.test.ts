@@ -27,7 +27,7 @@ describe("fresh seed", () => {
     expect(world.roles.where("name IN ('reviewer', 'moderator')")).toEqual([]);
     // collective.json names the Workshop's manager and its town roles
     expect(seed.manager).toMatchObject({ name: "Pix", homeBuildingId: "workshop" });
-    expect(world.permissions.can(seed.manager!, "town.redeploy")).toBe(true);
+    expect(world.permissions.rolesOf(seed.manager!).map((r) => r.name)).toContain("deployer");
   });
 
   // collective.json `plans` (gr_qggxximtru, 1:1 mt_pr3347g2w2): the plan the collective pays for lands in "Plans paid for" at seed and on every later boot, once

@@ -802,7 +802,7 @@ You can edit the ${repoName} repository. Your own checkout is at ${ws.dir}, on t
 - Run \`npm run typecheck\` and the relevant package's tests before you commit. Don't commit broken code.
 - Commit with a clear message, then push your branch (\`git push -u origin <your branch>\`) and open a draft pull request with \`gh pr create --draft --fill\` (base ${ws.base}). Put the PR URL in your report. To wait for its CI, park with \`submit_report\` \`resumeWhen: {pr: <number>}\`: you resume when its checks pass or fail.
 - Never force-push, never rewrite history, never run destructive commands.${repo === "muster" ? `
-- If you call \`redeploy\`, your session keeps running through the restart (a town call in the few seconds the server is down is retried for you). Never wait or poll for the new build in the same session: say which commit should be live in your report, submit it, and verify next time.` : ""}
+- A merge to main ships itself: CI fast-forwards \`prod\` and the server pulls it within minutes (docs-only changes don't restart it). Nobody calls redeploy. To check a change live, park with \`resumeWhen: {deploy: <sha>}\` and verify next session; a restart doesn't end your session (a town call in the few seconds the server is down is retried for you).` : ""}
 - The town library is still where you write source cards and notes; your report must say what changed, how you verified it, and link the PR.`;
 }
 

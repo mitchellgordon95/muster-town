@@ -30,9 +30,8 @@ describe("MCP over Streamable HTTP", () => {
   it("lists every verb and `look` returns a LookResult", async () => {
     const client = await mcpClient(agentToken);
     const { tools } = await client.listTools();
-    // this test world has no repo (repoMode none, like a hosted collective): no `redeploy` tool (1:1 mt_1vs893enaw);
-    // a visitor sees only the verbs its owner's roles allow: an admin's visitor is no Planner or Secretary (gr_uc179zv1xa)
-    expect(tools.map((t) => t.name).sort()).toEqual(VERB_NAMES.filter((v) => !["redeploy", "calibrate", "rank"].includes(v)).sort());
+    // there is no `redeploy` tool (1:1 mt_vdu3iqhasi); a visitor sees only the verbs its owner's roles allow: an admin's visitor is no Planner or Secretary (gr_uc179zv1xa)
+    expect(tools.map((t) => t.name).sort()).toEqual(VERB_NAMES.filter((v) => !["calibrate", "rank"].includes(v)).sort());
     expect(tools.find((t) => t.name === "go")!.inputSchema.properties).toHaveProperty("to");
 
     const res = await client.callTool({ name: "look", arguments: {} });
@@ -42,7 +41,7 @@ describe("MCP over Streamable HTTP", () => {
     await client.close();
   });
 
-  it("the tool list follows the repo mode: `redeploy` only on this server's repo for whoever holds it; no deploy or PR waits without a repo", async () => {
+  it("the tool list follows the repo mode: no `redeploy` tool even for a deployer on this server's repo; no deploy or PR waits without a repo", async () => {
     let client = await mcpClient(agentToken);
     let { tools } = await client.listTools();
     const report = tools.find((t) => t.name === "submit_report")!;
@@ -56,8 +55,8 @@ describe("MCP over Streamable HTTP", () => {
       ctx.world.permissions.grant(me, townRoleId("deployer"));
       client = await mcpClient(agentToken);
       ({ tools } = await client.listTools());
-      expect(ctx.world.permissions.can(me, "town.redeploy")).toBe(true);
-      expect(tools.map((t) => t.name)).toContain("redeploy");
+      expect(ctx.world.permissions.can(me, "town.redeploy")).toBe(false);
+      expect(tools.map((t) => t.name)).not.toContain("redeploy");
       expect(tools.find((t) => t.name === "submit_report")!.description).toMatch(/a redeploy/);
       await client.close();
       ctx.world.host.hosted = true;

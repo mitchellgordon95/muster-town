@@ -58,7 +58,6 @@ const ROLE_VERBS: Partial<Record<VerbName, (world: World, a: Agent) => boolean>>
 
 /** Whether `agentId` gets `name` as an MCP tool (see ROLE_VERBS). */
 function offersTool(world: World, agentId: string, name: VerbName): boolean {
-  if (name === "redeploy") return world.repoMode() === "muster" && world.permissions.can({ kind: "agent", id: agentId }, "town.redeploy");
   const gate = ROLE_VERBS[name];
   const a = world.agents.get(agentId);
   return !gate || !a || a.kind !== "visitor" || gate(world, a);
@@ -66,8 +65,8 @@ function offersTool(world: World, agentId: string, name: VerbName): boolean {
 
 /**
  * One MCP server whose tools are the verbs, acting as `agentId`. A collective that doesn't run on this server's own repo
- * gets no `redeploy` tool, and nobody without `town.redeploy` does; its wait fields and texts leave out the waits it
- * can't use (schema `verbToolFor`; 1:1 mt_1vs893enaw).
+ * gets wait fields and texts without the waits it can't use (schema `verbToolFor`; 1:1 mt_1vs893enaw). There is no
+ * `redeploy` tool: the server pulls prod itself (1:1 mt_vdu3iqhasi).
  */
 export function buildMcpServer(world: World, agentId: string): McpServer {
   const server = new McpServer({ name: "muster-town", version: "0.1.0" }, { instructions: mcpInstructions(world.goalTree.get(ROOT_GOAL_ID)?.text) });
