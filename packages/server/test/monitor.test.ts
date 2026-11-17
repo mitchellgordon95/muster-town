@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
 import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { DeployWatch, deployable, type DeployView } from "../src/deploy-watch.ts";
 import { json, seededApp } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -10,11 +11,11 @@ function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
-    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null };
+    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, ...o.probes,
   };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
@@ -392,6 +393,38 @@ describe("monitor thresholds", () => {
     await m2.sample();
     expect(alerts().filter((a) => a.phase === "gap")).toHaveLength(1);
   });
+  it("deploy: a deployable commit behind is yellow past 30 min and red past 90; docs-only never raises; unknown changes nothing", async () => {
+    const { r, m, step, alerts, world } = await setup();
+    const since = new Date(r.now()).toISOString();
+    const behind: DeployView = { branch: "prod", state: "behind", live: "a".repeat(40), prodTip: "b".repeat(40), behindCommits: 3, behindSince: since, checkedAt: since, error: null };
+    // docs-only for 3 h: CI skips that redeploy on purpose
+    r.state.deploy = { ...behind, state: "docs-only", behindSince: null };
+    await step(180);
+    expect(m.view().alerts).toEqual([]);
+    // a deployable change since t0 (the clock is at t0 + 180 min: move behindSince to now)
+    r.state.deploy = { ...behind, behindSince: new Date(r.now()).toISOString() };
+    await step(30);
+    expect(m.view().alerts).toEqual([]);
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "deploy", level: "yellow", value: 31 }]);
+    await step(59);
+    expect(m.view().alerts[0]!.level).toBe("yellow");
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "deploy", level: "red", value: 91 }]);
+    const raise = alerts().filter((a) => a.key === "deploy" && a.phase === "raise");
+    expect(raise.map((a) => a.level)).toEqual(["yellow", "red"]);
+    expect(world.docs.get(raise[0]!.docId!)!.title).toContain("behind prod (3 commits, live aaaaaaa, prod bbbbbbb)");
+    // a GitHub error: unknown, the open alert stays as it is
+    r.state.deploy = { ...behind, state: "unknown", error: "GitHub branches: HTTP 403" };
+    await step(30);
+    expect(m.view().alerts).toMatchObject([{ key: "deploy", level: "red", value: 91 }]);
+    // live caught up: clears after CLEAR_AFTER samples
+    r.state.deploy = { ...behind, state: "current", live: behind.prodTip, behindCommits: 0, behindSince: null };
+    await step(CLEAR_AFTER);
+    expect(m.view().alerts).toEqual([]);
+    expect(alerts().filter((a) => a.key === "deploy").map((a) => a.phase)).toEqual(["raise", "raise", "clear"]);
+  });
+
   it("redeploy-failed: red at once when the last redeploy run failed or was aborted, clears 5 samples after one reaches done", async () => {
     const { r, m, step, alerts, world } = await setup();
     r.state.redeploy = { state: "done", at: new Date(r.now()).toISOString(), step: null, requestedBy: "CI" };
@@ -544,5 +577,89 @@ describe("monitor counters", () => {
     await json(app, "GET", "/api/health");
     await json(app, "GET", "/api/nope");
     expect(m.counters.http(Date.now())).toEqual({ total: 2, errors: 0 });
+  });
+});
+
+describe("deploy watch (GitHub prod tip vs live)", () => {
+  const LIVE = "1".repeat(40), TIP = "2".repeat(40);
+  function gh(o: { tip?: string; status?: string; ahead?: number; files?: string[]; fail?: number } = {}) {
+    const calls: string[] = [];
+    const f = (async (url: string) => {
+      calls.push(String(url).replace("https://api.github.com/repos/o/r", ""));
+      if (o.fail) return new Response("{}", { status: o.fail });
+      if (String(url).includes("/branches/")) return Response.json({ commit: { sha: o.tip ?? TIP } });
+      return Response.json({ status: o.status ?? "ahead", ahead_by: o.ahead ?? 2, files: (o.files ?? ["packages/server/src/app.ts"]).map((filename) => ({ filename })) });
+    }) as typeof fetch;
+    return { calls, f };
+  }
+  async function watch(g: ReturnType<typeof gh>, live: string | null = LIVE) {
+    const s = await seededApp();
+    close = s.close;
+    let t = Date.parse("2026-11-17T04:00:00Z");
+    const w = (f: typeof fetch = g.f) => new DeployWatch({ world: s.world, branch: "prod", live: () => live, repo: () => ({ owner: "o", repo: "r" }), fetch: f, now: () => t });
+    return { s, w, tick: (ms: number) => { t += ms; } };
+  }
+
+  it("CI's docs filter: docs/, .github/ and top-level *.md never deploy; docs/manual.md and code do", () => {
+    expect(["docs/log.d/x.md", ".github/workflows/ci.yml", "README.md", "AGENTS.md"].some(deployable)).toBe(false);
+    expect(["docs/manual.md", "packages/server/src/app.ts", "deploy/README.md", "package-lock.json"].every(deployable)).toBe(true);
+  });
+
+  it("current when the tip is the live commit: one call, no compare", async () => {
+    const g = gh({ tip: LIVE });
+    const { w } = await watch(g);
+    const d = w();
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "current", live: LIVE, prodTip: LIVE, behindCommits: 0, behindSince: null, error: null, checkedAt: "2026-11-17T04:00:00.000Z" });
+    expect(g.calls).toEqual(["/branches/prod"]);
+  });
+
+  it("behind: behindSince is when it was first seen, kept across polls and a restart, and the compare is read once per pair", async () => {
+    const g = gh();
+    const { w, tick } = await watch(g);
+    const d = w();
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "behind", prodTip: TIP, behindCommits: 2, behindSince: "2026-11-17T04:00:00.000Z" });
+    tick(5 * MIN);
+    await d.poll();
+    expect(d.view()).toMatchObject({ behindSince: "2026-11-17T04:00:00.000Z", checkedAt: "2026-11-17T04:05:00.000Z" });
+    expect(g.calls).toEqual(["/branches/prod", `/compare/${LIVE}...${TIP}`, "/branches/prod"]);
+    // a restart that brings no new commit keeps the clock (meta deployWatch)
+    tick(5 * MIN);
+    const again = w();
+    await again.poll();
+    expect(again.view()).toMatchObject({ state: "behind", behindSince: "2026-11-17T04:00:00.000Z" });
+  });
+
+  it("docs-only commits behind are docs-only, never behind", async () => {
+    const { w } = await watch(gh({ files: ["docs/log.d/2026-11-17-x.md", "README.md"] }));
+    const d = w();
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "docs-only", behindCommits: 2, behindSince: null, error: null });
+  });
+
+  it("live ahead of the tip (compare status behind) is current", async () => {
+    const { w } = await watch(gh({ status: "behind", ahead: 0 }));
+    const d = w();
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "current", behindCommits: 0, behindSince: null });
+  });
+
+  it("a GitHub error (rate limit) leaves it unknown with the error; the next good read clears it", async () => {
+    const { w, tick } = await watch(gh());
+    const d = w(gh({ fail: 403 }).f);
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "unknown", checkedAt: null, error: "GitHub branches: HTTP 403 (rate limit?)" });
+    tick(5 * MIN);
+    const ok = w();
+    await ok.poll();
+    expect(ok.view()).toMatchObject({ state: "behind", error: null });
+  });
+
+  it("no live commit is unknown, never behind", async () => {
+    const { w } = await watch(gh(), null);
+    const d = w();
+    await d.poll();
+    expect(d.view()).toMatchObject({ state: "unknown", error: expect.stringContaining("no live commit") });
   });
 });

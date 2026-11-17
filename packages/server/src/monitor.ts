@@ -14,6 +14,7 @@ import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/cor
 import { readFileSync, statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import { FRESH_TOWN, type BackupView } from "./backup/index.ts";
+import type { DeployView } from "./deploy-watch.ts";
 
 type Level = "yellow" | "red";
 
@@ -88,6 +89,8 @@ export interface Probes {
   hostCpu(): { cpu: number; steal: number } | null;
   /** the latest redeploy event that ended its run (payload.terminal): its run state, time, failed step and requester; null = none yet */
   redeploy(): RedeployEnd | null;
+  /** the live commit against the deploy branch's tip (deploy-watch.ts, read from GitHub every 5 min); null = not watched */
+  deploy(): DeployView | null;
 }
 
 /** The last redeploy run's end: state `failed` / `aborted` (red), or `restarting` / `done` (clean). */
@@ -184,6 +187,7 @@ export function defaultMetrics(p: Probes): Metric[] {
     deskBillMetric(p),
     hostStealMetric(p),
     redeployMetric(p),
+    deployMetric(p),
   ];
 }
 
@@ -204,6 +208,31 @@ function redeployMetric(p: Pick<Probes, "redeploy">): Metric {
       const bad = r.state === "failed" || r.state === "aborted";
       if (bad) last = `${r.state === "aborted" ? "interrupted by a server restart" : `step "${r.step ?? "?"}"`}, requested by ${r.requestedBy || "?"}`;
       return { value: Math.max(0, Math.round((now - Date.parse(r.at)) / MIN)), yellow: bad, red: bad };
+    },
+  };
+}
+
+/** `deploy` thresholds (grant gr_h2iocyzfjm): minutes a deployable commit on the deploy branch has not been live */
+const DEPLOY_BEHIND_MIN = { yellow: 30, red: 90 } as const;
+
+/**
+ * `deploy`: the live server is behind the branch it deploys from (prod) with a change CI would redeploy for. The value
+ * is the minutes since the server first saw it waiting (DeployView.behindSince); yellow past 30 min, red past 90 (CI's
+ * check, its 15 min restart spacing and a drain take well under that). Docs-only commits never raise it (CI skips their
+ * redeploy on purpose); an unknown state (a GitHub error, never read) is no reading, so nothing changes.
+ */
+function deployMetric(p: Pick<Probes, "deploy">): Metric {
+  let last = "";
+  return {
+    key: "deploy", yellowForMs: 0, redForMs: 0,
+    describe: (v) => `live server ${v} min behind ${last}: CI's redeploy did not land; see deploy/README.md "Live behind prod"`,
+    read: (now) => {
+      const d = p.deploy();
+      if (!d || d.state === "unknown") return null;
+      if (d.state !== "behind" || !d.behindSince) return { value: 0, yellow: false, red: false };
+      last = `${d.branch} (${d.behindCommits} commit${d.behindCommits === 1 ? "" : "s"}, live ${d.live?.slice(0, 7) ?? "?"}, ${d.branch} ${d.prodTip?.slice(0, 7) ?? "?"})`;
+      const min = Math.max(0, Math.round((now - Date.parse(d.behindSince)) / MIN));
+      return { value: min, yellow: min > DEPLOY_BEHIND_MIN.yellow, red: min > DEPLOY_BEHIND_MIN.red };
     },
   };
 }
@@ -286,7 +315,7 @@ function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
 }
 
 /** The real probes: process memory, an event-loop histogram reset each sample, statfs on the data dir, the runtime's slots. */
-export function processProbes(world: World, dataDir: string, backup: () => BackupView | null, counters: Counters): Probes & { close(): void } {
+export function processProbes(world: World, dataDir: string, backup: () => BackupView | null, counters: Counters, deploy: () => DeployView | null = () => null): Probes & { close(): void } {
   const h: IntervalHistogram = monitorEventLoopDelay({ resolution: 20 });
   h.enable();
   return {
@@ -319,6 +348,7 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
       const pl = e.payload as { run?: { state?: string; requestedBy?: string }; step?: unknown };
       return { state: String(pl.run?.state ?? ""), at: e.ts, step: typeof pl.step === "string" ? pl.step : null, requestedBy: String(pl.run?.requestedBy ?? "") };
     },
+    deploy,
     close: () => h.disable(),
   };
 }

@@ -20,6 +20,7 @@ import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import { LoadMonitor } from "./load.ts";
 import type { Monitor } from "./monitor.ts";
+import type { DeployWatch } from "./deploy-watch.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { deskRoutes } from "./routes/desk.ts";
@@ -63,6 +64,8 @@ export interface BuildAppOptions {
   backup?: BackupJob | null;
   /** the in-process monitor (main.ts builds and starts it, root app only); `GET /api/health` shows it as `monitor` */
   monitor?: Monitor | null;
+  /** live vs the deploy branch's tip (main.ts, only with MUSTER_TOWN_DEPLOY_BRANCH); `GET /api/health` shows it as `deploy` */
+  deployWatch?: DeployWatch | null;
   /** the self-hosted towns directory (main.ts builds it where MUSTER_TOWN_DIRECTORY=on; root app only): `/api/directory*` */
   directory?: Directory | null;
   /** a hosted collective's app: retire it (main.ts passes the hub's); `POST /<slug>/api/collective/retire`, its admins */
@@ -92,6 +95,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.decorate("backup", opts.backup ?? null);
   app.decorate("throwaway", !!opts.throwaway);
   app.decorate("monitor", opts.monitor ?? null);
+  app.decorate("deployWatch", !opts.prefix ? opts.deployWatch ?? null : null);
   app.decorate("hub", opts.hub ?? null);
   app.decorate("directory", !opts.prefix ? opts.directory ?? null : null);
   app.decorate("exportDir", opts.exportDir ?? null);
@@ -363,6 +367,6 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(404).send({ error: `Not found: ${req.method} ${path}`, code: "not_found" });
   });
 
-  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); app.monitor?.stop(); app.directory?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
+  app.addHook("onClose", async () => { load.close(); app.backup?.stop(); app.monitor?.stop(); app.deployWatch?.stop(); app.directory?.stop(); await opts.hub?.close(); await (opts.runtime?.close?.() ?? opts.runtime?.stop?.()); });
   return app;
 }
