@@ -5,7 +5,7 @@
  */
 import { visitorId } from "../visitor";
 
-export type HomeStep = "page2" | "page3" | "skip" | "open" | "tile";
+type HomeStep = "page2" | "page3" | "skip" | "open" | "tile";
 
 export function countHome(step?: HomeStep): void {
   const visitor = visitorId();
