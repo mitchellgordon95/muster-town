@@ -183,14 +183,14 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
 
 /** `skills`: what I can use right now: my pinned skills first, then my building's and the library's (and my drafts). */
 export async function skills(world: World, me: Agent, input: VerbIn<"skills">) {
-  const pinned = world.skills.forAgent(me.id);
+  const pinned = world.skills.forAgent(me.id).filter((e) => e.doc.type === "skill");
   const pinnedIds = new Set(pinned.map((s) => s.doc.id));
   const words = (input.query?.toLowerCase().match(/[\p{L}\p{N}-]+/gu) ?? []);
   const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
   const line = (v: ReturnType<typeof world.skills.view>) => ({
     id: v.id, name: v.name, description: v.description, state: v.state, author: v.author, files: v.files.map((f) => f.path), uses30d: v.uses30d,
   });
-  const pinnedOut = pinned.filter((s) => matches(`${s.md.name} ${s.md.description}`))
+  const pinnedOut = pinned.filter((s) => matches(`${s.title} ${s.gist}`))
     .map((s) => ({ ...line(world.skills.view(s.doc)), pinned: { scope: s.scope, mode: s.mode } }));
   const others = world.skills.visibleTo(me, input.query).filter((d) => !pinnedIds.has(d.id)).slice(0, input.limit).map((d) => line(world.skills.view(d)));
   return {
@@ -199,10 +199,12 @@ export async function skills(world: World, me: Agent, input: VerbIn<"skills">) {
   };
 }
 
-/** `pin`: pin a skill into sessions (scope agent / building / town; mode listed / always), or unpin it (remove). */
+/** `pin`: pin a doc (today: a skill) into sessions (scope agent / building / town; mode listed / always), or unpin it (remove). `skillId` is the old name of `docId`. */
 export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
-  if (input.remove) return world.skills.unpin(me, input.skillId, input);
-  return { pin: world.skills.pin(me, input.skillId, input) };
+  const docId = input.docId ?? input.skillId;
+  if (!docId) throw badRequest("Pass docId: the doc to pin.");
+  if (input.remove) return world.skills.unpin(me, docId, input);
+  return { pin: world.skills.pin(me, docId, input) };
 }
 
 export async function write(world: World, me: Agent, input: VerbIn<"write">) {

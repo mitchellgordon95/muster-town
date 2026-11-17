@@ -8,7 +8,7 @@ import type {
   CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, LedgerCutoff, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinSkillInput, SkillPinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  ReviewInput, PinInput, PinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   Ask, AskType, Notice, NoticeKind, StepCalibration, StepSize, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
@@ -707,7 +707,7 @@ export interface Api {
   /** every published skill (plus my drafts) with files, pins and uses */
   skills(): Promise<SkillView[]>;
   skill(id: string): Promise<SkillView>;
-  pinSkill(id: string, input: In<typeof PinSkillInput>): Promise<SkillPinView>;
+  pinSkill(id: string, input: In<typeof PinInput>): Promise<PinView>;
   unpinSkill(pinId: string): Promise<{ removed: boolean }>;
   // collective secrets (docs/secrets.md, admins): values are write-only, never returned
   secrets(): Promise<{ secrets: SecretView[]; keyConfigured: boolean }>;
@@ -1020,7 +1020,7 @@ class HttpApi implements Api {
   async promote(id: string, state: DocState) { return unwrap<Doc>(await this.post(`/api/docs/${id}/promote`, { state }), "doc"); }
   async skills() { return (await this.get<{ skills: SkillView[] }>("/api/skills")).skills; }
   async skill(id: string) { return (await this.get<{ skill: SkillView }>(`/api/skills/${id}`)).skill; }
-  async pinSkill(id: string, i: In<typeof PinSkillInput>) { return (await this.post<{ pin: SkillPinView }>(`/api/skills/${id}/pins`, i)).pin; }
+  async pinSkill(id: string, i: In<typeof PinInput>) { return (await this.post<{ pin: PinView }>(`/api/skills/${id}/pins`, i)).pin; }
   secrets() { return this.get<{ secrets: SecretView[]; keyConfigured: boolean }>("/api/secrets"); }
   async putSecret(name: string, i: In<typeof PutSecretInput>) { return (await this.call<{ secret: SecretView }>("PUT", `/api/secrets/${encodeURIComponent(name)}`, i)).secret; }
   deleteSecret(name: string) { return this.call<{ removed: boolean }>("DELETE", `/api/secrets/${encodeURIComponent(name)}`); }

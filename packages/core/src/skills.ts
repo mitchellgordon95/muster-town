@@ -5,11 +5,12 @@
  * Edits load right away: pins point at the doc, never at a frozen copy.
  */
 import {
-  SKILL_LIMITS, SkillFileInput, type Agent, type Doc, type PinSkillInput, type SkillFileInfo, type SkillPin, type SkillPinView, type SkillView,
+  SKILL_LIMITS, SkillFileInput, type Agent, type Doc, type PinInput, type SkillFileInfo, type Pin, type PinView, type SkillView,
 } from "@muster-town/schema";
 import { canSeeDoc, homeOf } from "./domain.ts";
 import { AppError, badRequest } from "./errors.ts";
 import { holderOf, type Holder } from "./permissions.ts";
+import { pinSuspended, resolvePins, type PinEntry, type PinnedDoc } from "./pins.ts";
 import { whereOf } from "./table.ts";
 import { newId, nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -41,12 +42,6 @@ export function parseSkillMd(body: string): SkillMd {
   if (description.length > SKILL_LIMITS.descriptionChars) throw badRequest(`The skill's description is ${description.length} chars; keep it to ${SKILL_LIMITS.descriptionChars}.`);
   return { name, description, instructions: body.slice(m[0].length).trim() };
 }
-
-/** Pin scopes in prompt priority order: the most specific first. */
-const PRIORITY = { agent: 0, building: 1, town: 2 } as const;
-
-/** One skill as it reaches a session. */
-export interface SessionSkill { doc: Doc; md: SkillMd; mode: "listed" | "always"; scope: SkillPin["scope"]; files: SkillFileInfo[] }
 
 export class Skills {
   constructor(private world: World) {}
@@ -147,28 +142,17 @@ export class Skills {
 
   // ---------- pins ----------
 
-  pinsOf(skillId: string): SkillPin[] {
-    return this.world.skillPins.where("skillId = ?", [skillId], "ORDER BY createdAt, rowid");
+  pinsOf(docId: string): Pin[] {
+    return this.world.pins.where("docId = ?", [docId], "ORDER BY createdAt, rowid");
   }
 
-  /** A pin reaches others' sessions unless it is an agent's pin into its own. */
-  private reachesOthers(p: Pick<SkillPin, "scope" | "targetId" | "pinnedBy">): boolean {
-    return !(p.scope === "agent" && p.targetId === p.pinnedBy);
-  }
-
-  /** Why a pin doesn't load (null = it loads): files added after an agent pinned the skill into others' sessions. */
-  suspended(p: SkillPin, fileCount: number): string | null {
-    if (fileCount > 0 && !p.byHuman && this.reachesOthers(p)) return "The skill now bundles files; a human must pin it again for it to load in others' sessions.";
-    return null;
-  }
-
-  private pinView(p: SkillPin, fileCount: number): SkillPinView {
+  private pinView(p: Pin, fileCount: number): PinView {
     const targetName = p.scope === "town" ? null : p.scope === "building" ? this.world.buildings.get(p.targetId ?? "")?.name ?? p.targetId : this.world.nameOf(p.targetId ?? "");
-    return { ...p, targetName, pinnedByName: this.world.nameOf(p.pinnedBy), suspended: this.suspended(p, fileCount) };
+    return { ...p, targetName, pinnedByName: this.world.nameOf(p.pinnedBy), suspended: pinSuspended(p, fileCount) };
   }
 
   /** Resolve scope + target and check that `me` may pin (or unpin) there. Returns the target id (null for town). */
-  private authorize(me: Agent, skill: Doc, input: PinSkillInput, fileCount: number, removing = false): string | null {
+  private authorize(me: Agent, skill: Doc, input: PinInput, fileCount: number, removing = false): string | null {
     const perms = this.world.permissions;
     const human = me.kind === "human" || removing;
     const needHuman = (what: string) => { if (!human) throw new AppError("forbidden", `${what} needs a human (an admin or a human manager), not an agent.`); };
@@ -200,17 +184,17 @@ export class Skills {
     return target.id;
   }
 
-  pin(me: Agent, skillId: string, input: PinSkillInput): SkillPinView {
+  pin(me: Agent, skillId: string, input: PinInput): PinView {
     const holder = holderOf(me);
     const skill = this.require(skillId, holder);
     const files = this.files(skill.id).length;
     const targetId = this.authorize(me, skill, input, files);
-    const cur = this.world.skillPins.first("skillId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
+    const cur = this.world.pins.first("docId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
     // a pin into your own sessions records your agent id, so it never counts as reaching others
     const self = input.scope === "agent" && targetId === me.id;
-    const pin = this.world.skillPins.upsert({
-      id: cur?.id ?? newId("sp"), skillId: skill.id, scope: input.scope, targetId, mode: input.mode,
-      pinnedBy: self ? me.id : holder.id, pinnedByKind: self ? "agent" : holder.kind, byHuman: me.kind === "human", createdAt: nowIso(),
+    const pin = this.world.pins.upsert({
+      id: cur?.id ?? newId("sp"), docId: skill.id, scope: input.scope, targetId, mode: input.mode,
+      pinnedBy: self ? me.id : holder.id, pinnedByKind: self ? "agent" : holder.kind, byHuman: me.kind === "human", seeded: false, createdAt: nowIso(),
     });
     const where = input.scope === "town" ? "town-wide" : input.scope === "building" ? `in ${this.world.buildings.get(targetId!)?.name ?? targetId}` : `for ${this.world.nameOf(targetId!)}`;
     this.world.events.append({ type: "skill.pinned", agentId: me.kind === "human" ? null : me.id, buildingId: input.scope === "building" ? targetId : homeOf(me), text: `${me.name} pinned the skill "${skill.title}" ${where} (${input.mode})`, payload: { docId: skill.id, pinId: pin.id, scope: input.scope, targetId, mode: input.mode } });
@@ -218,76 +202,41 @@ export class Skills {
   }
 
   /** Remove a pin: whoever made it, or anyone who could make it. */
-  unpin(me: Agent, skillId: string, input: Pick<PinSkillInput, "scope" | "targetId">): { removed: boolean } {
+  unpin(me: Agent, skillId: string, input: Pick<PinInput, "scope" | "targetId">): { removed: boolean } {
     const holder = holderOf(me);
     const skill = this.require(skillId, holder);
     const targetId = input.scope === "town" ? null : input.scope === "building" ? input.targetId ?? homeOf(me) : input.targetId ?? me.id;
-    const pin = this.world.skillPins.first("skillId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
+    const pin = this.world.pins.first("docId = ? AND scope = ? AND IFNULL(targetId, '') = ?", [skill.id, input.scope, targetId ?? ""]);
     if (!pin) return { removed: false };
     return this.removePin(me, pin);
   }
 
-  removePin(me: Agent, pin: SkillPin): { removed: boolean } {
+  removePin(me: Agent, pin: Pin): { removed: boolean } {
     const holder = holderOf(me);
-    const skill = this.world.docs.get(pin.skillId);
+    const skill = this.world.docs.get(pin.docId);
     const mine = pin.pinnedBy === holder.id || pin.pinnedBy === me.id || (pin.scope === "agent" && pin.targetId === me.id);
     if (!mine && skill) this.authorize(me, skill, { scope: pin.scope, targetId: pin.targetId ?? undefined, mode: "listed" }, 0, true);
     else if (!mine) throw new AppError("forbidden", "Not your pin.");
-    this.world.db.prepare("DELETE FROM skill_pins WHERE id = ?").run(pin.id);
-    this.world.events.append({ type: "skill.unpinned", agentId: me.kind === "human" ? null : me.id, buildingId: pin.scope === "building" ? pin.targetId : homeOf(me), text: `${me.name} unpinned the skill "${skill?.title ?? pin.skillId}"`, payload: { docId: pin.skillId, pinId: pin.id, scope: pin.scope, targetId: pin.targetId } });
+    this.world.db.prepare("DELETE FROM pins WHERE id = ?").run(pin.id);
+    this.world.events.append({ type: "skill.unpinned", agentId: me.kind === "human" ? null : me.id, buildingId: pin.scope === "building" ? pin.targetId : homeOf(me), text: `${me.name} unpinned the skill "${skill?.title ?? pin.docId}"`, payload: { docId: pin.docId, pinId: pin.id, scope: pin.scope, targetId: pin.targetId } });
     return { removed: true };
   }
 
-  /** The skills pinned into `agentId`'s sessions, most specific first, one entry per skill (always wins over listed). */
-  forAgent(agentId: string): SessionSkill[] {
+  /**
+   * The pages pinned into `agentId`'s sessions (a fork passes its manager), in block order, one entry per doc (always
+   * wins over listed): the shell around the pure `resolvePins` (pins.ts).
+   */
+  forAgent(agentId: string): PinEntry[] {
     const agent = this.world.agents.get(agentId);
     if (!agent) return [];
     const bid = homeOf(agent);
-    const pins = this.world.skillPins.where("(scope = 'agent' AND targetId = ?) OR (scope = 'building' AND targetId = ?) OR scope = 'town'", [agent.id, bid ?? ""], "ORDER BY createdAt, rowid")
-      .sort((a, b) => PRIORITY[a.scope] - PRIORITY[b.scope]);
-    const out = new Map<string, SessionSkill>();
+    const pins = this.world.pins.where("(scope = 'agent' AND targetId = ?) OR (scope = 'building' AND targetId = ?) OR scope = 'town'", [agent.id, bid ?? ""], "ORDER BY createdAt, rowid");
+    const docs = new Map<string, PinnedDoc>();
     for (const p of pins) {
-      const doc = this.world.docs.get(p.skillId);
-      if (!doc || doc.type !== "skill" || !canSeeDoc(holderOf(agent), doc)) continue;
-      const files = this.files(doc.id);
-      if (this.suspended(p, files.length)) continue;
-      let md: SkillMd;
-      try { md = parseSkillMd(doc.body); } catch { continue; }
-      const cur = out.get(doc.id);
-      if (cur) { if (p.mode === "always") cur.mode = "always"; continue; }
-      out.set(doc.id, { doc, md, mode: p.mode, scope: p.scope, files });
+      const doc = docs.has(p.docId) ? undefined : this.world.docs.get(p.docId);
+      if (doc) docs.set(doc.id, { doc, files: doc.type === "skill" ? this.files(doc.id) : [] });
     }
-    return [...out.values()];
+    const holder = holderOf(agent);
+    return resolvePins(pins, docs, { agentId: agent.id, buildingId: bid, canSee: (d) => canSeeDoc(holder, d) });
   }
-}
-
-const filePaths = (files: SkillFileInfo[]) => `${files.slice(0, 6).map((f) => f.path).join(", ")}${files.length > 6 ? ", …" : ""}`;
-const fileNote = (files: SkillFileInfo[]) => (files.length ? ` [${files.length} file${files.length === 1 ? "" : "s"}: ${filePaths(files)}]` : "");
-
-/**
- * "## Skills" for a session's system prompt: `always` skills in full (most specific first, up to
- * SKILL_LIMITS.alwaysChars in total; the rest fall back to listed), then one line per listed skill. "" when none.
- */
-export function skillsBlock(skills: SessionSkill[], cap: number = SKILL_LIMITS.alwaysChars): string {
-  if (!skills.length) return "";
-  const full: string[] = [];
-  const listed: string[] = [];
-  let used = 0;
-  let overflow = 0;
-  for (const s of skills) {
-    const line = `- ${s.md.name} (${s.doc.id}, ${s.scope} pin): ${s.md.description}${fileNote(s.files)}`;
-    if (s.mode === "always") {
-      const text = `### Skill: ${s.md.name} (${s.doc.id}, always on)\n${s.md.instructions}${s.files.length ? `\n(Bundled files: ${filePaths(s.files)}; \`read\` with \`file\` opens one.)` : ""}`;
-      if (used + text.length <= cap) { full.push(text); used += text.length; continue; }
-      overflow++;
-    }
-    listed.push(line);
-  }
-  const out = ["## Skills"];
-  if (listed.length) {
-    out.push(`Skills pinned for you. Before you use one, load it with \`read\` (its id); \`read\` with \`file\` opens a bundled file (on a desk you can save it and run it). \`skills\` lists every skill you can use.${overflow ? ` (${overflow} always-on skill${overflow === 1 ? "" : "s"} didn't fit the ${cap}-char cap and ${overflow === 1 ? "is" : "are"} listed instead.)` : ""}`);
-    out.push(listed.join("\n"));
-  }
-  if (full.length) out.push(full.join("\n\n"));
-  return out.join("\n");
 }

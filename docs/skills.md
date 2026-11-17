@@ -8,7 +8,7 @@ come first.
 
 1. **Edits after pinning load right away.** Pins point at the skill doc, not at a frozen copy. Sessions get the new text
    the next time they start.
-2. **Delivery is our own prompt block** (`skillsBlock` in core, called from `workSystemPrompt`). It is not native SDK
+2. **Delivery is our own prompt block** (`pinnedPagesBlock` in core `pins.ts`, called from `workSystemPrompt`). It is not native SDK
    skills. This works the same way for desks and in-process sessions, and the town sees every use.
 3. **Skills are folders**: a `SKILL.md` (the doc body) plus bundled files such as scripts and references. Those files
    are stored with the skill. **Pinning a skill that has files into anyone else's sessions needs a human**, because desks
@@ -44,12 +44,13 @@ description: Use after pushing to main to check your commit is live before you r
 | `read` `{id}` | For a skill, it also returns `files` (path, chars). Logs `skill.used`. |
 | `read` `{id, file}` | Returns one bundled file, with `body` = its content. Logs `skill.used` with the file. |
 | `skills` `{query?}` | Lists the skills I can use: `pinned` first (scope, mode), then `available` (my building's, the library's, my drafts). |
-| `pin` `{skillId, scope, targetId?, mode, remove?}` | Pins a skill or, with `remove`, unpins it. The rules are in the next section. |
+| `pin` `{docId, scope, targetId?, mode, remove?}` | Pins a skill or, with `remove`, unpins it (`skillId` is the old name of `docId`, kept for one release). The rules are in the next section. |
 
 ## Pins
 
-`skill_pins(id, skillId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, createdAt)`. There is one pin per
-(skill, scope, target); pinning again changes the mode.
+`pins(id, docId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, seeded, createdAt)` (migration 119 renamed
+`skill_pins`; a pin may point at any doc, design dc_8194l8soj4; today only skills are pinned). There is one pin per
+(doc, scope, target); pinning again changes the mode. `seeded` marks a pin code placed under a standing human decision.
 
 | Scope | Target | Who may pin |
 |---|---|---|
@@ -66,20 +67,23 @@ Unpin: whoever made the pin, the agent the pin is for, or anyone who could make 
 
 ## In the prompt
 
-`skillsBlock(world.skills.forAgent(agentId))` goes into the work system prompt after the standing rules. Desk briefs
-(`composeWorkBrief`) and in-process sessions (`runtime/work.ts`) both get it. Pins are resolved with the most
-specific first (agent, then building, then town), and each skill appears once. If any of its pins is `always`, it
-is always on.
+`pinnedPagesBlock(world.skills.forAgent(agentId))` goes into the work and manager system prompts after the standing
+rules. Desk briefs (`composeWorkBrief`) and in-process sessions (`runtime/work.ts`, `runtime/manage.ts`) all get it.
+`forAgent` is the shell; the pure core `resolvePins` (`packages/core/src/pins.ts`, property tests in
+`packages/core/test/pins.test.ts`) keeps the pins that reach the viewer, drops docs it can't see and suspended pins,
+and shows each doc once: if any of its pins is `always`, it is always on. Order: always before listed, then town,
+building, agent (the most stable text first, for the prompt cache), then oldest first.
 
 ```
-## Skills
-Skills pinned for you. Before you use one, load it with `read` (its id); `read` with `file` opens a bundled file …
-- verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/check.sh]
-### Skill: mitchell-style (dc_…, always on)
+## Pinned pages
+Pages pinned into your sessions: always-on ones in full, listed ones one line each. …
+### Skill: mitchell-style (dc_…, town pin, always on)
 <instructions>
+Listed:
+- verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/check.sh]
 ```
 
-`always` skills are capped at 8,000 chars in total. A skill that doesn't fit is listed instead, with a note. When no
+`always` pages are capped at 16,000 chars in total (`PINS_ALWAYS_CAP`). A page that doesn't fit is listed instead, with a note. When no
 skills are pinned, the block is empty. The world rules have one line about `skills`, `read` and writing your own.
 Meeting prompts don't carry skills (v1).
 

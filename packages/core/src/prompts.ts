@@ -8,7 +8,7 @@ import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
 import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { captainUserId, readerDelta } from "./seen.ts";
-import { skillsBlock } from "./skills.ts";
+import { pinnedPagesBlock } from "./pins.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import { docGist, NEED, oneLine, sectionOf, trunc } from "./text.ts";
@@ -885,7 +885,7 @@ export function composeWorkBrief(world: World, sessionId: string): DeskBrief {
   // layer 1 (docs/prompt-caching.md): byte-identical for every fork of the building / every session of one agent;
   // a fork's skills are its manager's pins (building and town ones), not the fork's own, or the block differs per fork
   const parts = sessionMemory(world, agent, building, assignment);
-  const system = workSystemPrompt(agent, building, town, { desk: true, ...fixedParts(parts), skills: skillsBlock(world.skills.forAgent(agent.forkOf ?? agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl), world.repoMode()) : "");
+  const system = workSystemPrompt(agent, building, town, { desk: true, ...fixedParts(parts), skills: pinnedPagesBlock(world.skills.forAgent(agent.forkOf ?? agent.id)) }) + (workspace ? workshopPrompt(workspace, repoNameOf(workspace.repoUrl), world.repoMode()) : "");
   // layer 2: the live state, after the clock
   const state = workStateBlock(agent, parts, workspace);
   const recent = recentWorkBlock(world, agent.id, { excludeSessionId: session.id });

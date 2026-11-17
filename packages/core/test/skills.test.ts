@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, composeWorkBrief, newId, nowIso, parseSkillMd, skillsBlock } from "../src/index.ts";
+import { buildingRoleId, composeWorkBrief, newId, nowIso, parseSkillMd, pinnedPagesBlock } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -71,20 +71,20 @@ describe("skills", () => {
     await expect(world.verbs.pin(writer, { skillId: id, mode: "always" })).rejects.toThrow(/listed/);
     await expect(world.verbs.pin(writer, { skillId: id, scope: "agent", targetId: other.id })).rejects.toThrow(/manager/);
     await expect(world.verbs.pin(writer, { skillId: id, scope: "building" })).rejects.toThrow(/building.manage/);
-    expect(world.skills.forAgent(writer.id).map((s) => s.md.name)).toEqual(["plain"]);
+    expect(world.skills.forAgent(writer.id).map((s) => s.title)).toEqual(["plain"]);
     expect(world.skills.forAgent(other.id)).toEqual([]);
     // the manager agent pins building-wide (listed); always needs a human
     await world.verbs.pin(manager, { skillId: id, scope: "building" });
     await expect(world.verbs.pin(manager, { skillId: id, scope: "building", mode: "always" })).rejects.toThrow(/human/);
-    expect(world.skills.forAgent(other.id).map((s) => [s.md.name, s.mode, s.scope])).toEqual([["plain", "listed", "building"]]);
+    expect(world.skills.forAgent(other.id).map((s) => [s.title, s.mode, s.scope])).toEqual([["plain", "listed", "building"]]);
     // town pins: admin, human, library skills only
     await expect(world.verbs.pin(admin, { skillId: id, scope: "town" })).rejects.toThrow(/library/);
     await world.verbs.promote(manager, { docId: id, state: "library" });
-    await world.verbs.pin(admin, { skillId: id, scope: "town", mode: "always" });
+    await world.verbs.pin(admin, { docId: id, scope: "town", mode: "always" }); // docId is the name; skillId its old alias
     expect(world.skills.forAgent(other.id)[0].mode).toBe("always");
     // edits load right away
     await world.verbs.write(writer, { id, type: "skill", title: "", body: md("plain", "Use always.", "New steps.") });
-    expect(world.skills.forAgent(other.id)[0].md.instructions).toBe("New steps.");
+    expect(world.skills.forAgent(other.id)[0].text).toBe("New steps.");
     // adding files suspends the agent-made building pin (the human town pin still loads)
     await world.verbs.write(writer, { id, type: "skill", title: "", body: md("plain"), files: [{ path: "x.sh", content: "rm -rf ~" }] });
     const view = world.skills.view(world.docs.require(id));
@@ -116,17 +116,19 @@ describe("skills", () => {
     const a = await world.verbs.write(writer, { type: "skill", title: "", body: md("small"), files: [{ path: "s.sh", content: "x" }] });
     await world.verbs.pin(writer, { skillId: a.id });
     const skills = world.skills.forAgent(writer.id);
-    const listed = skillsBlock(skills);
-    expect(listed).toContain("## Skills");
+    const listed = pinnedPagesBlock(skills);
+    expect(listed).toContain("## Pinned pages");
+    expect(listed).not.toContain("## Skills");
     expect(listed).toContain(`- small (${a.id}, agent pin): Use when you need small. [1 file: s.sh]`);
-    const always = skillsBlock(skills.map((s) => ({ ...s, mode: "always" as const })));
-    expect(always).toContain("### Skill: small");
+    const always = pinnedPagesBlock(skills.map((s) => ({ ...s, mode: "always" as const })));
+    expect(always).toContain(`### Skill: small (${a.id}, agent pin, always on)`);
     expect(always).toContain("Do the small steps.");
-    const capped = skillsBlock(skills.map((s) => ({ ...s, mode: "always" as const })), 10);
+    const capped = pinnedPagesBlock(skills.map((s) => ({ ...s, mode: "always" as const })), 10);
     expect(capped).not.toContain("### Skill");
     expect(capped).toContain("didn't fit");
-    expect(skillsBlock([])).toBe("");
+    expect(pinnedPagesBlock([])).toBe("");
     const brief = composeWorkBrief(world, session(writer.id).id);
+    expect(brief.system).toContain("## Pinned pages");
     expect(brief.system).toContain(`- small (${a.id}`);
   });
 });

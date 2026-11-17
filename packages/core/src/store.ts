@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Ask, CaptainRequest, Assignment, BankCredit, BankFee, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Notice, Place, Role, Schedule, Session, SkillPin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, Ask, CaptainRequest, Assignment, BankCredit, BankFee, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Notice, Place, Role, Schedule, Session, Pin, Town, UsageEntry, User,
   townEnv, type ServerMessage, type TokenCountKind, type TokenCounts,
   type TokenMix,
   type LedgerCutoff,
@@ -327,7 +327,7 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     captainRequests: new Table<CaptainRequest>(db, "goal_captain_requests", CaptainRequest),
     asks: new Table<Ask>(db, "asks", Ask, { json: ["branches", "claims", "sources", "history", "tags", "proposal"] }),
     notices: new Table<Notice>(db, "notices", Notice, { json: ["refs"] }),
-    skillPins: new Table<SkillPin>(db, "skill_pins", SkillPin, { bool: ["byHuman"] }),
+    pins: new Table<Pin>(db, "pins", Pin, { bool: ["byHuman", "seeded"] }),
     interrupts: new Table<Interrupt>(db, "interrupts", Interrupt, { bool: ["now"] }),
     tokens: new Tokens(db),
     town: new TownMeta(db),
