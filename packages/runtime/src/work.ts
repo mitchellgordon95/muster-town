@@ -1,5 +1,5 @@
 /** Resident work sessions (host backend + shared end-of-session logic), interrupts, and reviewer sessions over the in-tray. */
-import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, bookEntryTokens, codeWorkspace, deadSessionBody, fileDeadSession, fixedParts, DEAD_SESSION_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, skillsBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
+import { AppError, NoCredential, type World, appendAgentLog, chainBlock, classifyFailure, bookEntryTokens, codeWorkspace, deadSessionBody, fileDeadSession, fixedParts, DEAD_SESSION_PREFIX, latestReportOf, recentWorkBlock, sessionMemory, sessionView, setAssignmentStatus, pinnedPagesBlock, workPrompt, workStateBlock, workSystemPrompt } from "@muster-town/core";
 import { isGone, countsOf, rawTokens, splitRaw, type Agent, type AllocationAuth, type Assignment, type Building, type Doc, type Session, type TokenCounts } from "@muster-town/schema";
 import { endAndCharge, fundedBy, fundingFor, homeOf, runAgentSession, webFor, type Ctx } from "./session.ts";
 
@@ -62,7 +62,7 @@ export async function runWorkSession(ctx: Ctx, starting: Set<string>, agentId: s
     const parts = sessionMemory(world, agent, building, assignment);
     const out = await runAgentSession(ctx, {
       agentId, purpose: "work", model: assignment.model ?? agent.model ?? building.model, maxTurns: building.maxTurnsPerSession, web: webFor("work"),
-      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...fixedParts(parts), skills: skillsBlock(world.skills.forAgent(agent.forkOf ?? agentId)) }),
+      assignmentId, system: workSystemPrompt(agent, building, world.town.get(), { ...fixedParts(parts), skills: pinnedPagesBlock(world.skills.forAgent(agent.forkOf ?? agentId)) }),
       prompt: workPrompt(assignment, latestReport(ctx, agentId), recentWorkBlock(world, agentId), agent.forkOf ? chainBlock(world, assignment) : undefined, Date.now(), workStateBlock(agent, parts)),
       finish: (o, allocationId) => finishWorkSession(ctx, o.session.id, { ...o }, allocationId),
     });

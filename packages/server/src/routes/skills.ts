@@ -1,5 +1,5 @@
 import { AppError, canSeeDoc } from "@muster-town/core";
-import { PinSkillInput } from "@muster-town/schema";
+import { PinInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { actorOf, parse, viewerId, type Params } from "../context.ts";
 
@@ -42,12 +42,12 @@ export async function skillRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Params: Params }>("/api/skills/:id/pins", async (req, reply) => {
-    const pin = skills.pin(actorOf(world, req), req.params.id, parse(PinSkillInput, req.body));
+    const pin = skills.pin(actorOf(world, req), req.params.id, parse(PinInput, req.body));
     return reply.code(201).send({ pin });
   });
 
   app.delete<{ Params: Params }>("/api/skill-pins/:id", async (req) => {
-    const pin = world.skillPins.require(req.params.id, "skill pin");
+    const pin = world.pins.require(req.params.id, "pin");
     return skills.removePin(actorOf(world, req), pin);
   });
 }

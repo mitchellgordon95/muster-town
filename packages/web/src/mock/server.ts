@@ -4,7 +4,7 @@ import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, 
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
-import type { BankStreams, PinSkillInput, PutSecretInput, SecretView, SkillPinView, SkillView } from "@muster-town/schema";
+import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { asks as fixtureAsks, explorationSpentToday, legible, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
@@ -740,22 +740,22 @@ export class MockApi implements Api {
     this.sim.event("doc.state", null, `"${d.title}" moved to the ${state}`, { docId });
     return clone(this.sim.putDoc(d));
   }
-  private skillPins: SkillPinView[] = [];
+  private skillPins: PinView[] = [];
   private skillView(d: Doc): SkillView {
     const fm = /^---\n([\s\S]*?)\n---/.exec(d.body)?.[1] ?? "";
     const field = (k: string) => new RegExp(`^${k}:\\s*(.*)$`, "m").exec(fm)?.[1]?.trim() ?? "";
     return { id: d.id, name: field("name") || d.title, description: field("description"), state: d.state, buildingId: d.buildingId, authorId: d.authorId,
-      author: this.sim.agents.get(d.authorId)?.name ?? "Mitchell", files: [], pins: this.skillPins.filter((p) => p.skillId === d.id), uses7d: 0, uses30d: 0, updatedAt: d.updatedAt };
+      author: this.sim.agents.get(d.authorId)?.name ?? "Mitchell", files: [], pins: this.skillPins.filter((p) => p.docId === d.id), uses7d: 0, uses30d: 0, updatedAt: d.updatedAt };
   }
   async skills() { await wait(); return clone([...this.sim.docs.values()].filter((d) => d.type === "skill" && d.state !== "draft").map((d) => this.skillView(d))); }
   async skill(id: string) { await wait(60); return clone(this.skillView(this.need(this.sim.docs.get(id), "skill"))); }
-  async pinSkill(id: string, i: In<typeof PinSkillInput>) {
+  async pinSkill(id: string, i: In<typeof PinInput>) {
     await wait();
     this.need(this.sim.docs.get(id), "skill");
     const scope = i.scope ?? "agent";
-    const pin: SkillPinView = { id: newId("sp"), skillId: id, scope, targetId: scope === "town" ? null : i.targetId ?? null, mode: i.mode ?? "listed", pinnedBy: "us_mitchell", pinnedByKind: "user",
-      byHuman: true, createdAt: now(), targetName: scope === "town" ? null : i.targetId ?? null, pinnedByName: "Mitchell", suspended: null };
-    this.skillPins = [...this.skillPins.filter((p) => !(p.skillId === id && p.scope === pin.scope && p.targetId === pin.targetId)), pin];
+    const pin: PinView = { id: newId("sp"), docId: id, scope, targetId: scope === "town" ? null : i.targetId ?? null, mode: i.mode ?? "listed", pinnedBy: "us_mitchell", pinnedByKind: "user",
+      byHuman: true, seeded: false, createdAt: now(), targetName: scope === "town" ? null : i.targetId ?? null, pinnedByName: "Mitchell", suspended: null };
+    this.skillPins = [...this.skillPins.filter((p) => !(p.docId === id && p.scope === pin.scope && p.targetId === pin.targetId)), pin];
     return clone(pin);
   }
   private secretRows: SecretView[] = [];
