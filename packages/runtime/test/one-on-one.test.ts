@@ -62,14 +62,14 @@ describe("the manager's 1:1", () => {
       yield init();
       const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
       look(s, mid); // 0: opened, before any call
-      yield toolUse("Read", { file_path: "docs/goals.md" });
+      yield toolUse("Read", { file_path: "notes/goals.txt" });
       look(s, mid); // 1: working
       yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "On it." });
       look(s, mid); // 2: just spoke
       yield toolUse("Grep", { pattern: "keyResult" });
       look(s, mid); // 3: working again after its line
       yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Here is the map." });
-      yield toolUse("Read", { file_path: "docs/log.d/README.md" });
+      yield toolUse("Read", { file_path: "notes/readme.txt" });
       yield result(100, 0.01);
       look(s, mid); // 4: turn over, waiting for the human
       const said = await s.next();
