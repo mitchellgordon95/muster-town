@@ -115,7 +115,7 @@ The first sign-in of an allowlisted login becomes the seeded admin. Everyone els
 
 ### Deploy and redeploy
 
-`npm run start:workshop` and `start:collective` run the server under `scripts/serve.sh`, which restarts it when it exits with code 75. An admin (or the `deployer` role) redeploys from main with **Redeploy** at the planning desk or `POST /api/admin/redeploy`: pull, install if the lockfile changed, rebuild, drain, restart. Desk sessions keep running through the restart. `GET /api/health` reports the live `commit`. On muster.town, CI moves the `prod` branch to each green commit of main and deploys it; see `deploy/README.md`.
+`npm run start:workshop` and `start:collective` run the server under `scripts/serve.sh`, which restarts it when it exits with code 75. An admin (or the `deployer` role) redeploys from main with **Redeploy** at the planning desk or `POST /api/admin/redeploy`: pull, install if the lockfile changed, rebuild, drain, restart. Desk sessions keep running through the restart. `GET /api/health` reports the live `commit`. On muster.town, CI moves the `prod` branch to each green commit of main, and the server pulls `prod` itself within minutes; see `deploy/README.md`.
 
 ## Repo layout
 
