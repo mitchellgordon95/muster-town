@@ -44,19 +44,28 @@ description: Use after pushing to main to check your commit is live before you r
 | `read` `{id}` | For a skill, it also returns `files` (path, chars). Logs `skill.used`. |
 | `read` `{id, file}` | Returns one bundled file, with `body` = its content. Logs `skill.used` with the file. |
 | `skills` `{query?}` | Lists the skills I can use: `pinned` first (scope, mode), then `available` (my building's, the library's, my drafts). |
-| `pin` `{docId, scope, targetId?, mode, remove?}` | Pins a skill or, with `remove`, unpins it (`skillId` is the old name of `docId`, kept for one release). The rules are in the next section. |
+| `pin` `{docId, scope, targetId?, mode, remove?}` | Pins any doc the caller may see (a skill, a topic page, an article) or, with `remove`, unpins it (`skillId` is the old name of `docId`, kept for one release). The rules are in the next section. |
 
 ## Pins
 
 `pins(id, docId, scope, targetId, mode, pinnedBy, pinnedByKind, byHuman, seeded, createdAt)` (migration 119 renamed
-`skill_pins`; a pin may point at any doc, design dc_8194l8soj4; today only skills are pinned). There is one pin per
-(doc, scope, target); pinning again changes the mode. `seeded` marks a pin code placed under a standing human decision.
+`skill_pins`; a pin may point at any doc, design dc_8194l8soj4). There is one pin per (doc, scope, target); pinning
+again changes the mode. `seeded` marks a pin code placed under a standing human decision (Mitchell's mapping, 1:1
+mt_uarrn0kco1): `Skills.seed` places it as the doc is created or first published, never at boot, so a pin a human
+removes stays removed; migrations 120 and 121 back-filled the docs that existed before.
+
+| Doc | Seeded pin |
+|---|---|
+| Operating manual, policy ledger | town, `always` |
+| Town dictionary; a published Town Hall doc tagged `town-page` | town, `listed` |
+| A building's published topic page (`topicOf`) | building, `listed` |
+| A building manager's private wiki page | agent (the manager), `listed`; its forks see it (they resolve pins as their manager) and may `read` it |
 
 | Scope | Target | Who may pin |
 |---|---|---|
 | `agent` | that agent (defaults to me) | the agent itself, `listed` only; that agent's building manager (`building.manage`) |
-| `building` | that building (defaults to mine) | the building's manager; the skill must be published in that building or in the library |
-| `town` | everyone | an admin who is a human; library skills only |
+| `building` | that building (defaults to mine) | the building's manager; the doc must be published in that building or in the library |
+| `town` | everyone | an admin who is a human; a library doc or a published Town Hall doc |
 
 **Needs a human** (a human's avatar, or a user through REST or the web; never an agent): a `town` pin, an `always` pin into
 someone else's sessions, and any pin of a skill with files into someone else's sessions. If files are added *after*
@@ -83,9 +92,12 @@ Listed:
 - verify-deploy (dc_…, building pin): Use after pushing to main … [1 file: scripts/check.sh]
 ```
 
-`always` pages are capped at 16,000 chars in total (`PINS_ALWAYS_CAP`). A page that doesn't fit is listed instead, with a note. When no
-skills are pinned, the block is empty. The world rules have one line about `skills`, `read` and writing your own.
-Meeting prompts don't carry skills (v1).
+`always` pages are capped at 16,000 chars in total (`PINS_ALWAYS_CAP`). A page that doesn't fit is listed instead, with a note.
+Listed lines are capped at 50 per scope (`PINS_LISTED_PER_SCOPE`): past it the oldest pins of the scope give way and one
+line counts them. A wiki page's listed line is its title alone (no gist), so rewriting a topic page or a manager's page
+leaves the cached system prompt as it was; only a new page changes it. An assignment's attached `pages` are not pins:
+they stay in the fork's first message, in full, for that session only. When nothing is pinned, the block is empty. The world rules have one line about `skills`, `read` and writing your own.
+Meeting prompts don't carry pins (v1): `meetingContextBlock` still lists the building's topic pages itself.
 
 ## Usage
 

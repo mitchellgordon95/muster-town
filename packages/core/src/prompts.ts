@@ -6,7 +6,7 @@ import { grantName, ASK_CONTRACT_LINES, ASK_LINT_RULES, grantPricingOf, type Age
 import { intrayCounts, intrayOf, isEntry, managerQueue, type QueueItem } from "./domain.ts";
 import { mainRedLine } from "./main-fix.ts";
 import { currentSlide, decisionOutcomes, decisionTarget, previousMeeting, type DecisionOutcome } from "./meetings.ts";
-import { FORK_MANAGER_WIKI_CAP, forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
+import { forkMemoryBlock, memoryBlock, memoryIndexBlock, teamBlock, topicIndexBlock, topicPages, WIKI_HOWTO, WIKI_PAGE_CAP, WIKI_TOTAL_CAP, wikiOf } from "./memory.ts";
 import { captainUserId, readerDelta } from "./seen.ts";
 import { pinnedPagesBlock } from "./pins.ts";
 import { townBoardDocs } from "./verbs/docs.ts";
@@ -161,11 +161,10 @@ export function sessionMemory(world: World, agent: Agent, building: Building, as
   const grants = manager ? managerGrantsBlock(world, building) : "";
   const townBoard = townBoardBlock(world);
   const forkOf = agent.forkOf ? world.agents.get(agent.forkOf)?.name ?? agent.forkOf : undefined;
-  // a fork gets a frozen read-only copy of its manager's memory (dc_mymt27yz25 §5.2); a manager the index of its wiki
-  // (pages read on demand, as on a team-lead wake); everyone else their own wiki and log; then the building's topic index
-  const index = agent.forkOf ? "" : topicIndexBlock(world, building.id);
-  const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment)
-    : `${manager ? memoryIndexBlock(world, agent.id) : memoryBlock(world, agent.id)}${index ? `\n\n${index}` : ""}`;
+  // a fork gets its attached pages and its manager's log (dc_mymt27yz25 §5.2); a manager a pointer to its wiki (pages
+  // read on demand, as on a team-lead wake); everyone else their own wiki and log. The building's topic pages and a
+  // manager's wiki pages are listed pins in the system prompt (design dc_8194l8soj4 §3), not copied here.
+  const memory = agent.forkOf ? forkMemoryBlock(world, agent, assignment) : manager ? memoryIndexBlock(world, agent.id) : memoryBlock(world, agent.id);
   return {
     memory, repo: world.repoMode(), purpose: world.goalTree.purposeOf(building) || "(none set)", buildings: buildingsLine(world, building),
     ...(forkOf ? { forkOf } : {}),
@@ -624,11 +623,10 @@ export function meetingContextBlock(world: World, agent: Agent, meeting: Pick<Me
   const now = opts.now ?? Date.now();
   const bid = meeting.buildingId ?? agent.homeBuildingId ?? agent.buildingId ?? "";
   const out: string[] = [agent.forkOf ? forkMemoryBlock(world, agent, null, { now }) : memoryBlock(world, agent.id, { now })];
-  const index = agent.forkOf ? "" : topicIndexBlock(world, bid, { now }); // a fork's memory block already carries it
+  // a meeting prompt has no "## Pinned pages", so the building's topic pages come in as an index here
+  const index = topicIndexBlock(world, bid, { now });
   if (index) out.push(index);
-  const wikiChars = agent.forkOf
-    ? Math.min(wikiOf(world, agent.forkOf).reduce((n, p) => n + p.body.trim().length, 0), FORK_MANAGER_WIKI_CAP)
-    : wikiOf(world, agent.id).reduce((n, p) => n + Math.min(p.body.trim().length, WIKI_PAGE_CAP), 0);
+  const wikiChars = agent.forkOf ? 0 : wikiOf(world, agent.id).reduce((n, p) => n + Math.min(p.body.trim().length, WIKI_PAGE_CAP), 0);
   const budget = Math.max(0, WIKI_TOTAL_CAP - wikiChars);
   const pages = topicPages(world, bid);
   if (pages.length) {

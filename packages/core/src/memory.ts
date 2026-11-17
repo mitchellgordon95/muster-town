@@ -14,7 +14,7 @@ import { AppError } from "./errors.ts";
 import { waitsOnTime } from "./blockers.ts";
 import { describeRepeat } from "./schedules.ts";
 import { reportChain } from "./forks.ts";
-import { docGist, ftsQuery, oneLine } from "./text.ts";
+import { docGist, oneLine } from "./text.ts";
 import { fromNow, stamp } from "./time.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
@@ -62,8 +62,6 @@ export function writeWikiPage(world: World, who: MemoryOwner, title: string, bod
 
 // ---------- topic pages (manager forks step 4, dc_mymt27yz25 §5.1) ----------
 
-/** Most chars of the manager's private wiki in a fork's memory block. */
-export const FORK_MANAGER_WIKI_CAP = 3000;
 /** Topic pages listed in the index; the rest are found with `search` type wiki. */
 export const TOPIC_INDEX_MAX = 50;
 /** Most topic pages a manager attaches to one assignment (`assign … pages`). */
@@ -143,40 +141,32 @@ export function topicIndexBlock(world: World, buildingId: string, opts: { now?: 
   return `## Topic pages (the building's shared wiki; \`read\` the ones that matter)\n${shown.map((p) => topicLine(p, now)).join("\n")}${more}`;
 }
 
-/** The topic pages for a fork's assignment: the attached ones, else the 2 whose titles best match its title (FTS). */
+/**
+ * The topic pages the manager attached to a fork's assignment (\`assign … pages\`): session-only, in full (design
+ * dc_8194l8soj4 §6). No title-match guess: every topic page of the building is already a listed building pin.
+ */
 export function pagesForAssignment(world: World, buildingId: string, assignment: Assignment | null | undefined): Doc[] {
-  if (!assignment) return [];
-  if (assignment.pages?.length) return assignment.pages.map((id) => world.docs.get(id)).filter((d): d is Doc => !!d && d.topicOf === buildingId);
-  const q = ftsQuery(assignment.title);
-  if (!q) return [];
-  try {
-    return world.docs.query("SELECT d.* FROM docs_fts JOIN docs d ON d.rowid = docs_fts.rowid WHERE docs_fts MATCH ? AND d.type = 'wiki' AND d.topicOf = ? ORDER BY bm25(docs_fts, 3.0, 1.0) LIMIT 2", [q, buildingId]);
-  } catch { return []; }
+  if (!assignment?.pages?.length) return [];
+  return assignment.pages.map((id) => world.docs.get(id)).filter((d): d is Doc => !!d && d.topicOf === buildingId);
 }
 
 /**
- * A fork's memory (dc_mymt27yz25 §5.2), frozen into its prompt at spawn. Under WIKI_TOTAL_CAP in total: (1) the
- * manager's private wiki, cut at FORK_MANAGER_WIKI_CAP, (2) the assignment's topic pages, each cut at WIKI_PAGE_CAP,
- * (3) the topic index if it still fits, else a search pointer. Outside the cap: the manager's log tail (the fork's own
- * log lines land there).
+ * A fork's memory (dc_mymt27yz25 §5.2), frozen into its first message at spawn: the topic pages its manager attached to
+ * the assignment, each cut at WIKI_PAGE_CAP, under WIKI_TOTAL_CAP in total; then the manager's log tail (the fork's own
+ * log lines land there). The manager's wiki and the building's topic pages are not copied here: they are listed pins
+ * in the system prompt's "## Pinned pages" (design dc_8194l8soj4 §3), \`read\` on demand.
  */
-export function forkMemoryBlock(world: World, fork: Agent, assignment?: Assignment | null, opts: { now?: number; totalCap?: number; pageCap?: number; managerCap?: number; tail?: number } = {}): string {
+export function forkMemoryBlock(world: World, fork: Agent, assignment?: Assignment | null, opts: { now?: number; totalCap?: number; pageCap?: number; tail?: number } = {}): string {
   const now = opts.now ?? Date.now();
-  const totalCap = opts.totalCap ?? WIKI_TOTAL_CAP, pageCap = opts.pageCap ?? WIKI_PAGE_CAP, managerCap = opts.managerCap ?? FORK_MANAGER_WIKI_CAP;
+  const totalCap = opts.totalCap ?? WIKI_TOTAL_CAP, pageCap = opts.pageCap ?? WIKI_PAGE_CAP;
   const manager = world.agents.require(fork.forkOf!, "agent");
   const bid = fork.homeBuildingId ?? manager.homeBuildingId ?? "";
-  const out: string[] = [];
+  const out: string[] = [`## What ${manager.name} knows
+${manager.name}'s wiki pages (agent pins) and the building's topic pages (building pins) are listed under "## Pinned pages": \`read\` the ones that matter for this work before you start. ${manager.name}'s wiki is read-only for you.`];
   let used = 0;
-  // (1) what the manager knows
-  const own = wikiOf(world, manager.id).map((p) => `### ${p.title} (updated ${fromNow(p.updatedAt, now)})\n${p.body.trim()}`).join("\n\n");
-  const ownShown = own.length > managerCap ? `${own.slice(0, managerCap)}\n…(${manager.name}'s wiki is ${own.length.toLocaleString("en-US")} chars; cut at ${managerCap.toLocaleString("en-US")}. It is ${manager.name}'s, read-only for you.)` : own;
-  out.push(`## What ${manager.name} knows (${manager.name}'s private wiki; read-only)\n${ownShown || "(no pages)"}`);
-  used += Math.min(own.length, managerCap);
-  // (2) the assignment's topic pages
   const pages = pagesForAssignment(world, bid, assignment);
-  const attached = !!assignment?.pages?.length;
   if (pages.length) {
-    out.push(`\n## Topic pages for this work (${attached ? "attached by your manager" : "best title match"})`);
+    out.push("\n## Topic pages for this work (attached by your manager)");
     for (const p of pages) {
       const body = p.body.trim();
       const room = Math.min(pageCap, Math.max(0, totalCap - used));
@@ -186,12 +176,8 @@ export function forkMemoryBlock(world: World, fork: Agent, assignment?: Assignme
       used += Math.min(body.length, room);
     }
   }
-  // (3) the index, if it fits
-  const index = topicIndexBlock(world, bid, { now });
-  if (index && used + index.length <= totalCap) out.push(`\n${index}`);
-  else if (index) out.push("\n## Topic pages\nThe building has more topic pages: `search` type wiki to find them.");
   out.push(`\n${FORK_MEMORY_RULE}`);
-  // outside the cap: the manager's log, the building's journal
+  // the manager's log, the building's journal
   const log = logOf(world, manager.id);
   const total = log ? log.body.split("\n").filter((l) => l.trim()).length : 0;
   const tail = logTail(log, opts.tail ?? LOG_TAIL);
@@ -282,16 +268,22 @@ export function memoryBlock(world: World, authorId: string, opts: { now?: number
 }
 
 /**
- * "## Your wiki" as an index (title, id, age, one-line gist) and "## Your log" as the last `tail` lines: the memory of
- * a manager's team-lead session. The pages stay out of the prompt and are `read` on demand, so the cached system prompt
- * doesn't change every time the manager rewrites one (docs/prompt-caching.md).
+ * "## Your wiki" and "## Your log" (the last `tail` lines): the memory of a manager's sessions. The pages are agent
+ * pins, listed by title under "## Pinned pages" (design dc_8194l8soj4 §3), so this says so; a page without its pin (one
+ * written before the agent managed a building, or one a human unpinned) is listed here by title, id, age and gist.
+ * The pages stay out of the prompt and are `read` on demand, so the cached system prompt doesn't change when the
+ * manager rewrites one (docs/prompt-caching.md).
  */
 export function memoryIndexBlock(world: World, authorId: string, opts: { now?: number; tail?: number } = {}): string {
   const now = opts.now ?? Date.now();
   const pages = wikiOf(world, authorId);
+  const pinned = new Set(world.pins.where("scope = 'agent' AND targetId = ?", [authorId]).map((p) => p.docId));
+  const unpinned = pages.filter((p) => !pinned.has(p.id));
+  const n = pages.length - unpinned.length;
   const out: string[] = ["## Your wiki (`read` the pages that matter before you decide or rewrite them)"];
-  out.push(pages.length ? pages.map((p) => `- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${oneLine(docGist(p), 120)}`).join("\n")
-    : `(no pages yet. Before \`submit_report\`, write one page per topic you worked on: \`write\` type "wiki", title = the topic.)`);
+  if (!pages.length) out.push(`(no pages yet. Before \`submit_report\`, write one page per topic you worked on: \`write\` type "wiki", title = the topic.)`);
+  if (n) out.push(`${n} page${n === 1 ? " is" : "s are"} listed under "## Pinned pages" (agent pins).`);
+  if (unpinned.length) out.push(unpinned.map((p) => `- "${p.title}" (${p.id}, ${fromNow(p.updatedAt, now)}): ${oneLine(docGist(p), 120)}`).join("\n"));
   const log = logOf(world, authorId);
   const total = log ? log.body.split("\n").filter((l) => l.trim()).length : 0;
   const tail = logTail(log, opts.tail ?? MEMORY_INDEX_LOG_TAIL);

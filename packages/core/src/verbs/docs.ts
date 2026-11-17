@@ -159,7 +159,9 @@ export async function read(world: World, me: Agent, input: VerbIn<"read">) {
     return { ...e, author: world.nameOf(e.authorId), job, answeredBy: answers.map((a) => ({ ...a, author: world.nameOf(a.authorId) })), readNote: e.level === "manager" && !answers.length ? `It waits for the manager: answer it with \`review\` (docId ${e.id}).` : `GET /api/jobs/${e.jobId} shows its whole thread.` };
   }
   const d = world.docs.get(input.id);
-  if (!d || !canSeeDoc(world.holderOf(me), d)) throw new AppError("not_found", `No document ${input.id} (or it's someone's draft).`);
+  // a fork reads its manager's private wiki pages: they are listed in its "## Pinned pages" (design dc_8194l8soj4 §3)
+  const managersPage = !!d && !!me.forkOf && d.type === "wiki" && !d.topicOf && d.authorId === me.forkOf;
+  if (!d || !(canSeeDoc(world.holderOf(me), d) || managersPage)) throw new AppError("not_found", `No document ${input.id} (or it's someone's draft).`);
   if (input.file !== undefined && d.type !== "skill") throw badRequest("`file` is only for skills (type \"skill\").");
   if (d.type === "skill" && input.file !== undefined) {
     const content = world.skills.file(d.id, input.file);
@@ -199,7 +201,7 @@ export async function skills(world: World, me: Agent, input: VerbIn<"skills">) {
   };
 }
 
-/** `pin`: pin a doc (today: a skill) into sessions (scope agent / building / town; mode listed / always), or unpin it (remove). `skillId` is the old name of `docId`. */
+/** `pin`: pin a doc (a skill, a topic page, a library or Town Hall doc) into sessions (scope agent / building / town; mode listed / always), or unpin it (remove). `skillId` is the old name of `docId`. */
 export async function pin(world: World, me: Agent, input: VerbIn<"pin">) {
   const docId = input.docId ?? input.skillId;
   if (!docId) throw badRequest("Pass docId: the doc to pin.");

@@ -1,6 +1,6 @@
 /** Manager forks step 4 (dc_mymt27yz25 §5, §6): topic pages, revisions, `assign … pages`, the fork memory block and the fork's log. */
 import { describe, expect, it, vi } from "vitest";
-import { createBuilding, createResident, forkManager, logOf, memoryBlock, revisionsOf, sessionMemory, topicIndexBlock, topicPages, updateBuilding, wikiOf, WIKI_TOTAL_CAP } from "../src/index.ts";
+import { createBuilding, createResident, forkManager, logOf, memoryBlock, pinnedPagesBlock, revisionsOf, sessionMemory, topicIndexBlock, topicPages, updateBuilding, wikiOf, WIKI_TOTAL_CAP } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 vi.setConfig({ testTimeout: 60_000 }); // seeding a world is slow on a loaded desk
@@ -53,17 +53,26 @@ describe("topic pages", () => {
     expect(world.docs.require(id).body).toBe("two");
   });
 
-  it("the topic index lists every page with id and gist in a resident's prompt; above 50 it shows the 50 newest and a search pointer", async () => {
-    const { world, b, pix, ann, write, agent } = lab();
+  it("topic pages are building pins: one listed line each (title alone) in a resident's and a fork's Pinned pages, never in the memory block; above 50 the newest 50 and a search line", async () => {
+    const { world, b, pix, ann, write, fork, agent } = lab();
     expect(topicIndexBlock(world, b.id)).toBe("");
-    const { id } = await write(pix.id, { title: "Desk image", body: "## State\nThe desk image has ffmpeg since 5b9eec4." , topicOf: b.id });
-    const mem = sessionMemory(world, agent(ann.id), b).memory;
-    expect(mem).toContain("## Topic pages");
-    expect(mem).toMatch(new RegExp(`"Desk image" \\(${id}, just now\\): The desk image has ffmpeg since 5b9eec4\\.`));
+    const { id } = await write(pix.id, { title: "Desk image", body: "## State\nThe desk image has ffmpeg since 5b9eec4.", topicOf: b.id });
+    expect(world.pins.where("docId = ?", [id]).map((p) => [p.scope, p.targetId, p.mode, p.seeded])).toEqual([["building", b.id, "listed", true]]);
+    const block = pinnedPagesBlock(world.skills.forAgent(ann.id));
+    expect(block).toContain(`- Desk image (${id}, building pin)`);
+    expect(sessionMemory(world, agent(ann.id), b).memory).not.toContain("## Topic pages");
+    // a rewrite keeps one pin and leaves the block (the cached system prompt) as it was
+    await write(pix.id, { title: "Desk image", body: "Rewritten.", topicOf: b.id });
+    expect(world.pins.where("docId = ?", [id])).toHaveLength(1);
+    expect(pinnedPagesBlock(world.skills.forAgent(ann.id))).toBe(block);
+    const { fork: f } = await fork("Anything");
+    expect(pinnedPagesBlock(world.skills.forAgent(f.forkOf!))).toContain(`- Desk image (${id}, building pin)`);
     for (let i = 0; i < 51; i++) await write(pix.id, { title: `Topic ${i}`, body: `gist ${i}`, topicOf: b.id });
-    const idx = topicIndexBlock(world, b.id);
-    expect(idx.split("\n").filter((l) => l.startsWith("- ")).length).toBe(50);
-    expect(idx).toContain("2 more: `search` type wiki for the rest");
+    const many = pinnedPagesBlock(world.skills.forAgent(ann.id));
+    expect(many.split("\n").filter((l) => / building pin\)$/.test(l)).length).toBe(50);
+    expect(many).toContain("- (2 older listed pages not shown: `search` finds them)");
+    expect(many).not.toContain(`(${id}, building pin)`); // the oldest gave way
+    expect(many).toContain("Topic 50 (");
   });
 });
 
@@ -108,9 +117,9 @@ describe("forks and memory", () => {
     expect(world.permissions.can(pix, "building.assign", b.id)).toBe(true);
   });
 
-  it("the fork memory block: the manager's wiki (cut at 3,000), the attached pages, the index if room, under 8,000; the manager's log outside", async () => {
-    const { world, b, pix, write, fork, agent } = lab();
-    await write(pix.id, { title: "How Mitchell likes things", body: "short answers. ".repeat(300) }); // 4,500 chars
+  it("the fork memory block: the attached pages under 8,000, a pointer to the pinned wiki and topic pages; the manager's log outside; the manager's wiki is a listed agent pin the fork can read", async () => {
+    const { world, b, pix, ann, write, fork, agent } = lab();
+    const wiki = (await write(pix.id, { title: "How Mitchell likes things", body: "short answers. ".repeat(300) })).id; // 4,500 chars
     const big = (await write(pix.id, { title: "The Bank", body: "B".repeat(4000), topicOf: b.id })).id;
     const small = (await write(pix.id, { title: "Wakes", body: "wakes are on main", topicOf: b.id })).id;
     await write(pix.id, { title: "Desk image", body: "ffmpeg is in the image", topicOf: b.id });
@@ -120,34 +129,33 @@ describe("forks and memory", () => {
     const [capped, log] = mem.split("\n## Pix's log");
     expect(capped.length).toBeLessThan(WIKI_TOTAL_CAP + 1500); // bodies under 8,000 plus headings and notes
     expect(capped).toContain("## What Pix knows");
-    expect(capped).toContain("cut at 3,000");
+    expect(capped).toContain('listed under "## Pinned pages"');
+    expect(capped).not.toContain("short answers."); // the manager's wiki is no longer copied in
     expect(capped).toContain("attached by your manager");
     expect(capped).toContain(`page is 4000 chars; \`read\` ${big} for the rest`);
     expect(capped).toContain("wakes are on main");
-    expect(capped).toContain('"Desk image"'); // the index fits
+    expect(capped).not.toContain("Desk image"); // no topic index: the pages are building pins
     expect(capped).toContain("You are a fork");
     expect(log).toContain("decided X");
-    // the fork's own (empty) wiki and log aren't shown; the resident block isn't either
     expect(mem).not.toContain("## What you know (your wiki)");
-    expect(memoryBlock(world, pix.id)).toContain("How Mitchell likes things");
+    // the manager's private page is an agent pin of the manager, so it is listed in the fork's (the manager's) block
+    expect(world.pins.where("docId = ?", [wiki]).map((p) => [p.scope, p.targetId, p.mode])).toEqual([["agent", pix.id, "listed"]]);
+    const block = pinnedPagesBlock(world.skills.forAgent(f.forkOf!));
+    expect(block).toContain(`- How Mitchell likes things (${wiki}, agent pin)`);
+    expect(block).toContain(`- Desk image (`);
+    expect((await world.verbs.read(agent(f.id), { id: wiki })).body).toContain("short answers.");
+    // a resident who isn't the manager gets no pin for its own page, and others still can't read a private page
+    const own = (await write(ann.id, { title: "Ann's notes", body: "mine" })).id;
+    expect(world.pins.where("docId = ?", [own])).toEqual([]);
+    await expect(world.verbs.read(agent(f.id), { id: own })).rejects.toThrow(/No document/);
   });
 
-  it("without attached pages a fork loads the 2 topic pages whose titles best match its assignment; a full block points to search", async () => {
+  it("without attached pages a fork gets no title-match guess: its memory block carries no page bodies", async () => {
     const { world, b, pix, write, fork, agent } = lab();
     await write(pix.id, { title: "Desk image and Fly", body: "image notes", topicOf: b.id });
-    await write(pix.id, { title: "The Bank accounting", body: "bank notes", topicOf: b.id });
-    await write(pix.id, { title: "Meetings", body: "meeting notes", topicOf: b.id });
     const { fork: f, assignmentId } = await fork("Rebuild the desk image");
     const mem = sessionMemory(world, agent(f.id), b, world.assignments.require(assignmentId)).memory;
-    const loaded = mem.split("## Topic pages for this work (best title match)")[1].split("\n## Topic pages (")[0];
-    expect(loaded.match(/^### .+ \(/gm)?.length).toBe(2);
-    expect(loaded.trim().startsWith("### Desk image and Fly")).toBe(true);
-    expect(loaded).not.toContain("### Meetings");
-    // with room used up, the index becomes a one-line pointer
-    await write(pix.id, { title: "Huge", body: "H".repeat(8000) });
-    for (let i = 0; i < 40; i++) await write(pix.id, { title: `Desk ${i}`, body: `${"image ".repeat(500)}`, topicOf: b.id });
-    const full = sessionMemory(world, agent(f.id), b, world.assignments.require(assignmentId)).memory;
-    expect(full).toContain("`search` type wiki to find them");
-    expect(full.split("\n## Pix's log")[0].length).toBeLessThan(WIKI_TOTAL_CAP + 1500);
+    expect(mem).not.toContain("Topic pages for this work");
+    expect(mem).not.toContain("image notes");
   });
 });

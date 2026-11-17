@@ -1,6 +1,6 @@
 /** Grant gr_jh0lu0w6yj step 1 (town hall mt_1u7mwyjrrz): meeting sessions run on the agent's full context. */
 import { describe, expect, it, vi } from "vitest";
-import { createBuilding, createResident, facilitateSystemPrompt, humanDecisionsBlock, workStateBlock, meetingContextBlock, oneOnOnePrompt, sessionMemory, summaryPrompt, updateBuilding } from "../src/index.ts";
+import { createBuilding, createResident, facilitateSystemPrompt, humanDecisionsBlock, workStateBlock, meetingContextBlock, oneOnOnePrompt, pinnedPagesBlock, sessionMemory, summaryPrompt, updateBuilding } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 vi.setConfig({ testTimeout: 60_000 }); // seeding a world is slow on a loaded desk
@@ -57,7 +57,7 @@ describe("meeting sessions load the full context", () => {
     expect(p).toContain("## Decisions from meetings with a human since the last standup\n(none)");
   });
 
-  it("a 1:1 facilitator (the manager's session) carries the building's topic index, and its prompt the decisions since the last 1:1", async () => {
+  it("a 1:1 facilitator (the manager's session) carries the building's topic pages as listed pins, and its prompt the decisions since the last 1:1", async () => {
     const { world, admin, b, pix, write, closeAt } = lab();
     const { id: tp } = await write(pix.id, { title: "Live checks", body: "GET /api/health for the commit.", topicOf: b.id });
     const prev = world.ops.openOneOnOne(admin, b.id);
@@ -67,8 +67,9 @@ describe("meeting sessions load the full context", () => {
     world.ops.meetingDecide(null, standup.id, [{ text: "Deck before forms", assigneeId: null, assignmentId: null }]);
     closeAt(standup.id, "2026-10-28T11:00:00.000Z");
     const oo = world.ops.openOneOnOne(admin, b.id);
-    const system = workStateBlock(pix, sessionMemory(world, pix, b));
-    expect(system).toContain(`"Live checks" (${tp}`);
+    // the manager's system prompt carries `## Pinned pages` (runtime manage.ts), the topic page listed in it by title
+    expect(pinnedPagesBlock(world.skills.forAgent(pix.id))).toContain(`- Live checks (${tp}, building pin)`);
+    expect(workStateBlock(pix, sessionMemory(world, pix, b))).not.toContain(`"Live checks" (${tp}`);
     const prompt = oneOnOnePrompt(oo, (id) => world.nameOf(id), humanDecisionsBlock(world, oo));
     expect(prompt).toContain(`${standup.id} standup 2026-10-28 11:00 UTC #1: Deck before forms`);
   });

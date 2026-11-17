@@ -102,13 +102,40 @@ describe("resolvePins / pinnedPagesBlock: pins in, one ## Pinned pages block out
       let full = 0;
       for (const e of entries) {
         const head = `### ${e.heading} (${e.doc.id}, ${e.scope} pin, always on)\n`;
-        const line = `- ${e.title} (${e.doc.id}, ${e.scope} pin): `;
+        const line = `- ${e.title} (${e.doc.id}, ${e.scope} pin)`;
         const shown = e.mode === "always" && block.includes(head);
         if (shown) full += head.length + e.text.length;
         expect(shown || block.includes(line)).toBe(true);
       }
       expect(full).toBeLessThanOrEqual(cap);
     }));
+  });
+
+  it("listed lines: at most `listedPerScope` per scope, the newest kept, the rest counted in one search line", () => {
+    fc.assert(fc.property(town, fc.integer({ min: 0, max: 4 }), ({ docs, pins, viewer }, k) => {
+      const entries = resolvePins(pins, docs, viewer);
+      const block = pinnedPagesBlock(entries, 0, k);
+      let dropped = 0;
+      for (const scope of ["town", "building", "agent"] as const) {
+        // cap 0: an always entry overflows into a listed line and is never dropped; listed ones keep the newest k
+        const inScope = entries.filter((e) => e.scope === scope);
+        const listed = inScope.filter((e) => e.mode === "listed");
+        const kept = new Set([...inScope.filter((e) => e.mode === "always"), ...listed.slice(Math.max(0, listed.length - k))]);
+        for (const e of inScope) expect(block.includes(`(${e.doc.id}, ${scope} pin)`)).toBe(kept.has(e));
+        dropped += Math.max(0, listed.length - k);
+      }
+      expect(block.includes("older listed page")).toBe(dropped > 0);
+    }));
+  });
+
+  it("examples: a wiki page is listed by its title alone, so a rewrite leaves the line as it was", () => {
+    const d = { ...doc(2, "wiki", "Status as of now."), title: "The Bank" };
+    const pin: PinRow = { id: "sp_2", docId: d.id, scope: "building", targetId: BUILDING, mode: "listed", pinnedBy: "system", byHuman: true, createdAt: d.createdAt };
+    const viewer: PinViewer = { agentId: AGENT, buildingId: BUILDING, canSee: () => true };
+    const block = pinnedPagesBlock(resolvePins([pin], new Map([[d.id, { doc: d, files: [] }]]), viewer));
+    const rewritten = pinnedPagesBlock(resolvePins([pin], new Map([[d.id, { doc: { ...d, body: "Other words." }, files: [] }]]), viewer));
+    expect(block).toContain(`- The Bank (${d.id}, building pin)\n`.trimEnd());
+    expect(rewritten).toBe(block);
   });
 
   it("examples: a skill shows by its SKILL.md name; files added after an agent's pin into others suspend it", () => {
