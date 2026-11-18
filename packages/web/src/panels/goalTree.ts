@@ -18,6 +18,17 @@ export function archivedLine(krs: Pick<TreeKr, "status" | "archivedAt">[]): stri
   return `✓ ${done} done${missed ? `, ${missed} missed` : ""}`;
 }
 
+/**
+ * The goal detail's "Key results" heading. It counts only what it names: open ones as "(2)", or "(2 open)" when
+ * archived ones also fold under it ("✓ 3 done" is their own line), and no count when none is open, so the heading
+ * never says 0 above a "3 done" line.
+ */
+export function krHeading(krs: Pick<TreeKr, "status" | "archivedAt">[]): string {
+  const open = krs.filter((k) => !isArchived(k)).length;
+  if (!open) return "Key results";
+  return `Key results (${open}${open < krs.length ? " open" : ""})`;
+}
+
 /** An open key result's due date is past (amber in the tree). `today` is YYYY-MM-DD. */
 export function pastDue(k: Pick<TreeKr, "due" | "status" | "archivedAt">, today: string): boolean {
   return !!k.due && !isArchived(k) && k.due < today;

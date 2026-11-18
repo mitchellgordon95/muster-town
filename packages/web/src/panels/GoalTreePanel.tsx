@@ -17,7 +17,7 @@ import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
-import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
+import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, krHeading, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
@@ -186,7 +186,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
       {proposals.length ? <Proposals root={root} list={proposals} me={me} onDone={onDone} here={node.id === ROOT_GOAL_ID ? null : node.text} /> : null}
-      <Section title={`Key results (${node.keyResults.filter((k) => !isArchived(k)).length})`}>
+      <Section title={krHeading(node.keyResults)}>
         {node.keyResults.length ? <KrLines krs={node.keyResults} cards focus={focusKr} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
           <button className="btn sm bad" onClick={() => setMissing({ k, archive: false })} title="A human marks it missed: it archives under this goal and a postmortem is queued">Missed</button>

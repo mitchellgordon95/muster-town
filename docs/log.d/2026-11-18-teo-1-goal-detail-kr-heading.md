@@ -1,0 +1,1 @@
+- Goal detail heading counts only open key results ("Key results (1 open)", or no count when none is open), so it never reads "(0)" above "✓ 3 done" (dc_1jzddih5xy).
