@@ -202,8 +202,8 @@ export function openNeed(world: World, entryId: string): Need | null {
  * The event that decides a target fired (asks.ts `retireAsks`): every open need on it is answered with that event's
  * text. `card`: the ask a human saw when they decided it, kept on the answer entry beside their words (decision 2 point 5).
  */
-export function settleNeeds(world: World, kind: AskTargetKind, id: string, reason: string, by: string | false, card: CardShown | null): Entry[] {
-  return openNeedsOn(world, kind, id).flatMap((n) => {
+export function settleNeeds(world: World, kind: AskTargetKind, id: string, reason: string, by: string | false, card: CardShown | null, only?: AskType): Entry[] {
+  return openNeedsOn(world, kind, id).filter((n) => !only || n.type === only).flatMap((n) => {
     const e = answerEntry(world, n.entry.id, by ? { kind: "user", id: by } : { kind: "system", id: "system" }, by ? "decided" : "settled", reason.slice(0, 1500), card ? { moved: { card }, body: cardText(card) } : {});
     return e ? [e] : [];
   });
