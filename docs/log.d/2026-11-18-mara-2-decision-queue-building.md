@@ -1,0 +1,1 @@
+- A meeting decision with `queueBuildingId` and no `assigneeId` now goes on that building's queue (its forking manager is the assignee); a building with no forkable queue is refused. Before, it was recorded with no assignment and the work was lost (1:1 mt_vdu3iqhasi decisions 1 and 2).
