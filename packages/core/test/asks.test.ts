@@ -288,4 +288,24 @@ describe("asks as a table (docs/legible-delegation.md §4)", () => {
     for (const [kind, id] of targets) expect(asksFor(world, { kind, id }).filter((a) => a.status === "open" || a.status === "deferred")).toEqual([]);
     for (const a of asked) expect(world.asks.require(a.askId)).toMatchObject({ status: "retired", retiredBy: expect.any(String) });
   }, 30_000);
+
+  it("a grant's or retainer's deciding event retires only its money asks: a credential or policy card on it stays live (dc_yvgkuk2mv1)", async () => {
+    const { world, admin, mei, fund } = await setup();
+    const g = fund(100_000, "Credential case");
+    const credential = { type: "credential" as const, title: "Issue a new deploy token", body: "CI's promote step gets 401.\nScope: redeploy only.\nIf you decline: every merge waits for a press.", branches: [{ label: "Token is set" }, { label: "Decline" }], recommendation: "Token is set" };
+    const money = await world.verbs.ask(mei, { type: "money", targetId: g.id, title: "Keep the credential case going", body: MONEY, branches: two, recommendation: "Continue" });
+    const cred = await world.verbs.ask(mei, { ...credential, targetId: g.id });
+    const policy = await world.verbs.ask(mei, { type: "policy", targetId: g.id, title: "Adopt the deploy rule", body: "Rule: CI deploys every green main.\nTwo merges waited a day.\nIf you adopt: CI deploys every green main.\nIf you keep it: a human presses redeploy.", branches: [{ label: "Adopt" }, { label: "Keep as is" }], recommendation: "Adopt" });
+    world.grantDesk.closeDone(mei, g.id, { note: "shipped" });
+    expect(world.asks.require(money.askId)).toMatchObject({ status: "retired" });
+    expect(world.asks.require(cred.askId)).toMatchObject({ status: "open" });
+    expect(world.asks.require(policy.askId)).toMatchObject({ status: "open" });
+    // the retainer's decision too
+    const t0 = Date.now();
+    const sc = (await world.verbs.schedule(mei, { title: "Sweep", description: "d", runsAt: new Date(t0 + H).toISOString(), repeat: { everyHours: 6, until: new Date(t0 + 30 * H).toISOString() }, tokensPerRun: 3_000 })).scheduleId as string;
+    const rcred = await world.verbs.ask(mei, { ...credential, title: "Issue the sweep's key", targetId: sc });
+    decideRetainer(world, admin, sc, { action: "approve", note: "" });
+    expect(world.asks.require(rcred.askId)).toMatchObject({ status: "open" });
+    expect(asksFor(world, { kind: "retainer", id: sc }).filter((a) => a.type === "money" && a.status === "open")).toEqual([]);
+  }, 30_000);
 });

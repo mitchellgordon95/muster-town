@@ -182,19 +182,21 @@ export function refuseMissingStructure(what: string, problems: string[]): void {
 
 /**
  * Retire every live ask on a target: its deciding event fired. `reason` is that event's text. Returns the asks retired.
+ * `only`: the event answers only the needs of that ask type (a grant's or retainer's decision answers its money need):
+ * a credential, policy or click card on the same target stays live until its own event or a human decides it (dc_yvgkuk2mv1).
  * `human`: a human's decision retired them (their user or avatar id when known): the Secretary runs after it (decision 10),
  * and the retire entry in each ask's history carries `by` = that id (queue health tells a human's decision from a moot retire).
  */
-export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string, human: string | boolean = false): Ask[] {
+export function retireAsks(world: World, kind: AskTargetKind, id: string, reason: string, human: string | boolean = false, only?: AskType): Ask[] {
   const at = nowIso();
-  const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}`, [kind, id], "ORDER BY createdAt, rowid").map((a) => {
+  const retired = world.asks.where(`targetKind = ? AND targetId = ? AND ${LIVE_ASK}${only ? " AND type = ?" : ""}`, only ? [kind, id, only] : [kind, id], "ORDER BY createdAt, rowid").map((a) => {
     const next = world.asks.upsert({ ...a, status: "retired", retiredBy: reason, updatedAt: at, history: [...a.history, { at, action: "retire", by: typeof human === "string" ? human : "system", note: reason }] });
     world.events.append({ type: "ask.retired", buildingId: a.buildingId, text: `Retired "${oneLine(a.title, 80)}": ${oneLine(reason, 160)}`, payload: { askId: a.id, targetKind: kind, targetId: id, reason, human: !!human } });
     return next;
   });
   // the need behind it is settled too; a human's decision keeps the card they saw on its answer entry (mt_t65exni4et decision 2 point 5)
   const shown = human ? retired.find((a) => a.sourceEntryId && openNeedsOn(world, kind, id).some((n) => n.entry.id === a.sourceEntryId)) ?? retired[0] : undefined;
-  settleNeeds(world, kind, id, reason, typeof human === "string" ? human : false, shown ? cardShown(shown) : null);
+  settleNeeds(world, kind, id, reason, typeof human === "string" ? human : false, shown ? cardShown(shown) : null, only);
   // a human's decision also lands on the threads of the asks the Secretary folded into these (1:1 mt_dwsxo7oms8 decision 2)
   if (typeof human === "string") for (const a of retired) askDecidedOnThread(world, a, human, reason, true);
   reopenDeferred(world, [id, ...retired.map((a) => a.id)], reason);
@@ -351,11 +353,12 @@ const GRANT_DECIDED: Record<string, true> = { "grant.funded": true, "grant.count
 /**
  * The grant's hook (`Grants.event`, every grant state change): a proposal writes its need (`needForProposal`), never a
  * card; funded, continued, adjusted, countered (it waits on the manager now), rejected, cut, closed, withdrawn or
- * stopping retires the live ask on it and settles its need with the event's text.
+ * stopping retires the live money asks on it and settles its money need with the event's text; a credential, policy,
+ * click, do or meeting ask on the grant is a need of its own and stays live (dc_yvgkuk2mv1: ak_tlets696sj retired unread).
  */
 export function onGrantEvent(world: World, g: Grant, e: Pick<Event, "type" | "text" | "payload"> & { agentId?: string | null }): void {
   if (e.type === "grant.proposed") needForProposal(world, g);
-  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text, humanBehind(world, e.agentId));
+  else if (GRANT_DECIDED[e.type] || (e.type === "grant.updated" && (e.payload as { stopping?: unknown }).stopping)) retireAsks(world, "grant", g.id, e.text, humanBehind(world, e.agentId), "money");
 }
 
 /**
