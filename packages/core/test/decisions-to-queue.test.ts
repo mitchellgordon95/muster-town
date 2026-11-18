@@ -32,6 +32,24 @@ describe("decisions naming a forking manager go to the building queue", () => {
     expect(notes.body).toContain("1. Fix the outbox → Forky queue (a fork of Pix)");
   });
 
+  it("a decision naming only a building queue (queueBuildingId, no assigneeId) goes on that queue", () => {
+    const { world, b, pix, meeting } = lab();
+    const m = meeting();
+    const d = world.ops.meetingDecide(null, m.id, [{ text: "Fix the outbox", assigneeId: null, assignmentId: null, queueBuildingId: b.id }]).decisions[0];
+    expect(d).toMatchObject({ assigneeId: pix.id, queueBuildingId: b.id });
+    expect(world.assignments.require(d.assignmentId!)).toMatchObject({ agentId: pix.id, queue: "building", buildingId: b.id, fromMeetingId: m.id });
+    expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([d.assignmentId]);
+  });
+
+  it("a queueBuildingId with no queue a fork can run is refused, and the batch changes nothing", () => {
+    const { world, b, meeting } = lab();
+    const m = meeting();
+    expect(() => world.ops.meetingDecide(null, m.id, [{ text: "Nowhere", assigneeId: null, assignmentId: null, queueBuildingId: "bl_nosuch" }])).toThrow(/no such building/);
+    updateBuilding(world, b.id, { managerAgentId: null });
+    expect(() => world.ops.meetingDecide(null, m.id, [{ text: "No manager", assigneeId: null, assignmentId: null, queueBuildingId: b.id }])).toThrow(/no building queue/);
+    expect(world.meetings.require(m.id).decisions).toEqual([]);
+  });
+
   it("amending a decision a fork is running amends it instead of refusing", () => {
     const { world, b, pix, meeting } = lab();
     const m = meeting();

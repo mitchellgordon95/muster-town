@@ -2,7 +2,7 @@ import { grantName, isGone, NOT_GONE, CreateMeetingInput, Meeting, REVIEW_DECK_I
 import { toolCallsSince } from "./meeting-tools.ts";
 import { countMemberAct } from "./access.ts";
 import { canDirect } from "./direct.ts";
-import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc } from "./domain.ts";
+import { applyDecision, createAssignment, createDoc, decisionQueue, managerAgentOf, queueLabel, sendMessage, setAssignmentStatus, updateDoc, visitorManagerRefusal } from "./domain.ts";
 import { AppError, badRequest, forbidden, notFound } from "./errors.ts";
 import { buildingRoleId, type Holder } from "./permissions.ts";
 import { notifyMentions } from "./mentions.ts";
@@ -540,6 +540,7 @@ function canFacilitate(world: World, actor: Agent, m: Meeting): boolean {
 
 /**
  * Record decisions; each with an assigneeId becomes an assignment (fromMeetingId set); a stopped assignee is resumed.
+ * A decision with only `queueBuildingId` goes on that building's queue (its forking manager is the assignee), or is refused.
  * A decision with `supersedes: n` amends this meeting's decision n instead of adding a second assignment: for the same
  * assignee its pending (or running) assignment is rewritten in place; otherwise its pending assignment is cancelled and
  * the new assignee (if any) gets a fresh one. The old decision stays in the record, marked `supersededBy`.
@@ -549,7 +550,7 @@ export function meetingDecide(world: World, actor: Agent | null, meetingId: stri
   return world.transaction(() => decideNow(world, actor, meetingId, decisions));
 }
 
-function decideNow(world: World, actor: Agent | null, meetingId: string, decisions: Meeting["decisions"]): Meeting {
+function decideNow(world: World, actor: Agent | null, meetingId: string, input: Meeting["decisions"]): Meeting {
   const m = world.meetings.require(meetingId, "meeting");
   if (actor && !canFacilitate(world, actor, m)) throw forbidden("meeting.facilitate", "Only the facilitator can record decisions.");
   // A human may press End while the facilitator is still listening; give the facilitator a short grace window to
@@ -557,6 +558,8 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
   const late = m.phase === "done" && !!m.endedAt && Date.now() - Date.parse(m.endedAt) <= DECIDE_GRACE_MS;
   if (m.phase === "cancelled" || (m.phase === "done" && !late)) throw new AppError("conflict", `Meeting is ${m.phase}; decisions can't be added.`);
   const by = actor ? world.holderOf(actor) : { kind: "system" as const, id: "system" };
+  // a decision naming only a building queue is work for that building: its manager is the assignee (a fork runs it)
+  const decisions = input.map((d) => (d.queueBuildingId && !d.assigneeId ? { ...d, assigneeId: queueManager(world, d.queueBuildingId) } : d));
   // validate every supersedes before touching anything, so a bad batch changes nothing
   const replaced = new Set<number>();
   for (const d of decisions) {
@@ -621,6 +624,22 @@ function decideNow(world: World, actor: Agent | null, meetingId: string, decisio
     if (notes) updateDoc(world, notes.id, { body: `${notes.body.trimEnd()}\n\n## Decisions recorded after close\n${made.map((d) => `- ${d.supersedes ? `(replaces decision ${d.supersedes}) ` : ""}${d.text}${d.assigneeId ? ` (→ ${decisionTarget(world, d)})` : ""}`).join("\n")}\n` });
   }
   return updated;
+}
+
+/**
+ * The assignee of a decision that names a building queue (`queueBuildingId`) and no assignee: the building's forking
+ * manager, so createAssignment puts it on that building's queue. Refused when the building has no queue a fork can run.
+ */
+function queueManager(world: World, buildingId: string): string {
+  const building = world.buildings.get(buildingId);
+  if (!building) throw badRequest(`queueBuildingId ${buildingId}: no such building.`);
+  const refusal = visitorManagerRefusal(world, building);
+  if (refusal) throw refusal;
+  const managerId = building.managerAgentId;
+  if (!managerId || decisionQueue(world, managerId)?.building.id !== building.id) {
+    throw badRequest(`queueBuildingId ${buildingId}: ${building.name} has no building queue a fork can run; name an assigneeId instead.`);
+  }
+  return managerId;
 }
 
 /** How long after a meeting closes the facilitator may still record decisions. */
