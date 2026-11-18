@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, exploreBlock, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
+import { buildingRoleId, createAssignment, createBuilding, exploreBlock, exploreOrder, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
 import { ruleBlock } from "../src/lanes.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -122,6 +122,31 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     const ev = world.events.list({ types: ["exploration.proposed"] });
     expect(ev).toHaveLength(1);
     expect(ev[0]!.payload).toMatchObject({ grantId: out.grantId, reservationId: a.reservationId });
+  });
+
+  it("a cap allowing one chunk a day rotates across buildings: least recently explored first, not rowid order (dc_q48pbvg0td)", () => {
+    const { world, admin, seed } = setup();
+    const other = createBuilding(world, { name: "Second lab", headcount: 20 }, seed.admin.id, { manager: {} });
+    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 100_000 });
+    const first = exploreOrder(world).find((b) => b.kind !== "town-hall")!.id;
+    const day = (n: number) => new Date(Date.UTC(2030, 0, 1 + n, 1));
+    const turn = (n: number) => {
+      const { started } = exploreTick(world, day(n));
+      expect(started).toHaveLength(1); // the cap allows one chunk a day
+      const a = started[0]!;
+      // the explorer spends its chunk, so the day's cap stays used after its reservation closes
+      world.sessions.upsert({
+        id: newId("se"), agentId: a.agentId, assignmentId: a.id, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+        sdkSessionId: null, output: 100_000, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: day(n).toISOString(), endedAt: day(n).toISOString(), funding: null, lane: "exploration", grantId: null,
+      });
+      world.assignments.patch(a.id, { status: "done" });
+      expect(exploreTick(world, new Date(day(n).getTime() + 60_000)).started).toHaveLength(0); // closes its reservation; the cap is used
+      return started[0]!.buildingId;
+    };
+    const turns = [turn(0), turn(1), turn(2)];
+    expect(new Set(turns.slice(0, 2))).toEqual(new Set([LAB, other.id]));
+    expect(turns[0]).toBe(first);
+    expect(turns[2]).toBe(turns[0]);
   });
 
 });

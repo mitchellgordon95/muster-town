@@ -141,13 +141,26 @@ export function askToFileOnce(world: World, key: string, id: string, agentId: st
 export type SubTimer = <T>(name: string, fn: () => T) => T;
 const untimed: SubTimer = (_name, fn) => fn();
 
-/** The runtime tick's explore step: close finished reservations, watch running explorers, then start at most one explorer per building. */
+/**
+ * The order the tick visits buildings: least recently explored first (its last reservation's openedAt), never-explored
+ * first of all, ties by rowid. A tight cap then rotates across buildings day by day instead of refusing the same last
+ * ones every day (finding dc_q48pbvg0td: Outreach and UI/UX got 0 while the gl_town cap filled on the first four).
+ */
+export function exploreOrder(world: World): Building[] {
+  const last = new Map((world.db.prepare("SELECT buildingId, MAX(openedAt) AS at FROM bank_reservations GROUP BY buildingId").all() as { buildingId: string; at: string }[]).map((r) => [r.buildingId, r.at]));
+  return world.buildings.all()
+    .map((b, i) => ({ b, i, at: last.get(b.id) ?? "" }))
+    .sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : x.i - y.i))
+    .map((x) => x.b);
+}
+
+/** The runtime tick's explore step: close finished reservations, watch running explorers, then start at most one explorer per building, least recently explored first. */
 export function exploreTick(world: World, now = new Date(), time: SubTimer = untimed): { started: Assignment[]; closed: BankReservation[] } {
   const closed = time("explore.close", () => closeReservations(world, now));
   time("explore.watch", () => watchExplorers(world));
   const started: Assignment[] = [];
   let free = time("explore.freeTokensAll", () => freeTokensAll(world, now));
-  for (const b of world.buildings.all()) {
+  for (const b of exploreOrder(world)) {
     if (time("explore.block", () => exploreBlock(world, b, now, free)) !== null) continue;
     started.push(time("explore.start", () => startExplorer(world, b, now)));
     free = time("explore.freeTokensAll", () => freeTokensAll(world, now)); // the new reservation claims its chunk
