@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
+import { archivedLine, buildingScope, krHeading, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
 import { BOX, deskTotal, fitView, layoutTree, revealBox, stepTree, zoomAt } from "../src/panels/goalCanvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
@@ -34,6 +34,11 @@ describe("the Town Hall goal editor (docs/goals.md, step 3)", () => {
     expect(archivedLine(pathTo(root, "gl_a").at(-1)!.keyResults)).toBe("✓ 1 done");
     expect(archivedLine([kr("x", "missed"), kr("y", "met"), kr("z", "on-track")])).toBe("✓ 1 done, 1 missed");
     expect(archivedLine([kr("z", "on-track")])).toBeNull();
+    // the detail's heading never says 0 above "✓ 3 done" (dc_1jzddih5xy)
+    expect(krHeading([kr("x", "met"), kr("y", "met"), kr("w", "met")])).toBe("Key results");
+    expect(krHeading([kr("z", "on-track"), kr("y", "met")])).toBe("Key results (1 open)");
+    expect(krHeading([kr("z", "on-track"), kr("w", "at-risk")])).toBe("Key results (2)");
+    expect(krHeading([])).toBe("Key results");
     expect(pastDue(kr("x", "on-track", "2026-10-01"), "2026-10-30")).toBe(true);
     expect(pastDue(kr("x", "met", "2026-10-01"), "2026-10-30")).toBe(false);
     expect(pastDue(kr("x", "on-track", "2026-11-01"), "2026-10-30")).toBe(false);
