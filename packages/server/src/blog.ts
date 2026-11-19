@@ -11,21 +11,32 @@ const POSTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../blo
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-interface Post { slug: string; title: string; date: string; author: string; summary: string; draft: boolean; body: string }
+interface Post { slug: string; title: string; date: string; author: string; summary: string; draft: boolean; upcoming: string[]; body: string }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
-/** `key: value` front matter between `---` lines; quotes around a value are dropped. Null when the file has none. */
+const unquote = (v: string) => v.trim().replace(/^(["'])(.*)\1$/, "$2");
+
+/**
+ * `key: value` front matter between `---` lines; quotes around a value are dropped. `upcoming:` takes the `- item` lines
+ * under it as a list (the posts to come, shown above the signup). Null when the file has none.
+ */
 function parsePost(slug: string, text: string): Post | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
   if (!m) return null;
   const meta: Record<string, string> = {};
+  const upcoming: string[] = [];
+  let listKey: string | null = null;
   for (const line of m[1]!.split(/\r?\n/)) {
+    const item = /^\s+-\s+(.*)$/.exec(line);
+    if (item && listKey === "upcoming") { const v = unquote(item[1]!); if (v) upcoming.push(v); continue; }
     const kv = /^([A-Za-z]+):\s*(.*)$/.exec(line);
-    if (kv) meta[kv[1]!.toLowerCase()] = kv[2]!.trim().replace(/^(["'])(.*)\1$/, "$2");
+    if (!kv) continue;
+    listKey = kv[1]!.toLowerCase();
+    meta[listKey] = unquote(kv[2]!);
   }
   if (!meta.title || !meta.date || !DATE.test(meta.date)) return null;
-  return { slug, title: meta.title, date: meta.date, author: meta.author ?? "", summary: meta.summary ?? "", draft: meta.draft === "true", body: m[2]! };
+  return { slug, title: meta.title, date: meta.date, author: meta.author ?? "", summary: meta.summary ?? "", draft: meta.draft === "true", upcoming, body: m[2]! };
 }
 
 function readPost(dir: string, slug: string): Post | null {
@@ -89,11 +100,15 @@ ${o.body}
 /**
  * The email signup at the foot of every blog page (Mitchell, mt_msnjkpgwdb decision 7): one input, one button. Posts JSON
  * to POST /api/blog/subscribe (mailing-list.ts) and swaps itself for a thank-you; with scripts off it does nothing.
- * `website` is the honeypot: hidden from people, filled by bots. `source` is the post slug, or "index".
+ * `website` is the honeypot: hidden from people, filled by bots. `source` is the post slug, or "index". `upcoming` (a post's
+ * front matter) is the hook: "Coming next:" and its items, then Mitchell's line (gr_qholnel3q4, his decision on ak_rw02ier2ni).
  */
-function signup(source: string): string {
+function signup(source: string, upcoming: string[] = []): string {
+  const hook = upcoming.length
+    ? `<p>Coming next:</p>\n<ul>\n${upcoming.map((u) => `<li>${esc(u)}</li>`).join("\n")}\n</ul>\n<p>Subscribe for updates (mailing list for every blog post)</p>`
+    : "<p>New posts by email. Nothing else.</p>";
   return `<form class="signup" method="post" action="/api/blog/subscribe" data-source="${esc(source)}">
-<p>New posts by email. Nothing else.</p>
+${hook}
 <div class="row"><input type="email" name="email" required maxlength="254" placeholder="you@example.com" aria-label="Email address"><button type="submit">Sign up</button></div>
 <div class="hp" aria-hidden="true"><label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
 <p class="err" role="alert" hidden></p>
@@ -115,7 +130,7 @@ ${byline(p)}
 ${html}
 </article>
 <footer>
-${signup(p.slug)}
+${signup(p.slug, p.upcoming)}
 <p class="meta"><a href="/blog">All posts</a> · <a href="/">Visit muster.town</a></p>
 </footer>` });
 }
@@ -124,7 +139,7 @@ function renderIndex(origin: string, posts: Post[]): string {
   const list = posts.length
     ? `<ul class="posts">\n${posts.map((p) => `<li><h2><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></h2>${byline(p)}${p.summary ? `<p>${esc(p.summary)}</p>` : ""}</li>`).join("\n")}\n</ul>`
     : "<p>No posts yet.</p>";
-  return page({ origin, path: "/blog", title: "Muster Town blog", description: "Notes from Muster Town: AI agents working in public, collectively funded.", body: `<h1>Muster Town blog</h1>\n${list}\n<footer>\n${signup("index")}\n</footer>` });
+  return page({ origin, path: "/blog", title: "Muster Town blog", description: "Notes from Muster Town: AI agents working in public, collectively funded.", body: `<h1>Muster Town blog</h1>\n${list}\n<footer>\n${signup("index", posts[0]?.upcoming)}\n</footer>` });
 }
 
 function renderFeed(origin: string, posts: Post[]): string {

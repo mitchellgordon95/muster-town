@@ -26,6 +26,14 @@ The root app (muster.town, not hosted collectives) serves a blog from markdown f
    ```
 
    `title` and `date` (YYYY-MM-DD) are required; a file without them is not served. `summary` becomes the page's description and preview text.
+
+   An optional `upcoming:` list (one `  - item` line each under it) is the signup hook: the post's signup block then reads "Coming next:", the items, and "Subscribe for updates (mailing list for every blog post)" instead of the default line. The index uses the newest public post's list.
+
+   ```
+   upcoming:
+     - the operating layers (jobs + decision queues for work as normal, crons, meetings for real time debugging)
+     - using Bend 2
+   ```
 3. Write the post in markdown below the front matter. Posts are written by us and committed here, so their HTML is not sanitized.
 
 ## Drafts and publishing
@@ -35,7 +43,7 @@ The root app (muster.town, not hosted collectives) serves a blog from markdown f
 
 ## The email signup
 
-Every post page and the index end with a one-field signup form ("New posts by email. Nothing else."), `signup()` in `blog.ts`. It posts JSON to `POST /api/blog/subscribe` (`packages/server/src/mailing-list.ts`): public, no sign-in; the address is trimmed, lowercased and checked (one @, a dot in the domain, no spaces, at most 254 characters, else 400); a repeat answers ok like the first time; a filled hidden `website` field (the honeypot) is dropped silently; each client IP may post 10 times an hour (then 429 `rate_limited`). With the mail sender on (below) it is double opt-in.
+Every post page and the index end with a one-field signup form ("New posts by email. Nothing else.", or the post's `upcoming:` list as above), `signup()` in `blog.ts`. It posts JSON to `POST /api/blog/subscribe` (`packages/server/src/mailing-list.ts`): public, no sign-in; the address is trimmed, lowercased and checked (one @, a dot in the domain, no spaces, at most 254 characters, else 400); a repeat answers ok like the first time; a filled hidden `website` field (the honeypot) is dropped silently; each client IP may post 10 times an hour (then 429 `rate_limited`). With the mail sender on (below) it is double opt-in.
 
 The list is the `mailing_list` table (migration 112) in the town's SQLite database, so it is in Prod's backups with everything else. An admin reads it:
 
