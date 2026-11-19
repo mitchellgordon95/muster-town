@@ -7,7 +7,7 @@
  * `gate` is a grant's step gate: a step report whose forecast is within the ceiling (`fileForecast`, grant-forecast.ts;
  * past it the forecast is recorded on the grant and its events, and asks nothing: the hold at the ceiling is the only gate). Nothing here asks or decides anything.
  */
-import { grantName, NoticeKind, Notice, type Grant, type KeyResult } from "@muster-town/schema";
+import { grantName, NoticeKind, Notice, type Assignment, type Grant, type KeyResult } from "@muster-town/schema";
 import { badRequest } from "./errors.ts";
 import { utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
@@ -45,6 +45,27 @@ export function listNotices(world: World, f: { building?: string; goal?: string;
 const noticesOn = (world: World, kind: Notice["kind"], id: string) => world.notices.where("kind = ? AND refs LIKE ?", [kind, `%"${id}"%`]);
 
 const goalOfBuilding = (world: World, id: string | null) => (id ? world.buildings.get(id)?.goalId ?? null : null);
+
+/**
+ * A human's own request (a pocket job: a flag, a meeting, a tell) whose last report just closed it: the close is their
+ * notice, "Done: <the assignment's title>", with the report and the human's source behind it. A fork and a manager can't
+ * `tell` a human, so this is the only way they hear it landed. One caller per way a report is settled: by the town at
+ * submit (`submit_report`, verdict stop) or by its manager's review (approve or stop). Files nothing while the job still
+ * has open work (another assignment of the same source, a parked continuation, a flag not yet decided), and nothing
+ * when this report already has a shipped notice. Null when nothing was filed.
+ */
+export function requestDone(world: World, report: { id: string; title: string }, a: Pick<Assignment, "title" | "buildingId" | "lane" | "sourceId" | "grantId">): Notice | null {
+  if (a.lane !== "directed" || !a.sourceId || a.grantId) return null;
+  if (noticesOn(world, "shipped", report.id).length) return null;
+  const open = world.assignments.count("buildingId = ? AND sourceId = ? AND lane = 'directed' AND status IN ('pending', 'active')", [a.buildingId, a.sourceId]);
+  if (open) return null;
+  const source = world.docs.get(a.sourceId);
+  if (source?.type === "flag" && source.decision === "pending") return null;
+  return fileNotice(world, {
+    kind: "shipped", buildingId: a.buildingId, goalId: goalOfBuilding(world, a.buildingId), title: oneLine(`Done: ${a.title}`, 200),
+    body: oneLine(report.title), picture: null, refs: [report.id, a.sourceId],
+  });
+}
 
 /** What a grant shipped, as its manager says it when closing (`close_grant` shipped): a title, what a human would see, an optional picture. */
 export interface ShippedItem { title: string; whatYoudSee: string; picture?: string | null }
