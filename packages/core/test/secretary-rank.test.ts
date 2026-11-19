@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, requestCaptain, reviewDeck, townRoleId } from "../src/index.ts";
-import { rankedAsks } from "../src/asks.ts";
+import { askGoalDepth, rankedAsks } from "../src/asks.ts";
+import { RANK_RULE } from "../src/secretary.ts";
 import { creditBank, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -17,11 +18,11 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   const sec = world.secretary.ensure()!;
-  const propose = (objective: string, askTokens = 300_000) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
-    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens,
+  const propose = (objective: string, askTokens = 300_000, goalId?: string) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
+    keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens, ...(goalId ? { goalId } : {}),
   }).id);
   // the manager renders each proposal's need as its ask (1:1 mt_t65exni4et)
-  const proposal = (objective: string, askTokens = 300_000) => { const g = propose(objective, askTokens); renderNeeds(world, manager.id); return g; };
+  const proposal = (objective: string, askTokens = 300_000, goalId?: string) => { const g = propose(objective, askTokens, goalId); renderNeeds(world, manager.id); return g; };
   const askOn = (id: string) => world.asks.first("targetId = ? AND status IN ('open', 'deferred')", [id])!;
   return { ...s, world, manager, sec, proposal, askOn };
 }
@@ -93,5 +94,33 @@ describe("the Secretary's ranking run", () => {
     const s = world.secretary.ensureRankSchedule()!;
     expect(s.description).toMatch(/You never fund, continue, cut, approve or decide anything yourself/);
     expect(s.description).toMatch(/It funds nothing\./);
+  });
+
+  it("ranks a new ask when it is filed, by how near its goal is to the root; the read carries the root goal and each ask's goal path (1:1 mt_mjxwzdhhd7)", async () => {
+    const { world, sec, admin, proposal, askOn } = setup();
+    const labGoal = world.goalTree.attachmentOf(LAB);
+    const deeper = world.goalTree.create(admin, { parentId: labGoal, text: "The banner reads in one glance" });
+    const d1 = askOn(proposal("A deep banner", 300_000, deeper.id).id);
+    expect(world.asks.require(d1.id).rank).toBe(1);
+    const s1 = askOn(proposal("A shallow banner").id);
+    expect(askGoalDepth(world, s1)).toBe(askGoalDepth(world, d1) - 1);
+    // nearer the root: above the deeper ask, at once, with no Secretary run
+    expect(rankedAsks(world).map((a) => [a.id, a.rank])).toEqual([[s1.id, 1], [d1.id, 2]]);
+    // as near as an older ask: below it (age breaks the tie)
+    const s2 = askOn(proposal("A second shallow banner").id);
+    expect(rankedAsks(world).map((a) => a.id)).toEqual([s1.id, s2.id, d1.id]);
+    // the Secretary's order stands; a new ask goes below the last ask it ranked whose goal is as near the root
+    await world.verbs.rank(sec, { order: [d1.id, s2.id, s1.id] });
+    const s3 = askOn(proposal("A third shallow banner").id);
+    expect(rankedAsks(world).map((a) => [a.id, a.rank])).toEqual([[d1.id, 1], [s2.id, 2], [s1.id, 3], [s3.id, 4]]);
+    const d2 = askOn(proposal("A second deep banner", 300_000, deeper.id).id);
+    expect(rankedAsks(world).map((a) => a.id)).toEqual([d1.id, s2.id, s1.id, s3.id, d2.id]);
+    // the read opens with the root goal and gives each ask its goal path and depth
+    const read = await world.verbs.rank(sec, {}) as { inputs: string };
+    expect(read.inputs).toContain(`The root goal of this collective (rank by how directly each ask moves it, then the rest of the tree): ${world.goalTree.root().text.replace(/\s+/g, " ").trim().slice(0, 50)}`);
+    expect(read.inputs).toContain(`Goal (depth ${askGoalDepth(world, d2)}): ${world.goalTree.pathText(deeper.id, 50)}`);
+    // the rule is the goal tree, in every prompt the Secretary ranks by: the daily run, the decision run and the 1:1
+    expect(RANK_RULE).toMatch(/goal tree.*first, how directly the ask moves the root goal; second, how much it moves the rest of the tree; third, how much funded work it holds.*last, age/);
+    expect(world.secretary.ensureRankSchedule()!.description).toContain(RANK_RULE);
   });
 });

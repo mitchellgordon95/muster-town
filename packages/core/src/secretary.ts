@@ -24,7 +24,7 @@
  * readable for old cards; nothing writes one any more.
  */
 import { grantName, isGone, NOT_GONE, Agent, type Ask, type Assignment, type DigestRunView, type Doc, type Grant, type Meeting, type Notice, type Schedule } from "@muster-town/schema";
-import { deferAsk, entriesSinceCard, foldAsk, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
+import { askGoalDepth, askGoalId, deferAsk, entriesSinceCard, foldAsk, overtakeAsk, rankedAsks, rewriteAsk, setRank } from "./asks.ts";
 import { askOnOwnNeed, renderNeed, secondCardRefused } from "./ask-verb.ts";
 import { createAssignment, createDoc, managerAgentOf, sendMessage, updateDoc } from "./domain.ts";
 import { openNeed, overdueNeeds, type Need } from "./needs.ts";
@@ -65,10 +65,17 @@ const DIRECTION = "Keep the humans' Town Hall in-tray in order: rank the open as
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 const oneLine = (s: string, max = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
 
+/**
+ * The ranking rule (Mitchell, 1:1 mt_mjxwzdhhd7): the collective's own goal tree, never a ledger line. Every ranking
+ * (the daily run, the decision run, the 1:1) orders by it; a new ask's default rank at filing (`rankOnFiling`) is its
+ * first clause in code.
+ */
+export const RANK_RULE = "this collective's own goal tree (the read opens with its root goal; each ask shows its goal path and depth, 0 = the root): first, how directly the ask moves the root goal; second, how much it moves the rest of the tree; third, how much funded work it holds (work parked on it, money a building waits on, a click that unblocks another ask); last, age (older first). The do asks go last (a do asks a human to leave the queue and act in the world). A new ask arrives with a default rank from code (below every ask whose goal is as near the root or nearer): judge it by the whole rule.";
+
 /** The daily run's instructions: the schedule's description, so each fired assignment carries them. */
 const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs/legible-delegation.md §6). You never fund, continue, cut, approve or decide anything yourself: the humans decide every ask; you put them in order and say why.
 1. Call \`rank\` with no arguments. It lists every open ask (id, type, building, how long it has waited, body, branches, recommendation, the records it came from) and the humans' recent money decisions with their notes. If it says there is nothing to rank, submit_report at once (verdict stop) and end.
-2. Order every open ask, most urgent first: what work is parked on, then money a building waits on, then a click that unblocks another ask, then the rest by age, and the do asks last (a do asks a human to leave the queue and act in the world). The humans' past fund and reject decisions, with their notes, are how they weigh: follow them. A do ask that a button or an agent could carry out should not be in the queue: \`tell\` its building (its bl_ id) to withdraw it and say what would do it instead.
+2. Order every open ask, most urgent first, by ${RANK_RULE} The humans' past fund and reject decisions, with their notes, show how they weigh within that order: follow them. A do ask that a button or an agent could carry out should not be in the queue: \`tell\` its building (its bl_ id) to withdraw it and say what would do it instead.
 3. Defer an ask that is moot until another ask or event resolves (e.g. the continue on a grant whose captain-accept click is still open waits behind that click): an entry of \`defer\` with the blocking ask's id. A deferred ask stays listed; it is not decided.
 4. Write the money slate over the money asks: fund these now (why), hold these until X (what it waits for, and why), skip these (the overlap, or why). Every money ask goes in exactly one of the three; cite only ask ids from the list. In each why, name a grant by its title (the short name on its ask), never by its objective.
 5. Call \`rank\` once with \`order\` (every open ask id), \`slate\` and \`defer\`. It sets the ranks, files the slate as a notice beside the asks and parks the deferred asks. It funds nothing.
@@ -99,7 +106,7 @@ const DECISION_RUN_PROMPT = `A human just decided on the Town Hall queue (you ar
 1. Call \`rank\` with no arguments. It lists the open asks and, under "Decided since the last ranking", each human decision with the open asks it may have overtaken (candidates: the same item, or an ask whose words name the decided item).
 2. Settle what the decision made moot: for each candidate, and any other open ask the decision plainly answers, judge whether a human would still have anything to decide on it. If not, close it with \`rank\` \`overtaken\`: its ask id, \`because\` (the decided ask or item by id, or the 1:1 and their words) and a one-sentence \`note\`. Only click and policy asks close this way; money, credentials, meetings and requests a human must carry out stay theirs (the tool refuses them): rank or defer those. When in doubt, leave it open.
 3. A card marked THREAD MOVED was written before its job's thread got new entries: read what was added and, if the card no longer says what a human needs to decide, write it again with \`rank\` \`rewrite\` (its words only, diff-first from the human's last decision).
-4. Re-rank what is left: \`order\` (every open ask id, most urgent first) and \`defer\` for an ask that is now moot until another resolves. File a \`slate\` only if the decision changed the money picture. One \`rank\` call can carry overtaken, order, defer and slate together.
+4. Re-rank what is left by ${RANK_RULE} Give \`order\` (every open ask id, most urgent first) and \`defer\` for an ask that is now moot until another resolves. File a \`slate\` only if the decision changed the money picture. One \`rank\` call can carry overtaken, order, defer and slate together.
 5. Send back what the decision implies for a building when the building's own decision message would not say it (it hears "cut", not why, or not that a second ask of its went with it): \`tell\` the building (to: its bl_ id) in one or two plain lines. Skip this when there is nothing to add.
 6. submit_report (verdict stop): what you closed as overtaken and why, how many asks you ranked, whom you told. Nothing else: don't read other docs, don't write pages.`;
 
@@ -111,7 +118,7 @@ const PATTERN_RUN_PROMPT = `Write this week's pattern note for the humans (you a
 4. submit_report (verdict stop): the notice id. Nothing else.`;
 
 /** The Secretary's 1:1 prompt (it answers 1:1s like the Planner; manage.ts appends it to the brief). */
-const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's Town Hall in-tray in order: you rank the open asks, write the money slate and propose rules for the policy ledger. In this 1:1, answer from the asks as they are now (the \`rank\` tool with no arguments lists them, ranked, with the humans' recent money decisions). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the Town Hall in-tray does it. You never fund, stop or approve anything yourself. The item open on the human's screen is shown with each of their lines; 'this', 'it' or 'this one' means that item; act_in_1on1 on it only with their words.`;
+const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's Town Hall in-tray in order: you rank the open asks, write the money slate and propose rules for the policy ledger. You rank by ${RANK_RULE} In this 1:1, answer from the asks as they are now (the \`rank\` tool with no arguments lists them, ranked, with the humans' recent money decisions). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the Town Hall in-tray does it. You never fund, stop or approve anything yourself. The item open on the human's screen is shown with each of their lines; 'this', 'it' or 'this one' means that item; act_in_1on1 on it only with their words.`;
 
 export class Secretary {
   constructor(private world: World) {}
@@ -444,6 +451,7 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
   const list = asks.map((a, i) => [
     `${i + 1}. ${a.id} · ${a.type} · ${name(a.buildingId)} · waiting since ${whenFor(a.createdAt, "agent", now)}${a.rank ? ` · now #${a.rank}` : ""}${a.status === "deferred" ? ` · deferred until ${a.deferredUntil}` : ""}${a.targetId ? ` · about ${a.targetId}` : ""}${moved(a)}`,
     `   ${oneLine(a.title, 200)}`,
+    `   Goal (depth ${askGoalDepth(world, a)}): ${world.goalTree.pathText(askGoalId(world, a), 50)}`,
     a.body.trim() ? `   ${oneLine(a.body, 400)}` : "",
     `   Branches: ${a.branches.map((b) => b.label).join(" / ") || "(none)"}${a.recommendation ? ` · Recommended: ${oneLine(a.recommendation, 200)}` : ""}`,
     a.sourceEntryId ? `   Raised on: ${a.sourceEntryId} (its thread lists every word filed on it)` : "",
@@ -454,7 +462,9 @@ export function rankInputsText(world: World, now: Date = new Date()): string {
     .map(({ g, h }) => `- ${utcDate(h.at)} ${world.nameOf(h.byId)} ${MONEY_ACTIONS[h.action]} ${g.id} (${name(g.buildingId)}, "${grantName(g)}")${h.tokens ? ` at ${fmt(h.tokens)}` : ""}${h.note.trim() ? `: "${oneLine(h.note, 200)}"` : ""}`);
   const decided = world.asks.where("status = 'decided'", [], "ORDER BY decidedAt DESC LIMIT 15").map((a) => `- ${a.id} (${a.type}) "${oneLine(a.title, 100)}": ${oneLine(a.decision ?? "", 120)}`);
   const since = decidedSinceRanking(world, asks);
+  const root = world.goalTree.root();
   return needs + [
+    `The root goal of this collective (rank by how directly each ask moves it, then the rest of the tree): ${oneLine(root.text, 400)}`,
     `Open asks (${asks.length}), in their current order:\n\n${list.join("\n\n")}`,
     `Decided since the last ranking, and the open asks each may have overtaken (candidates: judge each; close one only when a human has nothing left to decide on it):\n${since.join("\n") || "(none)"}`,
     `The humans' recent money decisions (newest first):\n${decisions.join("\n") || "(none yet)"}`,
