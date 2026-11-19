@@ -22,7 +22,6 @@ import { requireOpenEntry, reviewEntry } from "../review-entry.ts";
 import { passUpWithAsk } from "../ask-verb.ts";
 import { linkPostmortem } from "../postmortems.ts";
 import { needForRequest } from "../asks.ts";
-import { fileNotice } from "../notices.ts";
 import { describeWait, validateWait } from "../waits.ts";
 import type { World } from "../world.ts";
 import { TOWN_HALL_ID } from "../world/layout.ts";
@@ -396,10 +395,8 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     }) : null;
     const settled = !!entryJob && !forHumans && loop.acts.includes("acknowledge");
     if (settled) applyDecision(world, doc.id, "approve", `Settled by the town: ${loop.why}.`, { kind: "system", id: "system" });
-    // a human's own request that ended with nobody left to tell them: the close is their notice (shipped), with the report behind it
-    if (settled && loop.acts.includes("close-job") && current && jobOf(current).rule === "pocket") {
-      fileNotice(world, { kind: "shipped", buildingId: bid, goalId: building?.goalId ?? null, title: `Done: ${current.title}`.slice(0, 200), body: oneLine(input.title, 400), picture: null, refs: [doc.id, ...(current.sourceId ? [current.sourceId] : [])] });
-    }
+    // a human's own request this report closed: applyDecision files their "Done" notice (requestDone, notices.ts), the same
+    // one a manager's approve or stop files when the report reached the in-tray instead
     // the job's row follows its work: a chunk or a pocket whose last assignment just reported closes
     if (entryJob) refreshJob(world, entryJob);
     const stepNote = nextStep ?` The grant's next step ("${nextStep.title}", ${nextStep.id}) is queued by itself.` : "";

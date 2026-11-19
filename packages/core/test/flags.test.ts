@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyDecision, createDoc, intrayCount, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
+import { applyDecision, buildingQueue, createDoc, forkManager, intrayCount, setAssignmentStatus, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
+import { listNotices } from "../src/notices.ts";
 import { buildingRoleId } from "../src/permissions.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
@@ -88,6 +89,50 @@ describe("plant a flag", () => {
     expect(world.snapshot().flags).toHaveLength(1);
     applyDecision(world, flag.id, "approve", "handled", world.holderOf(admin));
     expect(world.snapshot().flags).toHaveLength(0);
+  });
+});
+
+/** A flag's finished work tells its human "Done" however its last report is settled: by the town, or by the manager's review. */
+describe("a flag's Done notice", () => {
+  async function delegated(title: string) {
+    const s = seededWorld();
+    const manager = s.by("Mei");
+    s.world.ops.updateBuilding(s.admin, LAB, { managerAgentId: manager.id, headcount: 10 });
+    s.world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
+    const flag = s.world.ops.plantFlag(s.admin, LAB, title);
+    await tickUntil(s.world, s.world.verbs.go(manager, { to: `flag:${flag.id}` }));
+    const { assignmentId } = await s.world.verbs.review(manager, { docId: flag.id, decision: "continue", note: "" });
+    const a = buildingQueue(s.world, LAB).find((q) => q.id === assignmentId)!;
+    const { fork } = forkManager(s.world, LAB, a.id);
+    setAssignmentStatus(s.world, a.id, "active");
+    return { ...s, manager, flag, a, fork: s.world.agents.require(fork.id) };
+  }
+  const done = (world: import("../src/world.ts").World) => listNotices(world, { kind: "shipped" }).filter((n) => n.title.startsWith("Done: "));
+
+  it("a report that reaches the manager (it asks something): the manager's approve files one Done notice with the flag behind it; a second approve files none", async () => {
+    const { world, manager, flag, a, fork } = await delegated("Move the Secretary north");
+    const r = await world.verbs.submit_report(fork, { title: "Secretary moved 2 north", body: "## What I did\nMoved it.\n## Findings\nLive at (71,7).\n## What I need from you\nPass the new spot to Mitchell.", verdict: "stop" });
+    expect(r.decision).toBe("pending");
+    expect(done(world)).toEqual([]);
+    await world.verbs.review(manager, { docId: r.id, decision: "approve", note: "" });
+    expect(done(world).map((n) => [n.title, n.body, n.refs, n.buildingId])).toEqual([[`Done: ${a.title}`, "Secretary moved 2 north", [r.id, flag.id], LAB]]);
+    applyDecision(world, r.id, "approve", "again", world.holderOf(manager));
+    expect(done(world)).toHaveLength(1);
+  });
+
+  it("the town settles a report that asks nothing: one Done notice, as before", async () => {
+    const { world, flag, fork } = await delegated("Fix the banner typo");
+    // the manager gave this work, so its report reaches the manager even without a need; settle it by the code path's own call
+    const r = await world.verbs.submit_report(fork, { title: "Typo fixed", body: "## What I did\nFixed.\n## Findings\nLive.\n## What I need from you\nNothing needed.", verdict: "stop" });
+    applyDecision(world, r.id, "approve", "Settled by the town.", { kind: "system", id: "system" });
+    expect(done(world).map((n) => n.refs)).toEqual([[r.id, flag.id]]);
+  });
+
+  it("a report that is not the last (a parked continuation still open) files nothing on approve", async () => {
+    const { world, manager, fork } = await delegated("Check the board loads");
+    const r = await world.verbs.submit_report(fork, { title: "Parked on deploy", body: "## What I did\nPushed.\n## Findings\nWaiting.\n## What I need from you\nPass it on to Mitchell when live.", verdict: "continue", resumeWhen: { after: new Date(Date.now() + 3_600_000).toISOString() }, next: "check live" });
+    await world.verbs.review(manager, { docId: r.id, decision: "approve", note: "" });
+    expect(done(world)).toEqual([]);
   });
 });
 

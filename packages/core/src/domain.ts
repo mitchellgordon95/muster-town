@@ -6,6 +6,7 @@ import { DIRECTED, meetingHadHuman, resolveLane, type Lane } from "./lanes.ts";
 import type { Holder } from "./permissions.ts";
 import { humanOrigin, meetingOrigin, sourceOrigin } from "./origin.ts";
 import { describeWait } from "./waits.ts";
+import { requestDone } from "./notices.ts";
 import { extractSection, firstLine, newId, nowIso, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 import type { BlockedBuilding } from "./grants.ts";
@@ -187,6 +188,9 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
   // the one loop: the decision is the answer to the report's entry on its job's thread (the id the back-fill would give it)
   answerEntry(world, `en_${docId}`, decider, decision, note, { id: `en_ev${decided.id}` });
   let assignment: Assignment | null = null;
+  // a human's own request whose last report this settles (by the town at submit, or its manager's approve / stop): their Done notice
+  const told = () => { const done = world.assignments.first("reportId = ?", [docId]); if (done) requestDone(world, doc, done); };
+  if (decision === "approve") told();
   if (!author || decision === "approve") return { doc, assignment };
   // grant B: the next plan step this report queued by itself (submit_report) waits on the review: stop and redirect cancel it
   if (decision === "stop" || decision === "redirect") {
@@ -197,6 +201,7 @@ export function applyDecision(world: World, docId: string, decision: ReviewDecis
     if (author.currentAssignmentId) world.agents.patch(author.id, { currentAssignmentId: null });
     // a gone author stays gone: stop would be the first step of a revive (docs/invariants/agent-lifecycle.md)
     if (!isGone(author)) world.setStatus(author.id, "stopped", `${author.name} was stopped after review`);
+    told();
     return { doc, assignment };
   }
   // P2: a parked report (its author queued its own continuation with `resumeWhen`). Approve leaves it parked (it
