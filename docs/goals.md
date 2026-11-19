@@ -257,7 +257,7 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 
 - **Planning map**: loses goal display and editing, and loses drag placement too: the map is drawn from the tree (§ "The map is the tree"). Selecting a building shows **Attached to: [goal] · Change…** (admins), its budget and its stats.
 - **Building Goals tab**: a read-only view of the building's subtree(s), with "Edit at the Town Hall →" and a **Propose a key result** form for the manager. The KR editor, Mark met/missed and Delete move to the editor.
-- **Objectives become goals.** `set_objective` goes. `GET /api/buildings/:id/objectives` returns the subtree in the old shape for one release.
+- **Objectives become goals.** **Done** (grant gr_h4m0lyhb1f step 1): migration 124 writes any objective with no goal row as a goal under its building's attachment, then drops the `objectives` table. `set_objective`, `GET/POST /api/buildings/:id/objectives` and `PATCH/DELETE /api/objectives/:id` are gone (404), and the building Goals tab lists the key results in the building's subtree with no objective grouping and no KPI label. `key_results.objectiveId` is a dead column until step 2 of that grant drops it.
 - **`buildings.goal`** stays as the building's one-line **Purpose** (door, prompts).
 - **Bank pools and the per-building exploration allowance go**: done (how-work-gets-done.md build step 1, as_1nuoiauxlw; see "Free tokens and the optional exploration cap").
 - **Untouched**: grants, checkpoints, human review of grants, member funding (it becomes a grant-scoped stream in step 7), lanes' gate logic and the stoplight.

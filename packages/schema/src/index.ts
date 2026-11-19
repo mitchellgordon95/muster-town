@@ -1872,30 +1872,9 @@ export const DecideGoalProposalInput = z.object({
   text: z.string().trim().min(1).max(300).optional(), howToCheck: z.string().trim().min(1).max(300).optional(), due: Due.optional(),
 });
 export type DecideGoalProposalInput = z.input<typeof DecideGoalProposalInput>;
-/** The town KPIs objectives move (docs/goal-directed-budgets.md "Objectives and KPIs"). */
+/** The town KPIs (docs/goal-directed-budgets.md "KPIs"). */
 export const KpiKey = z.enum(["fund", "join", "trust"]);
 export type KpiKey = z.infer<typeof KpiKey>;
-/** At most 3 objectives per building and 4 key results per objective (2 each is the hint, not enforced). */
-export const MAX_OBJECTIVES = 3;
-export const MAX_KEY_RESULTS_PER_OBJECTIVE = 4;
-/**
- * An objective of a building goal: one sentence, a quarter horizon (e.g. "2026-Q4"), and the town KPI it moves. Key
- * results hang off it. Written like key results: a human with `building.manage` or the building's own manager agent.
- */
-export const Objective = z.object({
-  id: Id,
-  buildingId: Id,
-  position: z.number().int(),
-  text: z.string().min(1).max(300),
-  horizon: z.string().min(1).max(20),
-  /** the town KPI it moves (null while drafting) */
-  kpiId: Id.nullable().default(null),
-  createdBy: Id.nullable().default(null),
-  editedBy: Id.nullable().default(null),
-  sourceDocIds: z.array(Id).default([]),
-  updatedAt: Iso,
-});
-export type Objective = z.infer<typeof Objective>;
 /** A standing town indicator (never met or missed); its value is computed live from town data. */
 export const Kpi = z.object({
   id: Id,
@@ -2230,23 +2209,9 @@ export const CreateGrantInput = z.object({
 export const CreateKeyResultInput = z.object({
   text: z.string().trim().min(1).max(300), howToCheck: z.string().trim().min(1).max(300),
   sourceDocIds: z.array(Id).max(10).default([]).describe("the meeting notes or reports it comes from"),
-  objectiveId: Id.nullable().optional().describe("the objective of this building it serves (at most 4 key results each)"),
   due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("the date it is due (YYYY-MM-DD)"),
 });
 export type CreateKeyResultInput = z.input<typeof CreateKeyResultInput>;
-/** POST /api/buildings/:id/objectives: an objective of the building goal (at most 3). `horizon` defaults to the current quarter. */
-export const CreateObjectiveInput = z.object({
-  text: z.string().trim().min(1).max(300), horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional(),
-  kpi: KpiKey.nullable().optional().describe("the town KPI it moves"),
-  sourceDocIds: z.array(Id).max(10).default([]),
-});
-export type CreateObjectiveInput = z.input<typeof CreateObjectiveInput>;
-/** PATCH /api/objectives/:id */
-export const UpdateObjectiveInput = z.object({
-  text: z.string().trim().min(1).max(300).optional(), horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional(),
-  kpi: KpiKey.nullable().optional(), sourceDocIds: z.array(Id).max(10).optional(), position: z.number().int().optional(),
-});
-export type UpdateObjectiveInput = z.input<typeof UpdateObjectiveInput>;
 export type CreateGrantInput = z.input<typeof CreateGrantInput>;
 /** POST /api/buildings/:id/grants as a request: a title is required going forward (core's `create` derives one for older callers). */
 export const CreateGrantRequest = CreateGrantInput.extend({ title: GrantTitle });
@@ -2381,14 +2346,6 @@ export const VerbInputs = {
     grantId: Id.describe("a proposed or countered grant of my building"),
     note: z.string().trim().min(1).max(2000).describe("why you withdraw it: kept on the grant and sent to the humans who saw the proposal"),
   }),
-  set_objective: z.object({
-    buildingId: Id.optional().describe("defaults to your building"),
-    id: Id.optional().describe("an objective to edit; leave it out to add one (at most 3 per building)"),
-    text: z.string().trim().min(1).max(300).optional().describe("one sentence: what the building will achieve this quarter (required to add one)"),
-    kpi: KpiKey.optional().describe("the town KPI it moves: fund, join or trust (required to add one)"),
-    horizon: z.string().trim().regex(/^\d{4}-Q[1-4]$/).optional().describe("a quarter, e.g. 2026-Q4 (default: this quarter)"),
-    sourceDocIds: z.array(Id).max(10).optional().describe("the meeting notes or report it comes from (required to add one)"),
-  }),
   propose_goal: z.object({
     action: z.enum(["add-goal", "edit", "move", "retire", "promote"]).describe("add-goal (parentId, text), edit (targetId, text), move (targetId, parentId), retire (targetId; parentId = the sibling its open key results move to), promote (targetId = a key result that is really a standing goal)"),
     targetId: Id.optional().describe("the goal (or, for move and promote, key result) it changes"),
@@ -2489,7 +2446,6 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
   ask: "(manager) Ask the humans the one thing only they can settle (money, permission, a credential, a rule, a meeting): a card in their decision queue with its branches and your recommendation. It is one entry on a job's thread, and their decision comes back to you on that thread. This replaces a rollup's Needs: file it when the need appears, one ask per decision. One need, one ask: a second ask on a need already asked fails with an error naming the open ask; its words go on the thread. To change your own building's card, `ask` again with its askId and the whole card (title, body, recommendation); to take it back, askId with withdraw: true and a note (nothing is ever deleted). To pass up an item already in your in-tray use `review` with `ask`; for a real-world act use `request_human`.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Say what shipped in `shipped` (what a human can now see or do): each item is a notice for the humans. There is no rollup. A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
-  set_objective: "(manager) Write an objective of my building's goal, or edit one (id): one sentence for this quarter, the town KPI it moves (fund, join or trust), the horizon (default this quarter) and the meeting notes or report it comes from. At most 3 per building. Only a human deletes one.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
   withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. It goes on your building's thread as an entry, and the town files its need: you write its ask with `ask` (targetId the gp_ id, type policy: say the change; its branches Accept / Edit and accept / Cut are fixed). A human with goals.edit there (an admin or the goal's captain) decides it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
@@ -2835,8 +2791,6 @@ export const UpdateKeyResultInput = z.object({
   howToCheck: z.string().trim().min(1).max(300).optional(),
   /** replaces the list; only with a words edit */
   sourceDocIds: z.array(Id).max(10).optional(),
-  /** move it under an objective of its building (null = back to Unsorted) */
-  objectiveId: Id.nullable().optional(),
   /** the date it is due (YYYY-MM-DD) */
   due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });

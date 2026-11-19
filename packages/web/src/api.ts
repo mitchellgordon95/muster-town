@@ -5,7 +5,6 @@
 import type { z } from "zod";
 import type {
   ReviewDeck, DigestCard, DigestRunView, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
-  CreateObjectiveInput, UpdateObjectiveInput, Objective, KpiKey,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, LedgerCutoff, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinInput, PinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
@@ -480,10 +479,6 @@ export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notice
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
-/** An objective of a building goal with the KPI it moves and its key results (core's ObjectiveView). */
-export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName?: string | null; editedByName?: string | null };
-/** GET /api/buildings/:id/objectives: the objectives with their key results, then the key results under none. */
-export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
 export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number; homePage2: number; homePage3: number; homeSkip: number; homeOpen: number; homeTile: number }
 /** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
@@ -534,8 +529,6 @@ export interface Board {
   goal: string;
   /** the goal's key results, each with the live grant on it (null = open for exploration) */
   keyResults: GoalKeyResult[];
-  /** the same key results grouped under the goal's objectives, then the ones under none */
-  objectives: ObjectiveTree;
   /** "blocked: no key results to work toward", or null */
   blocked: string | null;
   /** green / yellow / red with the one-line reason; null for the Town Hall */
@@ -637,14 +630,6 @@ export interface Api {
   updateKeyResult(id: string, input: In<typeof UpdateKeyResultInput>): Promise<KeyResult>;
   /** DELETE /api/key-results/:id (409 while a draft, open or live grant names it) */
   deleteKeyResult(id: string): Promise<void>;
-  /** GET /api/buildings/:id/objectives */
-  objectives(buildingId: string): Promise<ObjectiveTree>;
-  /** POST /api/buildings/:id/objectives (a human with building.manage; at most 3) */
-  createObjective(buildingId: string, input: In<typeof CreateObjectiveInput>): Promise<Objective>;
-  /** PATCH /api/objectives/:id */
-  updateObjective(id: string, input: In<typeof UpdateObjectiveInput>): Promise<Objective>;
-  /** DELETE /api/objectives/:id (409 while key results hang off it) */
-  deleteObjective(id: string): Promise<void>;
   /** GET /api/join-funnel: the public join funnel counts */
   joinFunnel(): Promise<JoinFunnelView>;
   engagement(): Promise<EngagementView>;
@@ -918,7 +903,7 @@ class HttpApi implements Api {
   async events(q: EventQuery) { return unwrap<Event[]>(await this.get(`/api/events${qs(q)}`), "events"); }
   async board(id: string, limit = 30) {
     const r = await this.get<Partial<Board>>(`/api/buildings/${id}/board${qs({ limit })}`);
-    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], objectives: r.objectives ?? { objectives: [], unsorted: r.keyResults ?? [] }, blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { spentTodayTokens: 0, freeTokens: 0, cap: null } };
+    return { docs: r.docs ?? [], goal: r.goal ?? "", keyResults: r.keyResults ?? [], blocked: r.blocked ?? null, stoplight: r.stoplight ?? null, grants: r.grants ?? [], proposals: r.proposals ?? [], exploration: r.exploration ?? { spentTodayTokens: 0, freeTokens: 0, cap: null } };
   }
   async cabinet(id: string, q: CabinetQuery = {}) {
     const r = await this.get<Partial<Cabinet>>(`/api/buildings/${id}/cabinet${qs({ limit: 30, ...q })}`);
@@ -975,10 +960,6 @@ class HttpApi implements Api {
   }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { return unwrap<KeyResult>(await this.call("PATCH", `/api/key-results/${id}`, i), "keyResult"); }
   async deleteKeyResult(id: string) { await this.call("DELETE", `/api/key-results/${id}`); }
-  objectives(buildingId: string) { return this.get<ObjectiveTree>(`/api/buildings/${buildingId}/objectives`); }
-  async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { return unwrap<Objective>(await this.post(`/api/buildings/${buildingId}/objectives`, i), "objective"); }
-  async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { return unwrap<Objective>(await this.call("PATCH", `/api/objectives/${id}`, i), "objective"); }
-  async deleteObjective(id: string) { await this.call("DELETE", `/api/objectives/${id}`); }
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   engagement() { return this.get<EngagementView>("/api/engagement"); }
   healthStats() { return this.get<TownHealthView>("/api/health-stats"); }
