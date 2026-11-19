@@ -1,4 +1,5 @@
 import type { BankCredit, BankDebit, UsageEntry } from "@muster-town/schema";
+import type { DayLanes, SplitLane } from "./finance-split.ts";
 
 const DAY_MS = 86_400_000;
 /** How many UTC days the Balance tab's "Day by day" chart covers (today included). */
@@ -14,6 +15,14 @@ export interface FinanceDailyRow {
   credited: number;
   /** `used` by the debit's building id; the values sum to `used` */
   byBuilding: Record<string, number>;
+  /**
+   * session spend that day by lane (gr_3ougmyubdm, kr_sw61dw3a04), adj. tokens as `sessionTokens` books them, lanes as
+   * finance-split.ts groups them; sums to `sessionsTokens`. Sessions are not Bank debits: `sessionsTokens` can differ
+   * from `used` (usage nothing funds, overshoot), so the chart splits each bar by these shares.
+   */
+  byLane: Record<SplitLane, number>;
+  /** Σ that day's sessions (adj. tokens) */
+  sessionsTokens: number;
 }
 
 /**
@@ -39,7 +48,12 @@ export interface FinanceDaily {
 }
 
 /** `dailyCheck`: Σ rows' used = usedBank − usedBefore (the Bank's used since the window start), and each row's buildings sum to its used. */
-export interface FinanceDailyCheck { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; identity: string }
+export interface FinanceDailyCheck {
+  ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number;
+  /** Σ rows (Σ byLane − sessionsTokens): each day's lanes sum to its session spend, within rounding */
+  laneDiff: number;
+  identity: string;
+}
 
 export interface FinanceDailyInputs {
   debits: Pick<BankDebit, "buildingId" | "tokens" | "createdAt">[];
@@ -50,7 +64,10 @@ export interface FinanceDailyInputs {
   /** FinanceSummary.usedBank and usedDonations: the totals the rows are checked against */
   usedBank: number;
   usedDonations: number;
+  /** session spend per UTC day by lane (finance-split.ts `byDay`); a day not in it is all zeros */
+  lanesByDay?: Map<string, DayLanes>;
 }
+const NO_LANES = (): Record<SplitLane, number> => ({ grant: 0, exploration: 0, directed: 0, retainer: 0, manager: 0, other: 0 });
 
 const dayOf = (iso: string): string => iso.slice(0, 10);
 
@@ -64,7 +81,9 @@ export function financeDaily(inp: FinanceDailyInputs, now = new Date(), days = F
   const rows: FinanceDailyRow[] = [];
   const index = new Map<string, FinanceDailyRow>();
   for (let t = start; t <= today; t += DAY_MS) {
-    const row: FinanceDailyRow = { day: dayOf(new Date(t).toISOString()), used: 0, credited: 0, byBuilding: {} };
+    const day = dayOf(new Date(t).toISOString());
+    const lanes = inp.lanesByDay?.get(day);
+    const row: FinanceDailyRow = { day, used: 0, credited: 0, byBuilding: {}, byLane: lanes ? { ...lanes.byLane } : NO_LANES(), sessionsTokens: lanes?.sessionsTokens ?? 0 };
     rows.push(row);
     index.set(row.day, row);
   }
@@ -92,10 +111,14 @@ export function financeDaily(inp: FinanceDailyInputs, now = new Date(), days = F
     .sort((a, b) => b.tokens - a.tokens || a.id.localeCompare(b.id));
   const rowsUsed = rows.reduce((s, r) => s + r.used, 0);
   const buildingDiff = rows.reduce((s, r) => s + Object.values(r.byBuilding).reduce((a, b) => a + b, 0) - r.used, 0);
+  const laneDiff = rows.reduce((s, r) => s + Object.values(r.byLane).reduce((a, b) => a + b, 0) - r.sessionsTokens, 0);
   const usedSinceStart = inp.usedBank - usedBefore;
   const diff = rowsUsed - usedSinceStart;
   return {
     daily: { days: rows.length, from, to, rows, buildings, usedBefore, undatedUsed: inp.usedDonations, usageLedgerInWindow },
-    dailyCheck: { ok: diff === 0 && buildingDiff === 0, diff, rowsUsed, usedSinceStart, buildingDiff, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used" },
+    dailyCheck: {
+      ok: diff === 0 && buildingDiff === 0 && Math.abs(laneDiff) <= Math.max(1, rows.length * 3), diff, rowsUsed, usedSinceStart, buildingDiff, laneDiff,
+      identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend",
+    },
   };
 }
