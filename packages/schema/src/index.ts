@@ -963,8 +963,6 @@ export const Assignment = z.object({
   lane: SpendLane.default("directed"),
   /** lane grant: the funded grant it draws on */
   grantId: Id.nullable().default(null),
-  /** the goal key result it works toward: lane grant = its grant's (null on the manager's checkpoint assignment); exploration = the one it names */
-  keyResultId: Id.nullable().default(null),
   /** lane exploration without a key result: the goal gap it investigates (one sentence) */
   gap: z.string().max(300).nullable().default(null),
   /** lane directed: the human-authored source it traces to (meeting, doc or tell id); null for work a human created directly */
@@ -996,7 +994,7 @@ export type Assignment = z.infer<typeof Assignment>;
  */
 export interface AssignmentCard {
   id: string; title: string; description: string; status: Assignment["status"];
-  lane: Assignment["lane"]; grantId: string | null; keyResultId: string | null; gap: string | null; sourceId: string | null;
+  lane: Assignment["lane"]; grantId: string | null; gap: string | null; sourceId: string | null;
   agentId: string; agentName: string | null; buildingId: string; buildingName: string | null;
   reportId: string | null; fromReportId: string | null; fromMeetingId: string | null; fromAssignmentId: string | null; chainId: string | null;
   heldReason: string | null; createdAt: string; updatedAt: string;
@@ -1049,7 +1047,6 @@ export const Schedule = z.object({
   paused: z.boolean().default(false),
   lane: SpendLane.nullable().default(null),
   grantId: Id.nullable().default(null),
-  keyResultId: Id.nullable().default(null),
   gap: z.string().nullable().default(null),
   sourceId: Id.nullable().default(null),
   pages: z.array(Id).max(3).default([]),
@@ -1414,8 +1411,6 @@ export const Grant = z.object({
   buildingId: Id,
   /** the goal it is filed against (null only on grants from before migration 069 whose building had no goal) */
   goalId: Id.nullable().default(null),
-  /** its first key result (all of them: `GrantView.keyResults`); null only on grants from before migration 032 */
-  keyResultId: Id.nullable().default(null),
   /** its short name (migration 105, `GrantTitle`): what names it on asks, events, the slate, deck slides and rows; back-filled from the objective */
   title: z.string().default(""),
   objective: z.string().min(1).max(300),
@@ -1647,7 +1642,7 @@ export interface GoalFunding {
  * owner is the viewer, nothing else) and whether the viewer may decide it (an admin anywhere; a goal's owner on grants
  * and goal proposals in their subtree).
  */
-export interface IntrayRoute { goalId: string; ownerId: string; ownerName: string; mine: boolean; canDecide: boolean }
+export interface IntrayRoute { goalId: string; /** the goal's words: a grant shows under its goal (gr_h4m0lyhb1f step 3) */ goalText?: string; ownerId: string; ownerName: string; mine: boolean; canDecide: boolean }
 /**
  * One group of a digest card's "Decisions needed" (core digestDecisions; Mitchell, 1:1 mt_i50xwu4z2t: "can we do the
  * same thing for the decisions that need me?"): a heading by the kind of yes/no (Money, Go / no-go, Questions in words,
@@ -1716,7 +1711,7 @@ export interface FunderSessionLine {
   tokens: number;
   assignmentId: string | null; title: string;
   buildingId: string | null; buildingName: string | null;
-  goalId: string | null; keyResultId: string | null; keyResultText: string | null;
+  goalId: string | null; grantId: string | null; grantName: string | null;
   reportId: string | null; reportTitle: string | null;
   /** the funder's input it ran on (literal); null for a pro rata line */
   inputId: string | null;
@@ -1753,8 +1748,8 @@ export interface FunderWeek {
 export interface SpendByLane { grant: number; exploration: number; directed: number; none: number }
 /**
  * GET /api/goals/:id/spend (docs/goals.md "Spend tab", build step 4): the subtree's spend over a window, read from
- * session rows only (no Bank read or write). A session belongs to a goal by its lane: grant → its grant's key result's
- * goal; a named key result → that key result's goal; anything else → its building's attachment.
+ * session rows only (no Bank read or write). A session belongs to a goal by its grant: grant → the grant's goal;
+ * anything else → its building's attachment.
  */
 export interface GoalSpend {
   goalId: string; days: number; from: string; to: string;
@@ -1763,7 +1758,7 @@ export interface GoalSpend {
   series: { start: string; tokens: number; byLane: SpendByLane }[];
   seriesUnit: "day" | "week";
   byBuilding: { id: string; name: string; tokens: number; sessions: number; byLane: SpendByLane }[];
-  byKeyResult: { id: string; text: string; goalId: string; status: string; tokens: number; sessions: number }[];
+  byGrant: { id: string; title: string; goalId: string; status: string; tokens: number; sessions: number }[];
   /** the subtree's key results marked met or missed inside the window */
   results: { id: string; text: string; status: "met" | "missed"; at: string }[];
   /** visitors at desks in the subtree's buildings now. What they spend is NOT tracked (a visitor runs on its own client; Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or self-report), so it is in none of the figures above */
@@ -1771,7 +1766,7 @@ export interface GoalSpend {
 }
 /** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
 export interface QueueCard {
-  id: string; title: string; lane: string; grantId: string | null; keyResultId: string | null;
+  id: string; title: string; lane: string; grantId: string | null;
   agentId: string; agentName: string; status: string; createdAt: string; updatedAt: string;
   /** Held: why the scheduler isn't starting it ("waits for a redeploy with 02f1bbe", "grant at checkpoint") */
   heldReason: string | null;
@@ -2043,7 +2038,7 @@ export function grantStepLines(g: Pick<GrantView, "steps" | "stepStates">): stri
   return g.steps.map((st, i) => { const w = grantStepWord(g.stepStates?.[i]); return `${i + 1}. ${st.title}${w ? ` · ${w}` : ""}`; }).join("\n");
 }
 export const GrantView = Grant.extend({
-  keyResult: KeyResult.nullable(), keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
+  keyResults: z.array(KeyResult).default([]), spentTokens: z.number().int().nonnegative(), spentCounts: TokenCounts.optional(),
   fundedByName: z.string().nullable().optional(), fundedWithLabel: z.string().nullable().optional(),
   /** a funded grant's hold point (spent ≥ it → checkpoint): its ceiling, grantTokens (docs/legible-delegation.md §7.3); null otherwise */
   holdAtTokens: z.number().int().nonnegative().nullable().optional(),

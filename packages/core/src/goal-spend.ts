@@ -1,4 +1,4 @@
-import { ROOT_GOAL_ID, isGone, type AgentStatus, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
+import { ROOT_GOAL_ID, grantName, isGone, type AgentStatus, type Assignment, type Building, type Grant, type GoalSpend, type KeyResult, type Session, type SpendByLane } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { funderWeights } from "./funders.ts";
 import type { World } from "./world.ts";
@@ -8,19 +8,18 @@ import type { World } from "./world.ts";
  * sessions table only. Nothing here reads or writes the Bank's ledgers: each session is priced the way GET
  * /api/finance/spend prices it (what the Bank booked, `sessionTokens`), so the two views agree.
  *
- * A session belongs to a goal by its lane: `grant` → the grant's key result's goal; a session whose assignment names a
- * key result (exploration, directed) → that key result's goal; anything else (a gap, directed work with no key result,
- * a manager's session with no assignment) → its building's attachment.
+ * A session belongs to a goal by its grant: a grant's session → the grant's goal; anything else (exploration, directed
+ * work, a manager's session with no assignment) → its building's attachment.
  */
 export interface GoalSpendInputs {
   /** the goal and every goal under it (retired ones too: their past spend stays theirs) */
   subtree: Set<string>;
   sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "startedAt" | "endedAt">[];
-  assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "keyResultId" | "lane">[];
+  assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "lane">[];
   /** `kind` and `status` only count the visitors at desks in the subtree (`visitors`): a visitor's spend is unknown to the town */
   agents: { id: string; buildingId: string | null; homeBuildingId?: string | null; kind?: string; status?: string }[];
   buildings: Pick<Building, "id" | "name" | "goalId">[];
-  grants: Pick<Grant, "id" | "keyResultId" | "buildingId">[];
+  grants: Pick<Grant, "id" | "goalId" | "buildingId" | "title" | "objective" | "status">[];
   keyResults: Pick<KeyResult, "id" | "text" | "goalId" | "status" | "updatedAt">[];
   /** the root's id: a building with no attachment hangs there */
   rootId: string;
@@ -42,10 +41,9 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
   const agents = new Map(inp.agents.map((a) => [a.id, a]));
   const buildings = new Map(inp.buildings.map((b) => [b.id, b]));
   const grants = new Map(inp.grants.map((g) => [g.id, g]));
-  const krs = new Map(inp.keyResults.map((k) => [k.id, k]));
   const byBuilding = new Map<string, GoalSpend["byBuilding"][number]>();
-  const byKr = new Map<string, GoalSpend["byKeyResult"][number]>();
-  const out: GoalSpend = { goalId, days, from: new Date(from).toISOString(), to: now.toISOString(), total: 0, sessions: 0, byLane: lanes(), series, seriesUnit: unit, byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
+  const byGrant = new Map<string, GoalSpend["byGrant"][number]>();
+  const out: GoalSpend = { goalId, days, from: new Date(from).toISOString(), to: now.toISOString(), total: 0, sessions: 0, byLane: lanes(), series, seriesUnit: unit, byBuilding: [], byGrant: [], results: [], visitors: 0 };
   // visitors at desks under the goal: their sessions run outside the town, so nothing below books them; the view says so instead of guessing
   const attachmentOf = (b: Pick<Building, "goalId">) => b.goalId ?? inp.rootId;
   for (const a of inp.agents) {
@@ -59,12 +57,10 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
     const a = s.assignmentId ? assignments.get(s.assignmentId) : undefined;
     const grantId = s.grantId ?? a?.grantId ?? null;
     const g = grantId ? grants.get(grantId) : undefined;
-    const krId = g?.keyResultId ?? a?.keyResultId ?? null;
-    const kr = krId ? krs.get(krId) : undefined;
     const agent = agents.get(s.agentId);
     const buildingId = a?.buildingId ?? g?.buildingId ?? agent?.homeBuildingId ?? agent?.buildingId ?? null;
     const b = buildingId ? buildings.get(buildingId) : undefined;
-    const node = kr?.goalId ?? b?.goalId ?? (b ? inp.rootId : null);
+    const node = g?.goalId ?? b?.goalId ?? (b ? inp.rootId : null);
     if (!node || !inp.subtree.has(node)) continue;
     const weight = inp.weights ? inp.weights.get(s.id) ?? 0 : 1;
     if (!weight) continue;
@@ -78,14 +74,14 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
       if (!row) byBuilding.set(b.id, row = { id: b.id, name: b.name, tokens: 0, sessions: 0, byLane: lanes() });
       row.tokens += tokens; row.sessions++; row.byLane[lane] += tokens;
     }
-    if (kr) {
-      let row = byKr.get(kr.id);
-      if (!row) byKr.set(kr.id, row = { id: kr.id, text: kr.text, goalId: kr.goalId!, status: kr.status, tokens: 0, sessions: 0 });
+    if (g) {
+      let row = byGrant.get(g.id);
+      if (!row) byGrant.set(g.id, row = { id: g.id, title: grantName(g), goalId: node, status: g.status, tokens: 0, sessions: 0 });
       row.tokens += tokens; row.sessions++;
     }
   }
   out.byBuilding = [...byBuilding.values()].sort((x, y) => y.tokens - x.tokens);
-  out.byKeyResult = [...byKr.values()].sort((x, y) => y.tokens - x.tokens);
+  out.byGrant = [...byGrant.values()].sort((x, y) => y.tokens - x.tokens);
   out.results = inp.keyResults
     .filter((k) => (k.status === "met" || k.status === "missed") && k.goalId && inp.subtree.has(k.goalId) && Date.parse(k.updatedAt) > from && Date.parse(k.updatedAt) <= to)
     .map((k) => ({ id: k.id, text: k.text, status: k.status as "met" | "missed", at: k.updatedAt }))

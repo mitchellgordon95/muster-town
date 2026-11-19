@@ -1,4 +1,4 @@
-import type { BankInput, FunderSessionLine, FunderStreamLine, FunderWeek, Session } from "@muster-town/schema";
+import { grantName, type BankInput, type FunderSessionLine, type FunderStreamLine, type FunderWeek, type Session } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import type { World } from "./world.ts";
 
@@ -76,14 +76,12 @@ function line(world: World, s: Session, tokens: number, inputId: string | null):
   const agent = world.agents.get(s.agentId);
   const buildingId = asg?.buildingId ?? agent?.homeBuildingId ?? agent?.buildingId ?? null;
   const grant = (s.grantId ?? asg?.grantId) ? world.grants.get((s.grantId ?? asg?.grantId)!) : undefined;
-  const krId = grant?.keyResultId ?? asg?.keyResultId ?? null;
-  const kr = krId ? world.keyResults.get(krId) : undefined;
   const reportId = s.reportId ?? asg?.reportId ?? null;
   return {
     sessionId: s.id, at: at(s), purpose: s.purpose, tokens: Math.round(tokens), assignmentId: asg?.id ?? null,
     title: asg?.title ?? `${agent?.name ?? s.agentId}: ${PURPOSE[s.purpose] ?? s.purpose}`,
     buildingId, buildingName: buildingId ? world.buildings.get(buildingId)?.name ?? buildingId : null,
-    goalId: buildingId ? world.streams.nodeOf(asg, buildingId) : null, keyResultId: kr?.id ?? null, keyResultText: kr?.text ?? null,
+    goalId: buildingId ? world.streams.nodeOf(asg, buildingId) : null, grantId: grant?.id ?? null, grantName: grant ? grantName(grant) : null,
     reportId, reportTitle: reportId ? world.docs.get(reportId)?.title ?? null : null, inputId,
   };
 }

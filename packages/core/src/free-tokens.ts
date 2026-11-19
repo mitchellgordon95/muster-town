@@ -95,7 +95,7 @@ const byOrder = (a: Claim, b: Claim) => ORDER[a.kind] - ORDER[b.kind] || a.at.lo
 
 /** The goal a grant's work sits on (its `goalId`, else its building's attachment): where its claim is paid from. */
 export function grantGoalOf(world: World, g: { buildingId: string; id: string }): string {
-  return world.streams.nodeOf({ buildingId: g.buildingId, grantId: g.id, keyResultId: null }, g.buildingId);
+  return world.streams.nodeOf({ buildingId: g.buildingId, grantId: g.id }, g.buildingId);
 }
 
 /** Every claim in the town: live grants' remaining, open proposals' asks, open reservations (`except`: leave that grant's claim out). */

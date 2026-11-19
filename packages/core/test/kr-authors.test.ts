@@ -21,7 +21,7 @@ describe("managers write key results through their grants (docs/how-work-gets-do
   it("the manager's grant carries its KRs; the manager edits them; residents, met/missed and deletes stay refused", async () => {
     const { world, mei, noor, admin, notes } = setup();
     const r = await world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KR], objective: "Spend on the banner", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000, findingsDocIds: [notes.id] });
-    const kr = world.keyResults.require(world.grants.require(r.grantId).keyResultId!);
+    const kr = world.keyResults.require(world.grantDesk.keyResultsOf(r.grantId)[0]!.id);
     expect(kr).toMatchObject({ grantId: r.grantId, createdBy: mei.id, editedBy: null, status: "open", text: KR.text });
     await expect(world.verbs.propose_grant(noor, { title: "A test grant proposal", keyResults: [KR], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 })).rejects.toThrow();
     world.grantDesk.updateKeyResult(mei, kr.id, { howToCheck: "Open the banner, Usage line" });

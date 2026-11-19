@@ -113,7 +113,7 @@ function evidenceLines(e: CheckpointEvidence): string {
 function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds; met on close as done, missed on a stop
-  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const krs = g.keyResults;
   const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "open" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
   const testing = [...g.testingPlan.map((t) => t.howToCheck), ...krs.map((k) => k.howToCheck)].join(" · ");
   const base = { itemId: g.id, buildingId: g.buildingId, grantId: g.id, history: grantHistoryLine(world, g, now) };
@@ -162,7 +162,7 @@ function stoppedSlide(world: World, g: GrantView): Draft | null {
   if (!s) return null;
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   const who = world.nameOf(s.byId);
-  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const krs = g.keyResults;
   const money = s.closed
     ? `Spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} adjusted tokens granted; ${s.returnedTo === "pool" ? `${fmt(s.unspentTokens)} unspent returned to the Bank as free tokens` : `the unspent ${fmt(s.unspentTokens)} stay on ${g.fundedWithLabel ?? g.fundedWith ?? "the funder's input"}`}.`
     : `Stopping: its forks are wrapping up (spent ${fmt(s.spentTokens)} of ${fmt(s.grantTokens)} so far); it closes as stopped when no session runs on it.`;

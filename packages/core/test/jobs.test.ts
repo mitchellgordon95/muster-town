@@ -176,7 +176,7 @@ describe("submit_report writes the entry; budget rules replace the lanes (plan d
     expect(jobOf(step)).toEqual({ id: `jb_${g.id}`, rule: "ceiling", pocketRef: g.id });
     world.grants.patch(g.id, { status: "checkpoint" });
     expect(ruleBlock(world, step)).toMatchObject({ kind: "grant", grantId: g.id, reason: "held: grant at checkpoint" });
-    const ex = { ...step, id: "as_ex", grantId: null, keyResultId: null, lane: "exploration" as const, chainId: "as_ex", gap: "g", reservationId: null };
+    const ex = { ...step, id: "as_ex", grantId: null, lane: "exploration" as const, chainId: "as_ex", gap: "g", reservationId: null };
     expect(jobOf(ex)).toEqual({ id: "jb_as_ex", rule: "chunk", pocketRef: null });
     const cap = { goalId: "gl_x", tokensPerDay: 1, spentTodayTokens: 5 };
     const desk = world.grantDesk;

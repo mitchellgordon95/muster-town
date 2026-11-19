@@ -267,8 +267,8 @@ export function decisionWakes(world: World, decided: Event): StepFiveWake[] {
       agentId: to.id, createdBy: { kind: "system", id: "system" }, front: true, fromMeetingId: m.id, origin: a.origin,
       // the decision's own lane fields when it names a lane, else the amended assignment's
       laneOverride: d.lane
-        ? { lane: d.lane as Assignment["lane"], grantId: (d.grantId as string) ?? null, keyResultId: (d.keyResultId as string) ?? null, gap: (d.gap as string) ?? null, sourceId: (d.sourceId as string) ?? m.id }
-        : { lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId },
+        ? { lane: d.lane as Assignment["lane"], grantId: (d.grantId as string) ?? null, gap: (d.gap as string) ?? null, sourceId: (d.sourceId as string) ?? m.id }
+        : { lane: a.lane, grantId: a.grantId, gap: a.gap, sourceId: a.sourceId },
       title: `Amended in meeting: ${firstLine(String(d.text), 100)}`,
       description: `${text}\n\nYour session for it is not running; this carries the amended work.\n\n(${key})`,
     });

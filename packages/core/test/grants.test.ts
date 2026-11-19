@@ -31,20 +31,20 @@ describe("grants service", () => {
     const { world, manager, admin, draft } = setup();
     const g = draft();
     expect(g.status).toBe("draft");
-    expect(g).toMatchObject({ keyResultId: g.keyResult?.id, approach: "a banner line", goalId: world.goalTree.attachmentOf(LAB) });
-    expect(g.keyResult?.text).toBe(KRS[0]!.text);
+    expect(g).toMatchObject({ approach: "a banner line", goalId: world.goalTree.attachmentOf(LAB) });
+    expect(g).not.toHaveProperty("keyResultId"); // a grant sits in the tree by its goalId alone (gr_h4m0lyhb1f step 3)
+    expect(g).not.toHaveProperty("keyResult");
     // the grant's own key results: under its goal, naming it
     expect(g.keyResults.map((k) => [k.text, k.grantId, k.goalId, k.status])).toEqual([[KRS[0]!.text, g.id, g.goalId, "open"]]);
-    expect(world.keyResults.require(g.keyResultId!)).toMatchObject({ grantId: g.id, goalId: g.goalId });
+    expect(world.keyResults.require(g.keyResults[0]!.id)).toMatchObject({ grantId: g.id, goalId: g.goalId });
     expect(world.grantDesk.list(LAB)).toHaveLength(0);
     expect(world.grantDesk.list(LAB, { includeDrafts: true })).toHaveLength(1);
     const edited = world.grantDesk.update(manager, g.id, { askTokens: 12_000_000, keyResults: [...KRS, { text: "third", howToCheck: "look", due: "2026-12-31" }] });
     expect(edited.askTokens).toBe(150_000); // computed from the steps' sizes (one M): the caller's number is ignored
-    // keyResults replaces the list; the first is the grant's keyResultId
+    // keyResults replaces the list
     expect(edited.keyResults.map((k) => k.text)).toEqual([...KRS.map((k) => k.text), "third"]);
     expect(edited.keyResults[2]!.due).toBe("2026-12-31");
-    expect(edited.keyResultId).toBe(edited.keyResults[0]!.id);
-    expect(world.keyResults.get(g.keyResultId!)).toBeUndefined();
+    expect(world.keyResults.get(g.keyResults[0]!.id)).toBeUndefined();
     expect(() => world.grantDesk.update(manager, g.id, { keyResults: [] })).toThrow();
     expect(() => world.grantDesk.create(manager, LAB, { keyResults: [1, 2, 3, 4, 5, 6].map((i) => ({ text: `k${i}`, howToCheck: "h" })), objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 })).toThrow();
     const p = world.grantDesk.propose(manager, g.id);
@@ -121,14 +121,14 @@ describe("grants service", () => {
     const { world, manager, admin, draft } = setup();
     const first = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft().id).id, { action: "fund" });
     const second = world.grantDesk.propose(manager, draft().id);
-    expect(world.grantDesk.liveGrantOf(second.keyResultId!)).toBeUndefined(); // proposed: not live
+    expect(world.grantDesk.liveGrantOf(second.keyResults[0]!.id)).toBeUndefined(); // proposed: not live
     expect(world.grantDesk.decide(admin, second.id, { action: "fund" }).status).toBe("funded");
-    expect(world.grantDesk.liveGrantOf(first.keyResultId!)?.id).toBe(first.id);
-    expect(world.grantDesk.liveGrantOf(second.keyResultId!)?.id).toBe(second.id);
+    expect(world.grantDesk.liveGrantOf(first.keyResults[0]!.id)?.id).toBe(first.id);
+    expect(world.grantDesk.liveGrantOf(second.keyResults[0]!.id)?.id).toBe(second.id);
     world.grants.patch(first.id, { status: "checkpoint" });
-    expect(world.grantDesk.liveGrantOf(first.keyResultId!)?.id).toBe(first.id);
+    expect(world.grantDesk.liveGrantOf(first.keyResults[0]!.id)?.id).toBe(first.id);
     world.grantDesk.decide(admin, first.id, { action: "cut" });
-    expect(world.grantDesk.liveGrantOf(first.keyResultId!)).toBeUndefined();
+    expect(world.grantDesk.liveGrantOf(first.keyResults[0]!.id)).toBeUndefined();
   });
 
   it("rejecting a proposal archives its key results; close_grant marks every open one met", () => {
@@ -149,12 +149,12 @@ describe("grants service", () => {
     const done = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
     world.grantDesk.closeDone(manager, done.id, { note: "shipped" });
     const live = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft().id).id, { action: "fund" });
-    world.grantDesk.updateKeyResult(manager, live.keyResultId!, { status: "claimed", note: "see banner" });
+    world.grantDesk.updateKeyResult(manager, live.keyResults[0]!.id, { status: "claimed", note: "see banner" });
     // as before this change: the closed grant's key results left claimed and open
     world.db.prepare("UPDATE key_results SET status = 'claimed', archivedAt = NULL WHERE grantId = ?").run(done.id);
     world.db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "087_close_done_key_results_met.sql"), "utf8"));
     for (const k of world.grantDesk.keyResultsOf(done.id)) expect([k.status, !!k.archivedAt, k.statusNote, k.statusBy]).toEqual(["met", true, "shipped", manager.id]);
-    expect(world.keyResults.require(live.keyResultId!)).toMatchObject({ status: "claimed", archivedAt: null });
+    expect(world.keyResults.require(live.keyResults[0]!.id)).toMatchObject({ status: "claimed", archivedAt: null });
   });
 
   it("refuses adjust to tokens at or below the grant's spend", () => {

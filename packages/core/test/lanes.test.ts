@@ -40,7 +40,7 @@ describe("goal-directed budgets: lanes on assignments", () => {
     world.buildings.upsert({ ...world.buildings.require(fresh.id), budgetMode: "open" }); // nothing reads the column any more
     expect(() => resolveLane(world, fresh.id, agent, undefined)).toThrow(/agents can't create directed work/);
     const hall = world.buildings.first("kind = 'town-hall'")!;
-    expect(resolveLane(world, hall.id, agent, undefined)).toMatchObject({ lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null });
+    expect(resolveLane(world, hall.id, agent, undefined)).toMatchObject({ lane: "directed", grantId: null, gap: null, sourceId: null });
   });
 
   it("goal-directed: agents must say grant or exploration; fields are validated; humans may still create directed work", async () => {
@@ -56,16 +56,16 @@ describe("goal-directed budgets: lanes on assignments", () => {
     // exploration names a gap, never a key result (key results belong to grants)
     await expect(world.verbs.assign(mei, { ...base, lane: "exploration", gap: "  " })).rejects.toThrow(/names a goal gap/);
     const ex = await world.verbs.assign(mei, { ...base, gap: "A visitor can't tell what the lab is for" });
-    expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "A visitor can't tell what the lab is for", keyResultId: null });
+    expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "A visitor can't tell what the lab is for" });
     const gr = await world.verbs.assign(mei, { ...base, lane: "grant", grantId: g.id });
-    expect(world.assignments.require(gr.assignmentId)).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: g.keyResultId });
+    expect(world.assignments.require(gr.assignmentId)).toMatchObject({ lane: "grant", grantId: g.id });
     // POST /api/agents/:id/work by a human: directed bypasses grants (open question 2's default)
     expect(BUDGET_POLICY.directedBypassesGrants).toBe(true);
     expect(world.ops.createWork(admin, noor.id, { title: "fix the banner" }).lane).toBe("directed");
-    expect(world.ops.createWork(admin, noor.id, { title: "kr work", lane: "grant", grantId: g.id })).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: g.keyResultId });
+    expect(world.ops.createWork(admin, noor.id, { title: "kr work", lane: "grant", grantId: g.id })).toMatchObject({ lane: "grant", grantId: g.id });
     // a continuation inherits its lane (no fields needed)
     const cont = createAssignment(world, { agentId: noor.id, title: "c", description: "d", createdBy: world.holderOf(mei), fromAssignmentId: gr.assignmentId });
-    expect(cont).toMatchObject({ lane: "grant", grantId: g.id, keyResultId: g.keyResultId });
+    expect(cont).toMatchObject({ lane: "grant", grantId: g.id });
   });
 
   it("a grant assignment can't name a closed, rejected or draft grant; proposed, funded and checkpoint ones are accepted (and the gate holds the unfunded)", async () => {
@@ -369,7 +369,7 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     // a bare close names no live check: met, unverified (1:1 mt_msnjkpgwdb decision 9)
     expect(r).toMatchObject({ status: "closed", outcome: "done", keyResults: [{ status: "met-unverified" }] });
     const note = `Closed as done by ${world.nameOf(admin.id)} from the Town Hall.`;
-    expect(world.keyResults.require(g.keyResultId!).statusNote).toBe(note);
+    expect(world.keyResults.require(g.keyResults[0]!.id).statusNote).toBe(note);
     expect(world.grants.require(g.id).history.at(-1)!.note).toMatch(/^Closed as done by .+ from the Town Hall\. \(spent 0 of 1,000,000/);
   });
 
@@ -406,7 +406,7 @@ describe("goal-directed budgets: the hold point (the ceiling; docs/legible-deleg
     expect(g).toMatchObject({ objective: "o, every token type", approach: "five counters", stopCondition: "s2", askTokens: 200_000 }); // the ask is the sizes' sum (M + S), never the caller's 2000
     expect(g.history.map((h) => h.action)).toEqual(["propose", "counter", "edit", "propose"]);
     expect(g.history.at(-1)?.note).toBe("at your scope");
-    expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending", keyResultId: g.keyResultId });
+    expect(world.assignments.require(queued.id)).toMatchObject({ grantId: r.grantId, status: "pending" });
     // a proposal still awaiting the human's decision is not overwritten: grantId must name a countered one
     await expect(world.verbs.propose_grant(mei, { title: "A test grant proposal", keyResults: [KRS[1]!], objective: "o3", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1, grantId: r.grantId })).rejects.toThrow(/only a countered proposal/);
     // without grantId it is a new proposal next to it
@@ -425,8 +425,8 @@ describe("goal-directed budgets: the Key results block", () => {
     const a = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB), a);
     expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [open] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
-    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResultId} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
-    expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id} (first key result ${krs[0]!.id} "A visitor can see today's spend on the banner")`);
+    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResults[0]!.id} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
+    expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id}.`);
     expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
     expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain(", exploration on gap: Visitors can't find the board");
@@ -451,9 +451,9 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     world.grantDesk.decide(admin, g.id, { action: "fund", note: "go" });
     const pending = world.assignments.where("agentId = ? AND status = 'pending'", [mei.id]);
     expect(pending).toHaveLength(1);
-    expect(pending[0]).toMatchObject({ queue: "building", lane: "grant", grantId: g.id, keyResultId: g.keyResultId, grantStep: 0, title: "Step 1" });
+    expect(pending[0]).toMatchObject({ queue: "building", lane: "grant", grantId: g.id, grantStep: 0, title: "Step 1" });
     expect(pending[0]!.description).toContain("The funder's note: go");
-    expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [open] ${KRS[0]!.text}`);
+    expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResults[0]!.id} [open] ${KRS[0]!.text}`);
   });
 
   it("countered and rejected: each is the human's entry on the proposal's job, waiting for the manager; no town-written report, no job (plan dc_uwx045472m step 5)", async () => {
@@ -475,7 +475,7 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     world.grantDesk.decide(admin, g.id, { action: "reject", note: "not this quarter" });
     const [r] = openManagerEntries(world, LAB);
     expect(r).toMatchObject({ jobId: `jb_${g.id}`, level: "manager", note: "not this quarter", moved: { action: "reject" } });
-    expect(world.keyResults.require(g.keyResultId!).archivedAt).toBeTruthy();
+    expect(world.keyResults.require(g.keyResults[0]!.id).archivedAt).toBeTruthy();
     expect(world.assignments.where("agentId = ? AND status = 'pending'", [mei.id])).toHaveLength(0);
     expect(townRows()).toHaveLength(before);
   });
@@ -501,7 +501,7 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const flag = world.ops.plantFlag(admin, LAB, "Make the banner readable");
     const r = await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: flag.id, gap: "the banner is unreadable" });
     const a = world.assignments.require(r.assignmentId);
-    expect(a).toMatchObject({ lane: "directed", sourceId: flag.id, gap: "the banner is unreadable", keyResultId: null });
+    expect(a).toMatchObject({ lane: "directed", sourceId: flag.id, gap: "the banner is unreadable" });
     // the exploration cap doesn't hold it; its spend lands in the directed bucket
     const capGoal = fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1000 });
     spend(mei.id, 1000, "exploration");
@@ -532,11 +532,11 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     creditBank(world);
     await expect(world.verbs.assign(mei, { ...base(mei.id), lane: "exploration" })).rejects.toThrow(/names a goal gap/);
     const ex = await world.verbs.assign(mei, { ...base(mei.id), lane: "exploration", gap: "nobody reads the board" });
-    expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "nobody reads the board", keyResultId: null, grantId: null });
+    expect(world.assignments.require(ex.assignmentId)).toMatchObject({ lane: "exploration", gap: "nobody reads the board", grantId: null });
     const flag = world.ops.plantFlag(admin, LAB, "Look at the banner");
     const r = await world.verbs.assign(mei, { ...base(mei.id), lane: "directed", sourceId: flag.id, gap: "the banner says nothing" });
     const a = world.assignments.require(r.assignmentId);
-    expect(a).toMatchObject({ lane: "directed", gap: "the banner says nothing", keyResultId: null });
+    expect(a).toMatchObject({ lane: "directed", gap: "the banner says nothing" });
     expect(world.budget.canStart(mei.id, a)).toBe(true);
     world.grantDesk.propose(mei, world.grantDesk.create(mei, LAB, { keyResults: [KRS[1]!], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1 }).id);
     expect(world.budget.canStart(mei.id, a)).toBe(true);

@@ -64,7 +64,7 @@ export function inputLine(raw: unknown): string {
 export interface ForkStatusCall { at: string; tool: string; what: string; input: string; result: string | null; isError: boolean }
 export interface ForkStatus {
   fork: { id: string; name: string; status: Agent["status"] };
-  assignment: { id: string; title: string; lane: string; grantId: string | null; keyResultId: string | null; sourceId: string | null; status: string } | null;
+  assignment: { id: string; title: string; lane: string; grantId: string | null; sourceId: string | null; status: string } | null;
   session: { id: string; status: Session["status"]; startedAt: string; endedAt: string | null; minutes: number; adjustedTokensSoFar: number; reportId: string | null } | null;
   lastThought: { at: string; text: string } | null;
   calls: ForkStatusCall[];
@@ -110,7 +110,7 @@ export function forkStatus(world: World, me: Agent, input: { forkId?: string; as
   const running = session?.status === "running";
   return {
     fork: { id: fork.id, name: fork.name, status: fork.status },
-    assignment: asg ? { id: asg.id, title: asg.title, lane: asg.lane, grantId: asg.grantId, keyResultId: asg.keyResultId, sourceId: asg.sourceId ?? null, status: asg.status } : null,
+    assignment: asg ? { id: asg.id, title: asg.title, lane: asg.lane, grantId: asg.grantId, sourceId: asg.sourceId ?? null, status: asg.status } : null,
     session: session ? { id: session.id, status: session.status, startedAt: session.startedAt, endedAt: session.endedAt ?? null, minutes: Math.round((end - Date.parse(session.startedAt)) / 60000), adjustedTokensSoFar: sessionView(session).adjustedOutputTokens, reportId: session.reportId ?? null } : null,
     lastThought, calls,
     note: !session ? `${fork.name} has no session yet (its desk is starting).`
