@@ -64,7 +64,38 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...cashChecks(f.cash, f.cashCheck),
     // the Balance tab's "Day by day" chart (gr_epbcgb0hvs): the days and their buildings close on the Bank's used
     ...dailyChecks(f),
+    // work versus coordination (gr_3ougmyubdm): the split's parts close on its total and on the daily rows' lanes
+    ...splitChecks(f),
   ];
+}
+
+/**
+ * GET /api/finance `split`: split.check ok; per window work + coordination + other = total and the shares sum to 1;
+ * each daily row's byLane sums to its sessionsTokens; the 7 d total = Σ the last 7 daily rows' sessionsTokens (and the
+ * 30 d total the same over 30 rows, when the chart has all 30).
+ */
+function splitChecks(f: Json): Check[] {
+  const sp = f.split;
+  if (!sp) return [flag("split", false, "GET /api/finance has no `split` (server older than gr_3ougmyubdm step 1)")];
+  const rows: Json[] = f.daily?.rows ?? [];
+  const laneOff = rows.filter((r) => !r.byLane || Math.abs(sum(Object.values(r.byLane).map(Number)) - Number(r.sessionsTokens)) > 3);
+  const out: Check[] = [flag("split check", sp.check?.ok, `ok ${sp.check?.ok}, diff ${fmt(sp.check?.diff)}, daily diff ${fmt(sp.check?.dailyDiff)} (${sp.check?.identity})`)];
+  for (const k of ["d7", "d30"] as const) {
+    const w = sp[k] ?? {};
+    const parts = Number(w.work?.tokens) + Number(w.coordination?.tokens) + Number(w.other?.tokens);
+    const shares = Number(w.work?.share) + Number(w.coordination?.share) + Number(w.other?.share);
+    out.push(flag(`split ${k} parts`, Math.abs(parts - Number(w.total?.tokens)) <= 2 && (Number(w.total?.tokens) === 0 || Math.abs(shares - 1) <= 0.0003),
+      `work ${fmt(w.work?.tokens)} (${(w.work?.share * 100).toFixed(1)}%) + coordination ${fmt(w.coordination?.tokens)} (${(w.coordination?.share * 100).toFixed(1)}%) + other ${fmt(w.other?.tokens)} = total ${fmt(w.total?.tokens)} (${w.total?.sessions} sessions, ${w.from} → ${w.to})`));
+    const n = Number(w.days);
+    if (rows.length >= n) {
+      const tail = rows.slice(-n), got = sum(tail.map((r) => Number(r.sessionsTokens)));
+      out.push(flag(`split ${k} = daily rows`, Math.abs(got - Number(w.total?.tokens)) <= Math.max(1, n / 2) && tail[0]?.day === w.from,
+        `Σ last ${n} daily rows' sessionsTokens ${fmt(got)} = split.${k}.total ${fmt(w.total?.tokens)} (from ${tail[0]?.day} = ${w.from})`));
+    }
+  }
+  out.push(flag("daily lanes per day", rows.length > 0 && laneOff.length === 0,
+    laneOff.length ? `days whose byLane doesn't sum to sessionsTokens: ${laneOff.map((r) => r.day).join(", ")}` : `each of ${rows.length} days' byLane sums to its sessionsTokens (±3)`));
+  return out;
 }
 
 /** GET /api/finance `daily`: dailyCheck ok; Σ rows' used + debits before the window = usedBank; each day's buildings sum to its used; Σ buildings = Σ rows. */
@@ -235,7 +266,7 @@ function wakeChecks(mw: Json | undefined, lk7d: Json | undefined): Check[] {
   const wakes = Number(mw.total?.tokens);
   return [
     flag("manager wakes add up", daysOk && Math.abs(bldSum - wakes) <= tol && Math.abs(wakes - Number(mw.manageTokens)) <= tol && mw.check?.ok === true,
-      `${blds.length} buildings' days sum to their totals; Σ buildings ${fmt(bldSum)} = town ${fmt(wakes)} = Σ manage sessions ${fmt(mw.manageTokens)} (±${fmt(tol)}, ${mw.total?.wakes} wakes, ${mw.total?.decided} decided)`),
+      `${blds.length} buildings' days sum to their totals; Σ buildings ${fmt(bldSum)} = town ${fmt(wakes)} = Σ manage sessions ${fmt(mw.manageTokens)} (±${fmt(tol)}, ${mw.total?.wakes} wakes, ${mw.total?.decided} decided, ${mw.total?.askActions ?? "no"} ask actions)`),
     flag("manager wakes ≤ manager row", !lk7d || wakes <= mgr + tol,
       `wake tokens ${fmt(wakes)} ≤ 7 d lane × kind manager row + not counted ${fmt(mgr)}`),
   ];
@@ -283,7 +314,8 @@ async function main(): Promise<number> {
   if (s.grants) console.log(`grants: ${fmt(s.grants.spent)} spent on ${s.grants.count} (funded ${fmt(s.grants.funded)}): done ${fmt(s.grants.byOutcome.done.tokens)} on ${s.grants.byOutcome.done.count}, cut ${fmt(s.grants.byOutcome.cut.tokens)} on ${s.grants.byOutcome.cut.count}, open ${fmt(s.grants.byOutcome.open.tokens)} on ${s.grants.byOutcome.open.count}; ${s.grants.overFunding.count} over funding by ${fmt(s.grants.overFunding.tokens)}`);
   if (f.mix) console.log(`mix: 1 adj. token ≈ ${Number(f.mix.rawPerAdjusted).toFixed(1)} raw tokens, ${KINDS.map((k) => `${k} ${(f.mix.rawShare[k] * 100).toFixed(1)}%`).join(", ")} (${f.mix.formula})`);
   if (s.byLaneKind) console.log(`lane × kind today: ${(s.byLaneKind.rows as Json[]).map((r) => `${r.lane} ${fmt(r.tokens)} (cache writes ${(r.cacheWriteShare * 100).toFixed(1)}%)`).join(", ")}; not counted ${fmt(s.byLaneKind.notCounted.tokens)}`);
-  if (s.managerWakes) console.log(`manager wakes 7 d: ${s.managerWakes.total.wakes} wakes, ${fmt(s.managerWakes.total.tokens)} adj. tokens, ${s.managerWakes.total.decided} decided`);
+  if (s.managerWakes) console.log(`manager wakes 7 d: ${s.managerWakes.total.wakes} wakes, ${fmt(s.managerWakes.total.tokens)} adj. tokens, ${s.managerWakes.total.decided} decided (${s.managerWakes.total.askActions ?? "no"} ask actions); town-hall ${s.managerWakes.buildings?.["town-hall"]?.total?.decided ?? 0} decided`);
+  if (f.split) console.log(`split: 7 d ${fmt(f.split.d7.total.tokens)}: work ${(f.split.d7.work.share * 100).toFixed(1)}%, coordination ${(f.split.d7.coordination.share * 100).toFixed(1)}%, other ${(f.split.d7.other.share * 100).toFixed(1)}%; 30 d ${fmt(f.split.d30.total.tokens)}: work ${(f.split.d30.work.share * 100).toFixed(1)}%, coordination ${(f.split.d30.coordination.share * 100).toFixed(1)}%`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);

@@ -152,13 +152,32 @@ export interface Finance {
   /** the last 30 UTC days (at most back to the ledger's start), one row per day: Bank debits (by building) and credits (core finance-daily.ts, gr_epbcgb0hvs); absent from an older server */
   daily?: FinanceDaily;
   /** Σ daily used = the Bank's used since the window start, and each day's buildings sum to its used */
-  dailyCheck?: { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; identity: string };
+  dailyCheck?: { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; laneDiff?: number; identity: string };
+  /** work versus coordination over 7 and 30 days, from session rows (core finance-split.ts, gr_3ougmyubdm); absent from an older server */
+  split?: FinanceSplit;
   at: string;
+}
+export type SplitLane = "grant" | "exploration" | "directed" | "retainer" | "manager" | "other";
+export interface SplitPart { tokens: number; usd: number; sessions: number; /** 0..1 of the window's total */ share: number }
+/** One window of `split`: today and the days-1 full UTC days before it. */
+export interface SplitWindow {
+  days: number; from: string; to: string;
+  total: { tokens: number; usd: number; sessions: number };
+  work: SplitPart; coordination: SplitPart; other: SplitPart;
+  byLane: Record<SplitLane, SplitPart>;
+}
+/** `GET /api/finance` `split`: work = grant + exploration + directed + retainer sessions; coordination = manager (manage) wakes; other = the rest. */
+export interface FinanceSplit {
+  d7: SplitWindow; d30: SplitWindow;
+  groups: { work: SplitLane[]; coordination: SplitLane[]; other: SplitLane[] };
+  /** parts = Σ sessions in the window = Σ the window's daily rows' sessionsTokens */
+  check: { ok: boolean; diff: number; dailyDiff: number; identity: string };
 }
 /** `GET /api/finance` `daily`: one row per UTC day, oldest first (core FinanceDaily). */
 export interface FinanceDaily {
   days: number; from: string; to: string;
-  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number> }[];
+  /** byLane / sessionsTokens: that day's session spend by lane (gr_3ougmyubdm); absent from an older server */
+  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number>; byLane?: Record<SplitLane, number>; sessionsTokens?: number }[];
   /** buildings by their window total, largest first */
   buildings: { id: string; name: string; tokens: number }[];
   usedBefore: number; undatedUsed: number; usageLedgerInWindow: number;
@@ -238,8 +257,13 @@ export interface SpendByLaneKind extends LaneKindTable {
   check: { ok: boolean; diff: number; identity: string };
   buildings: Record<string, LaneKindTable>;
 }
-/** One manager-wakes line: wakes (purpose manage sessions), their adjusted tokens and $, reports decided inside them, per wake, per decision (null when none). */
-export interface ManagerWakeLine { wakes: number; tokens: number; usd: number; decided: number; perWake: number; perDecision: number | null }
+/** One manager-wakes line: wakes (purpose manage sessions), their adjusted tokens and $, reports decided and asks acted on inside them, per wake, per decision (null when none). */
+export interface ManagerWakeLine {
+  wakes: number; tokens: number; usd: number; decided: number;
+  /** the ask actions counted in `decided` (asks acted on, once per ask per wake, and ranking runs; gr_3ougmyubdm); absent from an older server */
+  askActions?: number;
+  perWake: number; perDecision: number | null;
+}
 /**
  * `managerWakes` of `GET /api/finance/spend` (gr_lwgus14rd2 step 3): per building id, the manager's wakes per UTC day
  * (newest first, days with a wake only) over the last 7 full days and today, whatever `?window=` is; town `total`.
