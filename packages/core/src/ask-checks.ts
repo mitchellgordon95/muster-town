@@ -105,12 +105,16 @@ async function checkClaim(world: World, c: AskClaim, deps: CheckDeps): Promise<O
   }
 }
 
-/** A key result whose check the server ran and passed: evidence "verified" (status unchanged), `kr.verified` and a `verified` notice. */
+/**
+ * A key result whose check the server ran and passed: a claimed (or "met, unverified") one turns met and archives,
+ * with `kr.verified` and a `verified` notice. An open one stays open (nobody claimed it), and met stays met.
+ */
 function verifyKeyResult(world: World, id: string, note: string): void {
   const kr = world.keyResults.get(id);
-  if (!kr || kr.evidence === "verified") return;
-  const next = world.keyResults.upsert({ ...kr, evidence: "verified", updatedAt: new Date().toISOString() });
-  world.events.append({ type: "kr.verified", buildingId: kr.buildingId, text: `Key result verified by a check the server ran: ${kr.text}`, payload: { keyResultId: kr.id, grantId: kr.grantId, from: kr.evidence, note } });
+  if (!kr || (kr.status !== "claimed" && kr.status !== "met-unverified")) return;
+  const now = new Date().toISOString();
+  const next = world.keyResults.upsert({ ...kr, status: "met", archivedAt: kr.archivedAt ?? now, updatedAt: now });
+  world.events.append({ type: "kr.verified", buildingId: world.krBuildingId(kr), text: `Key result verified by a check the server ran: ${kr.text}`, payload: { keyResultId: kr.id, grantId: kr.grantId, from: kr.status, note } });
   verifiedNotice(world, next, "A check the server ran");
 }
 

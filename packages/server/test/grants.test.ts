@@ -191,7 +191,7 @@ describe("grants routes", () => {
     const row = intray.body.grants.find((x: { id: string }) => x.id === g.id);
     expect(row.evidence).toMatchObject({
       grantId: g.id, grantTokens: 1_000_000, spentTokens: 0, topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board", shipped: [],
-      keyResults: [{ verdict: "shipped", note: "live on the banner", status: "claimed" }, { verdict: "not", note: "", status: "not-started" }],
+      keyResults: [{ verdict: "shipped", note: "live on the banner", status: "claimed" }, { verdict: "not", note: "", status: "open" }],
     });
     const deck = await json(app, "GET", "/api/review-deck");
     const slide = deck.body.slides.find((x: { key: string }) => x.key === `checkpoint:${g.id}`);

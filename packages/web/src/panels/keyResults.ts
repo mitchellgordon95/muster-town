@@ -18,16 +18,16 @@ export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens">
   return `${fmtTokens(g.spentTokens)} / ${fmtTokens(total)} ${ADJ} (${Math.round(spentShare(g.spentTokens, total) * 100)}%)${hold}`;
 }
 
-/** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
+/** Pill tone per key-result status: met green, missed red, claimed / met unverified amber, open neutral. */
 export function krTone(s: KeyResultStatus): string {
-  return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" || s === "met-unverified" ? "warn" : "";
+  return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "met-unverified" ? "warn" : "";
 }
 
-/** The human-readable status, "not started" for "not-started". */
+/** The human-readable status, "met, unverified" for "met-unverified". */
 export const krStatusLabel = (s: KeyResultStatus) => krStatusWords(s);
 
 /** The statuses a holder may set: `fund` holders judge met / missed; managers (and `manage` holders) go up to claimed. */
-const KR_STATUSES: KeyResultStatus[] = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];
+const KR_STATUSES: KeyResultStatus[] = ["open", "claimed", "met", "missed"];
 export function settableStatuses(canFund: boolean): KeyResultStatus[] {
   return canFund ? KR_STATUSES : KR_STATUSES.filter((s) => s !== "met" && s !== "missed");
 }

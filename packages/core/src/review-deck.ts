@@ -25,7 +25,7 @@ const FLAG_AFTER_MS = 2 * H;
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 import { waitedFor } from "./time.ts";
 ;
-const KR_LIGHT: Record<string, string> = { "not-started": "⚪", "on-track": "🟢", "at-risk": "🟡", claimed: "🔵", met: "✅", "met-unverified": "☑️", missed: "❌" };
+const KR_LIGHT: Record<string, string> = { open: "⚪", claimed: "🔵", met: "✅", "met-unverified": "☑️", missed: "❌" };
 const PILLAR: Record<string, string> = { gl_fund: "Fund", gl_join: "Steer", gl_trust: "Trust" };
 const LIGHT: Record<string, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
 const ACTION_PAST: Record<string, string> = { propose: "proposed", counter: "countered", fund: "funded", reject: "rejected", checkpoint: "held", continue: "continued", adjust: "adjusted", cut: "cut", close: "closed", edit: "edited", stop: "stopped" };
@@ -114,7 +114,7 @@ function grantSlide(world: World, g: GrantView, now: Date): Draft {
   const b = world.buildings.get(g.buildingId)?.name ?? g.buildingId;
   // the grant's own key results (docs/how-work-gets-done.md §4): what the human funds; met on close as done, missed on a stop
   const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
-  const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "not-started" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
+  const kr = krs.length ? `Key results: ${krs.map((k, i) => `${i + 1}) ${k.text}${k.due ? ` (due ${k.due})` : ""}${k.status !== "open" ? ` [${k.status}]` : ""}`).join(" · ")}` : "No key results yet";
   const testing = [...g.testingPlan.map((t) => t.howToCheck), ...krs.map((k) => k.howToCheck)].join(" · ");
   const base = { itemId: g.id, buildingId: g.buildingId, grantId: g.id, history: grantHistoryLine(world, g, now) };
   if (g.status === "checkpoint") {

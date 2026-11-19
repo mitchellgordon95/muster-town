@@ -85,7 +85,7 @@ export interface SpendNode {
   outcome?: GrantOutcome | null;
   /** grant rows of a known grant only: which of the three groups of `FinanceSpend.grants.byOutcome` it counts in (`spendOutcome`) */
   outcomeGroup?: SpendOutcome;
-  /** grant rows of a known grant only: its key results by status; `open` = not-started, on-track or at-risk */
+  /** grant rows of a known grant only: its key results by status; `open` = status open */
   krCounts?: KrCounts;
   /** lane rows (kind "lane") only: which lane */
   lane?: NoGrantLane;

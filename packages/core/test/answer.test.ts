@@ -26,7 +26,7 @@ function everyReport(): ReportFacts[] {
 const REPORTS = everyReport();
 const GRANT_ACTIONS = ["propose", "fund", "continue", "adjust", "cut", "stop", "close", "counter", "reject", "withdraw", "checkpoint"];
 const KR_ACTIONS = ["created", "edited", "moved", "deleted", "marked"];
-const KR_STATUSES = ["not-started", "on-track", "at-risk", "claimed", "met", "missed"];
+const KR_STATUSES = ["open", "open", "open", "claimed", "met", "missed"];
 const OTHERS: EntryFacts[] = [
   ...RULES.flatMap((rule) => [true, false].map((stopped): EntryFacts => ({ kind: "dead-session", rule, stopped }))),
   { kind: "flag" }, { kind: "message" }, { kind: "meeting-decision" },

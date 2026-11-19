@@ -147,8 +147,8 @@ const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, from
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "", continues: null as string | null, steps: [] as GrantView["steps"] };
 type Kr = NonNullable<GrantView["keyResult"]>;
-const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "not-started"): Kr =>
-  ({ id: `kr_${buildingId}_${position}`, buildingId, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], objectiveId: null, goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
+const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "open"): Kr =>
+  ({ id: `kr_${buildingId}_${position}`, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
 /** A grant carries its own key results (docs/how-work-gets-done.md §4); the first is its keyResultId. */
 const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, keyResult: k, keyResults: [k, ...rest], testingPlan: [] });
 /** Grants waiting for a human (Town Hall in-tray): a proposal and a checkpoint. */
@@ -190,7 +190,7 @@ export const grants: GrantView[] = [
     // what each step spent against its price (gr_3na7vdmd52): step 2 ran past 1.5× its M price, so its box is red
     stepStates: [{ assignmentId: "as_hud1", status: "done", reportId: "dc_keel_s1", spentTokens: 380_000, priceTokens: 400_000 }, { assignmentId: "as_hud2", status: "done", reportId: "dc_keel_s2", spentTokens: 240_000, priceTokens: 150_000 }, null],
     forecast: { at: ago(26), stepsDone: 2, stepsLeft: { S: 1, M: 0, L: 0 }, spent: 2_010_000, ceiling: 2_000_000, spentOverSize: 3.65, projected: 2_190_000, overCeiling: true, shortfall: 190_000 },
-    ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide", "on-track")),
+    ...plan(kr("bl_workshop", 0, "HUD collapses below 700px", "Open the town at 650px wide", "claimed"), kr("bl_workshop", 1, "No overlap with the meeting panel", "Open a meeting at 650px wide")),
     history: [{ at: ago(600), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_000_000, note: "" }, { at: ago(25), byId: "system", byKind: "agent", action: "checkpoint", tokens: null, note: "Spend crossed 100%." }],
     topUpTokens: 400_000, whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.",
     // what the checkpoint card shows (Mitchell 1:1 mt_7b4zc7yja3): the server derives it from the grant, its key results and the report
@@ -199,7 +199,7 @@ export const grants: GrantView[] = [
       whatTopUpBuys: "KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.", reportId: "dc_keel_cp", shipped: ["The HUD collapses below 700px"],
       keyResults: [
         { id: "kr_bl_workshop_0", text: "HUD collapses below 700px", status: "claimed", verdict: "shipped", note: "Live: at 650px the HUD folds into one row (PR #41).", by: "Keel 2" },
-        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "on-track", verdict: "partly", note: "The panel still covers the HUD's last button at 650px.", by: "Keel 3" },
+        { id: "kr_bl_workshop_1", text: "No overlap with the meeting panel", status: "open", verdict: "not", note: "The panel still covers the HUD's last button at 650px.", by: "Keel 3" },
       ],
       // the grant's own reports (its forks' sessions), oldest first; `filed`: a fork set a key result (grant C)
       reports: [
@@ -220,7 +220,7 @@ export const grants: GrantView[] = [
     // grant B (gr_b5fyqibfx2): its plan's steps and where each stands
     steps: [{ title: "Link the tour from the landing page", description: "The PR" }, { title: "Check it live as a guest", description: "Open muster.town logged out" }, { title: "Close the grant", description: "Evidence and rollup" }],
     stepStates: [{ assignmentId: "as_tour1", status: "done", reportId: null }, { assignmentId: "as_tour2", status: "active", reportId: null }, null], stopCondition: "Stop when KR1 is met, or at 2.5M tokens.",
-    ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end", "at-risk"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
+    ...plan(kr("bl_workshop", 1, "The landing page links the tour above the fold", "Open muster.town logged out at 1280x800", "met"), kr("bl_workshop", 1, "The tour's last scene links to the Bank", "Play the tour to the end"), kr("bl_workshop", 2, "Guests can open the tour without signing in", "Open /?guest and click How it works", "missed")),
     history: [{ at: ago(300), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 2_500_000, note: "Funded at 2.5M, not 3M." }],
     createdAt: ago(400), updatedAt: ago(300),
   },

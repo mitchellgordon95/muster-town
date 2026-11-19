@@ -73,7 +73,8 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     const plan = { objective: "o", approach: "a", steps: [{ size: "M" as const, title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 };
     const g = world.grantDesk.create(null, LAB, { ...plan, goalId: sub.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }] });
     const mine = world.keyResults.require(g.keyResultId!);
-    expect(mine).toMatchObject({ due, goalId: sub.id, grantId: g.id, buildingId: LAB });
+    expect(mine).toMatchObject({ due, goalId: sub.id, grantId: g.id });
+    expect(world.krBuildingId(mine)).toBe(LAB);
     expect(world.grants.require(g.id).goalId).toBe(sub.id);
     expect(tree.inScope(LAB, mine.id)).toBe(true);
     expect(world.grantDesk.create(null, LAB, { ...plan, keyResults: [{ text: "k", howToCheck: "h" }] }).goalId).toBe(labGoal.id);
@@ -84,7 +85,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.keyResults.require(mine.id).archivedAt).toBeTruthy();
     expect(tree.inScope(LAB, mine.id)).toBe(false);
     expect(tree.get(sub.id)?.status).toBe("active");
-    world.grantDesk.updateKeyResult(admin, mine.id, { status: "on-track" });
+    world.grantDesk.updateKeyResult(admin, mine.id, { status: "claimed" });
     expect(world.keyResults.require(mine.id).archivedAt).toBeNull();
   });
 
@@ -215,7 +216,7 @@ describe("the goal editor (docs/goals.md, step 3)", () => {
     const { world, admin, tree, labGoal, otherGoal } = setup();
     tree.update(admin, labGoal.id, { text: "A funder sees every token" });
     const kr = grantKr(world, labGoal.id, "The Bank counts every token type");
-    world.grantDesk.updateKeyResult(admin, kr.id, { status: "on-track" });
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "claimed" });
     tree.update(admin, otherGoal.id, { text: "Someone else's goal" });
     const child = tree.create(admin, { parentId: labGoal.id, text: "A child goal" });
     const types = tree.history(labGoal.id).map((e) => e.type);
@@ -246,8 +247,8 @@ describe("migration 061: lossless from per-building objectives", () => {
     b.run("bl_b", "Lab B", "lab", "", now);
     db.prepare("INSERT INTO objectives (id, buildingId, position, text, horizon, updatedAt) VALUES ('ob_1', 'bl_a', 0, 'Objective one', '2026-Q4', ?)").run(now);
     const kr = db.prepare("INSERT INTO key_results (id, buildingId, position, text, howToCheck, status, objectiveId, updatedAt) VALUES (?, ?, ?, ?, 'h', ?, ?, ?)");
-    kr.run("kr_1", "bl_a", 0, "Under the objective", "on-track", "ob_1", now);
-    kr.run("kr_2", "bl_a", 1, "Unsorted", "not-started", null, now);
+    kr.run("kr_1", "bl_a", 0, "Under the objective", "open", "ob_1", now);
+    kr.run("kr_2", "bl_a", 1, "Unsorted", "open", null, now);
     kr.run("kr_3", "bl_b", 0, "Met one", "met", null, now);
     copyFileSync(join(all, "061_goal_tree.sql"), join(migrations, "061_goal_tree.sql"));
     migrate(db, migrations);
@@ -260,7 +261,7 @@ describe("migration 061: lossless from per-building objectives", () => {
     expect(goals).toHaveLength(7);
     expect(db.prepare("SELECT id, goalId FROM buildings ORDER BY id").all()).toEqual([{ id: "bl_a", goalId: "gl_bl_a" }, { id: "bl_b", goalId: "gl_bl_b" }, { id: "bl_th", goalId: "gl_town" }]);
     expect(db.prepare("SELECT id, status, goalId, archivedAt IS NOT NULL AS archived FROM key_results ORDER BY id").all()).toEqual([
-      { id: "kr_1", status: "on-track", goalId: "ob_1", archived: 0 }, { id: "kr_2", status: "not-started", goalId: "gl_bl_a", archived: 0 }, { id: "kr_3", status: "met", goalId: "gl_bl_b", archived: 1 },
+      { id: "kr_1", status: "open", goalId: "ob_1", archived: 0 }, { id: "kr_2", status: "open", goalId: "gl_bl_a", archived: 0 }, { id: "kr_3", status: "met", goalId: "gl_bl_b", archived: 1 },
     ]);
   });
 });

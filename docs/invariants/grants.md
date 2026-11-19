@@ -72,10 +72,10 @@ The first code span is the test file. The second is the `it` text, copied exactl
    - Test: `packages/core/test/forecast-asks.test.ts` › `the boot repair retires a forecast gate ask and settles its need on a running grant, and leaves a held grant's gate alone`
 
 
-13. **A key result's evidence class says how it is known, and never moves its status** (`evidence`: verified, claimed or unknown; migration 103 back-filled met by a human as verified, and claimed or met by anyone else as claimed). A fork's report or a manager that claims it makes unknown evidence claimed; a human marking it met, or a `kr` claim check the server ran that passes (`runClaimChecks`, once, with a `verified` notice), makes it verified; a human taking met back drops it to what the new status says.
-   - Test: `packages/core/test/kr-evidence.test.ts` › `unknown until claimed: a fork's report claiming it makes it claimed; a human marking it met makes it verified; status is unchanged by it`
-   - Test: `packages/core/test/kr-evidence.test.ts` › `a kr claim check that passes verifies its key result once, with a verified notice; a failing one leaves it`
-   - Test: `packages/core/test/kr-evidence.test.ts` › `migration 103 back-fills met by a human as verified; met by an agent (a manager's close) or by no one, and claimed, as claimed`
+13. **A key result has one parent and one status** (grant gr_h4m0lyhb1f step 2, migration 125). Its parent is its grant (`grantId`); its building is the grant's (`World.krBuildingId`), and its `goalId` is a copy of the grant's, written only with the grant. Its status is one of open, claimed, met, met-unverified, missed: a fork's report files open or claimed; a human marks met or missed; a close as done picks met or met-unverified; a `kr` claim check the server ran that passes turns a claimed one met (`runClaimChecks`, once, with a `verified` notice). Migration 125 mapped not-started, on-track and at-risk to open, folded the evidence column into the status and dropped `buildingId`, `objectiveId` and `evidence`.
+   - Test: `packages/core/test/kr-status.test.ts` › `a fork's report files open or claimed; a human marks it met and can take it back; the checkpoint card shows the status`
+   - Test: `packages/core/test/kr-status.test.ts` › `a kr claim check that passes makes a claimed key result met once, with a verified notice; an open one or a failing check leaves it`
+   - Test: `packages/core/test/kr-status.test.ts` › `migration 125 folds the old statuses and the evidence column into one status and drops buildingId, objectiveId and evidence`
 
 ## How it connects
 

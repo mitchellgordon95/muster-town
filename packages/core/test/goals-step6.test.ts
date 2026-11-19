@@ -35,7 +35,7 @@ describe("Postmortems on missed key results (docs/goals.md, step 6)", () => {
     expect(pm).toMatchObject({ buildingId: LAB, lane: "directed", agentId: mei.id, status: "pending" });
     expect(pm.title).toContain(`Postmortem on ${kr.id}`);
     // undone and missed again: never a second postmortem
-    world.grantDesk.updateKeyResult(admin, kr.id, { status: "not-started" });
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "claimed" });
     world.grantDesk.updateKeyResult(admin, kr.id, { status: "missed", note: "again" });
     expect(world.assignments.where("title LIKE ?", [`Postmortem on ${kr.id}%`])).toHaveLength(1);
     // the fork's report links back

@@ -24,7 +24,7 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
     store.state = { ...store.state, ...STATE };
     const html = row(hud);
     expect(html).toContain("✓ shipped: Live: at 650px the HUD folds into one row (PR #41).");
-    expect(html).toContain("~ partly: The panel still covers the HUD&#x27;s last button at 650px.");
+    expect(html).toContain("✗ not shipped: The panel still covers the HUD&#x27;s last button at 650px.");
     expect(html).toContain("A top-up of 400,000 tokens buys: KR 2: the meeting panel docks under the HUD at 650px, so nothing overlaps.");
     expect(html).toContain("The HUD collapses below 700px");
     const evidence = html.indexOf("checkpoint-evidence"), buttons = html.indexOf(">Continue</button>"), fold = html.indexOf("<details");
@@ -49,7 +49,7 @@ describe("the checkpoint card shows evidence (1:1 mt_7b4zc7yja3)", () => {
   it("without evidence: 'No evidence filed by the forks', no top-up line; a not-started key result reads not shipped", () => {
     store.state = { ...store.state, ...STATE };
     const e = hud.evidence!;
-    const old = { ...hud, evidence: { ...e, topUpTokens: null, whatTopUpBuys: "", reports: [], filed: false, keyResults: [{ ...e.keyResults[0]!, status: "not-started" as const, verdict: "not" as const, note: "", by: null }] } };
+    const old = { ...hud, evidence: { ...e, topUpTokens: null, whatTopUpBuys: "", reports: [], filed: false, keyResults: [{ ...e.keyResults[0]!, status: "open" as const, verdict: "not" as const, note: "", by: null }] } };
     const html = row(old);
     expect(html).toContain("No evidence filed by the forks");
     expect(html).not.toContain("A top-up");
