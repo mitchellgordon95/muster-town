@@ -169,7 +169,7 @@ export class Uptime {
 }
 
 /** True for the site's own health URL (https://host/api/health, with or without a trailing slash or query), not a sub-path of it. */
-export function isHealthUrl(url: string | undefined): boolean {
+function isHealthUrl(url: string | undefined): boolean {
   return !!url && /\/api\/health\/?(\?.*)?$/.test(url);
 }
 
