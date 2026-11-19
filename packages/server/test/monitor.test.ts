@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { CLEAR_AFTER, Counters, parseHostCpu, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { CLEAR_AFTER, Counters, parseHostCpu, PINGER_STALE_MS, PingerWatch, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { deployable } from "@muster-town/schema";
 import { DeployWatch, type DeployView } from "../src/deploy-watch.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -12,11 +12,11 @@ function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
-    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null };
+    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null, pinger: null as number | null };
   const probes: Probes = {
     rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, pingerSeenAt: () => state.pinger, ...o.probes,
   };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
@@ -458,6 +458,81 @@ describe("monitor thresholds", () => {
     expect(world.docs.get(alerts().at(-1)!.docId!)!.title).toContain("interrupted by a server restart, requested by Pix 1");
   });
 
+});
+
+describe("pinger watch (gr_7tl5as3s0a)", () => {
+  it("pinger: never seen since boot raises nothing; silent 15 min is red with one FYI; back for 5 samples clears it", async () => {
+    const { r, m, step, alerts, world } = await setup();
+    await step(30);
+    expect(m.view().alerts).toEqual([]);
+    expect(alerts()).toEqual([]);
+    r.state.pinger = r.now();
+    await step(14);
+    expect(m.view().alerts).toEqual([]);
+    await step(1); // 15 min quiet
+    expect(m.view().alerts).toMatchObject([{ key: "pinger", level: "red", value: 15 }]);
+    await step(60); // still quiet an hour later: no second raise before REALERT_MS
+    const raised = alerts().filter((a) => a.key === "pinger");
+    expect(raised.map((a) => a.phase)).toEqual(["raise"]);
+    const docId = raised[0]!.docId!;
+    expect(world.docs.get(docId)).toMatchObject({ type: "fyi", state: "building" });
+    expect(world.docs.get(docId)!.title).toContain("[RED] outside pinger silent for 15 min");
+    // the pinger is back: probes every minute
+    for (let i = 0; i < CLEAR_AFTER; i++) { r.state.pinger = r.now() + MIN; await step(1); }
+    expect(m.view().alerts).toEqual([]);
+    expect(alerts().at(-1)).toMatchObject({ key: "pinger", phase: "clear", docId });
+    expect(world.docs.get(docId)!.title).toContain("[CLEARED]");
+  });
+
+  it("an open pinger alert survives a restart that forgets the pinger (state none)", async () => {
+    const { r, m, step, make } = await setup();
+    r.state.pinger = r.now();
+    await step(16);
+    expect(m.view().alerts).toMatchObject([{ key: "pinger", level: "red" }]);
+    r.state.pinger = null; // a restart: nothing seen since boot
+    const again = make();
+    r.tick();
+    await again.sample();
+    expect(again.view().alerts).toMatchObject([{ key: "pinger", level: "red" }]);
+  });
+
+  it("PingerWatch view: none, ok, stale at 15 min", () => {
+    let t = Date.parse("2026-11-19T15:00:00Z");
+    const w = new PingerWatch(() => t);
+    expect(w.view()).toEqual({ lastSeenAt: null, state: "none", staleAfterMin: 15 });
+    w.seen();
+    t += PINGER_STALE_MS - 1;
+    expect(w.view()).toEqual({ lastSeenAt: "2026-11-19T15:00:00.000Z", state: "ok", staleAfterMin: 15 });
+    t += 1;
+    expect(w.view().state).toBe("stale");
+  });
+
+  it("health shows the pinger block from muster-pinger hits only; /api/health/pinger is 200 none, 200 ok, 503 stale", async () => {
+    const s = await seededApp();
+    let t = Date.parse("2026-11-19T15:00:00Z");
+    const pinger = new PingerWatch(() => t);
+    const r = rig({ probes: { pingerSeenAt: () => pinger.lastSeenAt() } });
+    const m = new Monitor({ world: s.world, metrics: defaultMetrics(r.probes), now: () => t, log: r.log, buildingId: s.world.buildings.all()[0]!.id, pinger });
+    const app = await buildApp({ world: s.world, dev: false, webDist: false, monitor: m });
+    close = async () => { await app.close(); await s.close(); };
+    const none = await json(app, "GET", "/api/health/pinger");
+    expect(none.status).toBe(200);
+    expect(none.body).toMatchObject({ ok: true, state: "none", lastSeenAt: null, alert: null });
+    // a browser's health read is not the pinger
+    await json(app, "GET", "/api/health", { headers: { "user-agent": "Mozilla/5.0" } });
+    expect((await json(app, "GET", "/api/health")).body.pinger).toEqual({ lastSeenAt: null, state: "none", staleAfterMin: 15 });
+    await json(app, "GET", "/api/health", { headers: { "user-agent": "muster-pinger" } });
+    expect((await json(app, "GET", "/api/health")).body.pinger).toEqual({ lastSeenAt: "2026-11-19T15:00:00.000Z", state: "ok", staleAfterMin: 15 });
+    expect((await json(app, "GET", "/api/health/pinger")).status).toBe(200);
+    // the endpoint itself never counts as a probe
+    t += PINGER_STALE_MS;
+    await json(app, "GET", "/api/health/pinger", { headers: { "user-agent": "muster-pinger" } });
+    const stale = await json(app, "GET", "/api/health/pinger");
+    expect(stale.status).toBe(503);
+    expect(stale.body).toMatchObject({ ok: false, state: "stale", lastSeenAt: "2026-11-19T15:00:00.000Z" });
+    await m.sample();
+    expect((await json(app, "GET", "/api/health/pinger")).body.alert).toMatchObject({ level: "red" });
+  });
 });
 
 describe("monitor routes", () => {
