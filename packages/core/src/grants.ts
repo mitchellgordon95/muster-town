@@ -1,6 +1,6 @@
 import {
-  type GrantEstimate, CloseGrantInput, CreateGrantInput, CreateObjectiveInput, DecideGrantInput, MAX_KEY_RESULTS_PER_OBJECTIVE, MAX_OBJECTIVES,
-  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, UpdateObjectiveInput, type KpiKey, type Objective, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict,
+  type GrantEstimate, CloseGrantInput, CreateGrantInput, DecideGrantInput,
+  StepSize, StopGrantInput, UpdateGrantInput, grantPricingOf, UpdateKeyResultInput, type GrantKeyResultInput, type CheckpointEvidence, type ReportKrEvidence, type ReportTopUp, krVerdict,
   type Assignment, type Building, type Event, type Grant, type GrantHistoryEntry, type GrantStep, type GrantStepState, type GrantStatus, type GrantView, type KeyResult, type Session, type Stoplight, type TokenCounts, ZERO_TOKENS, addTokens, isJudgedKr, stoplightOf, GrantKeyResultInput as GrantKrInput, grantName, grantTitleOf,
 } from "@muster-town/schema";
 import { needAtCheckpoint, onGrantEvent, retireAsks } from "./asks.ts";
@@ -57,17 +57,7 @@ export type GoalKeyResult = KeyResult & { createdByName: string | null; editedBy
 /** A decision a human said in a 1:1 and its agent did for them (act_in_1on1): recorded on the history entry. */
 interface DecidedVia { agentId: string; meetingId: string }
 export interface DirectedBudget { spentTodayTokens: number }
-/** An objective as the API returns it: the KPI it moves (key and name) and its key results in order. */
-export type ObjectiveView = Objective & { kpi: KpiKey | null; kpiName: string | null; keyResults: GoalKeyResult[]; createdByName: string | null; editedByName: string | null };
-/** GET /api/buildings/:id/objectives: the goal's objectives with their key results, then the key results under none. */
-export interface ObjectiveTree { objectives: ObjectiveView[]; unsorted: GoalKeyResult[] }
-/** The quarter `iso` falls in (UTC), e.g. "2026-Q4": an objective's default horizon. */
-export function quarterOf(iso: string = nowIso()): string {
-  const d = new Date(iso);
-  return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
-}
-
-export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; objectives: ObjectiveTree; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposals: GrantView[]; exploration: ExplorationBudget; directed: DirectedBudget }
+export interface GrantBoard { goal: string; keyResults: GoalKeyResult[]; blocked: string | null; stoplight: Stoplight | null; grants: GrantView[]; proposals: GrantView[]; exploration: ExplorationBudget; directed: DirectedBudget }
 export interface BlockedBuilding { buildingId: string; name: string; reason: string; since: string | null }
 
 /**
@@ -257,100 +247,6 @@ export class Grants {
     }));
   }
 
-  /** The goal's objectives in order, each with its key results, then the key results under no objective ("Unsorted"). */
-  objectiveTree(buildingId: string, krs: GoalKeyResult[] = this.keyResults(buildingId)): ObjectiveTree {
-    const kpis = new Map(this.world.kpis.all().map((k) => [k.id, k]));
-    const objectives = this.world.objectives.where("buildingId = ?", [buildingId], "ORDER BY position, rowid").map((o) => ({
-      ...o, kpi: (o.kpiId && kpis.get(o.kpiId)?.key) || null, kpiName: (o.kpiId && kpis.get(o.kpiId)?.name) || null,
-      keyResults: krs.filter((k) => k.objectiveId === o.id),
-      createdByName: o.createdBy ? this.world.nameOf(o.createdBy) : null, editedByName: o.editedBy ? this.world.nameOf(o.editedBy) : null,
-    }));
-    const ids = new Set(objectives.map((o) => o.id));
-    return { objectives, unsorted: krs.filter((k) => !k.objectiveId || !ids.has(k.objectiveId)) };
-  }
-
-  /**
-   * POST /api/buildings/:id/objectives (and the manager's `set_objective`): an objective of the building goal, written
-   * like key results (a human with `building.manage` or the building's own manager agent). At most MAX_OBJECTIVES.
-   */
-  createObjective(actor: Actor, buildingId: string, input: CreateObjectiveInput): Objective {
-    const inp = CreateObjectiveInput.parse(input);
-    const b = this.world.buildings.require(buildingId, "building");
-    this.requireWriter(actor, b, "objectives");
-    this.requireSources(inp.sourceDocIds);
-    const n = this.world.objectives.count("buildingId = ?", [buildingId]);
-    if (n >= MAX_OBJECTIVES) throw new AppError("conflict", `${b.name}'s goal already has ${n} objectives (at most ${MAX_OBJECTIVES}): edit one instead.`);
-    const by = actor ? holderOf(actor) : null;
-    const last = this.world.objectives.first("buildingId = ?", [buildingId], "ORDER BY position DESC");
-    const o = this.world.objectives.upsert({
-      id: newId("ob"), buildingId, position: last ? last.position + 1 : 0, text: inp.text, horizon: inp.horizon ?? quarterOf(),
-      kpiId: inp.kpi ? this.kpiId(inp.kpi) : null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: inp.sourceDocIds, updatedAt: nowIso(),
-    });
-    // an objective is a goal of the town tree with the same id, under the building's attachment (docs/goals.md)
-    this.world.goals.upsert({
-      id: o.id, parentId: this.world.goalTree.attachmentOf(b), position: o.position, text: o.text, ownerId: null, status: "active", retiredAt: null, retiredBy: null, retiredNote: "",
-      createdBy: o.createdBy, editedBy: null, sourceDocIds: o.sourceDocIds, exploreCapTokensPerDay: null, explore: null, exploreChunkTokens: null, desksTotal: null, createdAt: o.updatedAt, updatedAt: o.updatedAt,
-    });
-    this.world.events.append({
-      type: "objective.created", agentId: actor?.id ?? null, buildingId, text: `${b.name} objective: ${o.text}`,
-      payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: o.text, kpi: inp.kpi ?? null, horizon: o.horizon },
-    });
-    return o;
-  }
-
-  /** PATCH /api/objectives/:id (and `set_objective` with an id): the same writers as createObjective. */
-  updateObjective(actor: Actor, id: string, input: UpdateObjectiveInput): Objective {
-    const inp = UpdateObjectiveInput.parse(input);
-    const o = this.world.objectives.require(id, "objective");
-    this.requireWriter(actor, this.world.buildings.require(o.buildingId, "building"), "objectives");
-    if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
-    const fields = {
-      ...(inp.text !== undefined && { text: inp.text }), ...(inp.horizon !== undefined && { horizon: inp.horizon }),
-      ...(inp.kpi !== undefined && { kpiId: inp.kpi ? this.kpiId(inp.kpi) : null }),
-      ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }), ...(inp.position !== undefined && { position: inp.position }),
-    };
-    if (!Object.keys(fields).length) throw badRequest("Nothing to change: give text, kpi, horizon, sourceDocIds or position.");
-    const by = actor ? holderOf(actor) : null;
-    const next = this.world.objectives.upsert({ ...o, ...fields, editedBy: by?.id ?? null, updatedAt: nowIso() });
-    const goal = this.world.goals.get(o.id);
-    if (goal) this.world.goals.upsert({ ...goal, text: next.text, position: next.position, sourceDocIds: next.sourceDocIds, editedBy: next.editedBy, updatedAt: next.updatedAt });
-    this.world.events.append({
-      type: "objective.updated", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective edited: ${next.text}`,
-      payload: { objectiveId: o.id, by: by?.id ?? "system", byKind: by?.kind ?? "system", text: next.text, fromText: o.text, kpiId: next.kpiId, horizon: next.horizon },
-    });
-    return next;
-  }
-
-  /** DELETE /api/objectives/:id: a human with `building.manage`; refused while key results hang off it. */
-  deleteObjective(actor: Actor, id: string): void {
-    const o = this.world.objectives.require(id, "objective");
-    if (actor) {
-      if (actor.kind !== "human") throw forbidden("building.manage", "Only a human deletes an objective.");
-      this.world.permissions.require(actor, "building.manage", o.buildingId);
-    }
-    const n = this.world.keyResults.count("objectiveId = ?", [id]);
-    if (n) throw new AppError("conflict", `${n} key result${n === 1 ? "" : "s"} hang off this objective: move ${n === 1 ? "it" : "them"} first.`);
-    const kids = this.world.goals.count("parentId = ?", [id]) + this.world.keyResults.count("goalId = ?", [id]);
-    if (kids) throw new AppError("conflict", `This objective is a goal of the town tree with ${kids} goal${kids === 1 ? "" : "s"} or key result${kids === 1 ? "" : "s"} under it: move them first.`);
-    this.world.objectives.delete(id);
-    this.world.goals.delete(id);
-    this.world.events.append({ type: "objective.deleted", agentId: actor?.id ?? null, buildingId: o.buildingId, text: `Objective removed: ${o.text}`, payload: { objectiveId: id } });
-  }
-
-  private kpiId(key: KpiKey): string {
-    const k = this.world.kpis.first("key = ?", [key]);
-    if (!k) throw badRequest(`Unknown KPI ${key}.`);
-    return k.id;
-  }
-
-  /** A key result's objective must be one of its building's, with room for one more (at most MAX_KEY_RESULTS_PER_OBJECTIVE). */
-  private requireObjectiveRoom(buildingId: string, objectiveId: string, movingId?: string): void {
-    const o = this.world.objectives.get(objectiveId);
-    if (!o || o.buildingId !== buildingId) throw badRequest(`${objectiveId} is not an objective of this building's goal.`);
-    const n = this.world.keyResults.count("objectiveId = ? AND id != ?", [objectiveId, movingId ?? ""]);
-    if (n >= MAX_KEY_RESULTS_PER_OBJECTIVE) throw new AppError("conflict", `Objective ${objectiveId} already has ${n} key results (at most ${MAX_KEY_RESULTS_PER_OBJECTIVE}).`);
-  }
-
   /** The live (funded or checkpoint) grant a key result belongs to, if any. */
   liveGrantOf(keyResultId: string): Grant | undefined {
     const grantId = this.world.keyResults.get(keyResultId)?.grantId;
@@ -453,7 +349,7 @@ export class Grants {
     const open = this.world.grants.where(`buildingId = ? AND status IN ('proposed', 'countered')`, [buildingId], "ORDER BY updatedAt DESC, rowid DESC");
     const keyResults = this.keyResults(buildingId);
     return {
-      goal: this.world.goalTree.purposeOf(b), keyResults, objectives: this.objectiveTree(buildingId, keyResults), blocked: this.blocked(b), stoplight: this.stoplight(b),
+      goal: this.world.goalTree.purposeOf(b), keyResults, blocked: this.blocked(b), stoplight: this.stoplight(b),
       grants: live.map((g) => this.view(g)), proposals: open.map((g) => this.view(g)), exploration: this.exploration(buildingId), directed: this.directed(buildingId),
     };
   }
@@ -991,14 +887,12 @@ export class Grants {
       ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }), ...(inp.due !== undefined && { due: inp.due }),
     };
     const edited = Object.keys(words).length > 0;
-    const moved = inp.objectiveId !== undefined && inp.objectiveId !== kr.objectiveId;
-    if (!inp.status && !edited && !moved) throw badRequest("Nothing to change: give status, text, howToCheck, sourceDocIds or objectiveId.");
+    if (!inp.status && !edited) throw badRequest("Nothing to change: give status, text, howToCheck or sourceDocIds.");
     // re-marking the current status with no new note changes nothing: no write, no kr.updated, no manager wake
-    if (inp.status === kr.status && !edited && !moved && (!inp.note.trim() || inp.note === kr.statusNote)) return kr;
-    if (edited || moved) {
+    if (inp.status === kr.status && !edited && (!inp.note.trim() || inp.note === kr.statusNote)) return kr;
+    if (edited) {
       this.requireWriter(actor, this.world.buildings.require(kr.buildingId, "building"));
       if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
-      if (moved && inp.objectiveId) this.requireObjectiveRoom(kr.buildingId, inp.objectiveId, kr.id);
     }
     if (actor && inp.status && !opts.closing) {
       // "met, unverified" is the close's word only; a human takes it to met or missed
@@ -1016,15 +910,14 @@ export class Grants {
     // met or missed archives it under its goal (the goal stays); undoing that brings it back
     const archive = inp.status ? { archivedAt: isJudgedKr(inp.status) ? kr.archivedAt ?? now : null } : {};
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
-    const tree = moved ? { objectiveId: inp.objectiveId ?? null, goalId: inp.objectiveId ?? this.world.goalTree.attachmentOf(kr.buildingId) } : {};
     const evidence = inp.status ? { evidence: evidenceAfter(kr, inp.status, by?.kind === "user" && !opts.closing) } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...tree, ...status, ...evidence, updatedAt: now });
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...status, ...evidence, updatedAt: now });
     if (inp.status === "missed" && kr.status !== "missed") queuePostmortem(this.world, actor, next, inp.note);
     const patched = this.world.events.append({
-      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : edited ? `Key result edited: ${next.text}` : `Key result moved: ${next.text}`,
+      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
       payload: {
         grantId: kr.grantId, keyResultId: kr.id, status: next.status, from: kr.status,
-        by: by?.id ?? "system", byKind: by?.kind ?? "system", edited, ...(moved && { objectiveId: next.objectiveId, fromObjectiveId: kr.objectiveId }),
+        by: by?.id ?? "system", byKind: by?.kind ?? "system", edited,
         ...(edited && { text: next.text, howToCheck: next.howToCheck, sourceDocIds: next.sourceDocIds, fromText: kr.text }),
       },
     });
@@ -1053,11 +946,11 @@ export class Grants {
   }
 
   /** A human with `building.manage`, or the building's own manager agent, writes the goal's key results. */
-  private requireWriter(actor: Actor, b: Building, what = "key results"): void {
+  private requireWriter(actor: Actor, b: Building): void {
     if (!actor) return;
     if (actor.kind !== "human") {
       if (b.managerAgentId === actor.id && b.kind !== "town-hall") return;
-      throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's ${what}.`);
+      throw forbidden("building.manage", `Only a human or ${b.name}'s manager writes its goal's key results.`);
     }
     this.world.permissions.require(actor, "building.manage", b.id);
   }

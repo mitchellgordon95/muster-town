@@ -5,7 +5,7 @@ import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { asks as fixtureAsks, explorationSpentToday, legible, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
 import type { Ask, Notice, NoticeKind, StepSizeTable } from "@muster-town/schema";
@@ -397,10 +397,6 @@ export class MockApi implements Api {
   async keyResults(buildingId: string) { await wait(); this.need(this.sim.buildings.find((b) => b.id === buildingId), "building"); return clone(this.sim.grantBoard(buildingId)); }
   async updateKeyResult(id: string, i: In<typeof UpdateKeyResultInput>) { await wait(); return clone(this.sim.updateKeyResult(id, i)); }
   async deleteKeyResult(id: string) { await wait(); this.sim.deleteKeyResult(id); }
-  async objectives(buildingId: string) { await wait(); return clone(this.sim.objectiveTree(buildingId)); }
-  async createObjective(buildingId: string, i: In<typeof CreateObjectiveInput>) { await wait(); return clone(this.sim.createObjective(buildingId, i)); }
-  async updateObjective(id: string, i: In<typeof UpdateObjectiveInput>) { await wait(); return clone(this.sim.updateObjective(id, i)); }
-  async deleteObjective(id: string) { await wait(); this.sim.deleteObjective(id); }
   async engagement(): Promise<EngagementView> {
     await wait();
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);

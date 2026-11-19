@@ -183,7 +183,6 @@ export class World {
   readonly grants: Repos["grants"];
   readonly schedules: Repos["schedules"];
   readonly keyResults: Repos["keyResults"];
-  readonly objectives: Repos["objectives"];
   readonly goals: Repos["goals"];
   /** exploration reservations (docs/how-work-gets-done.md §7): empty until the declarative explore step opens them */
   readonly bankReservations: Repos["bankReservations"];
@@ -220,7 +219,7 @@ export class World {
     this.places = repos.places; this.docs = repos.docs; this.assignments = repos.assignments;
     this.messages = repos.messages; this.meetings = repos.meetings; this.sessions = repos.sessions;
     this.interrupts = repos.interrupts;
-    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.objectives = repos.objectives; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.pins = repos.pins;
+    this.grants = repos.grants; this.schedules = repos.schedules; this.keyResults = repos.keyResults; this.goals = repos.goals; this.bankReservations = repos.bankReservations; this.goalProposals = repos.goalProposals; this.goalChanges = repos.goalChanges; this.kpis = repos.kpis; this.accessRequests = repos.accessRequests; this.captainRequests = repos.captainRequests; this.asks = repos.asks; this.notices = repos.notices; this.pins = repos.pins;
     this.tokens = repos.tokens; this.town = repos.town;
     this.events = new EventLog(db, this.changes);
     this.permissions = new Permissions(repos, () => !!this.host.hosted);

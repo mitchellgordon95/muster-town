@@ -99,27 +99,3 @@ export async function propose_goal(world: World, me: Agent, input: VerbIn<"propo
   return { proposal: { id: p.id, action: p.action, status: p.status, outsideScope: p.outsideScope }, note: `Proposed ${p.id}. It is an entry on your building's thread, and its need follows: write its card with \`ask\` (targetId ${p.id}, type policy; the branches Accept / Edit and accept / Cut are fixed). A human with goals.edit there decides it; you hear back in your inbox.${p.outsideScope ? " It reaches outside your building's subtree, so it is flagged." : ""}` };
 }
 
-/**
- * `set_objective` (the manager): add an objective to its own building's goal (at most 3), or edit one (`id`), on the
- * same path as POST /api/buildings/:id/objectives. A new one names the KPI it moves and the notes or report it comes from.
- */
-export async function set_objective(world: World, me: Agent, input: VerbIn<"set_objective">) {
-  const bid = input.buildingId ?? homeOf(me);
-  if (!bid) throw badRequest("You have no building; give buildingId.");
-  let o;
-  if (input.id) {
-    const cur = world.objectives.get(input.id);
-    if (!cur || cur.buildingId !== bid) throw badRequest(`${input.id} is not an objective of ${world.buildings.get(bid)?.name ?? bid}'s goal.`);
-    o = world.grantDesk.updateObjective(me, input.id, { text: input.text, kpi: input.kpi, horizon: input.horizon, sourceDocIds: input.sourceDocIds });
-  } else {
-    if (!input.text || !input.kpi) throw badRequest("A new objective needs text and kpi (fund, join or trust).");
-    if (!input.sourceDocIds?.length && me.kind !== "human") throw badRequest("Name the meeting notes or report it comes from in sourceDocIds.");
-    o = world.grantDesk.createObjective(me, bid, { text: input.text, kpi: input.kpi, horizon: input.horizon, sourceDocIds: input.sourceDocIds ?? [] });
-  }
-  const tree = world.grantDesk.objectiveTree(bid);
-  return {
-    objective: tree.objectives.find((x) => x.id === o.id) ?? o,
-    unsorted: tree.unsorted.map((k) => k.id),
-    note: "On the board now. Key results belong to grants: propose_grant with its own keyResults.",
-  };
-}

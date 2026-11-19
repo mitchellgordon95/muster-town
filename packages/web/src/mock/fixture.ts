@@ -3,7 +3,7 @@
  * Moss its manager, two reports in the in-tray, Otto who was dismissed), the Workshop (a workspace building managed by
  * Keel, whose forks do the work; one report in its in-tray), meetings now / upcoming / done.
  */
-import type { Agent, Ask, Assignment, Building, Doc, Event, GrantView, Kpi, Meeting, Membership, Notice, Objective, Role, StepCalibration, Town, User } from "@muster-town/schema";
+import type { Agent, Ask, Assignment, Building, Doc, Event, GrantView, Meeting, Membership, Notice, Role, StepCalibration, Town, User } from "@muster-town/schema";
 import { BUILTIN_ROLES } from "@muster-town/schema";
 import type { LegibleView } from "../api";
 import deckShot from "./deck-shot.svg?no-inline";
@@ -247,8 +247,6 @@ export const grants: GrantView[] = [
   },
 ];
 
-/** Which Workshop key result sits under which objective; kr_bl_workshop_2 stays Unsorted. */
-const KR_OBJECTIVE: Record<string, string> = { kr_bl_workshop_3: "ob_ws_trust", kr_bl_workshop_0: "ob_ws_join", kr_bl_workshop_1: "ob_ws_join" };
 /**
  * The goal key results of each building (the server's `key_results` rows): the ones the grants above name, plus one
  * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
@@ -256,22 +254,8 @@ const KR_OBJECTIVE: Record<string, string> = { kr_bl_workshop_3: "ob_ws_trust", 
 export const keyResults: Kr[] = [
   ...grants.flatMap((g) => (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
   kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
-].map((k) => ({ ...k, objectiveId: KR_OBJECTIVE[k.id] ?? null }));
+];
 
-/** The Workshop's objectives (the draft in docs/goal-directed-budgets.md): each names the town KPI it moves. */
-const obj = (id: string, position: number, kpiId: string, text: string): Objective =>
-  ({ id, buildingId: "bl_workshop", position, text, horizon: "2026-Q4", kpiId, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], updatedAt: ago(30) });
-export const objectives: Objective[] = [
-  obj("ob_ws_trust", 0, "kpi_trust", "A funder can see exactly what every token bought: the Bank counts each token type and every grant shows its sessions and their cost."),
-  obj("ob_ws_join", 1, "kpi_join", "A stranger who arrives can understand the town and finish useful work in their first session without help."),
-  obj("ob_ws_fund", 2, "kpi_fund", "Someone other than Mitchell can fund a building's key result end to end."),
-];
-/** The town KPIs objectives name (migration 043's seed). */
-export const kpis: Kpi[] = [
-  { id: "kpi_fund", scope: "town", key: "fund", name: "Fund", position: 0, measure: "Funders other than the owner: distinct humans who funded a grant or added a Bank input in the week, and the tokens they put in." },
-  { id: "kpi_join", scope: "town", key: "join", name: "Join", position: 1, measure: "Strangers who came back: humans (not the owner) whose first activity fell in the week and who were active again on a later day within 14 days." },
-  { id: "kpi_trust", scope: "town", key: "trust", name: "Trust", position: 2, measure: "Humans (not the owner) who staked something a second time: answered an outbox request, or funded a grant after having funded one before." },
-];
 
 /** Today's exploration spend per building (the server sums exploration-lane sessions). */
 export const explorationSpentToday: Record<string, number> = { bl_workshop: 1_150_000 };

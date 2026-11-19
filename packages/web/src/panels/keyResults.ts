@@ -2,8 +2,8 @@
  * Pure helpers for the building panel's Goals and Grants tabs and the Town Hall in-tray (goal-directed buildings): the
  * same numbers and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
-import { krStatusWords, type GrantView, type KeyResultStatus } from "@muster-town/schema";
-import type { FinanceSpend, ObjectiveTree, ObjectiveView, SpendNode } from "../api";
+import { krStatusWords, type GrantView, type KeyResult, type KeyResultStatus } from "@muster-town/schema";
+import type { FinanceSpend, SpendNode } from "../api";
 import { ADJ, fmtTokens, fmtTokensExact } from "../format";
 
 /** Share of `total` spent, 0..1 (0 when there's no total). */
@@ -21,11 +21,6 @@ export function grantSpendLine(g: Pick<GrantView, "spentTokens" | "grantTokens">
 /** Pill tone per key-result status: met green, missed red, claimed / at risk amber, the rest neutral. */
 export function krTone(s: KeyResultStatus): string {
   return s === "met" ? "ok" : s === "missed" ? "bad" : s === "claimed" || s === "at-risk" || s === "met-unverified" ? "warn" : "";
-}
-
-/** "Moves Trust · 2026-Q4", an objective's subtitle. */
-export function objectiveLine(o: Pick<ObjectiveView, "kpiName" | "horizon">): string {
-  return `${o.kpiName ? `Moves ${o.kpiName}` : "Names no KPI yet"} · ${o.horizon}`;
 }
 
 /** The human-readable status, "not started" for "not-started". */
@@ -72,11 +67,10 @@ export function krGrantWord(krId: string, grants: Pick<GrantView, "keyResultId" 
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The Overview's Goals line: "3 objectives, 5 key results, 2 funded". */
-export function goalsSummary(tree: ObjectiveTree, grants: Pick<GrantView, "keyResultId" | "status">[]): string {
-  const krs = [...tree.objectives.flatMap((o) => o.keyResults), ...tree.unsorted];
+/** The Overview's Goals line: "5 key results, 2 funded". */
+export function goalsSummary(krs: Pick<KeyResult, "id">[], grants: Pick<GrantView, "keyResultId" | "status">[]): string {
   const funded = krs.filter((k) => krGrantWord(k.id, grants) === "funded").length;
-  return `${plural(tree.objectives.length, "objective")}, ${plural(krs.length, "key result")}, ${funded} funded`;
+  return `${plural(krs.length, "key result")}, ${funded} funded`;
 }
 
 /** The Grants tab's order: open proposals (oldest first), then funded (newest funding first), then checkpoint / stopping / closed / rejected (latest first). Drafts aren't grants yet. */
