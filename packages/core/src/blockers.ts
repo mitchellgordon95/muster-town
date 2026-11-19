@@ -43,7 +43,7 @@ export function blockedBy(world: World, a: Assignment, at: Date = new Date()): B
       const mins = Math.max(0, Math.round((at.getTime() - Date.parse(a.createdAt)) / 60_000));
       const c = world.host.prChecks?.(w.pr);
       const progress = !world.host.prChecks ? " (no runtime watching GitHub)" : !c ? " (not read from GitHub yet)" : c.total ? ` (${c.done} of ${c.total} done)` : " (no checks registered yet)";
-      return { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks: ${mins} min so far${progress}` };
+      return { kind: "pr", targetId: String(w.pr), placeId: `door:${a.buildingId}`, text: `waiting on PR #${w.pr} checks${w.merge ? " to merge it when green" : ""}: ${mins} min so far${progress}` };
     }
     if ("decision" in w) {
       const d = world.docs.get(w.decision);

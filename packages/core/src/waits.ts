@@ -6,9 +6,10 @@
  */
 import { WAIT_TTL_MS, WaitFor, waitKindsFor, type Assignment } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
+import { appendEntry, jobOf } from "./jobs.ts";
 import { AppError } from "./errors.ts";
 import { nowIso, truncate } from "./util.ts";
-import type { World } from "./world.ts";
+import type { PrChecks, World } from "./world.ts";
 import { stamp } from "./time.ts";
 
 /** Parse and check a wait at the point it is set: the thing waited on must exist; `after` at most 24 h ahead. */
@@ -46,7 +47,7 @@ export function describeWait(world: World, w: WaitFor): string {
   if ("pr" in w) {
     const c = world.host.prChecks?.(w.pr);
     const how = c && c.state !== "pending" ? ` (${c.state}${c.failed?.length ? `: ${c.failed.join(", ")}` : ""})` : "";
-    return `PR #${w.pr}'s checks to finish${how}`;
+    return `PR #${w.pr}'s checks to finish${w.merge ? " and the town to merge it" : ""}${how}`;
   }
   return stamp(w.after);
 }
@@ -89,19 +90,57 @@ export function waitMet(world: World, a: Assignment, at: Date = new Date()): boo
   }
   if ("pr" in w) {
     const c = world.host.prChecks?.(w.pr);
-    return !!c && c.state !== "pending";
+    // merge when green: passed is not the end, the poller merges it (merged) or says why not (failed) on the same read
+    return !!c && c.state !== "pending" && !(w.merge && c.state === "passed");
   }
   return Date.parse(w.after) <= at.getTime();
 }
 
-/** Clear met waits (event "unblocked: …"); cancel ones unmet past WAIT_TTL_MS into the in-tray. Cheap: one indexed query. */
-export function checkWaits(world: World, at: Date = new Date()): { unblocked: Assignment[]; expired: Assignment[] } {
-  const unblocked: Assignment[] = [], expired: Assignment[] = [];
+/**
+ * Merge when green (grant gr_rlt0ctnhqk): the PR a `{pr, merge: true}` wait names was merged, so the parked work is done
+ * with no new session. The continuation closes as done, its job's thread gets "merged PR #N as <sha>", and a parked grant
+ * step queues the plan's next step as its report would have (from the report that parked it).
+ */
+function closeMerged(world: World, a: Assignment, pr: number, c: PrChecks): Assignment {
+  const sha = c.mergeSha ?? c.sha ?? "";
+  const who = c.mergedBy === "town" ? "The town merged" : "Someone merged";
+  return world.transaction(() => {
+    const done = setAssignmentStatus(world, a.id, "done", { waitFor: null });
+    appendEntry(world, {
+      id: `en_${a.id}_merged`, jobId: jobOf(a).id, authorKind: "code", authorId: "system", level: "none", assignmentId: a.id,
+      note: `merged PR #${pr} as ${sha.slice(0, 8)}`,
+      body: `${who} PR #${pr} as ${sha} once its checks passed${c.total ? ` (${c.done} of ${c.total})` : ""}. The parked work "${truncate(a.title, 120)}" is done; no session ran for it.`,
+      moved: { kind: "merged", pr, sha, by: c.mergedBy ?? null },
+    });
+    world.events.append({ type: "pr.merged", agentId: a.agentId, buildingId: a.buildingId, text: `${who} PR #${pr} as ${sha.slice(0, 8)}: "${truncate(a.title, 80)}" is done with no new session`, payload: { assignmentId: a.id, pr, sha, by: c.mergedBy ?? null } });
+    if (a.grantStep != null && a.fromReportId) world.grantDesk.queueNextStep(done, a.fromReportId, "continue");
+    return done;
+  });
+}
+
+/** The PR's outcome, for a continuation that wakes on a `{pr}` wait: what to fix (failed checks, a conflict, a refused merge). */
+function prOutcome(pr: number, c: PrChecks | undefined): string {
+  if (!c) return "";
+  return `\n\nPR #${pr} when this resumed: ${c.state}${c.failed?.length ? ` (${c.failed.join("; ")})` : ""}${c.sha ? ` on ${c.sha.slice(0, 8)}` : ""}.`;
+}
+
+/**
+ * Clear met waits (event "unblocked: …"); cancel ones unmet past WAIT_TTL_MS into the in-tray. A merge-when-green wait
+ * whose PR merged closes its work as done instead (`merged`). Cheap: one indexed query.
+ */
+export function checkWaits(world: World, at: Date = new Date()): { unblocked: Assignment[]; expired: Assignment[]; merged: Assignment[] } {
+  const unblocked: Assignment[] = [], expired: Assignment[] = [], merged: Assignment[] = [];
   const cutoff = new Date(at.getTime() - WAIT_TTL_MS).toISOString();
   for (const a of world.assignments.where("status = 'pending' AND waitFor IS NOT NULL", [], "ORDER BY createdAt")) {
     const what = describeWait(world, a.waitFor!);
     if (waitMet(world, a, at)) {
-      const u = world.assignments.upsert({ ...a, waitFor: null, updatedAt: nowIso() });
+      const w = a.waitFor!;
+      const pr = "pr" in w ? world.host.prChecks?.(w.pr) : undefined;
+      if ("pr" in w && w.merge && pr?.state === "merged") {
+        merged.push(closeMerged(world, a, w.pr, pr));
+        continue;
+      }
+      const u = world.assignments.upsert({ ...a, waitFor: null, description: "pr" in w ? `${a.description}${prOutcome(w.pr, pr)}` : a.description, updatedAt: nowIso() });
       world.events.append({ type: "assignment.status", agentId: a.agentId, buildingId: a.buildingId, text: `${world.nameOf(a.agentId)}'s "${truncate(a.title, 80)}" unblocked: ${what} happened`, payload: { assignmentId: a.id, status: "pending", from: "pending", unblocked: true } });
       unblocked.push(u);
     } else if (a.createdAt <= cutoff) {
@@ -123,5 +162,5 @@ export function checkWaits(world: World, at: Date = new Date()): { unblocked: As
       });
     }
   }
-  return { unblocked, expired };
+  return { unblocked, expired, merged };
 }

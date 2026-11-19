@@ -870,7 +870,8 @@ export type PinInput = z.infer<typeof PinInput>;
 /**
  * What a pending assignment waits on before the scheduler may start it (a closed set the runtime evaluates):
  * `deploy` = the live server contains this commit ("next" = the server restarted after the assignment was made);
- * `assignment` = that assignment is done or cancelled; `decision` = that report got a decision; `after` = not before this time.
+ * `assignment` = that assignment is done or cancelled; `decision` = that report got a decision; `after` = not before this time;
+ * `pr` = that PR's checks finished (with `merge: true`, the town merges it when green: runtime pr-checks.ts, core waits.ts).
  * Unmet after 24 h, the assignment is cancelled into its building's in-tray.
  */
 export const WaitFor = z.union([
@@ -878,7 +879,10 @@ export const WaitFor = z.union([
   z.object({ assignment: z.string().min(1).describe("that assignment is done or cancelled") }).strict(),
   z.object({ decision: z.string().min(1).describe("that report (doc id) got a decision") }).strict(),
   z.object({ after: Iso.describe("not before this time (ISO, at most 24 h ahead)") }).strict(),
-  z.object({ pr: z.number().int().positive().describe("that pull request's CI checks finished on its head commit (passed or failed), or it was merged or closed") }).strict(),
+  z.object({
+    pr: z.number().int().positive().describe("that pull request's CI checks finished on its head commit (passed or failed), or it was merged or closed"),
+    merge: z.boolean().optional().describe("merge when green: once its checks all pass and it has no conflict, the town marks it ready, squash-merges it and deletes the branch, and the parked work closes as done with no new session; red checks, a conflict or a refused merge wake it with the reason"),
+  }).strict(),
 ]);
 export type WaitFor = z.infer<typeof WaitFor>;
 /**
@@ -2175,6 +2179,7 @@ export const EventType = z.enum([
   "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
+  "pr.merged", // merge when green (core waits.ts closeMerged, gr_rlt0ctnhqk)
   "building.created", "building.updated", "building.layout", "town.plan", "allocation.created", "budget.exhausted", "bank.input", "bank.fee", "bank.credited", "bank.debited", "bank.converted", "bank.pruned", "bank.share", "bank.pool", "bank.drift", "bank.mix", "bank.cap", "bank.hold", "bank.limit",
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.reopened", "ask.refused", "ask.checked",
   "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
