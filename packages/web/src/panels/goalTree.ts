@@ -153,3 +153,26 @@ export function retireMoves(plan: Pick<ReturnType<typeof retirePlan>, "openKrs" 
 
 /** The three doors' "Captain a goal" (gr_y9bpvx197c): the goal tree opens at the root's first active goal, where Ask to captain shows. */
 export const CAPTAIN_DOOR = "captain";
+
+/**
+ * The phone outline's second line for a goal (grant gr_nhayb7s9bd step 2): its captain, its open key results and its
+ * open proposals, e.g. "Captain Mitchell · 2 key results · 1 proposal". Done ones are left out ("0 key results" is
+ * not said: the detail shows the done fold).
+ */
+export function outlineMeta(node: Pick<GoalTreeNode, "owner" | "keyResults">, proposals = 0): string {
+  const open = node.keyResults.filter((k) => !isArchived(k)).length;
+  const parts = [`Captain ${node.owner.name}`];
+  if (open) parts.push(`${open} key result${open === 1 ? "" : "s"}`);
+  if (proposals) parts.push(`${proposals} proposal${proposals === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/** The outline row a key moves to (↑ ↓ Home End), or null for any other key. */
+export function outlineStep(key: string, at: number, count: number): number | null {
+  if (!count) return null;
+  if (key === "ArrowDown") return Math.min(count - 1, at + 1);
+  if (key === "ArrowUp") return Math.max(0, at - 1);
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}

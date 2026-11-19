@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
-import { archivedLine, buildingScope, krHeading, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
+import { archivedLine, buildingScope, krHeading, canEditGoal, deskWord, moveTargets, nodeGlance, outlineMeta, outlineStep, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
 import { BOX, READABLE, defaultFolds, deskTotal, fitView, layoutTree, openView, revealBox, stepTree, zoomAt } from "../src/panels/goalCanvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
 import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
 import { GoalCanvas } from "../src/panels/GoalCanvas";
+import { GoalOutline } from "../src/panels/GoalOutline";
+import { GE_VIEW_KEY, saveGoalView, savedGoalView } from "../src/panels/panelResize";
 import { store } from "../src/state";
 import { clock, dayClock } from "../src/panels/ui";
 
@@ -273,5 +275,46 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
     const krs = [kr("k1", "on-track", "2026-10-01"), { ...kr("k2", "at-risk", "2026-12-01"), grantId: "gr_1" }, kr("k3", "met", "2026-09-01"), kr("k4", "not-started", null)];
     expect(nodeGlance({ keyResults: krs }, "2026-10-30")).toEqual({ open: 3, funded: 1, late: 1, nextDue: "2026-10-01" });
     expect(nodeGlance({ keyResults: [] }, "2026-10-30")).toEqual({ open: 0, funded: 0, late: 0, nextDue: null });
+  });
+});
+
+describe("the goal tree's phone outline (grant gr_nhayb7s9bd step 2)", () => {
+  it("one tree row per goal, indented by level, with captain and open key results; retired only behind Retired", () => {
+    const root = sample();
+    const html = renderToStaticMarkup(<GoalOutline root={root} retired={false} selected="gl_a" scope={null} proposals={new Map([["gl_b", 2]])} onSelect={() => {}} />);
+    expect(html).toContain('role="tree"');
+    expect(html.match(/role="treeitem"/g)).toHaveLength(6);
+    expect(html).not.toContain("gl_old");
+    expect(html).toMatch(/aria-level="3"[^>]*aria-selected="true"[^>]*tabindex="0"/);
+    expect(html.match(/tabindex="0"/g)).toHaveLength(1);
+    expect(html).toContain("Captain Mitchell · 1 key result<");
+    expect(html).toContain("Captain Ann<");
+    expect(html).toContain("Captain Mitchell · 2 proposals");
+    expect(renderToStaticMarkup(<GoalOutline root={root} retired selected="gl_town" scope={null} proposals={new Map()} onSelect={() => {}} />)).toContain("gl_old");
+    // a filter dims the goals outside it
+    expect(renderToStaticMarkup(<GoalOutline root={root} retired={false} selected="gl_town" scope={buildingScope(root, "workshop")} proposals={new Map()} onSelect={() => {}} />)).toContain("dim");
+  });
+
+  it("meta and keys: done key results are not counted; ↑ ↓ Home End stay inside the list", () => {
+    expect(outlineMeta(goal("g", null, { keyResults: [kr("x", "met"), kr("y", "missed")] }))).toBe("Captain Mitchell");
+    expect(outlineMeta(goal("g", null, { keyResults: [kr("x", "on-track"), kr("y", "at-risk")] }), 1)).toBe("Captain Mitchell · 2 key results · 1 proposal");
+    expect(outlineStep("ArrowDown", 2, 3)).toBe(2);
+    expect(outlineStep("ArrowDown", 0, 3)).toBe(1);
+    expect(outlineStep("ArrowUp", 0, 3)).toBe(0);
+    expect(outlineStep("End", 0, 3)).toBe(2);
+    expect(outlineStep("Home", 2, 3)).toBe(0);
+    expect(outlineStep("a", 0, 3)).toBeNull();
+  });
+
+  it("the phone view choice: outline unless Map was picked; kept across visits", () => {
+    const m = new Map<string, string>();
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
+    expect(savedGoalView(s)).toBe("outline");
+    saveGoalView("map", s);
+    expect(savedGoalView(s)).toBe("map");
+    saveGoalView("outline", s);
+    expect(savedGoalView(s)).toBe("outline");
+    m.set(GE_VIEW_KEY, "junk");
+    expect(savedGoalView(s)).toBe("outline");
   });
 });

@@ -23,7 +23,8 @@ import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
 import { defaultFolds } from "./goalCanvas";
-import { GE_DETAIL_KEY } from "./panelResize";
+import { GoalOutline } from "./GoalOutline";
+import { GE_DETAIL_KEY, savedGoalView, saveGoalView, useNarrow, type GoalView } from "./panelResize";
 import { Sheet } from "./Sheet";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -56,6 +57,11 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const [folds, setCollapsed] = useState<ReadonlySet<string> | null>(null);
   const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);
   const [bump, setBump] = useState(0);
+  // a phone opens on the outline (grant gr_nhayb7s9bd step 2); "Map" shows the canvas, and the choice is kept
+  const phone = useNarrow();
+  const [view, setViewState] = useState<GoalView>(() => savedGoalView());
+  const setView = (v: GoalView) => { setViewState(v); saveGoalView(v); };
+  const outline = phone && view === "outline";
   const detail = useRef<HTMLElement>(null);
   const tree = useLoad(() => retired ? api().goalTreeWithRetired() : api().goalTree(), [rev, retired, bump]);
   const proposals = useLoad(() => api().goalProposals("open"), [rev, bump]);
@@ -83,6 +89,8 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
     setSelected(to);
     if (root) setCollapsed((c) => { const n = new Set(c ?? opening); for (const g of pathTo(root, to).slice(0, -1)) n.delete(g.id); return n; });
   };
+  const scope = !root ? null : filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null;
+  const openDetail = () => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } };
   const byNode = new Map<string, number>();
   if (root) for (const p of proposals.data ?? []) { const id = proposalNode(root, p).id; byNode.set(id, (byNode.get(id) ?? 0) + 1); }
   return (
@@ -106,12 +114,17 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
               {allBuildings(root).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
+            {phone ? <span className="ge-view" role="group" aria-label="Show the goals as">
+              {(["outline", "map"] as const).map((v) => <button key={v} className={`btn sm ${view === v ? "on" : ""}`} aria-pressed={view === v} onClick={() => setView(v)}>{v === "outline" ? "Outline" : "Map"}</button>)}
+            </span> : null}
           </div>
-          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={opensAt}
-            scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
+          {outline ? <GoalOutline root={root} retired={retired} selected={node.id} proposals={byNode} onSelect={select}
+            scope={scope}
+            onOpen={openDetail} /> : <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={opensAt}
+            scope={scope}
             canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
             onSelect={select} onToggle={toggle} onChanged={reload}
-            onOpen={() => { const el = detail.current; if (el) { el.scrollTop = 0; el.focus({ preventScroll: true }); } }} />
+            onOpen={openDetail} />}
         </>
       )}
     </Sheet>

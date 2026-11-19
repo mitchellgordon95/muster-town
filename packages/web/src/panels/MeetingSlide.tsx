@@ -16,6 +16,7 @@ import { store, useTown } from "../state";
 import { DeckSlides, clampSlide, slideForKey } from "./DeckView";
 import { SlideDecision } from "./ReviewDeck";
 import { ErrorLine, Loading, useLoad } from "./ui";
+import { useNarrow } from "./panelResize";
 
 /** The slide strip itself: pure over its props, so tests render it. `go` null = a viewer (the arrows do nothing). */
 export function PresentedSlide({ title, slides, n, presenter, go, children }: { title: string; slides: DeckSlide[]; n: number; presenter: boolean; go: ((n: number) => void) | null; children?: ReactNode }) {
@@ -82,19 +83,6 @@ export function MeetingSlide({ m }: { m: Meeting & { deck: NonNullable<Meeting["
   );
   if (narrow) return body;
   return <>{bar}{hidden ? null : createPortal(<div className="slide-modal-wrap">{body}</div>, document.body)}</>;
-}
-
-/** The side panel takes the whole width at ≤760px (panelResize): there the slide stays inline above the chat. */
-function useNarrow(): boolean {
-  const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 760px)") : null;
-  const [narrow, setNarrow] = useState(() => q?.matches ?? false);
-  useEffect(() => {
-    if (!q) return;
-    const f = () => setNarrow(q.matches);
-    q.addEventListener("change", f);
-    return () => q.removeEventListener("change", f);
-  }, []);
-  return narrow;
 }
 
 /** Live meetings a signed-in human can present in (not 1:1s), newest first. */
