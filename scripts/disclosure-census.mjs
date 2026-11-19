@@ -33,7 +33,8 @@
  * rows .go-text) and the smallest of their on-screen sizes (computed font size × the canvas zoom). It passes at 11 px or more.
  *
  * The decision queue (.sheet.queue-sheet, the hydrant) is a target too: mock opens it with open({kind: "queue"}), live with #/queue.
- * Live also opens the goal tree at its root with #/goals.
+ * Live also opens the goal tree at its root with #/goals. Its front ask card's title, body and recommendation are the asker's words, like a
+ * doc body (decision as_5spvwexh1o on dc_9u3s34jwd3): not counted on the first screen; words total keeps them and the verdict says how many.
  *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
@@ -132,18 +133,23 @@ const measure = (page, part) => page.evaluate((part) => {
   // chat (a meeting's transcript, an agent's Talk timeline) is never folded (Mitchell, 1:1 mt_pr3347g2w2): its lines are the
   // speakers', like a report's body, so its words and the links inside its lines are not counted; the panel's own controls are
   const CHAT = ".transcript, .chat.timeline";
+  // Decision (as_5spvwexh1o, on dc_9u3s34jwd3): the decision queue's front ask card is its author's words, like a doc body: its title,
+  // body and recommendation are not counted on the first screen (labels, branches, buttons and the queue's own lines are); words total keeps them
+  const CARD = ".queue-sheet .ask-card :is(.ask-title, .ask-delta, .ask-body, .ask-rec)";
+  const card = (el) => !!el.closest(CARD) && !el.closest(".ask-label");
   const ctrls = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => el.getClientRects().length && !folded(el) && !el.closest(CHAT));
-  let words = 0, total = 0;
+  let words = 0, total = 0, cardWords = 0;
   const tw = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
   while (tw.nextNode()) {
     const n = tw.currentNode; const k = (n.textContent.match(/\S+/g) ?? []).length;
     if (!k || !n.parentElement || !n.parentElement.getClientRects().length || folded(n.parentElement) || n.parentElement.closest(CHAT)) continue;
-    total += k; if (shown(n.parentElement)) words += k;
+    total += k;
+    if (card(n.parentElement)) cardWords += k; else if (shown(n.parentElement)) words += k;
   }
   // screens: the tallest scroller in the panel (itself or a scrolling box inside it, at least 120 px tall)
   const scrollers = [panel, ...panel.querySelectorAll("*")].filter((el) => el === panel || (/(auto|scroll)/.test(getComputedStyle(el).overflowY) && el.clientHeight >= 120));
   const screens = Math.max(1, ...scrollers.map((el) => el.scrollHeight / Math.max(1, el.clientHeight)));
-  return { docSheet: panel.matches(".sheet.doc-sheet"), ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, screens: +screens.toFixed(1) };
+  return { docSheet: panel.matches(".sheet.doc-sheet"), ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, cardWords, screens: +screens.toFixed(1) };
 }, part);
 
 /**
@@ -173,7 +179,8 @@ const verdict = (t, m, part) => {
   const ex = excluded(t, part, m); if (ex) return `excluded (${ex})`;
   const why = [m.ctl > BAR.ctl && `ctl>${BAR.ctl}`, m.words > BAR.words && `words>${BAR.words}`].filter(Boolean);
   const long = m.screens > BAR.screens ? ` (long: ${m.screens} screens)` : "";
-  return (why.length ? `FAIL ${why.join(" ")}` : "pass") + long;
+  const ask = m.cardWords ? ` (${m.cardWords} of ${m.total} words total are the front ask card's, not counted on the first screen)` : "";
+  return (why.length ? `FAIL ${why.join(" ")}` : "pass") + long + ask;
 };
 
 // ---- run ----
