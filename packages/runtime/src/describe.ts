@@ -75,7 +75,6 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "withdraw_grant": return "Withdrawing a grant proposal";
     case "ask": return `Asking the humans: ${clip(i.title, 60)}`;
     case "act_in_1on1": return `Doing what the human said: ${i.action} ${i.targetId}`;
-    case "set_objective": return i.id ? "Editing an objective" : `Writing an objective: ${clip(i.text, 60)}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
     case "calibrate": return i.body ? "Filing the calibration ask" : "Reading the budget measures";

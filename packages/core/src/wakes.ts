@@ -77,10 +77,6 @@ function describe(world: World, e: Event): { title: string; what: string; summar
     let verb: string, detail: string;
     if (e.type === "kr.created") { verb = "written"; detail = `How to check: ${kr?.howToCheck ?? p.howToCheck ?? ""}`; }
     else if (e.type === "kr.deleted") { verb = "removed"; detail = "It is no longer on the goal; work that named it keeps running until you reassign it."; }
-    else if (p.edited !== true && p.objectiveId !== undefined && p.status === p.from) {
-      const o = typeof p.objectiveId === "string" ? world.objectives.get(p.objectiveId) : undefined;
-      verb = "moved"; detail = o ? `Now under objective ${o.id}: ${o.text}` : "Now under no objective (Unsorted).";
-    }
     else if (p.edited !== true && typeof p.goalId === "string" && p.status === p.from) {
       // a goal-tree move (an accepted move proposal, a retired goal's key results): the status did not change
       const to = world.goals.get(p.goalId), from = typeof p.fromGoalId === "string" ? world.goals.get(p.fromGoalId) : undefined;

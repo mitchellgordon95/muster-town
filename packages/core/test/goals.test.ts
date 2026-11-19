@@ -191,10 +191,9 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(world.keyResults.require(kr.id).goalId).toBe(g.resultId);
   });
 
-  it("the old objectives keep working on the tree: a grant filed against one puts its key results under it", async () => {
+  it("a goal under the attachment works like the old objectives: a grant filed against it puts its key results under it", async () => {
     const { world, admin, labGoal } = setup();
-    const o = world.grantDesk.createObjective(admin, LAB, { text: "An objective", kpi: "trust" });
-    expect(world.goalTree.get(o.id)).toMatchObject({ parentId: labGoal.id, text: "An objective" });
+    const o = world.goalTree.create(admin, { parentId: labGoal.id, text: "A sub-goal" });
     const kr = grantKr(world, o.id);
     expect(kr.goalId).toBe(o.id);
     const loose = world.keyResults.require(world.grantDesk.create(null, LAB, { keyResults: [{ text: "k2", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);

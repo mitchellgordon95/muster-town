@@ -1,5 +1,5 @@
 import {
-  AccessRequest, Agent, Allocation, Ask, CaptainRequest, Assignment, BankCredit, BankFee, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Objective, Meeting, Membership, Message, Notice, Place, Role, Schedule, Session, Pin, Town, UsageEntry, User,
+  AccessRequest, Agent, Allocation, Ask, CaptainRequest, Assignment, BankCredit, BankFee, CredentialLimit, BankDebit, BankInput, BankReservation, Building, BuildingDefaults, DesksConfig, Doc, Goal, GoalChange, GoalProposal, Grant, Interrupt, KeyResult, Kpi, Meeting, Membership, Message, Notice, Place, Role, Schedule, Session, Pin, Town, UsageEntry, User,
   townEnv, type ServerMessage, type TokenCountKind, type TokenCounts,
   type TokenMix,
   type LedgerCutoff,
@@ -318,7 +318,6 @@ export function createRepos(db: DB, changes: Emitter<ServerMessage>) {
     schedules: new Table<Schedule>(db, "schedules", Schedule, { json: ["dailyAt", "pages", "origin"], bool: ["paused"] }),
     grants: new Table<Grant>(db, "grants", Grant, { json: ["findingsDocIds", "checkpointsDone", "history", "testingPlan", "estimate", "steps", "forecast"], bool: ["needsTopUp"] }),
     keyResults: new Table<KeyResult>(db, "key_results", KeyResult, { json: ["sourceDocIds"] }),
-    objectives: new Table<Objective>(db, "objectives", Objective, { json: ["sourceDocIds"] }),
     goals: new Table<Goal>(db, "goals", Goal, { json: ["sourceDocIds"], bool: ["explore"] }),
     goalProposals: new Table<GoalProposal>(db, "goal_proposals", GoalProposal, { json: ["fields", "sourceDocIds"] }),
     goalChanges: new Table<GoalChange>(db, "goal_changes", GoalChange),

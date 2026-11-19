@@ -1,5 +1,5 @@
 import { AppError, jobThread, markSeen } from "@muster-town/core";
-import { CloseGrantInput, StopGrantInput, CreateGrantRequest, CreateObjectiveInput, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput, UpdateObjectiveInput } from "@muster-town/schema";
+import { CloseGrantInput, StopGrantInput, CreateGrantRequest, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
@@ -90,24 +90,4 @@ export async function grantRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/key-results/:id", async (req) => ({
     keyResult: desk.updateKeyResult(actorOf(world, req), req.params.id, parse(UpdateKeyResultInput, req.body)),
   }));
-
-  // Objectives (docs/goal-directed-budgets.md): objectives hold the goal's key results, each naming the town KPI it moves.
-  app.get<{ Params: Params }>("/api/buildings/:id/objectives", async (req) => {
-    world.buildings.require(req.params.id, "building");
-    return desk.objectiveTree(req.params.id);
-  });
-
-  app.post<{ Params: Params }>("/api/buildings/:id/objectives", async (req, reply) => {
-    const objective = desk.createObjective(actorOf(world, req), req.params.id, parse(CreateObjectiveInput, req.body));
-    return reply.code(201).send({ objective });
-  });
-
-  app.patch<{ Params: Params }>("/api/objectives/:id", async (req) => ({
-    objective: desk.updateObjective(actorOf(world, req), req.params.id, parse(UpdateObjectiveInput, req.body)),
-  }));
-
-  app.delete<{ Params: Params }>("/api/objectives/:id", async (req) => {
-    desk.deleteObjective(actorOf(world, req), req.params.id);
-    return { ok: true };
-  });
 }

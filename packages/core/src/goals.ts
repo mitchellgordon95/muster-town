@@ -614,7 +614,7 @@ export class Goals {
     const to = this.requireActive(goalId);
     if (kr.goalId) this.requireEdit(actor, kr.goalId);
     this.requireEdit(actor, to.id);
-    const next = this.world.keyResults.upsert({ ...kr, goalId: to.id, objectiveId: this.world.objectives.get(to.id) ? to.id : null, updatedAt: nowIso() });
+    const next = this.world.keyResults.upsert({ ...kr, goalId: to.id, objectiveId: null, updatedAt: nowIso() });
     this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: `Key result moved to "${clip(to.text, 60)}": ${kr.text}`, payload: { keyResultId: kr.id, status: kr.status, from: kr.status, goalId: to.id, fromGoalId: kr.goalId, by: actor ? holderOf(actor).id : "system", edited: false } });
     return next;
   }
