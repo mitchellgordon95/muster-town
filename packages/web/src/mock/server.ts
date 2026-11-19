@@ -2,7 +2,7 @@
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, LaneKindRow, ManagerWakes, SpendByLaneKind, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput, CreateObjectiveInput, UpdateObjectiveInput } from "@muster-town/schema";
@@ -48,13 +48,27 @@ function toyLaneKind(window: "today" | "7d"): SpendByLaneKind {
     buildings: { workshop: table },
   };
 }
+/** Toy `split` (gr_3ougmyubdm) from the toy daily rows' byLane: the last 7 and all 30 rows, so it closes on them exactly. */
+function toySplit(rows: { day: string; byLane: Record<SplitLane, number> }[]): FinanceSplit {
+  const lanes: SplitLane[] = ["grant", "exploration", "directed", "retainer", "manager", "other"];
+  const groups: FinanceSplit["groups"] = { work: ["grant", "exploration", "directed", "retainer"], coordination: ["manager"], other: ["other"] };
+  const win = (rs: typeof rows): SplitWindow => {
+    const t = (ls: SplitLane[]) => rs.reduce((n, r) => n + ls.reduce((m, l) => m + r.byLane[l], 0), 0);
+    const total = t(lanes);
+    const part = (ls: SplitLane[]): SplitPart => { const tokens = t(ls); return { tokens, usd: toyUsd(tokens), sessions: rs.length * ls.length * 3, share: total ? Math.round((tokens / total) * 1e4) / 1e4 : 0 }; };
+    const byLane = Object.fromEntries(lanes.map((l) => [l, part([l])])) as Record<SplitLane, SplitPart>;
+    return { days: rs.length, from: rs[0]!.day, to: rs[rs.length - 1]!.day, total: { tokens: total, usd: toyUsd(total), sessions: rs.length * 18 }, work: part(groups.work), coordination: part(groups.coordination), other: part(groups.other), byLane };
+  };
+  return { d7: win(rows.slice(-7)), d30: win(rows), groups, check: { ok: true, diff: 0, dailyDiff: 0, identity: "work + coordination + other = Σ sessions in the window = Σ the window's daily rows (sessionsTokens)" } };
+}
+
 /**
  * Toy manager wakes (gr_lwgus14rd2 step 3): the Town Workshop's manager wakes on each of the 8 days (one
  * more than the fold), each wake 40,000 adj. tokens; days sum to the total exactly.
  */
 function toyManagerWakes(): ManagerWakes {
   const day = new Date(); day.setUTCHours(0, 0, 0, 0);
-  const line = (wakes: number, decided: number) => { const tokens = wakes * 40_000; return { wakes, tokens, usd: toyUsd(tokens), decided, perWake: wakes ? 40_000 : 0, perDecision: decided ? Math.round(tokens / decided) : null }; };
+  const line = (wakes: number, decided: number) => { const tokens = wakes * 40_000; return { wakes, tokens, usd: toyUsd(tokens), decided, askActions: Math.floor(decided / 2), perWake: wakes ? 40_000 : 0, perDecision: decided ? Math.round(tokens / decided) : null }; };
   const counts: [number, number][] = [[4, 4], [6, 3], [2, 0], [5, 5], [3, 1], [7, 2], [1, 1], [2, 2]];
   const days = counts.map(([w, d], i) => ({ day: new Date(day.getTime() - i * 86_400_000).toISOString().slice(0, 10), ...line(w, d) }));
   const total = line(counts.reduce((s, c) => s + c[0], 0), counts.reduce((s, c) => s + c[1], 0));
@@ -1016,7 +1030,7 @@ export class MockApi implements Api {
   }
   // the Balance tab's "Day by day" chart (core finance-daily.ts): `usedBank` spread over 30 UTC days and the toy's
   // buildings (a weekday wave, so the bars move), one credit a day; the rows sum to usedBank exactly, so the check is ✓
-  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck"> {
+  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck" | "split"> {
     const DAY = 86_400_000, days = 30, today = Date.parse(now().slice(0, 10) + "T00:00:00.000Z");
     const bs = this.sim.buildings.filter((b) => b.kind !== "town-hall");
     const weights = Array.from({ length: days }, (_, i) => 1 + 0.6 * Math.sin(i / 2.3) + (i % 7 === 5 ? -0.5 : 0));
@@ -1032,14 +1046,21 @@ export class MockApi implements Api {
         if (t > 0) byBuilding[b.id] = t;
         left -= t;
       });
-      return { day: new Date(today - (days - 1 - i) * DAY).toISOString().slice(0, 10), used, credited: inflow || 1_000_000, byBuilding };
+      // the toy's session spend = its used, split by lane with coordination drifting between ~35% and ~55% (gr_3ougmyubdm)
+      const shares: [SplitLane, number][] = [["manager", 0.45 + 0.1 * Math.sin(i / 3)], ["grant", 0.22], ["directed", 0.16], ["exploration", 0.05], ["other", 0.03]];
+      const byLane: Record<SplitLane, number> = { grant: 0, exploration: 0, directed: 0, retainer: 0, manager: 0, other: 0 };
+      let rest = used;
+      for (const [l, f] of shares) { byLane[l] = Math.floor(used * f); rest -= byLane[l]; }
+      byLane.retainer = rest;
+      return { day: new Date(today - (days - 1 - i) * DAY).toISOString().slice(0, 10), used, credited: inflow || 1_000_000, byBuilding, byLane, sessionsTokens: used };
     });
     const totals = new Map<string, number>();
     for (const r of rows) for (const [id, t] of Object.entries(r.byBuilding)) totals.set(id, (totals.get(id) ?? 0) + t);
     const buildings = [...totals].map(([id, tokens]) => ({ id, name: bs.find((b) => b.id === id)?.name ?? id, tokens })).sort((a, z) => z.tokens - a.tokens);
     return {
       daily: { days, from: rows[0]!.day, to: rows[days - 1]!.day, rows, buildings, usedBefore: 0, undatedUsed: 0, usageLedgerInWindow: usedBank },
-      dailyCheck: { ok: true, diff: 0, rowsUsed: usedBank, usedSinceStart: usedBank, buildingDiff: 0, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used" },
+      dailyCheck: { ok: true, diff: 0, rowsUsed: usedBank, usedSinceStart: usedBank, buildingDiff: 0, laneDiff: 0, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend" },
+      split: toySplit(rows),
     };
   }
   // Paid in cash, last 30 days (gr_qggxximtru step 2) as core finance-cash.ts counts it: the toy fees prorated over the

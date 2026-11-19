@@ -423,6 +423,11 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.dailyCheck).toMatchObject({ ok: true, diff: 0, buildingDiff: 0 });
     expect(finance.body.daily.rows.at(-1)).toMatchObject({ day: finance.body.at.slice(0, 10) });
     expect(finance.body.daily.rows.at(-1).credited).toBeGreaterThanOrEqual(2000);
+    // work versus coordination (gr_3ougmyubdm step 1): split over 7 and 30 days closes; each row carries its lanes
+    expect(finance.body.split).toMatchObject({ d7: { days: 7 }, d30: { days: 30 }, check: { ok: true } });
+    expect(finance.body.split.groups.coordination).toEqual(["manager"]);
+    expect(finance.body.daily.rows.at(-1).byLane).toMatchObject({ grant: expect.any(Number), manager: expect.any(Number) });
+    expect(finance.body.dailyCheck.laneDiff).toBe(0);
     expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);
@@ -438,6 +443,7 @@ describe("meetings, roles, budget, events, human moves", () => {
     // manager wakes per building per day (gr_lwgus14rd2 step 3): the same 7 d window whatever ?window= is
     expect(spendToday.body.managerWakes).toMatchObject({ windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
     expect(spend7d.body.managerWakes.total).toEqual(spendToday.body.managerWakes.total);
+    expect(typeof spendToday.body.managerWakes.total.askActions).toBe("number");
     expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);
