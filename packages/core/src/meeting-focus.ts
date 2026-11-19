@@ -13,6 +13,7 @@ import { badRequest, forbidden } from "./errors.ts";
 import { oneLine } from "./text.ts";
 import { fromNow, stamp } from "./time.ts";
 import { recordScreenView } from "./screen-views.ts";
+import { entryOf, jobThread } from "./jobs.ts";
 import { nowIso } from "./util.ts";
 import type { World } from "./world.ts";
 
@@ -45,7 +46,20 @@ function askLines(world: World, a: Ask, focusAt: string): string[] {
     : a.status === "deferred" ? `deferred until ${a.deferredUntil ?? "an event"}` : "open";
   out.push(`Status: ${status}`);
   if (a.targetKind && a.targetId) out.push(`About: ${a.targetKind} ${a.targetId}${targetTitle(world, a.targetKind, a.targetId)}`);
+  out.push(...threadLines(world, a));
   return out;
+}
+
+/** How many of the job thread's last entries an ask on screen carries (the rest: GET /api/jobs/<id>). */
+const FOCUS_THREAD_ENTRIES = 6;
+
+/** The ask's job thread, its last entries one line each, so "why do you keep asking this?" has the record behind it. */
+function threadLines(world: World, a: Ask): string[] {
+  const jobId = a.sourceEntryId ? entryOf(world, a.sourceEntryId)?.jobId : undefined;
+  const t = jobId ? jobThread(world, jobId, { limit: FOCUS_THREAD_ENTRIES }) : null;
+  if (!t) return [];
+  const head = `Job ${t.job.id} "${oneLine(t.job.title, 120)}" (${t.job.status}): its thread has ${t.total} entr${t.total === 1 ? "y" : "ies"}${t.total > t.entries.length ? `, the last ${t.entries.length} here (the rest: GET /api/jobs/${t.job.id})` : ""}:`;
+  return [head, ...t.entries.map((e) => `- #${e.seq} ${stamp(e.createdAt)} ${world.nameOf(e.authorId)}: ${oneLine(e.note || e.body || String(e.moved.kind ?? ""), 200) || "(no words)"}${e.docId ? ` (${e.docId})` : ""}`)];
 }
 
 /** The title and one-line state of what an ask is about, when the town has it. */

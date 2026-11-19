@@ -741,7 +741,7 @@ export interface Api {
   // meetings
   meetings(q: { buildingId?: string; phase?: string }): Promise<Meeting[]>;
   /** open (or return) the human's 1:1 with the building's manager agent, or with `agentId` about the report `docId` */
-  openOneOnOne(buildingId: string, opts?: { agentId?: string; docId?: string }): Promise<Meeting>;
+  openOneOnOne(buildingId: string, opts?: { agentId?: string; docId?: string; grantId?: string; askId?: string }): Promise<Meeting>;
   createMeeting(input: In<typeof CreateMeetingInput>): Promise<Meeting>;
   meeting(id: string): Promise<Meeting>;
   startMeeting(id: string): Promise<Meeting>;
@@ -1049,7 +1049,7 @@ class HttpApi implements Api {
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }
   async createMeeting(i: In<typeof CreateMeetingInput>) { return unwrap<Meeting>(await this.post("/api/meetings", i), "meeting"); }
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
-  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`, opts), "meeting"); }
+  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; askId?: string } = {}) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`, opts), "meeting"); }
   async startMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/start`), "meeting"); }
   async presentMeeting(id: string, docId: string | null, slide?: number) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/present`, { docId, ...(slide ? { slide } : {}) }), "meeting"); }
   async sayMeeting(id: string, text: string, attach?: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/say`, attach ? { text, attach } : { text }), "meeting"); }

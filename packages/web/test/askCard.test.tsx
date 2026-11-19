@@ -56,6 +56,25 @@ const mock = new MockApi();
 beforeAll(async () => { await getApi(); });
 
 describe("the ask card", () => {
+  it("Steer opens the goal tree on the filing building's goal and a 1:1 with its manager about the ask; none for an ask with no building", async () => {
+    signIn();
+    const carbon = buildings.find((b) => b.id === "bl_carbon")!;
+    expect(carbon.managerAgentId).toBeTruthy();
+    const opened: unknown[] = [];
+    vi.spyOn(store, "open").mockImplementation((p) => { opened.push(p); });
+    const oneOnOne = vi.spyOn(api(), "openOneOnOne").mockResolvedValue({ id: "mt_steer" } as never);
+    vi.spyOn(store, "putMeeting").mockImplementation(() => undefined);
+    const el = await mount(<AskCard ask={ask("ak_ocean")} grant={grant("gr_ocean")} onDecided={() => undefined} />);
+    await act(async () => { button(el, "Steer").click(); });
+    await flush();
+    expect(oneOnOne).toHaveBeenCalledWith("bl_carbon", { askId: "ak_ocean" });
+    expect(opened[0]).toEqual({ kind: "goals", id: carbon.goalId ?? undefined, tab: "bl_carbon" });
+    expect(opened[1]).toEqual({ kind: "meeting", id: "mt_steer" });
+    expect(renderToStaticMarkup(<AskCard ask={ask("ak_access")} onDecided={() => undefined} />)).not.toContain(">Steer<");
+    signIn(false);
+    expect(renderToStaticMarkup(<AskCard ask={ask("ak_ocean")} onDecided={() => undefined} />)).not.toContain(">Steer<");
+  });
+
   it("renders each type with its branches as the buttons", () => {
     signIn();
     const html = (id: string, g?: GrantView) => renderToStaticMarkup(<AskCard ask={ask(id)} grant={g} onDecided={() => undefined} onOpenRecord={() => undefined} />);
