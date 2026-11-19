@@ -14,7 +14,7 @@
 import { askStructure, askWarnings, clipWords, Ask, type Agent, type AskBranch, type AskCardInput, type AskClaim, type AskTargetKind, type AskType, type CalibrationProposal } from "@muster-town/schema";
 import { AppError, badRequest } from "./errors.ts";
 import { queueClaimChecks } from "./ask-checks.ts";
-import { checkAskCards, LINT_FAILED, liveAskOn, refuseMissingStructure, vetted } from "./asks.ts";
+import { checkAskCards, LINT_FAILED, liveAskOn, rankOnFiling, refuseMissingStructure, vetted } from "./asks.ts";
 import { dictionaryPairs } from "./dictionary.ts";
 import { answererKind, appendEntry, entryOf, jobThread, setEntryLevel, threadSeq, type Entry } from "./jobs.ts";
 import { fileNeed, liveAskForNeed, openNeedsOn, type NewNeed, type Need } from "./needs.ts";
@@ -72,7 +72,9 @@ export function createAsk(world: World, n: NewAsk): { ask: Ask; folded: boolean 
   }));
   world.events.append({ type: "ask.created", buildingId: n.buildingId, text: `Ask (${n.type}): ${oneLine(ask.title, 120)}`, payload: { askId: ask.id, type: n.type, targetKind: kind, targetId: ask.targetId, sourceDocId: n.sourceDocId } });
   queueClaimChecks(world, ask.id);
-  return { ask, folded: false };
+  // Mitchell, 1:1 mt_mjxwzdhhd7: a new ask is ranked when it is filed (by its goal's nearness to the root), not at the next daily run
+  rankOnFiling(world, ask);
+  return { ask: world.asks.require(ask.id, "ask"), folded: false };
 }
 
 /**

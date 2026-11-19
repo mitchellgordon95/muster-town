@@ -780,6 +780,54 @@ export function setRank(world: World, id: string, rank: number | null): Ask {
   return a.rank === rank ? a : world.asks.upsert({ ...a, rank, updatedAt: nowIso() });
 }
 
+/**
+ * The goal an ask moves, in the collective's own goal tree (Mitchell, 1:1 mt_mjxwzdhhd7): its grant's goal (a grant, a
+ * key result's grant, a retainer's grant), the goal a captain request or goal proposal is about, else the goal its
+ * building is attached to, else the root.
+ */
+export function askGoalId(world: World, a: Pick<Ask, "targetKind" | "targetId" | "buildingId">): string {
+  const tree = world.goalTree;
+  const goal = (id: string | null | undefined) => (id && tree.get(id) ? id : null);
+  const ofGrant = (id: string | null | undefined) => goal(id ? world.grants.get(id)?.goalId : null);
+  const id = a.targetId;
+  const own = !id ? null
+    : a.targetKind === "grant" ? ofGrant(id)
+    : a.targetKind === "keyResult" ? (() => { const k = world.keyResults.get(id); return ofGrant(k?.grantId) ?? goal(k?.goalId); })()
+    : a.targetKind === "retainer" ? ofGrant(world.schedules.get(id)?.grantId)
+    : a.targetKind === "captain" ? goal(world.captainRequests.get(id)?.goalId)
+    : a.targetKind === "goalProposal" ? (() => { const p = world.goalProposals.get(id); return goal(p?.targetId) ?? goal(p?.parentId); })()
+    : null;
+  return own ?? (a.buildingId && world.buildings.get(a.buildingId) ? tree.attachmentOf(a.buildingId) : tree.root().id);
+}
+
+/** How far an ask's goal sits from the root goal (0 = the root itself): the nearer, the more directly it moves the root. */
+export function askGoalDepth(world: World, a: Pick<Ask, "targetKind" | "targetId" | "buildingId">): number {
+  return Math.max(0, world.goalTree.ancestors(askGoalId(world, a)).length - 1);
+}
+
+/**
+ * The default rank a new ask gets when it is filed (Mitchell, 1:1 mt_mjxwzdhhd7: "a new ask is ranked when it is filed,
+ * not once a day"): code, no session. It goes below every live ask whose goal is as near the root as its own or nearer
+ * (an equal one is older), and above the rest; a do ask goes last (decision 16), and any other ask above the unranked do asks at the bottom.
+ * The live asks are numbered 1..n in that order (an unranked one takes its place in `rankedAsks`). The Secretary's next
+ * run (daily, or after a decision) re-ranks it by the whole rule. Nothing is logged as `ask.ranked`: the ranking run
+ * still runs. Ranks only; no updatedAt moves.
+ */
+export function rankOnFiling(world: World, ask: Ask): void {
+  const rest = rankedAsks(world).filter((a) => a.id !== ask.id);
+  let at = rest.length;
+  if (ask.type !== "do") {
+    const depth = askGoalDepth(world, ask);
+    const firstDo = rest.findIndex((a) => a.type === "do" && a.rank === null);
+    let after = -1;
+    rest.forEach((a, i) => { if (a.type !== "do" && askGoalDepth(world, a) <= depth) after = i; });
+    at = after + 1;
+    if (firstDo >= 0 && at > firstDo) at = firstDo;
+  }
+  const order = [...rest.slice(0, at), ask, ...rest.slice(at)];
+  order.forEach((a, i) => { if (a.rank !== i + 1) world.asks.upsert({ ...(a.id === ask.id ? ask : a), rank: i + 1 }); });
+}
+
 /** The live asks in the Secretary's order: ranked ones by rank, then the unranked oldest first. */
 export function rankedAsks(world: World): Ask[] {
   // an unranked do ask goes last: it takes the human out of the queue (1:1 mt_msnjkpgwdb decision 16)
