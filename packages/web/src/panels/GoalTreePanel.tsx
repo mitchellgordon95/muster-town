@@ -7,7 +7,7 @@
  * building panel's Queue tab, and the goal event log is for agents (GET /api/goals/:id/history), not shown here.
  */
 import { clearDraft, useDraft } from "../draft";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID, type GoalChangeView, type GoalTreeNode, type KeyResultStatus } from "@muster-town/schema";
 import { api, type GoalProposalView } from "../api";
 import { signInWithGithub } from "../auth/auth";
@@ -22,6 +22,7 @@ import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmt
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
+import { defaultFolds } from "./goalCanvas";
 import { GE_DETAIL_KEY } from "./panelResize";
 import { Sheet } from "./Sheet";
 
@@ -51,7 +52,8 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const me = useMe();
   const [retired, setRetired] = useState(false);
   const [filter, setFilter] = useState("");
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // null until the viewer folds or unfolds a goal: the tree opens folded below the root's children (defaultFolds)
+  const [folds, setCollapsed] = useState<ReadonlySet<string> | null>(null);
   const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);
   const [bump, setBump] = useState(0);
   const detail = useRef<HTMLElement>(null);
@@ -65,15 +67,21 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   const anyEdit = me.townWide || (!!root && !!me.userId && treeRows(root, false).some((r) => r.node.ownerId === me.userId));
   const at = selected === CAPTAIN_DOOR ? root?.children.find((c) => c.status === "active")?.id : selected;
   const node = root ? (at ? findGoal(root, at) : null) ?? root : null;
+  // the goal the canvas opens on: a deep link, else the goal a non-admin viewer captains, else the root
+  const captained = !goalId && root && me.userId && !me.townWide ? treeRows(root, false).find((r) => r.node.ownerId === me.userId)?.node.id : undefined;
+  const opensAt = goalId?.startsWith("kr_") ? undefined : goalId === CAPTAIN_DOOR ? node?.id : goalId ?? captained;
+  const opening = useMemo(() => root ? defaultFolds(root, retired, opensAt) : new Set<string>(), [root, retired, opensAt]);
+  const collapsed = folds ?? opening;
+  useEffect(() => { if (captained && selected === ROOT_GOAL_ID) setSelected(captained); }, [captained]);
   useEffect(() => {
     const at = root && focusKr ? krGoal(root, focusKr) : null;
     if (at) select(at.id);
   }, [root?.id, focusKr]);
-  const toggle = (id: string) => setCollapsed((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggle = (id: string) => setCollapsed((c) => { const n = new Set(c ?? opening); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const select = (id: string | null) => {
     const to = id ?? ROOT_GOAL_ID;
     setSelected(to);
-    if (root) setCollapsed((c) => { const n = new Set(c); for (const g of pathTo(root, to).slice(0, -1)) n.delete(g.id); return n; });
+    if (root) setCollapsed((c) => { const n = new Set(c ?? opening); for (const g of pathTo(root, to).slice(0, -1)) n.delete(g.id); return n; });
   };
   const byNode = new Map<string, number>();
   if (root) for (const p of proposals.data ?? []) { const id = proposalNode(root, p).id; byNode.set(id, (byNode.get(id) ?? 0) + 1); }
@@ -99,7 +107,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
             </select>
             <label className="check"><input type="checkbox" checked={retired} onChange={(e) => setRetired(e.target.checked)} /> Retired</label>
           </div>
-          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={goalId?.startsWith("kr_") ? undefined : goalId === CAPTAIN_DOOR ? node.id : goalId}
+          <GoalCanvas root={root} retired={retired} collapsed={collapsed} selected={node.id} proposals={byNode} focusId={opensAt}
             scope={filter === FUNDED ? treeScope(root, funder.data) : filter ? buildingScope(root, filter) : null}
             canMove={(g) => !!g.parentId && g.status === "active" && canEditGoal(g, me)}
             onSelect={select} onToggle={toggle} onChanged={reload}

@@ -15,7 +15,7 @@ import { MAX_HEADCOUNT, ROOT_GOAL_ID, type GoalTreeNode } from "@muster-town/sch
 import { api } from "../api";
 import { store } from "../state";
 import { deskWord, moveTargets, nodeGlance, subtreeDesks } from "./goalTree";
-import { BOX, deskTotal, fitView, layoutTree, revealBox, stepTree, zoomAt, type Placed, type View } from "./goalCanvas";
+import { BOX, deskTotal, fitView, layoutTree, openView, revealBox, stepTree, zoomAt, type Placed, type View } from "./goalCanvas";
 import { Act } from "./ui";
 
 type Props = {
@@ -64,18 +64,28 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
       .finally(() => setMaking(null));
   };
   const size = () => { const r = vp.current?.getBoundingClientRect(); return { w: r?.width ?? 0, h: r?.height ?? 0, left: r?.left ?? 0, top: r?.top ?? 0 }; };
-  // the last view Fit made: while it is still the view, a pane resize (the editor's divider, the window) fits again
-  const fitted = useRef<View | null>(null);
+  // the last view Fit (or the opening view) made: while it is still the view, a pane resize (the editor's divider, the
+  // window) makes it again for the new size
+  const fitted = useRef<{ v: View; how: "fit" | "open" } | null>(null);
   const viewNow = useRef<View | null>(null);
   viewNow.current = view;
-  const fitTo = (w: number, h: number) => { const f = fitView(layout, w, h); fitted.current = f; setView(f); };
+  const fitTo = (w: number, h: number, how: "fit" | "open" = "fit") => { const f = (how === "fit" ? fitView : openView)(layout, w, h); fitted.current = { v: f, how }; setView(f); };
   const fit = () => { const s = size(); fitTo(s.w, s.h); };
 
-  // first show: frame the whole tree, or centre the deep-linked goal at 1:1
+  // first show (grant gr_nhayb7s9bd): the whole tree when it fits at a readable zoom, else the root at the top at a
+  // readable zoom (deeper goals start folded, GoalTreePanel); a deep-linked goal is centred at 1:1
   useLayoutEffect(() => {
     if (view || !layout.boxes.length) return;
     const s = size(), b = focusId && focusId !== ROOT_GOAL_ID ? byId.get(focusId) : null;
-    if (b) setView(revealBox({ x: 0, y: 0, k: 1 }, b, s.w, s.h, true)); else fitTo(s.w, s.h);
+    if (b) setView(revealBox({ x: 0, y: 0, k: 1 }, b, s.w, s.h, true)); else fitTo(s.w, s.h, "open");
+  }, [layout]);
+  // a fold or unfold keeps its box where it was on screen: its goals open in place beneath it
+  const anchor = useRef<{ id: string; x: number; y: number } | null>(null);
+  const toggle = (b: Placed) => { anchor.current = { id: b.node.id, x: b.x, y: b.y }; onToggle(b.node.id); };
+  useLayoutEffect(() => {
+    const a = anchor.current, b = a && byId.get(a.id);
+    anchor.current = null;
+    if (b && (b.x !== a.x || b.y !== a.y)) setView((v) => v && { ...v, x: v.x + (a.x - b.x) * v.k, y: v.y + (a.y - b.y) * v.k });
   }, [layout]);
   useEffect(() => {
     const el = vp.current;
@@ -85,7 +95,7 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
       const { w, h } = size();
       if (w === lw && h === lh) return;
       lw = w; lh = h;
-      if (viewNow.current && viewNow.current === fitted.current) fitTo(w, h);
+      if (viewNow.current && viewNow.current === fitted.current?.v) fitTo(w, h, fitted.current.how);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -185,7 +195,7 @@ export function GoalCanvas({ root, retired, collapsed, selected, scope, proposal
         {layout.boxes.map((b) => <Box key={b.node.id} b={b} on={b.node.id === selected} dim={!!scope && !scope.has(b.node.id)} now={now}
           proposals={proposals.get(b.node.id) ?? 0} desks={desks} onDesks={canDesks ? setHeadcount : null} onBuild={canDesks ? build : null} making={making === b.node.id} drop={drag?.on && drag.over === b.node.id ? (dropOk(drag.id, b.node.id) ? "ok" : "no") : null}
           lift={drag?.on && drag.id === b.node.id ? { x: drag.dx / v.k, y: drag.dy / v.k } : null}
-          onSelect={() => { if (!dragged.current) onSelect(b.node.id); }} onToggle={() => onToggle(b.node.id)} />)}
+          onSelect={() => { if (!dragged.current) onSelect(b.node.id); }} onToggle={() => toggle(b)} />)}
       </div>
       <div className="gc-zoom" role="toolbar" aria-label="Zoom">
         <button className="btn sm" title="Zoom out (−)" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>−</button>
@@ -238,8 +248,8 @@ function Box({ b, on, dim, now, proposals, desks, onDesks, onBuild, making, drop
             </span>;
           })}
       </div> : null}
-      {b.kids ? <button className="gc-chev" aria-label={open ? "Collapse" : "Expand"} aria-expanded={open} title={open ? "Collapse the goals below" : `Show the ${b.hidden} goal${b.hidden === 1 ? "" : "s"} below`}
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}>{open ? "▾" : <>▸ <span className="gc-count">{b.hidden}</span></>}</button> : null}
+      {b.kids ? <button className={`gc-chev ${open ? "" : "more"}`} aria-label={open ? "Collapse" : `Show ${b.hidden} goal${b.hidden === 1 ? "" : "s"} below`} aria-expanded={open} title={open ? "Collapse the goals below" : `Show the ${b.hidden} goal${b.hidden === 1 ? "" : "s"} below`}
+        onClick={(e) => { e.stopPropagation(); onToggle(); }}>{open ? "▾" : <><span className="gc-count">+{b.hidden}</span> goal{b.hidden === 1 ? "" : "s"}</>}</button> : null}
     </div>
   );
 }
