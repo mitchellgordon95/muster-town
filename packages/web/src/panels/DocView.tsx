@@ -6,7 +6,7 @@ import type { Doc } from "@muster-town/schema";
 import { api } from "../api";
 import { store, useTown } from "../state";
 import { Markdown, openDocLink } from "./Markdown";
-import { docUrl } from "../route";
+import { docShareUrl } from "../route";
 import { SkillDetails } from "./Skills";
 import { ADJ, ADJ_HINT, Act, Pill, nameOf, timeAgo, fmtTokens, usd, useNameOf } from "./ui";
 import { AttachButton } from "./AttachButton";
@@ -180,10 +180,10 @@ export function DocSheet({ doc, onClose, review, onDecided, after }: { doc: Doc;
 /** The doc's id, which agents can cite in any body; click copies a shareable URL. */
 function CopyLink({ id }: { id: string }) {
   const copy = async () => {
-    try { await navigator.clipboard.writeText(docUrl(id)); store.toast("Link copied", "ok"); }
+    try { await navigator.clipboard.writeText(docShareUrl(id)); store.toast("Link copied", "ok"); }
     catch {
-      if (legacyCopy(docUrl(id))) store.toast("Link copied", "ok");
-      else store.toast(docUrl(id), "info");
+      if (legacyCopy(docShareUrl(id))) store.toast("Link copied", "ok");
+      else store.toast(docShareUrl(id), "info");
     }
   };
   return <button className="link doc-id" title={`Copy a link to this document (${id})`} onClick={() => void copy()}>Copy link</button>;

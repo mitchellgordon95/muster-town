@@ -42,7 +42,8 @@ describe("web client under /workshop/", () => {
     const page = await get("/workshop/");
     expect(page.statusCode).toBe(200);
     expect(page.headers["cache-control"]).toBe("no-cache");
-    expect(page.body).toContain("<title>t</title>");
+    // the client's page carries the town's share preview in place of its title (share.ts)
+    expect(page.body).toContain('<meta property="og:image" content="https://muster.town/og.png">');
     expect((await get("/workshop/assets/x.js")).statusCode).toBe(200);
     expect((await get("/assets/x.js")).statusCode).toBe(404);
     const missing = await get("/workshop/assets/y.js");

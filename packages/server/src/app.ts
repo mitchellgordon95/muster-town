@@ -8,13 +8,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
-import { blogRoutes } from "./blog.ts";
+import { blogRoutes, publicPosts } from "./blog.ts";
 import { mailFromEnv, type MailSender } from "./mail.ts";
 import { mailingListRoutes } from "./mailing-list.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, renderHome, renderRetired } from "./home.ts";
+import { shareRoutes, siteRoutes } from "./share.ts";
 import { CreateCollectiveInput, RenameCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
@@ -278,6 +279,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   // Serve the client dynamically (wildcard): a rebuild after startup must be served without a restart.
   // index.html is never cached so a stale page can't point at an asset hash that no longer exists.
   // a hosted collective serves the same client (its HTML still loads /workshop/assets/ from the root app)
+  // the client's page and its share paths (<webBase>doc/<id>, <webBase>grant/<id>) carry preview tags (share.ts)
+  const origin = (townEnv("PUBLIC_URL") ?? "https://muster.town").replace(/\/+$/, "");
+  if (haveWeb) await app.register(shareRoutes({ world: opts.world, origin, webBase, dist: dist!, townName: () => opts.world.town.get().name }));
   if (haveWeb) await app.register(fastifyStatic, { root: dist!, prefix: webBase, wildcard: true });
   // /workshop goes to /workshop/, query kept; browsers carry the #fragment across the redirect on their own
   const toWeb = async (req: FastifyRequest, reply: FastifyReply) => { const q = req.url.indexOf("?"); return reply.redirect(webBase + (q >= 0 ? req.url.slice(q) : "")); };
@@ -288,7 +292,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
-      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null));
+      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null, origin));
     });
     app.get("/api/collectives", async () => ({ collectives: list() }));
     // Start a collective (docs/hosted-collectives.md step 3): anyone signed in with GitHub, one active collective each;
@@ -335,8 +339,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     // the blog (blog/posts/*.md, read per request; docs/blog.md)
-    const origin = (townEnv("PUBLIC_URL") ?? "https://muster.town").replace(/\/+$/, "");
     await app.register(blogRoutes(origin));
+    // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml (share.ts)
+    await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts: () => publicPosts() }));
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set
     await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null, origin, mail: opts.mail ?? mailFromEnv() }));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));
