@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the building panel's Goals and Grants tabs and the Town Hall in-tray (goal-directed buildings): the
+ * Pure helpers for the building panel's Goals and Grants tabs (the Goals tab reads the building's subtree of the one goal tree) and the Town Hall in-tray (goal-directed buildings): the
  * same numbers and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
 import { krStatusWords, type GrantView, type KeyResult, type KeyResultStatus } from "@muster-town/schema";
@@ -56,21 +56,32 @@ export function krAuthorLine(k: { createdByName?: string | null; editedByName?: 
 
 // ---------- the building panel's Goals and Grants tabs ----------
 
-/** A key result's grant state in one word, read from its one parent (`grantId`): its grant is live (funded or checkpoint), an open proposal, or neither. */
-export type KrGrantWord = "funded" | "proposed" | "open";
+/** A grant on the tree (as the goal tree shows it): any but a draft or a rejected proposal. */
+export const onTree = (g: Pick<GrantView, "status">) => g.status !== "draft" && g.status !== "rejected";
 const LIVE = new Set<GrantView["status"]>(["funded", "checkpoint"]);
 const OPEN_PROPOSAL = new Set<GrantView["status"]>(["proposed", "countered"]);
-export function krGrantWord(kr: Pick<KeyResult, "grantId">, grants: Pick<GrantView, "id" | "status">[]): KrGrantWord {
-  const g = kr.grantId ? grants.find((x) => x.id === kr.grantId) : undefined;
-  return g && LIVE.has(g.status) ? "funded" : g && OPEN_PROPOSAL.has(g.status) ? "proposed" : "open";
-}
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The Overview's Goals line: "5 key results, 2 funded". */
-export function goalsSummary(krs: Pick<KeyResult, "grantId">[], grants: Pick<GrantView, "id" | "status">[]): string {
-  const funded = krs.filter((k) => krGrantWord(k, grants) === "funded").length;
-  return `${plural(krs.length, "key result")}, ${funded} funded`;
+/** A goal and every goal under it, the node itself first. */
+export function subtreeGoals<N extends { children: N[] }>(node: N): N[] {
+  return [node, ...node.children.flatMap((c) => subtreeGoals(c))];
+}
+
+/**
+ * The key results the building's subtree counts: those of its grants on the tree (by their one parent, `grantId`) and
+ * those a goal keeps as history with no grant (before migration 069). A draft's or a rejected proposal's are not counted.
+ */
+export function subtreeKrs<K extends Pick<KeyResult, "grantId">>(krs: K[], grants: Pick<GrantView, "id" | "status">[]): K[] {
+  const ok = new Set(grants.filter(onTree).map((g) => g.id));
+  return krs.filter((k) => !k.grantId || ok.has(k.grantId));
+}
+
+/** The Overview's Goals line, read from the one tree: "3 goals, 2 grants funded, 1 of 5 key results met" (a held grant counts as funded; met includes met, unverified). */
+export function goalsSummary(goals: number, grants: Pick<GrantView, "id" | "status">[], krs: Pick<KeyResult, "grantId" | "status">[]): string {
+  const counted = subtreeKrs(krs, grants);
+  const met = counted.filter((k) => k.status === "met" || k.status === "met-unverified").length;
+  return `${plural(goals, "goal")}, ${plural(grants.filter((g) => LIVE.has(g.status)).length, "grant")} funded, ${met} of ${plural(counted.length, "key result")} met`;
 }
 
 /** The Grants tab's order: open proposals (oldest first), then funded (newest funding first), then checkpoint / stopping / closed / rejected (latest first). Drafts aren't grants yet. */
@@ -83,15 +94,10 @@ export function grantGroups<G extends Pick<GrantView, "status" | "createdAt" | "
   };
 }
 
-/**
- * The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. Given the goal ids of
- * the building's subtree (`goalIds`), funded grants filed on a goal outside it are called out by their goalId.
- */
-export function grantsSummary(grants: Pick<GrantView, "goalId" | "status" | "createdAt" | "updatedAt" | "fundedAt">[], goalIds?: ReadonlySet<string>): string {
+/** The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. */
+export function grantsSummary(grants: Pick<GrantView, "status" | "createdAt" | "updatedAt" | "fundedAt">[]): string {
   const { proposals, funded, settled } = grantGroups(grants);
-  const outside = goalIds ? funded.filter((g) => !(g.goalId && goalIds.has(g.goalId))).length : 0;
-  const where = outside ? ` (${outside === 1 ? `${funded.length === 1 ? "" : "1 "}on a goal` : `${outside === funded.length ? "all" : outside} on goals`} outside this goal)` : "";
-  return `${plural(proposals.length, "proposal")}, ${funded.length} funded${where}${settled.length ? `, ${settled.length} closed or held` : ""}`;
+  return `${plural(proposals.length, "proposal")}, ${funded.length} funded${settled.length ? `, ${settled.length} closed or held` : ""}`;
 }
 
 /** A grant's step assignments with their spend, from GET /api/finance/spend (building → grant → assignment). */

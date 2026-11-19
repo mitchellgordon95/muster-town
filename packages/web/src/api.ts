@@ -618,6 +618,8 @@ export interface Api {
   grant(id: string): Promise<GrantView>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
   grants(buildingId: string): Promise<GrantView[]>;
+  /** GET /api/buildings/:id/grants?subtree=1: every grant filed on a goal in the building's subtree, any building's (the Goals tab) */
+  subtreeGrants(buildingId: string): Promise<GrantView[]>;
   /** POST /api/grants/:id/decide (building.fund): fund / counter / reject a proposal, continue / adjust / cut a checkpoint */
   decideGrant(id: string, input: In<typeof DecideGrantInput>): Promise<GrantView>;
   /** POST /api/grants/:id/close (`building.fund` any outcome; outcome "done" closes it early with the unspent rest back in the Bank) */
@@ -951,6 +953,7 @@ class HttpApi implements Api {
   }
   async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
+  async subtreeGrants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants?subtree=1`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }
   async closeGrant(id: string, i: In<typeof CloseGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/close`, i), "grant"); }
   async stopGrant(id: string, i: In<typeof StopGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/stop`, i), "grant"); }

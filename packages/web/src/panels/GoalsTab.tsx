@@ -1,17 +1,20 @@
 /**
- * The building panel's goal tabs (Mitchell, 1:1 mt_auczm6f1j1): Goals (the key results in the building's subtree, each with
- * one word on its grant state; humans mark met / missed and delete in place, and "Edit" opens the editor that used to sit
- * in Settings) and Grants (every grant of the building, decided in the decision queue). The board is notes only.
+ * The building panel's goal tabs (Mitchell, 1:1 mt_auczm6f1j1): Goals (the building's subtree of the one goal tree: each
+ * goal with the grants filed on it and their key results, drawn with the goal tree's own key-result lines; humans mark
+ * met / missed in place, and "Edit" opens the key-result editor) and Grants (every grant of the building, decided in the
+ * decision queue). The board is notes only.
  */
 import { useDraft } from "../draft";
 import { clipText } from "./showMore";
 import { useState, type ReactNode } from "react";
-import { isJudgedKr, grantName, type GrantView, type KeyResultStatus, type SnapshotBuilding } from "@muster-town/schema";
+import { ROOT_GOAL_ID, grantName, type GoalTreeNode, type GrantView, type KeyResultStatus, type SnapshotBuilding } from "@muster-town/schema";
 import { api, type GoalKeyResult, type SpendNode } from "../api";
 import { store, useTown } from "../state";
 import { Act, ADJ, Empty, ErrorLine, Loading, Pill, Section, fmtTokens, timeAgo, useLoad } from "./ui";
-import { UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSpendLine, grantSteps, grantsSummary, krAuthorLine, krGrantWord, krStatusLabel, krTone, settableStatuses, spentShare, type KrGrantWord } from "./keyResults";
+import { UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSpendLine, grantSteps, grantsSummary, krAuthorLine, krStatusLabel, krTone, onTree, settableStatuses, spentShare, subtreeGoals, subtreeKrs } from "./keyResults";
 import { openDocLink } from "./Markdown";
+import { KrLines } from "./GoalTreePanel";
+import { findGoal, isArchived } from "./goalTree";
 
 /** The building's key results and grants, reloaded on every town change. */
 export function useGoalData(buildingId: string) {
@@ -21,110 +24,104 @@ export function useGoalData(buildingId: string) {
   return { tree, grants };
 }
 
+/** The building's subtree of the one goal tree (its attachment and every goal under it) and every grant filed on it, any building's. */
+export function useSubtree(b: SnapshotBuilding) {
+  const rev = useTown((s) => s.rev);
+  const goals = useLoad(() => api().goalTree(), [rev]);
+  const grants = useLoad(() => api().subtreeGrants(b.id), [b.id, rev]);
+  const node = goals.data ? findGoal(goals.data, b.goalId ?? ROOT_GOAL_ID) : null;
+  return { goals, grants, node };
+}
+
 const openTab = (id: string, tab: "Goals" | "Grants") => store.open({ kind: "building", id, tab });
 
-/** The Overview's two lines, each opening its tab. */
+/** The Overview's two lines, each opening its tab: the Goals line counts the subtree (goals, funded grants, key results met). */
 export function GoalTabsSummary({ b }: { b: SnapshotBuilding }) {
   const { tree, grants } = useGoalData(b.id);
-  const g = grants.data ?? [];
-  const goalIds = tree.data ? new Set([...(b.goalId ? [b.goalId] : []), ...tree.data.keyResults.flatMap((k) => k.goalId ? [k.goalId] : [])]) : undefined;
+  const sub = useSubtree(b);
+  const goals = sub.node && sub.grants.data && tree.data ? goalsSummary(subtreeGoals(sub.node).length, sub.grants.data, tree.data.keyResults) : "…";
   return (
     <div className="goal-tabs-summary">
-      <button className="link" onClick={() => openTab(b.id, "Goals")}><b>Goals:</b> {tree.data ? goalsSummary(tree.data.keyResults, g) : "…"} →</button>
-      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(g, goalIds) : "…"} →</button>
+      <button className="link" onClick={() => openTab(b.id, "Goals")}><b>Goals:</b> {goals} →</button>
+      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(grants.data) : "…"} →</button>
     </div>
   );
 }
 
-const WORD_TONE: Record<KrGrantWord, string> = { funded: "ok", proposed: "info", open: "" };
-const WORD_TITLE: Record<KrGrantWord, string> = { funded: "A funded grant works on it", proposed: "A proposal names it, waiting in the decision queue", open: "No grant: open for exploration" };
+type KrActions = ((k: GoalKeyResult) => ReactNode) | undefined;
 
-/** Goals tab: the key results (read), or the editor (Edit, building.manage). */
+/** Goals tab: the building's subtree, goal by goal (read), or the key-result editor (Edit, building.manage). */
 export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   useTown((s) => s.me);
   const canManage = store.can("building.manage", b.id);
   const canFund = store.can("building.fund", b.id);
   const [editing, setEditing] = useState(false);
-  const { tree, grants } = useGoalData(b.id);
+  const { tree } = useGoalData(b.id);
+  const sub = useSubtree(b);
   const atHall = <button className="link" title="The town goal tree: goals, key results and proposals" onClick={() => store.open({ kind: "goals", id: b.goalId ?? undefined })}>Goal tree at the Town Hall →</button>;
   const toggle = canManage ? <span className="goal-actions">{atHall}<button className="link" onClick={() => setEditing(!editing)}>{editing ? "Done editing" : "Edit"}</button></span> : atHall;
   if (editing) return <KeyResultsEditor b={b} right={toggle} />;
-  const all = tree.data?.keyResults ?? [];
-  const num = new Map(all.map((k, i) => [k.id, i + 1]));
-  const g = grants.data ?? [];
-  const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k, g)} />;
-  // met and missed key results are the record: they fold to their count under the open ones (gr_zak30564zh step 5)
-  const isOpen = (k: GoalKeyResult) => !isJudgedKr(k.status);
-  const judged = all.filter((k) => !isOpen(k));
-  const rows = (list: GoalKeyResult[]) => list.filter(isOpen).length ? <ol className="kr-rows">{list.filter(isOpen).map(row)}</ol> : null;
+  const grants = (sub.grants.data ?? []).filter(onTree);
+  const krs = subtreeKrs(tree.data?.keyResults ?? [], sub.grants.data ?? []);
+  const mark = (k: GoalKeyResult, status: KeyResultStatus) => async () => {
+    // missed asks why: the line is filed as the human's note and queues one postmortem (docs/goals.md "Postmortems on missed KRs")
+    const why = status === "missed" ? window.prompt(`Why was "${clipText(k.text, 60).head}" missed? One line: it queues a postmortem on the building.`)?.trim() : "";
+    if (status === "missed" ? !why : !window.confirm(`Mark "${clipText(k.text, 60).head}" ${status}?`)) return;
+    await api().updateKeyResult(k.id, { status, note: why ?? "" });
+    store.toast(`Key result ${status}`, "ok");
+    tree.reload();
+  };
+  const actions: KrActions = canFund ? (k) => isArchived(k) ? null : (
+    <span className="goal-kr-acts">
+      <Act small tone="ok" run={mark(k, "met")} title="A human marks it met: it archives under its goal">Met</Act>
+      <Act small tone="warn" run={mark(k, "missed")} title="A human marks it missed: it archives under its goal and a postmortem is queued">Missed</Act>
+    </span>
+  ) : undefined;
+  const loading = (!sub.node && !sub.goals.error) || (!tree.data && !tree.error) || (!sub.grants.data && !sub.grants.error);
   return (
-    <Section title="Key results" right={toggle}>
+    <Section title="Goals" right={toggle}>
       {blockedLabel(b) ? <div className="kr-blocked"><Pill tone="bad">{blockedLabel(b)}</Pill> {UNBLOCK_LINE}</div> : null}
-      {tree.loading && !tree.data ? <Loading /> : null}
-      <ErrorLine error={tree.error} />
-      {tree.data && !all.length ? <Empty>No key results on the goal yet: each grant carries its own.</Empty> : null}
-      {rows(all)}
-      {judged.length ? <details className="grant-fold settled-fold kr-judged-fold"><summary><b>Met or missed</b>{judged.length} key result{judged.length === 1 ? "" : "s"}</summary><ol className="kr-rows">{judged.map(row)}</ol></details> : null}
-      {/* one fold for every key result's how to check, notes and marks, not one per row: the list opens on status and words,
-          and its controls stay the same however many key results there are (gr_zak30564zh step 5, kr_p6l1w6tade) */}
-      {all.length ? (
-        <details className="kr-more kr-checks-fold">
-          <summary>How to check{all.some((k) => k.statusNote) ? ", notes" : ""}{canFund || canManage ? " and marks" : ""}</summary>
-          <ol className="kr-rows">{all.map((k) => <GoalRowMore key={k.id} n={num.get(k.id)!} kr={k} canFund={canFund} canDelete={canManage} onChanged={tree.reload} />)}</ol>
-        </details>
-      ) : null}
+      {loading ? <Loading /> : null}
+      <ErrorLine error={sub.goals.error ?? sub.grants.error ?? tree.error} />
+      {!loading && sub.node ? <SubtreeGoal node={sub.node} grants={grants} krs={krs} actions={actions} /> : null}
     </Section>
   );
 }
 
-/** Characters of a key result's words on its row (about one line); the full words are in the "How to check" fold. */
-const KR_ROW = 64;
-
-/** One key result, read-only: number, status, text and its grant word. How to check, notes and marks are in the list's one fold (GoalRowMore). */
-function GoalRow({ n, kr, word }: { n: number; kr: GoalKeyResult; word: KrGrantWord }) {
+/** One goal of the subtree: its words (opening the goal tree there), its grants with their key results, then the goals under it. */
+function SubtreeGoal({ node, grants, krs, actions }: { node: GoalTreeNode; grants: GrantView[]; krs: GoalKeyResult[]; actions: KrActions }) {
+  const here = grants.filter((g) => g.goalId === node.id);
+  const ids = new Set(here.map((g) => g.id));
+  const live = here.filter((g) => g.status !== "closed"), closed = here.filter((g) => g.status === "closed");
+  // a goal's history: key results written on it before they belonged to grants (no grant on the tree)
+  const loose = krs.filter((k) => k.goalId === node.id && !(k.grantId && ids.has(k.grantId)));
+  const grant = (g: GrantView) => <SubtreeGrant key={g.id} g={g} krs={krs.filter((k) => k.grantId === g.id)} actions={actions} />;
   return (
-    <li className="kr-row">
-      <div className="kr-row-head">
-        <span className="kr-n">{n}</span>
-        <Pill tone={krTone(kr.status)} title={kr.statusNote || undefined}>{krStatusLabel(kr.status)}</Pill>
-        <b title={kr.text}>{clipText(kr.text, KR_ROW).head}</b>
-        <span className={`kr-word ${WORD_TONE[word]}`} title={WORD_TITLE[word]}>{word}</span>
+    <div className="bt-goal">
+      <button className="link bt-goal-text" title="Open it in the goal tree" onClick={() => store.open({ kind: "goals", id: node.id })}>{node.text}</button>
+      {live.map(grant)}
+      {loose.length ? <KrLines krs={loose} actions={actions} /> : null}
+      {closed.length ? <details className="grant-fold settled-fold"><summary><b>Closed</b>{closed.length} grant{closed.length === 1 ? "" : "s"}</summary>{closed.map(grant)}</details> : null}
+      {!here.length && !loose.length ? <div className="muted bt-none">No grant under it</div> : null}
+      {node.children.length ? <div className="bt-goal-children">{node.children.map((c) => <SubtreeGoal key={c.id} node={c} grants={grants} krs={krs} actions={actions} />)}</div> : null}
+    </div>
+  );
+}
+
+/** A grant under its goal: its name (opens the grant), its status, and its key results as the goal tree draws them. */
+function SubtreeGrant({ g, krs, actions }: { g: GrantView; krs: GoalKeyResult[]; actions: KrActions }) {
+  return (
+    <div className="bt-grant">
+      <div className="kr-grant-head">
+        <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(grantName(g), GRANT_ROW).head}</button>
+        <Pill tone={grantTone(g)}>{g.status}</Pill>
       </div>
-    </li>
+      {krs.length ? <KrLines krs={krs} actions={actions} /> : <div className="muted bt-none">No key results</div>}
+    </div>
   );
 }
 
-/** One key result in the "How to check" fold: how to check, the status note, the postmortem, met / missed (building.fund) and delete (building.manage). */
-function GoalRowMore({ n, kr, canFund, canDelete, onChanged }: { n: number; kr: GoalKeyResult; canFund: boolean; canDelete: boolean; onChanged: () => void }) {
-  const judged = isJudgedKr(kr.status);
-  const mark = (status: KeyResultStatus) => async () => {
-    // missed asks why: the line is filed as the human's note and queues one postmortem (docs/goals.md "Postmortems on missed KRs")
-    const why = status === "missed" ? window.prompt(`Why was key result ${n} missed? One line: it queues a postmortem on the building.`)?.trim() : "";
-    if (status === "missed" ? !why : !window.confirm(`Mark key result ${n} ${status}?`)) return;
-    await api().updateKeyResult(kr.id, { status, note: why ?? "" });
-    store.toast(`Key result ${n} is ${status}`, "ok");
-    onChanged();
-  };
-  return (
-    <li className="kr-row">
-      <div className="kr-row-head"><span className="kr-n">{n}</span><b>{kr.text}</b></div>
-      <div className="muted kr-check">How to check: {kr.howToCheck}</div>
-      {kr.statusNote ? <div className="muted kr-check">{krStatusLabel(kr.status)}: {kr.statusNote}</div> : null}
-      {kr.status === "missed" ? <div className="muted kr-check">{kr.postmortemDocId ? <button className="link" onClick={() => void openDocLink(kr.postmortemDocId!)}>Postmortem →</button> : "Postmortem pending: queued on the building that worked on it."}</div> : null}
-      {(canFund && !judged) || canDelete ? (
-        <div className="actions">
-          {canFund && !judged ? <><Act small tone="ok" run={mark("met")}>Mark met</Act><Act small tone="warn" run={mark("missed")}>Mark missed</Act></> : null}
-          {canDelete ? <Act small tone="bad" title="Refused while a grant names it" run={async () => {
-            if (!window.confirm(`Delete key result ${n} ("${kr.text}")?`)) return;
-            await api().deleteKeyResult(kr.id);
-            store.toast(`Key result ${n} deleted`, "ok");
-            onChanged();
-          }}>Delete</Act> : null}
-        </div>
-      ) : null}
-    </li>
-  );
-}
+const grantTone = (g: GrantView) => g.status === "checkpoint" || g.status === "proposed" ? "warn" : g.status === "funded" ? "ok" : g.status === "rejected" ? "bad" : "";
 
 /** Grants tab: open proposals, then funded grants, then checkpoint / closed. Fund, counter and reject stay in the decision queue. */
 export function GrantsTab({ b }: { b: SnapshotBuilding }) {
@@ -171,7 +168,7 @@ function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
     <div className="doc-row grant-tab-row">
       <div className="kr-grant-head">
         <button className="link doc-row-title" title={`Open grant ${g.id}: ${g.objective}`} onClick={() => store.open({ kind: "grant", id: g.id })}>{clipText(grantName(g), GRANT_ROW).head}</button>
-        <Pill tone={g.status === "checkpoint" || g.status === "proposed" ? "warn" : g.status === "funded" ? "ok" : g.status === "rejected" ? "bad" : ""}>{g.status}</Pill>
+        <Pill tone={grantTone(g)}>{g.status}</Pill>
       </div>
       {live ? (
         <div className="kr-bar-row">
