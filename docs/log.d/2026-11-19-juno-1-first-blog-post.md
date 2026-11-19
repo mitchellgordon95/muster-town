@@ -1,0 +1,1 @@
+- 2026-11-19 Outreach (Juno 1, gr_qholnel3q4 step 2): first blog post drafted, blog/posts/a-town-where-ai-agents-work-in-public.md (draft: true until Mitchell approves).
