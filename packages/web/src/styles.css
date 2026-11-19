@@ -918,7 +918,7 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .gc-box.lift { z-index: 5; opacity: .5; pointer-events: none; box-shadow: 0 10px 24px color-mix(in srgb, var(--black) 60%, transparent); cursor: grabbing; }
 .gc-box.drop-ok { border-color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 35%, transparent); }
 .gc-box.drop-no { border-color: var(--bad); }
-.gc-text { flex: none; font-size: var(--fs-md); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gc-text { flex: none; font-size: var(--fs-lg); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .gc-box.root .gc-text { font-weight: 700; }
 .gc-box .ge-node-meta { display: flex; flex-wrap: wrap; gap: 5px 4px; overflow: hidden; max-height: 37px; }
 .gc-blds { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
@@ -938,6 +938,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .gc-chev { position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); min-width: 22px; height: 18px; padding: 0 5px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--panel); color: var(--muted); font-size: var(--fs-xs); line-height: 16px; cursor: pointer; z-index: 1; }
 .gc-chev:hover { color: var(--text); border-color: color-mix(in srgb, var(--link) 19%, var(--line-2)); }
 .gc-count { font-weight: 700; color: var(--gold); }
+/* a folded goal's "+N goals" chip (grant gr_nhayb7s9bd): like the titles (fs-lg), it reads at 11 px or more at the
+   opening zoom (goalCanvas.ts READABLE) */
+.gc-chev.more { height: 22px; bottom: -12px; padding: 0 9px; border-radius: 11px; font-size: var(--fs-lg); line-height: 20px; color: var(--text); }
 .gc-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
 .gc-pct { font-size: var(--fs-xs); color: var(--muted); min-width: 36px; text-align: center; }
 .gc-ask { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); max-width: 80%; background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: var(--fs-md); display: grid; gap: 8px; box-shadow: 0 8px 24px color-mix(in srgb, var(--black) 50%, transparent); cursor: default; }

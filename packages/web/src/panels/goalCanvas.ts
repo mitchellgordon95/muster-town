@@ -8,7 +8,7 @@ import { isJudgedKr } from "@muster-town/schema";
 import type { GoalTreeNode } from "@muster-town/schema";
 
 /** One box's size and the gaps between boxes, in canvas pixels (before zoom). */
-export const BOX = { w: 210, h: 92, gapX: 26, gapY: 60, row: 21 };
+export const BOX = { w: 210, h: 98, gapX: 26, gapY: 60, row: 21 };
 
 /**
  * A box's height: three lines of words and one row of tags, a second tag row when it has more than three tags (desks,
@@ -87,6 +87,27 @@ export function stepTree(layout: TreeLayout, id: string, key: "ArrowUp" | "Arrow
   return row[i]?.node.id ?? id;
 }
 
+/**
+ * The goals folded when the tree opens (grant gr_nhayb7s9bd): every goal below the root that has goals under it, so
+ * the canvas opens on the root and its children only, each with a +N chip that unfolds one level in place. `open` (a
+ * deep link, the viewer's captained goal) stays unfolded, with every goal above it.
+ */
+export function defaultFolds(root: GoalTreeNode, retired: boolean, open?: string | null): Set<string> {
+  const keep = new Set<string>(), out = new Set<string>();
+  const path = (n: GoalTreeNode, trail: string[]): boolean => {
+    if (n.id === open) { for (const id of [...trail, n.id]) keep.add(id); return true; }
+    return n.children.some((c) => path(c, [...trail, n.id]));
+  };
+  if (open) path(root, []);
+  const walk = (n: GoalTreeNode) => {
+    const kids = n.children.filter((c) => shown(c, retired));
+    if (n.id !== root.id && kids.length && !keep.has(n.id)) out.add(n.id);
+    kids.forEach(walk);
+  };
+  walk(root);
+  return out;
+}
+
 export type View = { x: number; y: number; k: number };
 const ZOOM = { min: 0.25, max: 2 };
 
@@ -97,6 +118,18 @@ export function fitView(layout: Pick<TreeLayout, "width" | "height">, vw: number
   const m = Math.min(pad, vw / 8, vh / 8);
   const k = Math.min(1, (vw - 2 * m) / layout.width, (vh - 2 * m) / layout.height);
   return { x: (vw - layout.width * k) / 2, y: Math.max(m, (vh - layout.height * k) / 2), k };
+}
+
+/** The lowest zoom the canvas opens at: a box's 15 px title (styles.css .gc-text, --fs-lg) shows at 11 px or more
+ * (kr_iuq0p3xsmm). At 1280×800 the root's four children (a 918 px row) fit the canvas pane at about 0.75. */
+export const READABLE = 0.74;
+
+/** The view the canvas opens on: Fit when it frames the whole tree at a readable zoom; else the readable zoom with the
+ * root box centred at the top (its children's row is centred under it). */
+export function openView(layout: Pick<TreeLayout, "width" | "height" | "boxes">, vw: number, vh: number, pad = 28): View {
+  const f = fitView(layout, vw, vh, pad), root = layout.boxes[0];
+  if (f.k >= READABLE || !root) return f;
+  return { k: READABLE, x: vw / 2 - (root.x + BOX.w / 2) * READABLE, y: Math.min(pad, vw / 8, vh / 8) };
 }
 
 /** Zooms by `factor` keeping the canvas point under (px, py) in the viewport where it is. Below the minimum zoom

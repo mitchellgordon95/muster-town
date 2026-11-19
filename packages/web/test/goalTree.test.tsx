@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GoalTreeNode } from "@muster-town/schema";
 import { archivedLine, buildingScope, krHeading, canEditGoal, deskWord, moveTargets, nodeGlance, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, treeRows } from "../src/panels/goalTree";
-import { BOX, deskTotal, fitView, layoutTree, revealBox, stepTree, zoomAt } from "../src/panels/goalCanvas";
+import { BOX, READABLE, defaultFolds, deskTotal, fitView, layoutTree, openView, revealBox, stepTree, zoomAt } from "../src/panels/goalCanvas";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { GoalProposalView } from "../src/api";
 import { ProposalCard, RetireConfirm, proposalNode } from "../src/panels/GoalTreePanel";
@@ -218,6 +218,49 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
     expect(zoomAt({ x: 0, y: 0, k: 0.3 }, 0.5, 0, 0).k).toBe(0.25);
     expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 10, y: 10, h: BOX.h }, 800, 600)).toBeNull();
     expect(revealBox({ x: 0, y: 0, k: 1 }, { x: 2000, y: 10, h: BOX.h }, 800, 600)).toEqual({ k: 1, x: 400 - 2000 - BOX.w / 2, y: 300 - 10 - BOX.h / 2 });
+  });
+
+  it("the canvas opens readable (gr_nhayb7s9bd): goals below the root's children fold behind +N chips; a deep link stays unfolded", () => {
+    const root = sample();
+    expect([...defaultFolds(root, false)].sort()).toEqual(["gl_fund", "gl_join"]);
+    // gl_join's only shown child under the retired toggle off is gl_c; with it on, gl_old counts too
+    const l = layoutTree(root, false, defaultFolds(root, false));
+    expect(l.boxes.map((b) => b.node.id)).toEqual(["gl_town", "gl_fund", "gl_join"]);
+    expect(l.boxes.find((b) => b.node.id === "gl_fund")!.hidden).toBe(2);
+    expect(layoutTree(root, true, defaultFolds(root, true)).boxes.find((b) => b.node.id === "gl_join")!.hidden).toBe(2);
+    // a deep link (or the viewer's captained goal) keeps its path and itself open
+    expect([...defaultFolds(root, false, "gl_a")]).toEqual(["gl_join"]);
+    expect([...defaultFolds(root, false, "gl_join")]).toEqual(["gl_fund"]);
+    // the +N chip names what it unfolds
+    const noop = () => {}, was = store.state, err = console.error;
+    console.error = () => {};
+    try {
+      store.state = { ...was, me: null };
+      const html = renderToStaticMarkup(<GoalCanvas root={root} retired={false} collapsed={defaultFolds(root, false)} selected="gl_town" scope={null} proposals={new Map()} canMove={() => false}
+        onSelect={noop} onToggle={noop} onOpen={noop} onChanged={noop} />);
+      expect(html).toContain('aria-label="Show 2 goals below"');
+      expect(html).toContain('<span class="gc-count">+2</span> goals');
+      expect(html).not.toContain('data-goal="gl_a"');
+    } finally { store.state = was; console.error = err; }
+  });
+
+  it("the opening view: Fit when the tree fits at a readable zoom; else the readable zoom, root centred at the top", () => {
+    // four children in a row, as on the live town: 4 × 210 + 3 × 26 = 918 px
+    const four = goal("gl_town", null, { children: ["a", "b", "c", "d"].map((x) => goal(`gl_${x}`, "gl_town")) });
+    const l = layoutTree(four, false, defaultFolds(four, false));
+    expect(l.width).toBe(4 * BOX.w + 3 * BOX.gapX);
+    // the laptop's canvas pane (1280×800 with the detail at 40%): 743 × 650; Fit is readable there, so it opens on Fit
+    const lap = openView(l, 743, 650);
+    expect(lap).toEqual(fitView(l, 743, 650));
+    expect(lap.k).toBeGreaterThanOrEqual(READABLE);
+    expect(15 * lap.k).toBeGreaterThanOrEqual(11); // a 15 px title on screen
+    // a narrow pane: the readable zoom, the root's centre in the middle, the top row at the margin
+    const narrow = openView(l, 400, 600);
+    expect(narrow.k).toBe(READABLE);
+    const r = l.boxes[0]!;
+    expect(narrow.x + (r.x + BOX.w / 2) * narrow.k).toBeCloseTo(200);
+    expect(narrow.y).toBe(28);
+    expect(openView({ width: 0, height: 0, boxes: [] }, 400, 600)).toEqual(fitView({ width: 0, height: 0 }, 400, 600));
   });
 
   it("desks changed in place on the canvas count in every total above them", () => {
