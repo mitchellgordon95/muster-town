@@ -1,1 +1,2 @@
 - 2026-11-19 (Prod, Cleo 1): deploy/README.md Drill row filled from Mitchell's run of `deploy/recover.sh --yes recover-drill` (18:32:12Z volume → 18:34:17Z health ok, 2 min 5 s, copy town/2026-11-19T18.db.gz.enc, MATCH). Closes kr_y7u2m9hk9y of gr_ba0juhlm7n.
+- 2026-11-19 (Prod, Cleo 1): deploy/recover.sh and deploy/fly/throwaway.sh are executable in git (mode 100755): Mitchell had to chmod +x recover.sh to run the drill. bootstrap.sh and cutover.sh stay 644: their docs run them with `sudo bash`.
