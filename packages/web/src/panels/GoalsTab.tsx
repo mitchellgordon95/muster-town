@@ -25,7 +25,7 @@ export function useGoalData(buildingId: string) {
 }
 
 /** The building's subtree of the one goal tree (its attachment and every goal under it) and every grant filed on it, any building's. */
-export function useSubtree(b: SnapshotBuilding) {
+function useSubtree(b: SnapshotBuilding) {
   const rev = useTown((s) => s.rev);
   const goals = useLoad(() => api().goalTree(), [rev]);
   const grants = useLoad(() => api().subtreeGrants(b.id), [b.id, rev]);

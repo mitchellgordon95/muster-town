@@ -132,7 +132,7 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
 }
 
 /** What a key-result line reads: a goal tree node's key result, or a building's (GoalKeyResult). */
-export type KrLine = Pick<TreeKr, "id" | "text" | "howToCheck" | "status" | "due" | "archivedAt" | "grantId" | "underReviewSince" | "postmortemDocId">;
+type KrLine = Pick<TreeKr, "id" | "text" | "howToCheck" | "status" | "due" | "archivedAt" | "grantId" | "underReviewSince" | "postmortemDocId">;
 
 /**
  * A goal's key results; `cards` (the editor's detail) shows each whole with its how-to-check, else one line each. The
