@@ -1,0 +1,1 @@
+- 2026-11-19 (Teo 1, gr_nhayb7s9bd): the disclosure census leaves the decision queue's front ask card (title, body, recommendation) out of the first-screen word count, like a doc body (decision on dc_9u3s34jwd3); words total keeps them and the verdict says how many. Live run: 6 of 6 counted rows pass at 1280×800 and 390×844.
