@@ -50,8 +50,12 @@ export interface PrChecks {
   /** checks finished / all checks on that commit */
   done: number;
   total: number;
-  /** names of the failed checks (state failed) */
+  /** names of the failed checks (state failed); for a merge-when-green wait also a conflict or a refused merge, in words */
   failed?: string[];
+  /** state merged: the merge commit on the base branch */
+  mergeSha?: string;
+  /** state merged: the town merged it itself (a `{pr, merge: true}` wait), not a human */
+  mergedBy?: "town";
   /** when this was read (ISO) */
   checkedAt: string;
 }
