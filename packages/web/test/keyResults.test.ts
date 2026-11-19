@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSteps, grantsSummary, krAuthorLine, krGrantWord, unfundableReason, grantSpendLine, krStatusLabel, krTone, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSteps, grantsSummary, krAuthorLine, subtreeGoals, subtreeKrs, unfundableReason, grantSpendLine, krStatusLabel, krTone, settableStatuses, spentShare } from "../src/panels/keyResults";
 import type { FinanceSpend } from "../src/api";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
@@ -31,19 +31,26 @@ describe("board key-results view", () => {
     expect(carbon.grants).toEqual([]);
     expect(Array.isArray(carbon.docs)).toBe(true);
   });
-  it("Goals tab: one grant word per key result and the Overview line", async () => {
+  it("Goals tab: the subtree's goals, funded grants and key results met, read from the one tree", async () => {
     const api = new MockApi();
     const { keyResults: all } = await api.keyResults("bl_workshop");
-    const grants = await api.grants("bl_workshop");
-    expect(grants.map((g) => [g.id, g.status]).sort()).toEqual([["gr_cli", "countered"], ["gr_hud", "checkpoint"], ["gr_tour", "funded"]]);
-    expect(all.map((k) => [k.id, krGrantWord(k, grants)]).sort()).toEqual([
-      ["kr_bl_workshop_0", "funded"], ["kr_bl_workshop_1", "funded"], ["kr_bl_workshop_2", "proposed"], ["kr_bl_workshop_3", "open"],
-    ]);
-    expect(goalsSummary(all, grants)).toBe("4 key results, 2 funded");
+    const grants = await api.subtreeGrants("bl_workshop");
+    const root = await api.goalTree();
+    // the Workshop sits on the root: its subtree is the whole tree, and every grant filed on a goal in it, any building's
+    expect(grants.every((g) => g.status !== "draft")).toBe(true);
+    expect(grants.map((g) => g.buildingId)).toContain("bl_carbon");
+    expect(subtreeGoals(root).length).toBe(9);
+    const line = goalsSummary(subtreeGoals(root).length, grants, all);
+    expect(line).toMatch(/^9 goals, \d+ grants? funded, \d+ of \d+ key results? met$/);
+    // a held grant counts as funded; a rejected proposal's key results are not counted; history with no grant is
+    const g = (id: string, status: string) => ({ id, status }) as Parameters<typeof goalsSummary>[1][number];
+    const kr = (grantId: string | null, status: string) => ({ grantId, status }) as Parameters<typeof goalsSummary>[2][number];
+    const krs = [kr("gr_a", "met"), kr("gr_a", "open"), kr("gr_b", "met-unverified"), kr("gr_r", "open"), kr(null, "met"), kr("gr_d", "open")];
+    expect(goalsSummary(3, [g("gr_a", "funded"), g("gr_b", "checkpoint"), g("gr_r", "rejected"), g("gr_d", "draft")], krs)).toBe("3 goals, 2 grants funded, 3 of 4 key results met");
+    expect(goalsSummary(1, [], [])).toBe("1 goal, 0 grants funded, 0 of 0 key results met");
+    expect(subtreeKrs(krs, [g("gr_a", "closed")]).length).toBe(3);
     expect(krStatusLabel("open")).toBe("open");
     expect(krStatusLabel("met-unverified")).toBe("met, unverified");
-    expect(krGrantWord({ grantId: "gr_x" }, [{ id: "gr_x", status: "closed" }])).toBe("open");
-    expect(krGrantWord({ grantId: null }, [{ id: "gr_x", status: "funded" }])).toBe("open");
   });
   it("Grants tab: open proposals oldest first, then funded, then checkpoint / closed / rejected; drafts left out", () => {
     const g = (id: string, status: string, createdAt: string, updatedAt = createdAt) => ({ id, status, createdAt, updatedAt, fundedAt: null }) as unknown as Parameters<typeof grantGroups>[0][number];
@@ -52,12 +59,6 @@ describe("board key-results view", () => {
     expect([proposals.map((x) => x.id), funded.map((x) => x.id), settled.map((x) => x.id)]).toEqual([["d", "b"], ["c"], ["e", "a", "h"]]);
     expect(grantsSummary(list)).toBe("2 proposals, 1 funded, 3 closed or held");
     expect(grantsSummary([g("b", "proposed", "3")])).toBe("1 proposal, 0 funded");
-    // funded grants filed on a goal outside the building's subtree are called out by their goalId
-    const on = (id: string, goalId: string) => ({ ...g(id, "funded", "2"), goalId });
-    expect(grantsSummary([on("x", "gl_in"), on("y", "gl_old")], new Set(["gl_in"]))).toBe("0 proposals, 2 funded (1 on a goal outside this goal)");
-    expect(grantsSummary([on("x", "gl_old"), on("y", "gl_old2")], new Set(["gl_in"]))).toBe("0 proposals, 2 funded (all on goals outside this goal)");
-    expect(grantsSummary([on("x", "gl_old")], new Set())).toBe("0 proposals, 1 funded (on a goal outside this goal)");
-    expect(grantsSummary([on("x", "gl_in")], new Set(["gl_in"]))).toBe("0 proposals, 1 funded");
   });
   it("a grant's step assignments come from the finance spend tree (building → grant → assignment)", () => {
     const spend = { rows: [{ kind: "building", id: "b1", name: "B", tokens: 9, share: 1, sessions: 3, children: [

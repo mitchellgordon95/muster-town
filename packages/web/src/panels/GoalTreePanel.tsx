@@ -131,13 +131,19 @@ export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: (
   );
 }
 
-/** A goal's key results; `cards` (the editor's detail) shows each whole with its how-to-check, else one line each. */
-function KrLines({ krs, actions, cards, focus }: { krs: TreeKr[]; actions?: (k: TreeKr) => ReactNode; cards?: boolean; focus?: string | null }) {
+/** What a key-result line reads: a goal tree node's key result, or a building's (GoalKeyResult). */
+export type KrLine = Pick<TreeKr, "id" | "text" | "howToCheck" | "status" | "due" | "archivedAt" | "grantId" | "underReviewSince" | "postmortemDocId">;
+
+/**
+ * A goal's key results; `cards` (the editor's detail) shows each whole with its how-to-check, else one line each. The
+ * building panel's Goals tab draws its subtree with it too, so both read the same words.
+ */
+export function KrLines<K extends KrLine>({ krs, actions, cards, focus }: { krs: K[]; actions?: (k: K) => ReactNode; cards?: boolean; focus?: string | null }) {
   const open = krs.filter((k) => !isArchived(k));
   const done = archivedLine(krs);
   const [showDone, setShowDone] = useState(() => krs.some((k) => k.id === focus && isArchived(k)));
   const scrolled = useRef(false);
-  const line = (k: TreeKr) => (
+  const line = (k: K) => (
     <li key={k.id} className={`goal-kr ${cards ? "ge-kr-card" : ""} ${k.id === focus ? "focus" : ""}`} ref={k.id === focus ? (el) => { if (el && !scrolled.current) { scrolled.current = true; el.scrollIntoView({ block: "center" }); } } : undefined}>
       <Pill tone={krTone(k.status as KeyResultStatus)}>{krStatusLabel(k.status as KeyResultStatus)}</Pill>
       {k.underReviewSince ? <Pill tone="warn" title={`A "Change this goal" put it under review on ${k.underReviewSince.slice(0, 10)}: its grant keeps running until a human decides`}>under review</Pill> : null}

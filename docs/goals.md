@@ -1,37 +1,40 @@
 # Goals: one town-level goal tree
 
-Status: **approved; build step 1 under way** (Mitchell in 1:1 mt_kh0zaqui0w: "i don't need a read, i think we're good"). Decided in 1:1 mt_a3nvwfawer (2026-10-30, decision 1). First pass by Pix 2 (as_s5zqdgk3zi). The second pass, by Pix 1 (as_bb0wrwf0v7), adds owners, "Change this goal", KPI slides, skip-levels, postmortems and the kanban view. The third pass (Pix 1, as_9srttx6zen) rewrites finance around 1:1 mt_529jbnwvmi decision 1: one Bank balance, desks as the steer, streams and earmarks, free funds for exploration. The fourth pass (Pix 1, as_hjwljl7eb8) folds in 1:1 mt_kh0zaqui0w: the map is drawn from the tree (§ "The map is the tree"), no KPIs for now, one root with placeholder children and unbounded depth, exactly one attachment per building, retiring moves open KRs to a sibling, and a UI inventory. The fifth pass (Pix 1, as_3chyvmzlf8) folds in the rest of mt_kh0zaqui0w: owners decide and fund grants in their subtree, the reorg meeting opens when the prep reports are in (or after 24 h), skip-levels are dropped for now, and one key per session is confirmed with a donor warning and an unused-donation alert. Only the two map questions stay open. Until this is built, today's model holds: per-building objectives and key results, described in `docs/goal-directed-budgets.md` ("Objectives and KPIs", migration 043).
+Status: **built**. This page describes the goal tree as it runs now. Decided in 1:1 mt_a3nvwfawer (2026-10-30, decision 1) and 1:1 mt_kh0zaqui0w; key results moved onto grants in [how-work-gets-done.md](how-work-gets-done.md) §4, and grant gr_h4m0lyhb1f (2026-11-19) made goals, grants and key results three things with one shape each. The design passes, the migration plan and the build order are in git history.
 
 ## Why
 
-Today each building owns its own goal, objectives and key results. The only thread between buildings is a KPI label (fund, join or trust) on each objective. To learn what a building is doing, or to steer it, Mitchell has to visit it and talk to its manager. Goal editing sits on the planning map, where it doesn't belong. And a met key result quietly stops new grants, even when the direction behind it should stay: some met KRs were really standing goals.
+Each building used to own its own goal, objectives and key results, joined only by a KPI label (fund, join or trust) on each objective. To learn what a building was doing, or to steer it, Mitchell had to visit it and talk to its manager, and goal editing sat on the planning map.
 
-The fix is the move the Bank already made: goals come out of buildings. There is **one goal tree for the town**, edited at the Town Hall, and **each building attaches to one node** of it. The map is drawn from the tree.
+Goals came out of buildings, as the Bank's money had. There is **one goal tree for the town**, edited at the Town Hall, and **each building attaches to one node** of it. The map is drawn from the tree.
 
 A note on scope. Mitchell observed that this is turning into an org/corporation sim. It borrows only what the town needs: a captain per node, one reorg action, and a board view of the queue. It takes no lean, agile or waterfall ceremony. There are no sprints, standups, retros or scheduled planning. **The iteration is Mitchell's morning and evening review, plus small assignments in between.** The one scheduled meeting the tree needs is the reorg meeting (§ "Change this goal").
 
 ## The model in one picture
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: key results move from goals onto grants; goals keep none of their own.
+Three things, one shape each:
+- A **goal** is a standing direction in one town tree. It is never met. The root is the town goal; any goal may have child goals.
+- A **grant** is a funded plan filed on one goal (`goalId`). Its building does the work.
+- A **key result** belongs to one grant (`grantId`), is dated, and has one status: open, claimed, met, met, unverified, or missed. Goals keep no open key results; a met or missed one stays under its goal as history.
+
+Each building is attached to one goal; its **subtree** is that goal and everything under it.
 
 ## Data model
 
-Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps its id, statuses and grants, and every `ob_…` objective becomes a goal with the same id.
+Ids are stable: every `kr_…` kept its id, status and grant, and every former `ob_…` objective is a goal with the same id (migration 124 dropped the objectives table).
 
-- **`goals`** (new): `id` (`gl_…`, or the old `ob_…`), `parentId` (null only for the root), `position`, `text` (≤300 chars), `ownerId` (nullable; see Owners), `status` (`active` | `retired`), `retiredAt/By/Note`, `createdBy`, `editedBy`, `sourceDocIds`, `createdAt`, `updatedAt`.
-- **`key_results`** (existing) gains nullable columns: `goalId`, `due` (an ISO date; required for new KRs), `archivedAt`, `underReviewSince` (set by a reorg), `postmortemDocId`. `status`, `statusNote` and `statusBy` stay as they are. The old `buildingId` and `objectiveId` stay in place: they are written as the proposing building and read by nothing.
-- **`buildings.goalId`** (new nullable column; nullable only so the migration is additive): the one goal the building is **attached** to. **Every building has exactly one attachment** (1:1 mt_kh0zaqui0w): it is set at creation (default: the root), editable in building settings, and never unset; the service refuses a null. A building's **subtree** is its goal and everything under it. Several buildings may share a goal. One attachment is also what the map needs: a building stands in one place (§ "The map is the tree"). Attach changes are events (`goal.attached`), so no history table.
-- **`goal_proposals`** (new): `id` (`gp_…`), `action` (`add-goal` | `add-kr` | `edit` | `move` | `retire` | `promote`; promote turns a KR into a goal), `targetId`, `parentId`, `fields` (JSON), `why`, `proposedBy`, `buildingId`, `reorgId` (nullable), `sourceDocIds`, `status` (`open` | `accepted` | `cut` | `superseded`), `decidedBy/At`, `note`.
-- **`goal_changes`** (new, the reorg): see "Change this goal".
+- **`goals`**: `id` (`gl_…`, or the old `ob_…`), `parentId` (null only for the root), `position`, `text` (≤300 chars), `ownerId` (nullable; see Owners), `status` (`active` | `retired`), `retiredAt/By/Note`, `createdBy`, `editedBy`, `sourceDocIds`, `createdAt`, `updatedAt`.
+- **`key_results`**: `grantId` (its one parent), `goalId` (a copy of the grant's goal, written only with the grant), `due`, `status` (`open` | `claimed` | `met` | `met-unverified` | `missed`), `statusNote`, `statusBy`, `archivedAt`, `underReviewSince` (set by a reorg), `postmortemDocId`. No `buildingId`, `objectiveId` or evidence column (migration 125): its building is its grant's.
+- **`buildings.goalId`**: the one goal the building is **attached** to. **Every building has exactly one attachment** (1:1 mt_kh0zaqui0w): it is set at creation (default: the root), editable in building settings, and never unset; the service refuses a null. A building's **subtree** is its goal and everything under it. Several buildings may share a goal. One attachment is also what the map needs: a building stands in one place (§ "The map is the tree"). Attach changes are events (`goal.attached`), so no history table.
+- **`goal_proposals`**: `id` (`gp_…`), `action` (`add-goal` | `add-kr` | `edit` | `move` | `retire` | `promote`; promote turns a KR into a goal), `targetId`, `parentId`, `fields` (JSON), `why`, `proposedBy`, `buildingId`, `reorgId` (nullable), `sourceDocIds`, `status` (`open` | `accepted` | `cut` | `superseded`), `decidedBy/At`, `note`.
+- **`goal_changes`** (the reorg): see "Change this goal".
 - **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached`, `goal.proposal`. Agents read these events (`GET /api/goals/:id/history`, the Planner's event digest); the web shows no history, not even a "last changed" line (1:1 mt_n25udpflus decision 5: agents care about the changelog, humans don't). There is no audit table.
 
 **Grants** sit in the tree by `goalId` alone (grant gr_h4m0lyhb1f step 3, migration 126 dropped `grants.keyResultId` and its copies on assignments and schedules). Routing (`Goals.route`), the funder line, spend by goal (`goal-spend.ts`, now by grant: `GoalSpend.byGrant`), the Bank's earmark pick (`Streams.nodeOf`) and `Grants.canFund` all read grant → goalId; a grant's key results are read by their own `grantId`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
 
 ## Who can change the tree
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §4: `propose_key_result` and KR status on goals go; managers propose grants (with their key results) and goals.
-
-Today: humans with `goals.edit` (town admins, and a node's captain on their subtree) edit the tree; managers and their forks propose goals (`propose_goal`) and grants with their key results (`propose_grant`).
+Humans with `goals.edit` (town admins, and a node's captain on their subtree) edit the tree. Managers and their forks propose goals (`propose_goal`) and grants with their key results (`propose_grant`); a human decides each.
 
 ## The Town Hall goal editor
 
@@ -73,8 +76,6 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 
 1. ~~What an empty goal node looks like~~: answered in 1:1 mt_wql34b8gkl, nothing draws until a building attaches.
 2. ~~Long walks on deep trees~~: answered in 1:1 mt_wql34b8gkl by packing; a chain of goals with no buildings folds into one step. The overall shape (tree, radial, plazas grouping related buildings) is for the vision doc.
-
-**Build.** Step 2, right after the core (see Build order).
 
 ## Captains on nodes
 
@@ -190,13 +191,11 @@ A funded grant's unspent tokens are its reservation (derived, as before). `bank_
 
 ### Spend by goal (read-only, no Bank change)
 
-The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:1 mt_n25udpflus decision 5 moved it to the Bank) shows a goal's subtree spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed over the same weeks. A session belongs to a node by its lane: `grant` → the grant's KR's goal; `exploration` or `directed` naming a KR or goal → that node; anything else → the building's attachment. It can ship with step 4. A **visitor's** spend is not in it and is not tracked anywhere: a visitor runs on its own client, so the section only counts the visitors at desks under the goal (`visitors`) and says their tokens are unknown (Mitchell, 1:1 mt_i50xwu4z2t: better to say we don't know than to guess or have them self-report).
-
-**Bank changes, gated on Mitchell** (town-wide rule dc_vzqoh7ppen): dropping pools, streams with scopes and the draw order, free funds replacing the exploration allowance, per-session key caps. They are build steps 7 and 8 below and wait for his yes on the code, even though the design is decided.
+The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:1 mt_n25udpflus decision 5 moved it to the Bank) shows a goal's subtree spend, read from session bookings (`sessions.adjustedOutputTokens`, with lane, grant and KR), by week and by lane, next to the results: KRs met or missed over the same weeks. A session belongs to a node by its lane: `grant` → the grant's goal (`GoalSpend.byGrant` lists the grants); anything else (exploration, directed work, a manager's session) → the building's attachment. A **visitor's** spend is not in it and is not tracked anywhere: a visitor runs on its own client, so the section only counts the visitors at desks under the goal (`visitors`) and says their tokens are unknown (Mitchell, 1:1 mt_i50xwu4z2t: better to say we don't know than to guess or have them self-report).
 
 ## How lanes map onto subtrees
 
-> Superseded by [how-work-gets-done.md](how-work-gets-done.md) §3 and §4: exploration names a goal, not a key result; "blocked: no KRs" and the KR stoplight go.
+A grant session works on its grant, filed on a goal in the building's subtree. An exploration session names a gap under the building's goal. See [how-work-gets-done.md](how-work-gets-done.md) §3 and §4.
 
 ## Postmortems on missed KRs
 
@@ -205,10 +204,6 @@ The Bank's **Spend by goal** section (Spending tab; a tab on every node until 1:
 **UI.** In the editor, the archived "✗ missed" row opens its postmortem. The report also reaches the manager's in-tray, as any report does. If it ends with a KR proposal, that proposal lands in the Proposals strip.
 
 **Lanes, grants, Bank.** The work is directed (a human marked it missed). Its spend shows in the Bank's Spend by goal under the KR's goal. Nothing is queued for met KRs.
-
-## Skip-level 1:1s: dropped for now
-
-Dropped in 1:1 mt_kh0zaqui0w: Mitchell 1:1s managers directly. A possible later addition: a "Talk to a resident under this goal" button on a node, with a conversational fork session (a fork of the manager speaking for one recent chain) when the subtree has no named resident.
 
 ## Kanban: the queue as a board
 
@@ -231,10 +226,6 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 
 - **Its first prompt.** The whole tree (statuses, due dates, captains, attachments, grant spend), an event digest since the human's last review, each building's latest rollup, and the open proposals. Started from a goal row, it is scoped to that subtree.
 - **What it does.** It drafts nodes as `goal_proposals`. They show inline in the 1:1 as cards with Accept / Edit / Cut, and anything undecided stays in the Proposals strip. It never edits the tree. It also facilitates reorg meetings.
-- **First jobs:**
-  - draft `promote` proposals for the 12 met KRs that were really standing goals;
-  - date every migrated KR;
-  - turn Mitchell's "Standing goal?" answers in the KR inventory (dc_io1ry1ryjz) into proposals.
 
 ## Review cadence and the deck
 
@@ -253,102 +244,10 @@ Cards show the title, lane chip, grant or KR, and age. The **WIP limit is the bu
 
   Today's building cadence meetings (standup, retro, planning) go. Everything routine stays asynchronous in the in-tray.
 
-## What gets removed or changes
+## The building panel reads the tree
 
-- **Planning map**: loses goal display and editing, and loses drag placement too: the map is drawn from the tree (§ "The map is the tree"). Selecting a building shows **Attached to: [goal] · Change…** (admins), its budget and its stats.
-- **Building Goals tab**: a read-only view of the building's subtree(s), with "Edit at the Town Hall →" and a **Propose a key result** form for the manager. The KR editor, Mark met/missed and Delete move to the editor.
-- **Objectives become goals.** **Done** (grant gr_h4m0lyhb1f step 1): migration 124 writes any objective with no goal row as a goal under its building's attachment, then drops the `objectives` table. `set_objective`, `GET/POST /api/buildings/:id/objectives` and `PATCH/DELETE /api/objectives/:id` are gone (404), and the building Goals tab lists the key results in the building's subtree with no objective grouping and no KPI label. `key_results.objectiveId` was dropped by step 2.
-- **A key result has one parent and one status.** **Done** (grant gr_h4m0lyhb1f step 2, migration 125): a key result's parent is its grant (`grantId`); its building is the grant's, so `key_results.buildingId` is gone, and `goalId` is a copy of the grant's goal, written only with the grant (moving a key result to another goal moves its grant and the grant's other key results). Its status is one of five words: **open**, **claimed**, **met**, **met, unverified** (`met-unverified`), **missed**. Not-started, on-track and at-risk became open (how far along open work is goes in the report's words); the evidence column (verified / claimed / unknown, migration 103) folded into the status and is gone: met-with-unknown-evidence from before "met, unverified" existed became met-unverified, and a passed `kr` check turns a claimed key result met. `submit_report` `keyResults` takes open or claimed only. The goal tree, the Grants tab and the gate card show one badge per key result, its status word.
+- **Overview.** The Goals line counts the building's subtree: "N goals, N grants funded, N of N key results met". Goals are the attached goal and every goal under it. Funded grants are the grants filed on those goals, from any building, that are funded or held at their gate. Key results are those grants' key results plus the met or missed history a goal keeps, leaving out a draft's and a rejected proposal's; met counts met and met, unverified (`goalsSummary` in `panels/keyResults.ts`). The Grants line counts the building's own grants.
+- **Goals tab** (`GoalsTab.tsx`). The subtree, goal by goal: each goal's words (a link to it in the goal tree), the grants filed on it with their status and their key results, then the goals under it, indented. Key results are drawn by the goal tree's own `KrLines`, so the tab and the tree use the same words. Closed grants fold under "Closed". A goal with neither shows "No grant under it". A human with `building.fund` marks an open key result Met or Missed in place (Missed asks why and queues a postmortem). Edit (building.manage) opens the key-result editor for the words. The data: `GET /api/goals` and `GET /api/buildings/:id/grants?subtree=1` (every grant filed on a goal in the subtree, whichever building proposed it).
+- **Planning map**: no goal display or editing, and no drag placement: the map is drawn from the tree (§ "The map is the tree").
 - **`buildings.goal`** stays as the building's one-line **Purpose** (door, prompts).
-- **Bank pools and the per-building exploration allowance go**: done (how-work-gets-done.md build step 1, as_1nuoiauxlw; see "Free tokens and the optional exploration cap").
-- **Untouched**: grants, checkpoints, human review of grants, member funding (it becomes a grant-scoped stream in step 7), lanes' gate logic and the stoplight.
-
-## Migration (one additive migration; its number is checked against main right before merging, 061 at the time of writing: main's highest is 060)
-
-1. Create the tables `goals`, `goal_proposals` and `goal_changes`. Add `buildings.goalId` and the new `key_results` columns. Add `goals.edit` to the admin role.
-2. Seed the root `gl_town` (captain: the collective's first admin, migration 078), and under it the placeholders `gl_fund`, `gl_join` and `gl_trust` (no dials). A hosted collective's tree is its founder's (gr_5ltmbf3a2f): its root carries the Start form's goal (`ensureRootText`, the seed replaces the placeholder "The town goal"), and on every boot it deletes each placeholder pillar nobody has touched (`dropPlaceholderPillars`: seeded words, no captain, never edited, nothing filed against it); the Workshop keeps them.
-3. Give **every building** a goal `gl_<buildingId>` (its goal line, under the root) and attach the building to it. That makes exactly one attachment per building, including UI / UX, which has no KRs.
-4. Turn every objective into a goal with the **same id**, under its building's `gl_<buildingId>`. Its KRs get `goalId = objectiveId`. A building's unsorted KRs go directly under its `gl_<buildingId>`.
-5. Archive KRs that are `met` or `missed` (`archivedAt = updatedAt`). Nothing touches `grants`.
-
-Objectives go under their building's goal, not under Fund/Join/Trust by their KPI label, because the Workshop's three objectives carry three different labels and a building gets one attachment. So on day one Fund, Join and Trust are empty plazas, and the map shows six building goals off the root. **The sorting is Mitchell's**: the KR inventory, **dc_io1ry1ryjz** (all 31 KRs the town has had, with a blank "Standing goal?" column), is where he decides which met KRs become standing goals and where each belongs. Planner turns his answers into `promote` and `move` proposals.
-
-Live numbers (2026-10-30, commit 02f1bbe):
-
-| Building | Objectives → goals | KRs under objectives | Unsorted (under `gl_<id>`) | Archived | Funded grants |
-|---|---|---|---|---|---|
-| Town Workshop | 3 | 5 | 0 | 0 | 2 (gr_iq5m7dug56, gr_tvt32g9xly) |
-| Prod | 2 | 5 | 3 | 3 | 2 (gr_rntk0echpi, gr_8cdix9mpye) |
-| Code Legibility and Maintenance | 1 | 3 | 5 | 4 | 0 |
-| Onboarding | 0 | 0 | 6 | 1 | 0 |
-| Bank Transparency | 0 | 0 | 4 | 4 (all) | 0 |
-| UI / UX | 0 | 0 | 0 | 0 | 0 |
-
-The result:
-
-- **16 goals** (the root, 3 placeholders, 6 per-building, 6 from objectives), **31 KRs** (19 open, 12 archived), 6 attachments (one per building), and 27 grants unchanged.
-- **Two buildings come out blocked.** Bank Transparency has no open KR (all 4 archived). UI / UX has none at all. Each manager is woken once to propose a KR.
-- **The root is the only captained node**, so every route ends at Mitchell, as today.
-
-The migration doesn't guess structure: no moving per-building goals under Fund/Join/Trust, no promotions. That cleanup is Mitchell's, in the editor, with Planner's drafts. The old columns stay, unread, until a later migration drops them; that rollup's "Your call" would say so.
-
-## Build order (after this doc is approved)
-
-1. **Core.** The migration; the `Goals` service (tree, `inScope`, edit, attach, owners and owner routing, proposals, retire with move-to-sibling); the scope switch in `grants.ts` / `lanes.ts`; routes, verbs and the desk brief; attachment required at building creation (default: the root). Core tests check scope, owner routing, "a building is never unattached" and a lossless migration (every KR id, status and grant survives). **Built** (as_6zx9zmtvdo): migration 061, `packages/core/src/goals.ts`, REST `packages/server/src/routes/goals.ts` (`GET /api/goals`, `/api/goals/:id`, `POST /api/goals`, `PATCH /api/goals/:id`, `POST /api/goals/:id/retire`, `POST /api/goals/:id/key-results`, `PUT /api/buildings/:id/goal`, `GET /api/buildings/:id/scope`, `GET/POST /api/goal-proposals`, `POST /api/goal-proposals/:id/decide`), verbs `propose_goal` and `propose_key_result`, the Goal picker on the planning desk's create form and **Attached to** in building settings (both listed as step 1 in the UI inventory), tests `packages/core/test/goals.test.ts`. Kept for now: `set_objective` and `set_key_result` still write (objectives mirror into goals with the same id; a new KR goes under its objective or the building's attachment), since accepting proposals has no UI until steps 3-4; the in-tray's "Mine / All" (step 4) is where routing shows; `Goals.route` computes it now.
-2. **The map from the tree.** `treeLayout` (stable, seeded) feeding `computeLayout`; `deriveRoads` routing plaza to parent plaza and door to plaza; `plaza:<goalId>` places with signposts; the trunk rows go; drag placement and drag-resize go from the planning side bar; Desks becomes the size setting; the planning desk's create form gains the Goal picker; the map redraws on every tree change and bodies re-path. Core tests: the same tree gives the same map, adding a sibling moves no earlier building, every door reaches its plaza. **Built** (as_jk5v8pbw7a): `core/world/tree.ts` `treeLayout`; `road.ts` `deriveRoads` (plazas + the tree's edges as org-chart elbows: trunk, bus, drop; doors to their plaza by the old Dijkstra); plan.ts, `PUT /api/town/plan` and drag/resize/draw gone; the town map is a read-only zoomed-out view anyone opens, a click selects a building; Desks (PATCH `headcount`, `town.manage_buildings`) sets the size; a World hook rebuilds on every goal event, bodies follow (`followRelayout`); tests `core/test/tree.test.ts`. Open questions decided (Mitchell may overrule): an empty goal is an empty plaza with its signpost; long walks are left as they are (edges are short: 3 rows between levels), no folding.
-3. **The Town Hall editor**, with Captain and the Subtree tab, plus the read-only building Goals tab and the attach control in building settings. **Built** (as_4yop6brb1z): the `goal-tree` place (a wall chart, `TILE.GOAL_CHART`, on the Town Hall's back wall above the map table) opens `web/src/panels/GoalTreePanel.tsx` (pure helpers `goalTree.ts`): the open proposals on top (Accept, Edit and accept, Cut with a note to the proposer), the tree (captain pills, building chips, KR status, due date amber when past, funded/open, archived folded to "✓ n done, m missed", Show retired, building filter), and a node's detail (Edit, Add goal, Add key result with a due date, Move, Captain, Retire with the move-to-sibling picker, Met/Missed; History tab from `GET /api/goals/:id/history` = `Goals.history`, Subtree tab). Read-only for everyone without `goals.edit` at the node. The building Overview shows "Reports to <captain> via <goal>"; the Goals tab links to the tree. Left for later: the building Goals tab still has its old editor (set_objective / set_key_result keep working and mirror into the tree; nothing was added to them), the "proposed" grant word in the tree (it shows funded / open), Attach a building from the node (it is in building settings), and Plan with an agent (step 5).
-4. **The in-tray and the deck**: goal proposals, "Mine / All", Fund for a node's captain on proposals in their subtree, the per-user review marker, and the state-of-the-town slide without dials. The read-only Spend tab ships here. **Built** (as_ic5rj33cho): the Town Hall in-tray (`GET /api/buildings/:id/intray`) lists open goal proposals (`goalProposals`, a "Goal proposals" section with the editor's Accept / Edit and accept / Cut, `GoalProposalItem`) and counts them in the badge; the review deck gets one `goal-proposal` slide each, in group 4 after the grant proposals. Both responses carry `routes` (item id → goal, captain, `mine`, `canDecide`; core `intray-routes.ts` over `Goals.route`, `Grants.canFund` and `goals.edit`) and `defaultView`: the in-tray's **Mine / All** toggle (a captain who is not an admin starts on Mine, admins on All; Mine is only what routes to the viewer) filters the list and the deck. A node's captain sees Fund / Counter / Reject, Continue / Adjust / Cut on grants in their subtree (`GrantRow canDecide`; since town hall mt_v09cn7a8yr decision 2 a grant closed as done marks its key results met itself, and the captain can flip one to missed on the grant); member funding is unchanged. The **Spend** tab on a goal in the Goal tree (`GET /api/goals/:id/spend?days=7|30|90` = core `goal-spend.ts`): the subtree's adjusted tokens from session rows by lane, by day (≤ 14 days) or week, by building and by key result, and the key results met or missed in the window; it reads sessions only and writes nothing. Left for later: the per-user review marker (lastReviewedAt per human, "decided by Lena"), the Finance panel's by-goal view, the grant panel's goal path and "under review" pill. The state-of-the-town slide already has no dials.
-5. **Change this goal**: `goal_changes`, under-review KRs, the reorg meeting, and Planner. Planner is needed here as the facilitator, and Plan with an agent ships with it. **Built** (as_61yn0bp2x8): core `packages/core/src/goal-changes.ts` (`world.reorgs`). `POST /api/goals/:id/change` (a human with `goals.edit` there; one open change per goal) writes the human's note at the Town Hall, the `goal_changes` row, one directed prep assignment per attached building (on its building queue, source = the note, its description names the `reorgId`), `underReviewSince` on every open KR under the node (event `kr.under-review`; grants untouched), and a `planning` meeting at the Town Hall scheduled at the 24 h deadline (at once with no building to wait for); the runtime's tick (`Reorgs.tick`) moves it up to now once every prep report is in. The meeting starting sets the goal's text to Y (status `meeting`); its end makes the change `decided` (event `goal.changed` at each stage). `propose_goal` / `propose_key_result` take `reorgId`; the facilitator's material lists the change, the prep reports, its proposals and the under-review KRs. `POST /api/key-results/:id/review` decides an under-review KR: keep, move (`goalId`) or archive (as missed; a live grant is named as a Cut candidate in the event). **Planner** is a Town Hall resident (title "Planner", created on first use); `POST /api/planner/one-on-one` (`goalId` optional) opens "Plan with an agent", a 1:1 whose host session carries the tree brief (`Reorgs.plannerBrief`, scoped to the goal the human last opened it from); it proposes for no building and attaches each `gp_…` to its line, which the meeting panel renders as a proposal card with Accept / Edit and accept / Cut. Web: Goal tree "Plan with an agent" (header, every row, node detail), "Change this goal" with a prep/meeting banner, an "under review" pill and Keep / Move / Archive. **Paid** (as_xl8nklxh62, 1:1 mt_cz11aqe81a): the Town Hall draws from its pool (General unless moved) like any building (`bank.ts` drawPool has no Town Hall case), so Planner sessions book to the Town Hall's pool. Only when the Planner can't start (an empty Bank, a used-up share) does its 1:1 say so and the reorg meeting fall back to the first active manager invited as facilitator. Left for later: a deck slide per undecided under-review KR, the in-tray Cut candidates, the under-review flag on new grant proposals, and Planner's first jobs (promotes, dates, the KR inventory).
-6. **Postmortems** on missed KRs, and the **Kanban** Queue tabs (building and node). **Built** (as_i7tay9shzl): core `packages/core/src/postmortems.ts` and `kanban.ts`. A human marking a KR missed must give a why-line (`note`; refused without one); `Grants.updateKeyResult` then calls `queuePostmortem`: the line is filed as the human's note (tags `postmortem`, `postmortem-of:kr_…`) in the building whose latest grant named the KR (else the proposing building), and one directed assignment "Postmortem on kr_…" goes on that building's queue with the note as its source. Never two per KR (the tagged note is the guard). Archiving an under-review KR in a reorg goes the same way. When that assignment's final (not parked) report is filed, `linkPostmortem` sets the KR's `postmortemDocId` and tags the report `postmortem`. The goal editor's KR row and the building Goals tab show "postmortem" (a link) or "postmortem pending"; Missed and Archive open a why form. The kanban: `GET /api/buildings/:id/queue` and `GET /api/goals/:id/queue` (one swimlane per building attached in the subtree), Queued / Held (held reason, unmet wait, open offer) / Running (live session adjusted tokens) / Done (24 h, linking the report), Running header "n / headcount desks"; a Queue tab on the building panel and on a goal node. Read-only, no migration, no Bank change. Left for later: the KR proposal at the end of a postmortem is not parsed into the Proposals strip beyond what `propose_key_result` already does.
-
-7. **Streams and the draw order. Bank change, gated on Mitchell.** Inputs become streams (`goalId` scope, key dailyLimitTokens); pools go; the Bank pays narrowest stream first, then the general balance; key streams are picked at session start only when they cover the expected session, and the desk gets the cap; held keys show usage and can be revoked; the Donate form warns when a donation covers no whole session, and a stream with no draw for 7 days notifies its donor. Free funds replace the exploration allowance.
-   - **Shipped (first part, Pix 1, as_3xd2xv78h1)**: earmarks (`bank_inputs.goalId`, migration 064), the draw order at session start (grant input → nearest earmark covering a session → general), charging the earmark first, `GET /api/bank/streams`, the Donate form's earmark picker and small-donation warning, and the 7-day idle notice to the donor (docs/bank.md "Funding streams and the draw order"). Still to do: pools go, free funds, the desk's key cap, dailyLimitTokens, usage shown to a key's donor.
-8. **The funder filter on the deck. Bank-gated with step 7** (it reads which stream paid each session): the literal story for key donors, the pro rata story for money donors. **Built** (as_uciill1new, 1:1 mt_cz11aqe81a): read-only, no migration, no Bank booking change. Core `packages/core/src/funders.ts` `funderWeek` reads session rows, Bank inputs and credits: a session that ran on a donated api-key input (`credentialInputId`, general or earmark), or on a grant funded from a member's own input (`fundedWith`), is **literal** for that input's donor, whole; every other session (a subscription, or nothing recorded) is **pooled**, and each subscription donor owns their share of it (their subscription credits in the window ÷ everyone's). `GET /api/funders/:userId/week?days=7` (`me` = the signed-in human; any other id needs a sign-in; guests 401) returns the streams, the literal sessions (assignment, building, KR, report), the pro rata share and what it bought by assignment, the goals the money reached (each earmark's subtree and each literal session's goal; a pro rata share reaches all) and the deck's slide 1 for it (schema `funderSlide`). Web: a signed-in human with a Bank input gets **Funded by me** beside Mine / All in the Town Hall in-tray: the list keeps the items routed under those goals, and the deck replaces the state of the town with "Your week as a funder"; the goal tree's filter gains "Funded by me" (dims what the money didn't reach); a goal's Spend tab gets a "Funded by me" box (`GET /api/goals/:id/spend?funder=me`: literal sessions whole, pooled ones at the share). Tests core `funders.test.ts`, `goals-step4.test.ts`; server `review-deck.test.ts`; web `funderFilter.test.tsx`. This closes the eight-step build order; step 7's rest (pools go, free funds, the desk's key cap, dailyLimitTokens, a key's usage shown to its donor) is still open.
-
-The read-only **Spend tab** (subtree spend from session bookings) ships with step 4. Since 1:1 mt_n25udpflus decision 5 (as_n0aqnm802e) the node's four tabs are gone: Spend lives in the Bank's Spending tab as **Spend by goal** (`GoalSpend.tsx`, a goal picker over the same endpoint), Queue only on building panels, History and Subtree nowhere in the web. There is no allocation by node and no budget tree. "New dials" (the second pass's step 7) is dropped while KPIs are parked.
-
-## UI inventory: every web surface the tree touches
-
-From `packages/web/src` at main 5634e04. **Goes** = removed; **changes** = stays, reworked; **new** = doesn't exist yet. The step is the build step that does it.
-
-| Surface (file) | What it does today | Goes / changes / new | Step |
-|---|---|---|---|
-| Planning side bar (`PlanSideBar.tsx`, reuses `GoalsTab`) | Selected building's goal, objectives, KRs, budget, stats | **Changes**: goal editing goes; shows "Attached to: [goal] · Change…", budget, stats | 2 |
-| Town planning mode (`map/townPlan.ts`, `PlanToolbar.tsx`) | Drag to move, drag walls to resize, draw a new building on grass, Save | **Goes**: no drag placement, resize or draw; the map is drawn from the tree | 2 |
-| Town Hall town-map table (place `town-map`) | Opens town planning (humans with `town.manage_buildings`) | **Changes**: opens a read-only zoomed-out view of the tree map, or goes; Mitchell's call | 2 |
-| Map rendering (`map/MapCanvas.tsx`, `renderer.ts`, `overview.ts`, `Minimap.tsx`) | Draws lots and the trunk roads | **Changes**: draws plazas with signposts and tree roads; no trunk | 2 |
-| Planning desk Buildings tab (`PlanningPanel.tsx`) | Create a building (name, goal line) | **Changes**: gains a required **Goal** picker (default: the root) | 1 |
-| Building settings (`BuildingPanel.tsx` Settings) | Goal line, Desks (read-only, "resize on the town map table"), Exploration / day, Pool | **Changes**: new **Attached to** control (never empty); Desks becomes editable and sets the size; Exploration / day and Pool moved to the goal's Funding block (interim step, "Pool and exploration budget on the goal") | 1, 2, 7 |
-| Building panel Overview (`BuildingPanel.tsx`) | "Write them in Goals →" | **Changes**: "Reports to: <owner> via <goal>", link to the goal at the Town Hall | 3 |
-| Building Goals tab (`GoalsTab.tsx`, `keyResults.ts`) | Write and edit objectives and KRs, Mark met/missed, Delete | **Changes**: read-only subtree view, "Edit at the Town Hall →", Propose a key result | 3 |
-| Goal tree editor (Town Hall wall chart) | — | **New**: tree, node detail (its History, Subtree, Spend and Queue tabs were dropped in mt_n25udpflus decision 5), Proposals strip, Plan with an agent | 3, 5, 6 |
-| Town Hall in-tray (`Places.tsx`) | Rollups, grant proposals and checkpoints (a grant closed as done marks its KRs met itself: no mark row, mt_v09cn7a8yr decision 2) | **Changes**: goal proposals, "Mine / All", under-review pills, retire/reorg items | 4, 5 |
-| Review deck (`ReviewDeck.tsx`, `DeckView.tsx`) | State of the town, one slide per pending decision | **Changes**: goal-proposal and reorg slides; no dial slides; the funder filter ("Funded by me": the funder's slide 1 and their items) | 4, 5, 8 |
-| Grant panel and grant cards (`GrantPanel.tsx`, in-tray `GrantRow`) | Shows the grant's key result | **Changes**: shows the KR's goal path from the root; "under review" pill | 4 |
-| Dashboard (DashboardPanel.tsx) | Three KPI tiles, then each building's objectives and KR statuses | **Removed** 2026-11-01 (1:1 mt_ec2b7x80rg): panel, HUD ▤, KPI tiles and `GET /api/kpis` | 3 |
-| Bank panel (`BankPanel.tsx`, `BankFunding.tsx`) | Donate, allocations, inputs, accounting pools | **Changes**: pools and allocations go; inputs become streams with an optional goal scope; held keys show usage and Revoke; Donate warns "your key covers no whole session yet" | 7 |
-| Bank town map (`map/flow.ts`, place `bank-map`) | Lots tinted by pool, coin arcs sized by pool share | **Changes**: pools go, so it needs a new meaning (streams by scope) or it goes | 7 |
-| Finance panel (FinancePanel.tsx) | Totals, Sources, Pools, Spending by building | **Changes**: Pools section goes; Spending gains a by-goal view (**built**: Spend by goal, mt_n25udpflus decision 5) | 4, 7 |
-| Meeting panel (`MeetingPanel.tsx`) | 1:1s and building meetings | **Changes**: reorg meetings (kind `planning`), Plan with an agent proposal cards; cadence meetings go | 5 |
-| Building Queue tab | — | **New**: kanban view (the goal Queue tab was built, then dropped in mt_n25udpflus decision 5) | 6 |
-
-Not touched: the Agent panel, the Library, Outbox, Manual and How it works (no objective or pool text found), Secrets, Skills, Connect your agent.
-
-## Open questions for Mitchell
-
-Answered in 1:1 mt_kh0zaqui0w (2026-10-30), folded into the doc above:
-
-- ~~**Dial-target KRs: auto-claim?**~~ *Parked: no KPIs yet. He said a crossing would set `claimed` and he'd still mark met, but there are no dial-target KRs and no dials in the tree until he wants KPIs back.*
-- ~~**Retiring a goal with open KRs.**~~ *Retire offers move-to-sibling; refused when no sibling is picked.*
-- ~~**Must every goal sit under Fund / Join / Trust?**~~ *One root (the town goal); Fund/Join/Trust are placeholder children; any other child is allowed; the tree will be iterated; depth unbounded; KRs are always dated leaves.*
-- ~~**New buildings unattached?**~~ *Never: attached at creation (default: the root), editable in building settings, never unset.*
-- ~~**Planner: who pays?**~~ and ~~**Budget by node**~~ *answered by mt_529jbnwvmi decision 1.*
-- ~~**What captains can do.**~~ *A captain decides and funds grants in their subtree (funding is no longer admins-only; member funding via kr_6f9c200vsx unchanged). Captains are humans only for now; managers propose.*
-- ~~**Reorg meeting date.**~~ *The meeting opens when every attached building's prep report is in, or 24 h after the change is filed, whichever comes first; grants keep running meanwhile.*
-- ~~**Skip-level with forks.**~~ *Dropped for now: Mitchell 1:1s managers directly. Noted as a possible later addition.*
-- ~~**A key below one session's cost.**~~ *Confirmed: one key per session; such a key never runs a session alone and accrues. Added: a donation-time warning and a 7-day unused-donation alert (in-town; outside alerts via the pinger).*
-
-Decided while building step 2 (as_jk5v8pbw7a), Mitchell may overrule:
-
-1. **An empty goal node** is drawn: an empty plaza (4 tiles wide) with its signpost, so the gap is visible.
-2. **Long walks on deep trees**: left as they are. Levels sit 3 rows apart and roads run straight, so a level costs about its building's height plus 5 tiles of walk; no folding of single-child chains until a real tree makes walks hurt.
+- **Gone**: objectives and their routes and verb (migration 124), the KPI label, the per-building exploration allowance and Bank pools (how-work-gets-done.md build step 1), and `grants.keyResultId` with its copies on assignments and schedules (migration 126).

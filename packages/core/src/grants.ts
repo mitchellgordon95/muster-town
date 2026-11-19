@@ -302,8 +302,15 @@ export class Grants {
   }
 
   /** Newest first. Drafts are left out unless `includeDrafts` (the building's managers). */
-  list(buildingId: string, opts: { status?: GrantStatus; includeDrafts?: boolean } = {}): GrantView[] {
+  list(buildingId: string, opts: { status?: GrantStatus; includeDrafts?: boolean; subtree?: boolean } = {}): GrantView[] {
     this.world.buildings.require(buildingId, "building");
+    if (opts.subtree) {
+      // every grant filed on a goal in the building's subtree, whichever building proposed it (the Goals tab and its Overview line)
+      const where = whereOf({ goalId: [...this.world.goalTree.scopeOf(buildingId)], status: opts.status }, [
+        { sql: opts.includeDrafts ? "(status != 'draft' OR buildingId = ?)" : "status != 'draft'", params: opts.includeDrafts ? [buildingId] : [] },
+      ]);
+      return this.world.grants.where(where.sql, where.params, "ORDER BY createdAt DESC, rowid DESC").map((g) => this.view(g));
+    }
     const where = whereOf({ buildingId, status: opts.status }, [!opts.includeDrafts && { sql: "status != 'draft'", params: [] }]);
     return this.world.grants.where(where.sql, where.params, "ORDER BY createdAt DESC, rowid DESC").map((g) => this.view(g));
   }
