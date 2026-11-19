@@ -19,7 +19,7 @@ import { CreateCollectiveInput, RenameCollectiveInput, type Hub } from "./hub.ts
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
 import { LoadMonitor } from "./load.ts";
-import type { Monitor } from "./monitor.ts";
+import { PINGER_UA, type Monitor } from "./monitor.ts";
 import type { DeployWatch } from "./deploy-watch.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { agentRoutes } from "./routes/agents.ts";
@@ -345,6 +345,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   }
   // the monitor's 5xx share (monitor.ts Counters); hosted collectives' requests are hijacked above and not counted
   if (opts.monitor) { const c = opts.monitor.counters; app.addHook("onResponse", async (_req, reply) => { c.response(reply.statusCode); }); }
+  // the outside pinger's probe (deploy/pinger, user-agent muster-pinger): the monitor's `pinger` key goes red when it falls quiet
+  if (opts.monitor) {
+    const w = opts.monitor.pinger;
+    app.addHook("onRequest", async (req) => {
+      if (req.method === "GET" && req.url.split("?", 1)[0] === "/api/health" && PINGER_UA.test(String(req.headers["user-agent"] ?? ""))) w.seen();
+    });
+  }
 
   // never let a browser cache the page itself: a stale index.html would point at asset hashes that no longer exist
   app.addHook("onSend", async (_req, reply, payload) => {

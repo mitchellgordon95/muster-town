@@ -1,0 +1,1 @@
+- 2026-11-19 Prod (Cleo 1, gr_7tl5as3s0a step 1): the server watches the outside pinger. /api/health `pinger {lastSeenAt, state, staleAfterMin}` from the last `muster-pinger` health hit (memory); monitor key `pinger` red at 15 min quiet, nothing while unseen since boot; `GET /api/health/pinger` 503 when stale, for a second outside monitor.
