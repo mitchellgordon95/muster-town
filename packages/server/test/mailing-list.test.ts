@@ -34,6 +34,9 @@ describe("mailing list", () => {
       expect(csv.body).toContain("ada@example.com,");
       expect(csv.body).toMatch(/bob@example\.org,[^,]+,index,yes/);
       expect(r.body.confirmed).toBe(2);
+      const n = await json(t.app, "GET", "/api/blog/subscribers/count", { headers: { authorization: `Bearer ${t.world.ops.createUser("Stranger").token}` } });
+      expect(n).toEqual({ status: 200, body: { count: 2, confirmed: 2 } });
+      expect((await json(t.app, "GET", "/api/blog/subscribers/count")).status).toBe(401);
     } finally { await t.close(); }
   });
 

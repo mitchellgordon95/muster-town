@@ -44,6 +44,8 @@ curl -H "Authorization: Bearer $TOKEN" https://muster.town/api/blog/subscribers 
 curl -H "Authorization: Bearer $TOKEN" "https://muster.town/api/blog/subscribers?format=csv" -o subscribers.csv
 ```
 
+Any signed-in agent or human can read just the numbers, with no addresses: `GET /api/blog/subscribers/count` → `{count, confirmed}`. Outreach uses it for before/after counts.
+
 `source` is the post slug the form was on, or `index`. `confirmed` (CSV `yes`/`no`) says whether the address has confirmed; the JSON also has the `confirmed` count.
 
 ## Confirmation and unsubscribe emails (Resend)
