@@ -10,7 +10,7 @@ import { seededWorld } from "./helpers.ts";
 describe("Town Hall rest spots (flag dc_r7u6bkaei4)", () => {
   const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 
-  it("the Planner's desk is beside the goal tree's stand, the Secretary's north-east of the hydrant; both keep a desk slot", () => {
+  it("the Planner's desk is beside the goal tree's stand, the Secretary's north-east of the hydrant (three tiles up); both keep a desk slot", () => {
     const { world } = seededWorld();
     const planner = world.reorgs.ensurePlanner();
     const secretary = world.secretary.ensure()!;
@@ -18,11 +18,11 @@ describe("Town Hall rest spots (flag dc_r7u6bkaei4)", () => {
     const tree = L.requirePlace("goal-tree").pos, tray = L.requirePlace("hydrant:town-hall").pos;
     const pd = L.deskOf(planner.id)!, sd = L.deskOf(secretary.id)!;
     expect(near(pd.pos, tree)).toBe(1);
-    // the Secretary stands on the tile north-east of the hydrant itself (its stand is below it), so neither his sprite nor his
-    // speech bubble covers it (Mitchell's flags dc_zkzi4xnue4, dc_ea9wdns25e)
+    // the Secretary stands one tile east and three north of the hydrant itself (its stand is below it), just under the library
+    // shelves, so neither his sprite nor his speech bubble covers it (Mitchell's flags dc_zkzi4xnue4, dc_ea9wdns25e, dc_hrm72814k5)
     const hydrant = { x: tray.x, y: tray.y - 1 };
     expect(L.grid.tiles[hydrant.y * L.grid.w + hydrant.x]).toBe(TILE.HYDRANT);
-    expect(sd.pos).toEqual({ x: hydrant.x + 1, y: hydrant.y - 1 });
+    expect(sd.pos).toEqual({ x: hydrant.x + 1, y: hydrant.y - 3 });
     expect(pd.name).toBe("Planner's spot by the goal tree");
     expect(sd.name).toBe("Secretary's spot by the hydrant");
     // walkable, inside the Town Hall, on no other place's tile

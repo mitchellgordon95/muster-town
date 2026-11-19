@@ -1,0 +1,1 @@
+- 2026-11-19 [Teo 2] Mitchell's flag dc_hrm72814k5: the Secretary's default rest tile moves two tiles north, to one east and three north of the Town Hall hydrant (`rest: { x: 1, y: -3 }`, lot (3,3), just under the library shelves). A human-dragged spot still overrides it.
