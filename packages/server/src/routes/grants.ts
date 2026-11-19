@@ -18,9 +18,9 @@ export async function grantRoutes(app: FastifyInstance) {
   const desk = world.grantDesk;
 
   app.get<{ Params: Params }>("/api/buildings/:id/grants", async (req) => {
-    const { status } = parse(GrantsQuery, req.query);
+    const { status, subtree } = parse(GrantsQuery, req.query);
     const includeDrafts = !!req.auth && desk.canManage(actorOf(world, req), req.params.id);
-    return { grants: desk.list(req.params.id, { status, includeDrafts }) };
+    return { grants: desk.list(req.params.id, { status, includeDrafts, subtree: subtree === "1" }) };
   });
 
   /**

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, newId, nowIso } from "../src/index.ts";
 import { GrantStatus, stoplightOf } from "@muster-town/schema";
-import { fundGoalOf, seededWorld } from "./helpers.ts";
+import { fundBuilding, fundGoalOf, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const KRS = [
@@ -256,6 +256,23 @@ describe("grants service", () => {
     expect(() => world.grantDesk.propose(manager, g.id)).toThrow(/1-5 key results/);
     world.grants.patch(g.id, { status: "proposed" });
     expect(() => world.grantDesk.decide(admin, g.id, { action: "fund" })).toThrow(/carries no key results/);
+  });
+
+  it("subtree: every grant filed on a goal in the building's subtree, any building's; not its own grants outside it, nor drafts", () => {
+    const { world, manager, admin, draft } = setup();
+    const top = fundBuilding(world, LAB, {});
+    const child = world.goalTree.create(admin, { parentId: top, text: "A child goal" });
+    const other = world.buildings.all().find((b) => b.id !== LAB)!; // the seed has one lab: the Town Hall stands in for another building
+    const mine = world.grantDesk.propose(manager, draft().id);
+    const under = world.grantDesk.propose(manager, draft().id);
+    world.grants.patch(under.id, { goalId: child.id, buildingId: other.id }); // another building's grant on a goal under the lab's
+    const outside = world.grantDesk.propose(manager, draft().id);
+    world.grants.patch(outside.id, { goalId: "gl_town" }); // the lab's own, filed above its subtree
+    const hidden = draft();
+    const ids = (l: { id: string }[]) => l.map((g) => g.id).sort();
+    expect(ids(world.grantDesk.list(LAB, { subtree: true }))).toEqual([mine.id, under.id].sort());
+    expect(ids(world.grantDesk.list(LAB, { subtree: true, includeDrafts: true }))).toEqual([mine.id, under.id, hidden.id].sort());
+    expect(ids(world.grantDesk.list(LAB))).toEqual([mine.id, outside.id].sort());
   });
 
   it("never blocked for want of key results: no blocked state, no wake, nothing in the in-tray's blocked list", () => {

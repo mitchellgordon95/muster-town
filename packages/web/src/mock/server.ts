@@ -360,6 +360,15 @@ export class MockApi implements Api {
   }
   async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
   async grants(buildingId: string) { await wait(60); return clone([...this.sim.grants.values()].filter((g) => g.buildingId === buildingId && g.status !== "draft")); }
+  /** as core's Grants.list subtree: grants filed on a goal under the building's attachment (the mock's tree) */
+  async subtreeGrants(buildingId: string) {
+    const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
+    const walk = (n: GoalTreeNode): GoalTreeNode | null => n.id === (b.goalId ?? "gl_town") ? n : n.children.map(walk).find(Boolean) ?? null;
+    const at = walk(await this.goalTree());
+    const ids = (n: GoalTreeNode): string[] => [n.id, ...n.children.flatMap(ids)];
+    const scope = new Set(at ? ids(at) : []);
+    return clone([...this.sim.grants.values()].filter((g) => g.status !== "draft" && !!g.goalId && scope.has(g.goalId)));
+  }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) {
     await wait();
     // like the server: continue is refused at the ceiling (a held grant is adjusted or cut)

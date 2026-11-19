@@ -784,9 +784,6 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .warn-line { color: var(--warn); font-size: var(--fs-md); margin: 10px 0; }
 
 /* objectives (board, settings) */
-.kr-objective { margin: 8px 0 10px; }
-.kr-objective-head { margin: 6px 0 4px; }
-.kr-objective-head .muted { font-size: var(--fs-sm); }
 .kr-move { margin-left: auto; max-width: 180px; }
 .kr-hint { font-size: var(--fs-sm); margin: 2px 0 6px; }
 /* Finance (public): the sum check under the summary, and overdrawn lines */
@@ -1162,3 +1159,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 /* a step past 1.5× its price (gr_3na7vdmd52): its box on the step strip */
 .step-box.over { border-color: var(--bad); color: var(--bad); }
 .bank-toggle[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 22%, var(--panel-2)); }
+/* the building panel's Goals tab: the building's subtree of the one goal tree, goal by goal (gr_h4m0lyhb1f step 4) */
+.bt-goal { display: flex; flex-direction: column; gap: 6px; }
+.bt-goal-text { text-align: left; font-weight: 700; }
+.bt-goal-children { display: flex; flex-direction: column; gap: 10px; margin: 4px 0 0 6px; padding-left: 10px; border-left: 2px solid var(--line); }
+.bt-grant { display: flex; flex-direction: column; gap: 2px; margin-left: 4px; }
+.bt-none { font-size: var(--fs-sm); }

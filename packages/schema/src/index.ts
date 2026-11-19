@@ -2783,7 +2783,8 @@ export const UpdateKeyResultInput = z.object({
 });
 export type UpdateKeyResultInput = z.input<typeof UpdateKeyResultInput>;
 /** GET /api/buildings/:id/grants?status= */
-export const GrantsQuery = z.object({ status: GrantStatus.optional() });
+/** GET /api/buildings/:id/grants: `subtree=1` = every grant filed on a goal in the building's subtree (any building's), not only its own. */
+export const GrantsQuery = z.object({ status: GrantStatus.optional(), subtree: z.enum(["0", "1"]).optional() });
 /** PUT /api/buildings/:id/layout: lot-relative anchors for moved pieces (left out = stays put); `dryRun` only checks it. */
 export const LayoutInput = z.object({ furniture: z.record(z.string(), Tile), dryRun: z.boolean().default(false) });
 /** core `createResident` (seed, v0 import, a new building's manager): `name` left out or blank = the town picks an unused one. No REST route since 1:1 mt_wngibcr98b decision 1. */
