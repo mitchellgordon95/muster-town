@@ -714,7 +714,6 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .evidence-krs { margin: 0 0 2px 18px; padding: 0; }
 .evidence-shipped { color: color-mix(in srgb, var(--ok) 72%, var(--paper)); }
 .evidence-not { color: color-mix(in srgb, var(--bad) 78%, var(--soft)); }
-.evidence-partly { color: color-mix(in srgb, var(--gold) 76%, var(--text)); }
 .grant-plan > summary { cursor: pointer; font-size: var(--fs-sm); color: color-mix(in srgb, var(--link) 9%, var(--muted)); margin-top: 4px; }
 .kr-more > summary { cursor: pointer; font-size: var(--fs-sm); color: color-mix(in srgb, var(--link) 9%, var(--muted)); width: max-content; }
 .kr-more[open] > summary { margin-bottom: 2px; }

@@ -20,7 +20,7 @@ function goal(id: string, parentId: string | null, over: Partial<GoalTreeNode> =
 /** root › fund › (a [workshop, kr1 open, kr2 met], b), join (owned by u_ann) › c [kr3 missed] */
 function sample(): GoalTreeNode {
   const ann = { goalId: "gl_join", userId: "u_ann", name: "Ann" };
-  const a = goal("gl_a", "gl_fund", { buildings: [{ id: "workshop", name: "Workshop", headcount: 6, inUse: 2 }], keyResults: [kr("kr1", "on-track", "2026-10-01"), kr("kr2", "met")] });
+  const a = goal("gl_a", "gl_fund", { buildings: [{ id: "workshop", name: "Workshop", headcount: 6, inUse: 2 }], keyResults: [kr("kr1", "open", "2026-10-01"), kr("kr2", "met")] });
   const b = goal("gl_b", "gl_fund");
   const c = goal("gl_c", "gl_join", { owner: ann, keyResults: [kr("kr3", "missed")] });
   const old = goal("gl_old", "gl_join", { status: "retired", owner: ann });
@@ -34,16 +34,16 @@ describe("the Town Hall goal editor (docs/goals.md, step 3)", () => {
     expect(treeRows(root, true).map((r) => r.node.id)).toContain("gl_old");
     expect(treeRows(root, false).find((r) => r.node.id === "gl_c")!.depth).toBe(2);
     expect(archivedLine(pathTo(root, "gl_a").at(-1)!.keyResults)).toBe("✓ 1 done");
-    expect(archivedLine([kr("x", "missed"), kr("y", "met"), kr("z", "on-track")])).toBe("✓ 1 done, 1 missed");
-    expect(archivedLine([kr("z", "on-track")])).toBeNull();
+    expect(archivedLine([kr("x", "missed"), kr("y", "met"), kr("z", "open")])).toBe("✓ 1 done, 1 missed");
+    expect(archivedLine([kr("z", "open")])).toBeNull();
     // the detail's heading never says 0 above "✓ 3 done" (dc_1jzddih5xy)
     expect(krHeading([kr("x", "met"), kr("y", "met"), kr("w", "met")])).toBe("Key results");
-    expect(krHeading([kr("z", "on-track"), kr("y", "met")])).toBe("Key results (1 open)");
-    expect(krHeading([kr("z", "on-track"), kr("w", "at-risk")])).toBe("Key results (2)");
+    expect(krHeading([kr("z", "open"), kr("y", "met")])).toBe("Key results (1 open)");
+    expect(krHeading([kr("z", "open"), kr("w", "open")])).toBe("Key results (2)");
     expect(krHeading([])).toBe("Key results");
-    expect(pastDue(kr("x", "on-track", "2026-10-01"), "2026-10-30")).toBe(true);
+    expect(pastDue(kr("x", "open", "2026-10-01"), "2026-10-30")).toBe(true);
     expect(pastDue(kr("x", "met", "2026-10-01"), "2026-10-30")).toBe(false);
-    expect(pastDue(kr("x", "on-track", "2026-11-01"), "2026-10-30")).toBe(false);
+    expect(pastDue(kr("x", "open", "2026-11-01"), "2026-10-30")).toBe(false);
   });
 
   it("goals.edit: admins anywhere; an owner within their subtree only; guests nowhere", () => {
@@ -272,7 +272,7 @@ describe("the goal tree editor's nodes (UX pass dc_yn8gl1rmyt)", () => {
   });
 
   it("a node at a glance: open key results, funded, late and the nearest due date (archived ones left out)", () => {
-    const krs = [kr("k1", "on-track", "2026-10-01"), { ...kr("k2", "at-risk", "2026-12-01"), grantId: "gr_1" }, kr("k3", "met", "2026-09-01"), kr("k4", "not-started", null)];
+    const krs = [kr("k1", "open", "2026-10-01"), { ...kr("k2", "open", "2026-12-01"), grantId: "gr_1" }, kr("k3", "met", "2026-09-01"), kr("k4", "open", null)];
     expect(nodeGlance({ keyResults: krs }, "2026-10-30")).toEqual({ open: 3, funded: 1, late: 1, nextDue: "2026-10-01" });
     expect(nodeGlance({ keyResults: [] }, "2026-10-30")).toEqual({ open: 0, funded: 0, late: 0, nextDue: null });
   });
@@ -297,7 +297,7 @@ describe("the goal tree's phone outline (grant gr_nhayb7s9bd step 2)", () => {
 
   it("meta and keys: done key results are not counted; ↑ ↓ Home End stay inside the list", () => {
     expect(outlineMeta(goal("g", null, { keyResults: [kr("x", "met"), kr("y", "missed")] }))).toBe("Captain Mitchell");
-    expect(outlineMeta(goal("g", null, { keyResults: [kr("x", "on-track"), kr("y", "at-risk")] }), 1)).toBe("Captain Mitchell · 2 key results · 1 proposal");
+    expect(outlineMeta(goal("g", null, { keyResults: [kr("x", "open"), kr("y", "open")] }), 1)).toBe("Captain Mitchell · 2 key results · 1 proposal");
     expect(outlineStep("ArrowDown", 2, 3)).toBe(2);
     expect(outlineStep("ArrowDown", 0, 3)).toBe(1);
     expect(outlineStep("ArrowUp", 0, 3)).toBe(0);

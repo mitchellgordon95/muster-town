@@ -442,6 +442,11 @@ export class World {
     return holderOf(agent);
   }
 
+  /** A key result's building: its grant's (a key result's one parent is its grant); null for one written before grants carried them. */
+  krBuildingId(kr: { grantId: string | null }): string | null {
+    return kr.grantId ? this.grants.get(kr.grantId)?.buildingId ?? null : null;
+  }
+
   /** Display name for an agent or user id. */
   nameOf(id: string): string {
     return this.agents.get(id)?.name ?? this.users.get(id)?.name ?? (id === "system" ? "Town" : id);

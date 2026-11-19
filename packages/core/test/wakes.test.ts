@@ -54,7 +54,7 @@ describe("a human's grant and key-result decisions are entries on the job's thre
     // the same event delivered again writes nothing
     expect(keyResultEntry(world, last("kr.updated"))).toBeNull();
     // the manager (an agent) marking a key result is not a human event
-    world.grantDesk.updateKeyResult(manager, kr.id, { status: "on-track" });
+    world.grantDesk.updateKeyResult(manager, kr.id, { status: "claimed" });
     expect(keyResultEntry(world, last("kr.updated"))).toBeNull();
     expect(openManagerEntries(world, LAB).map((e) => e.id)).toEqual([cut!.id]);
     expect(rows()).toHaveLength(0);

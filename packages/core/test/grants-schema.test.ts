@@ -50,10 +50,10 @@ describe("goal-directed budgets, step 1 foundation", () => {
       askTokens: 10_000_000, status: "draft", proposedBy: "ag_x", history: [{ at: now, byId: "ag_x", byKind: "agent", action: "propose", tokens: 10_000_000, note: "" }],
       createdAt: now, updatedAt: now,
     } as never);
-    world.keyResults.upsert({ id: newId("kr"), buildingId: LAB, position: 0, text: "Banner shows purpose", howToCheck: "Open the lab", updatedAt: now } as never);
+    world.keyResults.upsert({ id: newId("kr"), position: 0, text: "Banner shows purpose", howToCheck: "Open the lab", grantId: g.id, updatedAt: now } as never);
     expect(world.grants.require(g.id)).toMatchObject({ keyResultId: null, approach: "", testingPlan: [] });
     expect(world.grants.require(g.id).history[0].action).toBe("propose");
-    expect(world.keyResults.where("buildingId = ?", [LAB])[0].status).toBe("not-started");
+    expect(world.keyResults.where("grantId = ?", [g.id])[0].status).toBe("open");
     expect(b.blockedAt).toBeNull();
     const agent = world.agents.first("homeBuildingId = ?", [LAB])!;
     for (const tokens of [1000, 2500]) {
@@ -99,13 +99,13 @@ describe("migration 032: key results move onto the building goal", () => {
     db.exec(`CREATE TABLE buildings (id TEXT PRIMARY KEY);
       CREATE TABLE grants (id TEXT PRIMARY KEY, buildingId TEXT NOT NULL);
       CREATE TABLE key_results (id TEXT PRIMARY KEY, grantId TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, howToCheck TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'not-started', statusNote TEXT NOT NULL DEFAULT '', statusBy TEXT, updatedAt TEXT NOT NULL);
+        status TEXT NOT NULL DEFAULT 'open', statusNote TEXT NOT NULL DEFAULT '', statusBy TEXT, updatedAt TEXT NOT NULL);
       CREATE TABLE assignments (id TEXT PRIMARY KEY, lane TEXT NOT NULL, grantId TEXT, keyResultId TEXT, gap TEXT);
       INSERT INTO buildings VALUES ('workshop');
       INSERT INTO grants VALUES ('gr_a', 'workshop'), ('gr_b', 'workshop');
       INSERT INTO key_results (id, grantId, position, text, howToCheck, status, updatedAt) VALUES
-        ('kr_2', 'gr_a', 1, 'One explicit blocker', 'Open the board', 'on-track', 't'),
-        ('kr_1', 'gr_a', 0, 'Works autonomously', 'Watch a day', 'not-started', 't');
+        ('kr_2', 'gr_a', 1, 'One explicit blocker', 'Open the board', 'open', 't'),
+        ('kr_1', 'gr_a', 0, 'Works autonomously', 'Watch a day', 'open', 't');
       INSERT INTO assignments VALUES ('as_g', 'grant', 'gr_a', 'kr_1', NULL), ('as_e', 'exploration', NULL, 'kr_2', NULL), ('as_d', 'directed', NULL, NULL, NULL);`);
     db.exec(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "migrations", "032_goal_key_results.sql"), "utf8"));
     const grants = db.prepare("SELECT id, keyResultId, approach, testingPlan FROM grants ORDER BY id").all() as { id: string; keyResultId: string | null; approach: string; testingPlan: string }[];
@@ -131,8 +131,8 @@ describe("migration 032: key results move onto the building goal", () => {
     const now = "2026-10-30T00:00:00.000Z";
     db.prepare("INSERT INTO buildings (id, name, kind, headcount, createdAt, goalId) VALUES ('bl_a', 'Lab A', 'lab', 3, ?, 'gl_town')").run(now);
     const kr = db.prepare("INSERT INTO key_results (id, buildingId, position, text, howToCheck, status, goalId, updatedAt) VALUES (?, 'bl_a', ?, ?, 'h', ?, 'gl_town', ?)");
-    kr.run("kr_named", 0, "Named by a funded grant", "on-track", now);
-    kr.run("kr_orphan", 1, "Nobody works on it", "not-started", now);
+    kr.run("kr_named", 0, "Named by a funded grant", "open", now);
+    kr.run("kr_orphan", 1, "Nobody works on it", "open", now);
     kr.run("kr_met", 2, "Done long ago", "met", now);
     const grant = db.prepare("INSERT INTO grants (id, buildingId, keyResultId, objective, stopCondition, askTokens, status, testingPlan, proposedBy, createdAt, updatedAt) VALUES (?, 'bl_a', ?, ?, 's', 1000, ?, ?, 'ag_x', ?, ?)");
     grant.run("gr_live", "kr_named", "Live plan", "funded", JSON.stringify([{ text: "Banner shows Usage", howToCheck: "Open the banner" }]), now, now);
@@ -150,7 +150,7 @@ describe("migration 032: key results move onto the building goal", () => {
     const bare = db.prepare("SELECT keyResultId FROM grants WHERE id = 'gr_bare'").get() as { keyResultId: string };
     expect(krs.find((k) => k.id === bare.keyResultId)).toMatchObject({ text: "A plan with no key result", howToCheck: "s", grantId: "gr_bare", archived: 0 });
     // the orphan open KR is dropped (archived, text kept); a met one is left as it was
-    expect(krs.find((k) => k.id === "kr_orphan")).toMatchObject({ grantId: null, archived: 1, status: "not-started", statusNote: expect.stringMatching(/^dropped when key results merged into grants/) });
+    expect(krs.find((k) => k.id === "kr_orphan")).toMatchObject({ grantId: null, archived: 1, status: "open", statusNote: expect.stringMatching(/^dropped when key results merged into grants/) });
     expect(krs.find((k) => k.id === "kr_met")).toMatchObject({ status: "met", statusNote: "" });
     // exploration that named it keeps its words as a gap; grant work keeps its key result
     expect(db.prepare("SELECT id, keyResultId, gap FROM assignments ORDER BY id").all()).toEqual([

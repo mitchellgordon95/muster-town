@@ -157,10 +157,15 @@ export class Sim {
     if (!id) return null;
     return this.agents.get(id)?.name ?? (this.users as { id: string; name: string }[]).find((u) => u.id === id)?.name ?? id;
   }
+  /** A key result's building: its grant's (the grant that carries it, or names it), else the building its fixture id names. */
+  private krBuildingId(k: KeyResult): string | null {
+    const g = [...this.grants.values()].find((x) => x.id === k.grantId || x.keyResultId === k.id || x.keyResults.some((y) => y.id === k.id));
+    return g?.buildingId ?? /^kr_(.+)_\d+$/.exec(k.id)?.[1] ?? null;
+  }
   /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
   goalKeyResults(buildingId: string): GoalKeyResult[] {
     const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
-    return [...this.keyResults.values()].filter((k) => k.buildingId === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: k.grantId ?? live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
+    return [...this.keyResults.values()].filter((k) => this.krBuildingId(k) === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: k.grantId ?? live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
   }
   /** PATCH /api/key-results/:id: words and / or status (the mock skips the status permission split). */
   updateKeyResult(id: string, i: UpdateKeyResultInput): KeyResult {
@@ -174,7 +179,7 @@ export class Sim {
       if (g.keyResultId === id) g.keyResult = { ...next };
       if (g.keyResults.some((x) => x.id === id)) g.keyResults = g.keyResults.map((x) => (x.id === id ? { ...next } : x));
     }
-    this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, k.buildingId);
+    this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, this.krBuildingId(k));
     return next;
   }
   /** DELETE /api/key-results/:id: refused while a draft, open or live grant names it (core's 409). */
@@ -184,7 +189,7 @@ export class Sim {
     const g = [...this.grants.values()].find((x) => x.keyResultId === id && ["draft", "proposed", "countered", "funded", "checkpoint"].includes(x.status));
     if (g) throw new Error(`Grant ${g.id} ("${g.objective}", ${g.status}) names this key result: close or re-point it first.`);
     this.keyResults.delete(id);
-    this.event("kr.deleted", null, `Key result removed: ${k.text}`, { keyResultId: id }, k.buildingId);
+    this.event("kr.deleted", null, `Key result removed: ${k.text}`, { keyResultId: id }, this.krBuildingId(k));
   }
   intrayCount(buildingId: string) { const t = this.intray(buildingId); return t.reports.length + t.grants.length; }
 

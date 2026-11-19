@@ -1477,12 +1477,6 @@ export const Grant = z.object({
 export type Grant = z.infer<typeof Grant>;
 // ---------- legible delegation steps 9-10 (docs/legible-delegation.md §5, §7.4, §9) ----------
 /**
- * How a key result's evidence is known (§5 "A town dictionary"): verified (a human marked it met, or a `kr` claim check
- * the server ran passed), claimed (a fork's report or the manager says so), unknown. A column beside `status` (migration 103).
- */
-export const KrEvidence = z.enum(["verified", "claimed", "unknown"]);
-export type KrEvidence = z.infer<typeof KrEvidence>;
-/**
  * The Planner's calibration proposal on a policy ask (targetKind "rule", migration 104): one concrete change to the
  * step-size table. raise / lower set `size` to `to` tokens; split asks that steps of `size` be split (no table change).
  * Deciding the ask "Adopt" applies it (core planner.ts `onRuleAskDecided`).
@@ -1500,29 +1494,31 @@ export type CalibrationProposal = z.infer<typeof CalibrationProposal>;
 // ---------- end legible delegation steps 9-10 ----------
 
 /**
- * `met-unverified` ("met, unverified", 1:1 mt_msnjkpgwdb decision 9): its grant closed as done on code and tests, with
- * no live check named in the evidence. Judged like met (archived, not open); the town shows it as such and files no
- * ask about it; a human can flip it to met or missed from the grant page.
+ * A key result's one status (grant gr_h4m0lyhb1f step 2, migration 125): open (nobody claims it yet), claimed (a fork's
+ * report or the manager says it is done), met (a human marked it, or its grant closed as done with a live check named),
+ * `met-unverified` ("met, unverified", 1:1 mt_msnjkpgwdb decision 9: its grant closed as done on code and tests alone;
+ * judged like met, archived, nobody is asked; a human can flip it to met or missed), missed. How far along open work is
+ * goes in the report's words, not in the status.
  */
-export const KeyResultStatus = z.enum(["not-started", "on-track", "at-risk", "claimed", "met", "met-unverified", "missed"]);
+export const KeyResultStatus = z.enum(["open", "claimed", "met", "met-unverified", "missed"]);
 export type KeyResultStatus = z.infer<typeof KeyResultStatus>;
 /** A key result nobody works on any more: met, met unverified or missed. It is archived under its goal. */
 export const isJudgedKr = (status: string): boolean => status === "met" || status === "met-unverified" || status === "missed";
-/** A key result's status in words: "not started", "met, unverified". */
+/** A key result's status in words: "open", "met, unverified". */
 export const krStatusWords = (status: string): string => (status === "met-unverified" ? "met, unverified" : status.replace(/-/g, " "));
 /**
- * A key result of a grant (docs/how-work-gets-done.md §4): something a human can check in the live town, by a date. The
- * manager writes them in its grant proposal and sets status up to `claimed` (`close_grant`, PATCH /api/key-results);
- * `met` / `missed` only users with `building.fund`, on the grant. Goals keep none open: a goal holds only the archived
- * key results of its grants (and those dropped by migration 069) as history.
+ * A key result of a grant (docs/how-work-gets-done.md §4): something a human can check in the live town, by a date. Its
+ * one parent is its grant (`grantId`); its building is the grant's. The manager writes them in its grant proposal and
+ * sets status up to `claimed` (`close_grant`, PATCH /api/key-results); `met` / `missed` only users with `building.fund`,
+ * on the grant. Goals keep none open: a goal holds only the archived key results of its grants (and those dropped by
+ * migration 069) as history.
  */
 export const KeyResult = z.object({
   id: Id,
-  buildingId: Id,
   position: z.number().int(),
   text: z.string().min(1).max(300),
   howToCheck: z.string().min(1).max(300),
-  status: KeyResultStatus.default("not-started"),
+  status: KeyResultStatus.default("open"),
   statusNote: z.string().default(""),
   statusBy: Id.nullable().default(null),
   /** who wrote it and who last edited its words (a user id, or the manager agent's id): a manager may write its own building's */
@@ -1530,9 +1526,7 @@ export const KeyResult = z.object({
   editedBy: Id.nullable().default(null),
   /** the meeting notes or reports it came from */
   sourceDocIds: z.array(Id).default([]),
-  /** the building objective it serves (null = "Unsorted": not under an objective yet) */
-  objectiveId: Id.nullable().default(null),
-  /** the goal of the town goal tree it sits under (its grant's goal); `buildingId` is the building that proposed it */
+  /** the goal of the town goal tree it sits under: a copy of its grant's goalId, written only with the grant */
   goalId: Id.nullable().default(null),
   /** the grant it belongs to (null: written on a goal before migration 069) */
   grantId: Id.nullable().default(null),
@@ -1543,8 +1537,6 @@ export const KeyResult = z.object({
   /** a reorg ("Change this goal", build step 5) put it under review */
   underReviewSince: Iso.nullable().default(null),
   postmortemDocId: Id.nullable().default(null),
-  /** legible delegation step 10: how its evidence is known (KrEvidence; the column defaults to "unknown", absent reads as unknown); `status` is unchanged by it */
-  evidence: KrEvidence.optional(),
   updatedAt: Iso,
 });
 export type KeyResult = z.infer<typeof KeyResult>;
@@ -1889,12 +1881,12 @@ export type Kpi = z.infer<typeof Kpi>;
  * A grant as the API returns it: its key results (`keyResults`, in order; `keyResult` = the first, null if none) and derived spend. `spentTokens` is
  * adjusted output tokens (Bank step 3), like `askTokens` and `grantTokens`; `spentCounts` is the five counters behind it.
  */
-/** A key result at a checkpoint, in one word: claimed (or met) = shipped, not-started / missed = not shipped, on-track / at-risk = partly. */
-export type KrVerdict = "shipped" | "not" | "partly";
+/** A key result at a checkpoint, in one word: claimed (or met) = shipped, open / missed = not shipped. */
+export type KrVerdict = "shipped" | "not";
 export function krVerdict(status: KeyResultStatus): KrVerdict {
-  return status === "claimed" || status === "met" || status === "met-unverified" ? "shipped" : status === "on-track" || status === "at-risk" ? "partly" : "not";
+  return status === "claimed" || status === "met" || status === "met-unverified" ? "shipped" : "not";
 }
-const VERDICT_MARK: Record<KrVerdict, string> = { shipped: "✓ shipped", not: "✗ not shipped", partly: "~ partly" };
+const VERDICT_MARK: Record<KrVerdict, string> = { shipped: "✓ shipped", not: "✗ not shipped" };
 /**
  * What a checkpoint shows a human (Mitchell 1:1 mt_7b4zc7yja3): per key result shipped / not / partly with the manager's
  * note, spent vs granted, what a top-up buys, and the Shipped titles of the checkpoint report. On a proposal it is the
@@ -1904,7 +1896,7 @@ export const CheckpointEvidence = z.object({
   grantId: Id,
   objective: z.string(),
   /** per key result: its status, the latest note and who set it (`by`: a name; null while nobody did) */
-  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not", "partly"]), note: z.string(), by: z.string().nullable().default(null), /* step 10 */ evidence: KrEvidence.optional() })),
+  keyResults: z.array(z.object({ id: Id, text: z.string(), status: KeyResultStatus, verdict: z.enum(["shipped", "not"]), note: z.string(), by: z.string().nullable().default(null) })),
   spentTokens: z.number().int().nonnegative(),
   grantTokens: z.number().int().nonnegative(),
   topUpTokens: z.number().int().positive().nullable(),
@@ -1924,7 +1916,7 @@ export const NO_FORK_EVIDENCE = "No evidence filed by the forks";
 /** One key result's evidence a grant-lane fork files with `submit_report` (grant C, gr_95svkzi4l6): status at most claimed. */
 export const ReportKrEvidence = z.object({
   id: Id.describe("a key result of your session's grant"),
-  status: z.enum(["not-started", "on-track", "at-risk", "claimed"]).describe("at most claimed: only a human (or close_grant) marks met or missed"),
+  status: z.enum(["open", "claimed"]).describe("open or claimed: only a human (or close_grant) marks met or missed; say how far along open work is in the report's words"),
   evidence: z.string().trim().min(1).max(2000).describe("where a human checks it: what shipped (a PR, a commit, a doc id, a live URL) or what did not"),
 });
 export type ReportKrEvidence = z.infer<typeof ReportKrEvidence>;
@@ -2253,7 +2245,7 @@ export const VerbInputs = {
     provenance: Provenance.optional(),
     resumeWhen: WaitFor.optional().describe("Park the work instead of ending it: when this holds (a redeploy with your commit, a colleague's assignment finishing, a decision on a report, your PR's CI checks finishing, a time), your continuation starts by itself. Your PR is done: {pr: N, merge: true} (the town merges it when its checks pass and closes your work with no new session; red checks, a conflict or a refused merge resume you with the reason). {pr: N} alone resumes you when its checks pass or fail, for a PR that must not merge yet. Never an {after} guess for CI. Use when you can't finish because you're waiting on something; at most 3 times in a row, and it's dropped if unmet after 24 h."),
     next: z.string().optional().describe("With resumeWhen: one line saying what you'll do when it resumes (the continuation's title)"),
-    keyResults: z.array(ReportKrEvidence).min(1).max(5).optional().describe("lane grant only, your session's own grant: the key results your work moved, each with its status (at most claimed) and the evidence a human checks; the held grant's checkpoint card shows them"),
+    keyResults: z.array(ReportKrEvidence).min(1).max(5).optional().describe("lane grant only, your session's own grant: the key results your work moved, each with its status (open or claimed) and the evidence a human checks; the held grant's checkpoint card shows them"),
     topUp: ReportTopUp.optional().describe("lane grant only, your session's own grant: what a top-up of `tokens` more would deliver (the latest one filed shows on the checkpoint card)"),
     left: z.string().max(1000).optional().describe("required on a grant step's report (not when you park): what is left of the grant's work after this step, in one or two plain sentences (e.g. \"Steps 3-4: the answer loop and the building thread; KR kr_x is not started.\"); it goes on your entry in the grant's job thread"),
     rollup: z.boolean().default(false).describe("Retired: rollups are gone and `rollup: true` is refused. What shipped is named at `close_grant` (shipped); what only a human can settle is filed with `ask`"),

@@ -59,7 +59,7 @@ describe("namesLiveCheck: does evidence name a live check (pure core)", () => {
     expect(isJudgedKr("met-unverified")).toBe(true);
     expect(krVerdict("met-unverified")).toBe("shipped");
     expect(krStatusWords("met-unverified")).toBe("met, unverified");
-    expect(krStatusWords("not-started")).toBe("not started");
+    expect(krStatusWords("open")).toBe("open");
   });
 });
 
@@ -91,7 +91,7 @@ describe("a grant closed as done: met, or met, unverified", () => {
     const after = krs();
     expect(after.map((k) => k.status)).toEqual(["met", "met-unverified"]);
     expect(after.every((k) => !!k.archivedAt)).toBe(true);
-    expect(after[1]).toMatchObject({ evidence: "claimed", statusNote: "Both merged in PR #390." });
+    expect(after[1]).toMatchObject({ statusNote: "Both merged in PR #390." });
     const close = jobThread(world, g.id)!.entries.find((e) => e.moved.action === "close")!;
     expect(close.note).toContain(`Key results: 1 met, 1 met, unverified (${resume!.id}): no live check named.`);
     // nothing of it is in the manager's queue, and no ask was filed about it
@@ -122,7 +122,7 @@ describe("a grant closed as done: met, or met, unverified", () => {
     world.grantDesk.closeDone(pix, g.id, { note: "Merged." });
     const [a, c] = krs();
     const last = () => world.events.list({ buildingId: b.id, types: ["kr.updated"], limit: 100 }).at(-1)!;
-    expect(world.grantDesk.updateKeyResult(admin, a!.id, { status: "met", note: "saw it" })).toMatchObject({ status: "met", evidence: "verified" });
+    expect(world.grantDesk.updateKeyResult(admin, a!.id, { status: "met", note: "saw it" })).toMatchObject({ status: "met" });
     expect(keyResultEntry(world, last())!.level).toBe("none");
     world.grantDesk.updateKeyResult(admin, c!.id, { status: "missed", note: "never resumed" });
     expect(keyResultEntry(world, last())).toMatchObject({ level: "manager", moved: { action: "marked", status: "missed" } });

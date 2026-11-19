@@ -80,7 +80,7 @@ export function closedLoopNotice(world: World, g: Grant, spentTokens: number): N
 /** A key result a human (or a passed check) verified met: its text, who and the note. */
 export function verifiedNotice(world: World, kr: KeyResult, by: string): Notice {
   return fileNotice(world, {
-    kind: "verified", buildingId: kr.buildingId, goalId: kr.goalId, title: oneLine(kr.text, 200),
+    kind: "verified", buildingId: world.krBuildingId(kr), goalId: kr.goalId, title: oneLine(kr.text, 200),
     body: `${by} verified it met${kr.statusNote ? `: ${oneLine(kr.statusNote, 300)}` : "."}${kr.howToCheck ? `\n\nHow to check: ${oneLine(kr.howToCheck, 300)}` : ""}`,
     picture: null, refs: [kr.id, ...(kr.grantId ? [kr.grantId] : [])],
   });

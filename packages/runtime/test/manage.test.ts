@@ -108,7 +108,7 @@ describe("manager team-lead session", () => {
     await settle();
     expect(manages()).toHaveLength(1);
     // the manager marking its own key result is not a human event
-    world.grantDesk.updateKeyResult(mei, kr.id, { status: "on-track" });
+    world.grantDesk.updateKeyResult(mei, kr.id, { status: "claimed" });
     await settle();
     expect(manages()).toHaveLength(1);
     // the town wrote no report doc for any of it (kr_o8dbx2axii)

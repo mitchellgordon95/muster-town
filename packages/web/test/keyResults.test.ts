@@ -16,7 +16,7 @@ describe("board key-results view", () => {
     expect(spentShare(5, 0)).toBe(0);
   });
   it("key-result tones", () => {
-    expect([krTone("met"), krTone("missed"), krTone("claimed"), krTone("not-started")]).toEqual(["ok", "bad", "warn", ""]);
+    expect([krTone("met"), krTone("missed"), krTone("claimed"), krTone("open")]).toEqual(["ok", "bad", "warn", ""]);
   });
   it("mock board: a goal-directed building gets its live grants, open proposal and exploration; an open one none", async () => {
     const api = new MockApi();
@@ -40,7 +40,8 @@ describe("board key-results view", () => {
       ["kr_bl_workshop_0", "funded"], ["kr_bl_workshop_1", "funded"], ["kr_bl_workshop_2", "proposed"], ["kr_bl_workshop_3", "open"],
     ]);
     expect(goalsSummary(all, grants)).toBe("4 key results, 2 funded");
-    expect(krStatusLabel("not-started")).toBe("not started");
+    expect(krStatusLabel("open")).toBe("open");
+    expect(krStatusLabel("met-unverified")).toBe("met, unverified");
     expect(krGrantWord("kr_x", [{ keyResultId: "kr_x", status: "closed" }])).toBe("open");
   });
   it("Grants tab: open proposals oldest first, then funded, then checkpoint / closed / rejected; drafts left out", () => {

@@ -384,8 +384,8 @@ export class Goals {
     const now = nowIso();
     return this.world.transaction(() => {
       for (const k of open) {
-        this.world.keyResults.upsert({ ...k, goalId: to!.id, updatedAt: now });
-        this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: k.buildingId, text: `Key result moved to "${clip(to!.text, 60)}": ${k.text}`, payload: { keyResultId: k.id, status: k.status, from: k.status, goalId: to!.id, fromGoalId: k.goalId, by: by ?? "system", edited: false } });
+        this.placeKr(k, to!.id, now);
+        this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: this.world.krBuildingId(k), text: `Key result moved to "${clip(to!.text, 60)}": ${k.text}`, payload: { keyResultId: k.id, status: k.status, from: k.status, goalId: to!.id, fromGoalId: k.goalId, by: by ?? "system", edited: false } });
       }
       for (const b of attached) this.setAttachment(actor, b, to!.id);
       for (const gid of sub) {
@@ -609,13 +609,25 @@ export class Goals {
     }
   }
 
-  /** Move a key result under another goal (its grants go with it). */
+  /**
+   * Put a key result under a goal. A key result's goalId is a copy of its grant's, written only with the grant: so its
+   * grant moves, and every key result of that grant with it. One written before grants carried them moves alone.
+   */
+  private placeKr(kr: KeyResult, goalId: string, now: string): KeyResult {
+    const g = kr.grantId ? this.world.grants.get(kr.grantId) : undefined;
+    if (!g) return this.world.keyResults.upsert({ ...kr, goalId, updatedAt: now });
+    if (g.goalId !== goalId) this.world.grants.upsert({ ...g, goalId, updatedAt: now });
+    for (const k of this.world.keyResults.where("grantId = ?", [g.id])) if (k.goalId !== goalId) this.world.keyResults.upsert({ ...k, goalId, updatedAt: now });
+    return this.world.keyResults.require(kr.id, "key result");
+  }
+
+  /** Move a key result under another goal (its grant and the grant's other key results go with it). */
   moveKr(actor: Actor, kr: KeyResult, goalId: string): KeyResult {
     const to = this.requireActive(goalId);
     if (kr.goalId) this.requireEdit(actor, kr.goalId);
     this.requireEdit(actor, to.id);
-    const next = this.world.keyResults.upsert({ ...kr, goalId: to.id, objectiveId: null, updatedAt: nowIso() });
-    this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: `Key result moved to "${clip(to.text, 60)}": ${kr.text}`, payload: { keyResultId: kr.id, status: kr.status, from: kr.status, goalId: to.id, fromGoalId: kr.goalId, by: actor ? holderOf(actor).id : "system", edited: false } });
+    const next = this.placeKr(kr, to.id, nowIso());
+    this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: this.world.krBuildingId(kr), text: `Key result moved to "${clip(to.text, 60)}": ${kr.text}`, payload: { keyResultId: kr.id, status: kr.status, from: kr.status, goalId: to.id, fromGoalId: kr.goalId, by: actor ? holderOf(actor).id : "system", edited: false } });
     return next;
   }
 

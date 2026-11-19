@@ -187,7 +187,7 @@ export class Reorgs {
       }
       for (const k of this.world.keyResults.where("goalId IS NOT NULL").filter((k) => sub.has(k.goalId!) && isOpenKr(k))) {
         this.world.keyResults.upsert({ ...k, underReviewSince: createdAt, updatedAt: createdAt });
-        this.world.events.append({ type: "kr.under-review", agentId: null, buildingId: k.buildingId, text: `Key result under review (reorg ${id}): ${k.text}`, payload: { keyResultId: k.id, goalId: k.goalId, changeId: id, action: "flagged", by: by.id } });
+        this.world.events.append({ type: "kr.under-review", agentId: null, buildingId: this.world.krBuildingId(k), text: `Key result under review (reorg ${id}): ${k.text}`, payload: { keyResultId: k.id, goalId: k.goalId, changeId: id, action: "flagged", by: by.id } });
       }
       this.event(change, `${this.world.nameOf(by.id)} filed "Change this goal": ${clip(goal.text, 80)} → ${clip(inp.toText, 80)}`, "filed", by.id);
       return this.view(change);
@@ -271,7 +271,7 @@ export class Reorgs {
       const grant = this.world.grantDesk.liveGrantOf(kr.id);
       const by = actor ? holderOf(actor).id : "system";
       this.world.events.append({
-        type: "kr.under-review", agentId: actor?.id ?? null, buildingId: kr.buildingId,
+        type: "kr.under-review", agentId: actor?.id ?? null, buildingId: this.world.krBuildingId(kr),
         text: `Under-review key result ${inp.action === "keep" ? "kept" : inp.action === "move" ? "moved" : "archived as missed"}: ${kr.text}${inp.action === "archive" && grant ? ` (its grant ${grant.id} is a Cut candidate)` : ""}`,
         payload: { keyResultId: kr.id, goalId: next.goalId, fromGoalId: kr.goalId, action: inp.action, grantId: grant?.id ?? null, by },
       });

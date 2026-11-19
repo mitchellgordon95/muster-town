@@ -135,13 +135,13 @@ describe("submit_report writes the entry; budget rules replace the lanes (plan d
     const { fork } = forkManager(world, g.buildingId, a.id);
     world.assignments.patch(a.id, { status: "active" });
     await expect(world.verbs.submit_report(fork, { title: "Step one", body: REPORT, verdict: "continue" })).rejects.toThrow(/what is left/);
-    const filed = await world.verbs.submit_report(fork, { title: "Step one", body: REPORT, verdict: "continue", left: "Steps 2 and 3: check it live, then close.", keyResults: [{ id: kr.id, status: "on-track", evidence: "PR #1" }], topUp: { tokens: 10_000, buys: "the close" } });
+    const filed = await world.verbs.submit_report(fork, { title: "Step one", body: REPORT, verdict: "continue", left: "Steps 2 and 3: check it live, then close.", keyResults: [{ id: kr.id, status: "open", evidence: "PR #1" }], topUp: { tokens: 10_000, buys: "the close" } });
     retireFork(world, fork.id);
     expect(filed.jobId).toBe(`jb_${g.id}`);
     const r = world.docs.require(filed.id);
     expect(entry(world, r.id)).toMatchObject({
       jobId: `jb_${g.id}`, authorKind: "fork", proposes: "continue", pocket: g.id, note: r.title,
-      moved: { stepsDone: [0], left: "Steps 2 and 3: check it live, then close.", krClaimed: [{ id: kr.id, status: "on-track", evidence: "PR #1" }], topUp: { tokens: 10_000, buys: "the close" } },
+      moved: { stepsDone: [0], left: "Steps 2 and 3: check it live, then close.", krClaimed: [{ id: kr.id, status: "open", evidence: "PR #1" }], topUp: { tokens: 10_000, buys: "the close" } },
     });
     // the back-fill keeps the live entry's moved
     backfillJobs(world);
