@@ -108,11 +108,14 @@ Its boot log says `[server] runtime off (throwaway)`; its health shows `"throwaw
 answers to the live login tokens while it runs, so the script destroys it at the end (`--keep` leaves it: then `fly apps destroy
 recover-drill --yes`). Run it from a `BRANCH` that has `throwaway.ts` (`git ls-tree <branch> packages/server/src/throwaway.ts`); any time of the hour works.
 
-**Drill** (step 3 fills this in from the script's last line):
+**Drill** (rows from the script's last line; Mitchell ran it, request dc_jhswr1u8jm):
 
 | volume created | health ok | elapsed | agent count | newest doc | copy |
 |---|---|---|---|---|---|
-| | | | | | |
+| 2026-11-19T18:32:12Z | 2026-11-19T18:34:17Z | 2 min 5 s | 12 | 2026-11-19T17:40:46.541Z | town/2026-11-19T18.db.gz.enc |
+
+2026-11-19: MATCH (the live drill town equals the copy: 12 agents, same newest doc). The restore picked the newest good copy of 68 in
+the bucket, the hourly one from 18:00Z, two minutes before the volume was created: at most one hour of town state is lost.
 
 ### Throwaway for load tests (grant gr_wqnunw5yd8)
 Load never goes to muster.town. `deploy/fly/throwaway.sh` (needs `FLY_STRESS_TOKEN`, the Fly token Mitchell made for it, and `GH_TOKEN` to clone

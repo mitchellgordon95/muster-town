@@ -1,0 +1,1 @@
+- 2026-11-19 (Prod, Cleo 1): deploy/README.md Drill row filled from Mitchell's run of `deploy/recover.sh --yes recover-drill` (18:32:12Z volume → 18:34:17Z health ok, 2 min 5 s, copy town/2026-11-19T18.db.gz.enc, MATCH). Closes kr_y7u2m9hk9y of gr_ba0juhlm7n.
