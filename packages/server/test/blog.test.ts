@@ -64,6 +64,22 @@ describe("blog", () => {
     expect((await app.inject("/blog")).body).toContain('data-source="index"');
   });
 
+  it("shows a post's upcoming list as the signup hook, on the post and on the index", async () => {
+    const app = await blogApp({
+      "older.md": post("title: Older\ndate: 2026-11-01"),
+      "next.md": post("title: Next\ndate: 2026-11-19\nupcoming:\n  - the operating layers (jobs + queues)\n  - using <Bend> 2\nauthor: Mitchell"),
+    });
+    const html = (await app.inject("/blog/next")).body;
+    expect(html).toContain("<p>Coming next:</p>\n<ul>\n<li>the operating layers (jobs + queues)</li>\n<li>using &lt;Bend&gt; 2</li>\n</ul>");
+    expect(html).toContain("Subscribe for updates (mailing list for every blog post)");
+    expect(html).not.toContain("New posts by email. Nothing else.");
+    expect(html).toContain("· Mitchell"); // a key after the list is still read
+    expect((await app.inject("/blog")).body).toContain("<li>using &lt;Bend&gt; 2</li>");
+    const older = (await app.inject("/blog/older")).body;
+    expect(older).toContain("New posts by email. Nothing else.");
+    expect(older).not.toContain("Coming next:");
+  });
+
   it("serves a draft at its URL but leaves it out of the index and the feed", async () => {
     const app = await blogApp({
       "live.md": post("title: Live\ndate: 2026-11-02"),
