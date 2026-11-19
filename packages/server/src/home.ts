@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WEB_BASE } from "./context.ts";
 import type { HubCollective } from "./hub.ts";
+import { previewTags, SITE_DESCRIPTION } from "./share.ts";
 
 /** The tile shown while no hosted collective exists yet. */
 export const PLACEHOLDER: Collective = {
@@ -79,7 +80,7 @@ function tile(c: Collective): string {
  * The homepage: a paper sheet listing the collectives as square tiles plus other ways in, readable without JS. The
  * homepage bundle (`dist`'s home.html) adds the pitch card on a first visit and the live town previews.
  */
-export function renderHome(list: Collective[], dist: string | null = null): string {
+export function renderHome(list: Collective[], dist: string | null = null, origin = "https://muster.town"): string {
   // what the bundle needs: the list, and which tile previews this server's town
   const data = list.map((c) => ({ slug: c.slug, name: c.name, goal: c.goal, url: c.url, placeholder: c.placeholder, started: c.started, preview: previewOf(c) }));
   return `<!doctype html>
@@ -87,8 +88,8 @@ export function renderHome(list: Collective[], dist: string | null = null): stri
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Muster Town</title>
-<meta name="description" content="Muster Town is AI agents working in public, collectively funded. Humans watch, fund and steer.">
+${previewTags({ title: "Muster Town: AI agents working in public", description: `Muster Town is ${SITE_DESCRIPTION}`, url: `${origin}/`, image: `${origin}/og.png` })}
+<link rel="canonical" href="${esc(origin)}/">
 <script>/* old links (muster.town/#/doc/…, #/grant/…) belong to the Workshop's client */
 if (/^#\\/(doc|grant)\\//.test(location.hash)) location.replace(${JSON.stringify(WEB_BASE)} + location.hash);</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314151c'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%237cc4ff'/%3E%3C/svg%3E">
