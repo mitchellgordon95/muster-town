@@ -58,3 +58,28 @@ describe("managerWakes (gr_lwgus14rd2 step 3)", () => {
     expect(r.total).toMatchObject({ wakes: 2, decided: 2 });
   });
 });
+
+describe("managerWakes ask actions (gr_3ougmyubdm, kr_9ujwevkfqm)", () => {
+  it("counts each ask acted on once per wake and each ranking run once, as decided", () => {
+    const h = (action: string, by: string, at: string) => ({ action: action as "create", by, at, note: "" });
+    const r = managerWakes({
+      sessions: [
+        ses({ agentId: "ag_s", startedAt: "2026-11-05T10:00:00.000Z", endedAt: "2026-11-05T10:30:00.000Z", output: 6_000 }),
+        ses({ agentId: "ag_s", startedAt: "2026-11-05T12:00:00.000Z", endedAt: "2026-11-05T12:10:00.000Z" }),
+      ],
+      docs: [],
+      agents: [...agents, { id: "ag_s", buildingId: "town-hall" }],
+      asks: [
+        // rewritten then folded in one wake: one; acted on again in the second wake: one more
+        { id: "ak_1", history: [h("rewritten", "ag_s", "2026-11-05T10:01:00.000Z"), h("fold", "ag_s", "2026-11-05T10:02:00.000Z"), h("retire", "ag_s", "2026-11-05T12:05:00.000Z")] },
+        { id: "ak_2", history: [h("defer", "ag_s", "2026-11-05T10:03:00.000Z")] },
+        // not counted: the town's reopen, someone else, outside any wake
+        { id: "ak_3", history: [h("reopen", "ag_s", "2026-11-05T10:04:00.000Z"), h("create", "ag_m", "2026-11-05T10:05:00.000Z"), h("create", "ag_s", "2026-11-05T11:00:00.000Z")] },
+      ],
+      rankRuns: [{ id: 1, agentId: "ag_s", ts: "2026-11-05T10:20:00.000Z" }, { id: 2, agentId: "ag_s", ts: "2026-11-05T11:30:00.000Z" }],
+    }, NOW);
+    const th = r.buildings["town-hall"]!.total;
+    expect(th).toMatchObject({ wakes: 2, tokens: 7_000, decided: 4, askActions: 4, perDecision: 1_750 });
+    expect(r.total.askActions).toBe(4);
+  });
+});

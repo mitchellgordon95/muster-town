@@ -5,10 +5,11 @@ import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from 
 import { AppError, badRequest, forbidden } from "./errors.ts";
 import { tickMemo } from "./tick-memo.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
-import { financeDaily, type FinanceDaily, type FinanceDailyCheck } from "./finance-daily.ts";
+import { FINANCE_DAILY_DAYS, financeDaily, type FinanceDaily, type FinanceDailyCheck } from "./finance-daily.ts";
 import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
+import { townFinanceSplit, type FinanceSplit } from "./finance-split.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
 import { cashCheck, financeCash, CASH_FLY_DAYS, type CashCheck, type FinanceCash } from "./finance-cash.ts";
@@ -970,19 +971,22 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck } {
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck; split: FinanceSplit } {
     const f = townFinance(this.repos, now);
+    // work versus coordination (finance-split.ts, gr_3ougmyubdm): session spend by lane, 7 and 30 days, and per chart day
+    const { split, byDay } = townFinanceSplit(this.repos, now, FINANCE_DAILY_DAYS);
     // the Balance tab's "Day by day" chart (finance-daily.ts, gr_epbcgb0hvs): Bank debits and credits per UTC day, by building
     const { daily, dailyCheck } = financeDaily({
       debits: this.repos.bankDebits.all(), credits: this.repos.bankCredits.all(), usage: this.repos.usage.all(),
       buildingNames: new Map(this.repos.buildings.all().map((b) => [b.id, b.name])), usedBank: f.usedBank, usedDonations: f.usedDonations,
+      lanesByDay: byDay,
     }, now);
-    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck };
+    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck, split };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
   spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes; cutoff: LedgerCutoff | null } {
-    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, now), cutoff: this.repos.town.ledgerCutoff() };
+    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, this.events, now), cutoff: this.repos.town.ledgerCutoff() };
   }
 
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */
