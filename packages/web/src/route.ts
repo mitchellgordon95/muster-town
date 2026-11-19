@@ -18,6 +18,9 @@ export const isDocHash = () => DOC_HASH.test(location.hash);
 
 export const docUrl = (id: string) => `${location.origin}${location.pathname}#/doc/${id}`;
 export const grantUrl = (id: string) => `${location.origin}${location.pathname}#/grant/${id}`;
+/** The link "Copy link" puts on the clipboard: `<client>/doc/<id>`, which the server serves with that doc's own preview
+ *  tags (title, excerpt, town picture; server share.ts) and turns back into `#/doc/<id>` before the client boots. */
+export const docShareUrl = (id: string) => `${location.origin}${location.pathname}doc/${id}`;
 
 const SLIDE_SUFFIX = /(^#\/doc\/[A-Za-z0-9_]+)\/\d+$/;
 

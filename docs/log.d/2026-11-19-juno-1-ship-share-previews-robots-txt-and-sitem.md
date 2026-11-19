@@ -1,0 +1,1 @@
+- 2026-11-19: muster.town is shareable and crawlable (gr_qholnel3q4 step 1, Outreach): `/`, `/workshop/` and new share paths `/workshop/doc/<id>` and `/workshop/grant/<id>` carry og:/twitter: preview tags with a town screenshot at `/og.png`; "Copy link" copies the share path; `/robots.txt` and `/sitemap.xml` are served (server/src/share.ts).

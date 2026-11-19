@@ -35,7 +35,7 @@ function readPost(dir: string, slug: string): Post | null {
 }
 
 /** The public posts (drafts left out), newest first. */
-function publicPosts(dir: string): Post[] {
+export function publicPosts(dir: string = POSTS_DIR): Post[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => readPost(dir, f.slice(0, -3)))
     .filter((p): p is Post => p !== null && !p.draft)
