@@ -40,7 +40,7 @@ export async function townRoutes(app: FastifyInstance) {
    * `tick` `{last, slow}`: the runtime's last tick and last tick over 500 ms, `{at, ms, phase, phaseMs, phases}` (null without a runtime).
    * `backup` (read-only): the off-site copy's `{lastAt, bytes, dest, error}`; null until the bucket and key are set
    * (deploy/README.md "Backups"). Never the key or the bucket credentials. `monitor` (read-only, null without one):
-   * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `deploy` (root app with MUSTER_TOWN_DEPLOY_BRANCH, else null): `{branch,
+   * `{lastSampleAt, alerts: [{key, level, since, value}]}` (monitor.ts; the VPS pinger reads the red ones). `pinger` (null without a monitor): `{lastSeenAt, state: ok | stale | none, staleAfterMin}`, the outside pinger's last probe (monitor.ts PingerWatch). `deploy` (root app with MUSTER_TOWN_DEPLOY_BRANCH, else null): `{branch,
    * state: current | behind | docs-only | unknown, live, prodTip, behindCommits, behindSince, checkedAt, error}` (deploy-watch.ts). `directory` (root app, only where the
    * directory is on): `{verified, listed, pending, lastTickAt}` (directory/index.ts). `desks` (gr_uhh6u39vv9 step 3): `{backend, size,
    * billCapUsd, billTodayUsd, billPct, overCap, day}`, today's (UTC) desk bill at Fly list prices against the town-wide cap.
@@ -81,12 +81,22 @@ export async function townRoutes(app: FastifyInstance) {
     const { figures: f, at } = figures.get();
     const { budgets, backup, desks, ...rest } = f;
     return { ok: true, runtime: !!app.runtime, commit: world.host.commit ?? null, startedAt: world.host.startedAt ?? null, time: new Date().toISOString(), accounting: BANK_ACCOUNTING, accountingModel: BANK_MODEL, load: { ...app.load.snapshot(), tick: app.runtime?.tickStats?.() ?? null },
-      budgets, backup, monitor: app.monitor?.view() ?? null, deploy: app.deployWatch?.view() ?? null, desks, main: mainHealth(world),
+      budgets, backup, monitor: app.monitor?.view() ?? null, pinger: app.monitor?.pinger.view() ?? null, deploy: app.deployWatch?.view() ?? null, desks, main: mainHealth(world),
       // the root app (the Workshop) only: how many hosted collectives this process serves at /<slug>/
       ...(app.hub ? { hosted: { count: app.hub.count } } : {}),
       // a drill town (MUSTER_TOWN_RUNTIME=off): no runtime, backup restore-only
       ...(app.throwaway ? { throwaway: true } : {}),
       ...rest, figuresAt: at };
+  });
+
+  // the outside pinger's liveness for an outside monitor (gr_7tl5as3s0a, UptimeRobot): 503 when it has been quiet 15 min,
+  // or when it is unseen since a restart while the monitor still holds its red alert; 200 otherwise (ok, or none on a fresh boot)
+  app.get("/api/health/pinger", async (_req, reply) => {
+    if (!app.monitor) return reply.code(404).send({ error: "Not found: this server runs no monitor.", code: "not_found" });
+    const v = app.monitor.pinger.view();
+    const alert = app.monitor.view().alerts.find((a) => a.key === "pinger") ?? null;
+    const stale = v.state === "stale" || (v.state === "none" && alert != null);
+    return reply.code(stale ? 503 : 200).header("cache-control", "no-store").send({ ok: !stale, ...v, alert: alert ? { level: alert.level, since: alert.since } : null });
   });
 
   if (app.dev) {

@@ -248,6 +248,7 @@ cleared, and once when health itself is down.
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 | `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
 | `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change the puller would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
+| `pinger` | minutes since the outside pinger (user-agent `muster-pinger`) last read `/api/health`, from memory (grant gr_7tl5as3s0a) | — | at once at 15 min quiet: reds no longer reach Mitchell by SMS or email. Never seen since boot raises nothing; an open one survives a restart. See "Pinger quiet" below |
 
 **Live behind prod** (`deploy` key). `GET /api/health` `deploy` is `{branch, state, live, prodTip, behindCommits,
 behindSince, checkedAt, error}`; `state` is `current`, `behind` (a deployable change waits), `docs-only` (the puller skips that
@@ -256,6 +257,14 @@ meta `deployWatch`, so a restart with no new commit keeps the clock. GitHub is r
 else anonymously (60 calls/h per IP; one branch read per poll, plus one compare per new live/tip pair). When it is red:
 read the town's "Prod watch: …" and "Redeploy: …" system events (a failed fetch, a failed build, a dirty tree, a drain
 still waiting), then redeploy once from the Town Hall. This key is the safety net behind the server's own pull.
+
+**Pinger quiet** (`pinger` key, grant gr_7tl5as3s0a). The server notes each `GET /api/health` whose user-agent starts with
+`muster-pinger` (app.ts, in memory). `GET /api/health` `pinger` is `{lastSeenAt, state, staleAfterMin}`: `state` is `ok`,
+`stale` (15 min or more since the last probe) or `none` (not seen since this boot; the pinger probes every 60 s, so it is
+`ok` again within a minute or two of a restart). `GET /api/health/pinger` is for an outside monitor that does not depend on
+Wright's box: 503 when `stale`, or when `none` while the monitor still holds an open `pinger` alert from before a restart;
+200 otherwise, with `{ok, lastSeenAt, state, staleAfterMin, alert}`. When it is red: ask Wright (skill talk-to-wright) for
+`systemctl list-timers muster-pinger.timer` and `journalctl -u muster-pinger.service -n 20`, and restart the timer.
 
 **Desk size and the daily desk bill cap** (grant gr_uhh6u39vv9 step 3; Mitchell, 1:1 mt_s6f8mvjw9h). Desk Machines run on
 performance-1x, 2048 MB ($33/month = $0.0458/h in iad): on shared-cpu-2x ($0.0186/h) desk sessions measured 84–91 % steal.
@@ -294,6 +303,8 @@ gr_hbz0twkfp9), not by the pinger: one HTTP(s) monitor on `/api/health` every 5 
 API with the read-only key in the collective secret `UPTIMEROBOT_API_KEY` (Town Hall → Secrets), at most once every
 5 min, and links the public status page in `UPTIMEROBOT_STATUS_URL` (or `UPTIME_STATUS_URL`, the name live uses). No key or an API error: the block says "Not
 measured yet" and `/api/uptime` shows `source: "unknown"` and the `error`; restart gaps still come from the server's events. An old `MUSTER_PINGER_TOKEN` line in its env file is ignored and can be deleted.
+The server watches the pinger back: its `muster-pinger` user-agent marks each probe, and the `pinger` key goes red after
+15 min without one ("Pinger quiet" above), so keep that user-agent if you change the script.
 Tests: `python3 -m unittest discover -s deploy/pinger` (CI runs them).
 
 Install as user `node` (paths assume its home is `/home/node`; change `ExecStart` in the service if not):

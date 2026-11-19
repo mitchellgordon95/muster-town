@@ -91,6 +91,8 @@ export interface Probes {
   redeploy(): RedeployEnd | null;
   /** the live commit against the deploy branch's tip (deploy-watch.ts, read from GitHub every 5 min); null = not watched */
   deploy(): DeployView | null;
+  /** when the outside pinger (user-agent muster-pinger) last read /api/health, ms; null = not since this boot (PingerWatch) */
+  pingerSeenAt(): number | null;
 }
 
 /** The last redeploy run's end: state `failed` / `aborted` (red), or `restarting` / `done` (clean). */
@@ -188,7 +190,51 @@ export function defaultMetrics(p: Probes): Metric[] {
     hostStealMetric(p),
     redeployMetric(p),
     deployMetric(p),
+    pingerMetric(p),
   ];
+}
+
+/** the pinger is stale (health state `stale`, monitor key `pinger` red, /api/health/pinger 503) after this long unseen */
+export const PINGER_STALE_MS = 15 * MIN;
+/** the user-agent deploy/pinger/muster_pinger.py sends */
+export const PINGER_UA = /^muster-pinger\b/i;
+
+/** /api/health `pinger`: the outside pinger's last probe. `none` = not seen since this boot (a restart forgets it). */
+interface PingerView { lastSeenAt: string | null; state: "ok" | "stale" | "none"; staleAfterMin: number }
+
+/**
+ * Who watches the watcher (grant gr_7tl5as3s0a): the VPS pinger on Wright's box is the only path that texts or emails
+ * Mitchell, so the server notes when it last read /api/health (app.ts, by user-agent) and goes red when it falls quiet.
+ * In memory only: after a restart the state is `none` until the next probe (about a minute), and `none` raises nothing.
+ */
+export class PingerWatch {
+  private last: number | null = null;
+  constructor(private readonly now: () => number = Date.now) {}
+  /** one /api/health hit from the pinger */
+  seen(at = this.now()) { this.last = at; }
+  lastSeenAt(): number | null { return this.last; }
+  view(now = this.now()): PingerView {
+    const at = this.last;
+    return { lastSeenAt: at == null ? null : new Date(at).toISOString(), state: at == null ? "none" : now - at >= PINGER_STALE_MS ? "stale" : "ok", staleAfterMin: PINGER_STALE_MS / MIN };
+  }
+}
+
+/**
+ * `pinger`: minutes since the outside pinger last read /api/health. Red at once when it is 15 min or more (no yellow: a
+ * quiet pinger means reds no longer reach Mitchell). Never seen since boot is no reading, so nothing is raised; an alert
+ * already open (persisted) stays open through a restart until the pinger is back for CLEAR_AFTER samples.
+ */
+function pingerMetric(p: Pick<Probes, "pingerSeenAt">): Metric {
+  return {
+    key: "pinger", yellowForMs: 0, redForMs: 0,
+    describe: (v) => `outside pinger silent for ${v} min: red alerts no longer reach Mitchell by SMS or email; see deploy/README.md "Pinger quiet"`,
+    read: (now) => {
+      const at = p.pingerSeenAt();
+      if (at == null) return null;
+      const quiet = Math.max(0, now - at);
+      return { value: Math.floor(quiet / MIN), yellow: false, red: quiet >= PINGER_STALE_MS };
+    },
+  };
 }
 
 /**
@@ -315,7 +361,7 @@ function deskStealMetric(p: Pick<Probes, "deskSessions">): Metric {
 }
 
 /** The real probes: process memory, an event-loop histogram reset each sample, statfs on the data dir, the runtime's slots. */
-export function processProbes(world: World, dataDir: string, backup: () => BackupView | null, counters: Counters, deploy: () => DeployView | null = () => null): Probes & { close(): void } {
+export function processProbes(world: World, dataDir: string, backup: () => BackupView | null, counters: Counters, deploy: () => DeployView | null = () => null, pinger: PingerWatch | null = null): Probes & { close(): void } {
   const h: IntervalHistogram = monitorEventLoopDelay({ resolution: 20 });
   h.enable();
   return {
@@ -349,6 +395,7 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
       return { state: String(pl.run?.state ?? ""), at: e.ts, step: typeof pl.step === "string" ? pl.step : null, requestedBy: String(pl.run?.requestedBy ?? "") };
     },
     deploy,
+    pingerSeenAt: () => pinger?.lastSeenAt() ?? null,
     close: () => h.disable(),
   };
 }
@@ -373,6 +420,8 @@ interface MonitorOptions {
   log?: Pick<Console, "log" | "warn">;
   /** what app.ts / ws.ts bump (default: a fresh one on this monitor's clock) */
   counters?: Counters;
+  /** what app.ts marks on each /api/health hit from the outside pinger (default: a fresh one on this monitor's clock) */
+  pinger?: PingerWatch;
   /** the board FYIs go to (default: the building named "Prod", else the Town Hall; null = events only) */
   buildingId?: string | null;
 }
@@ -380,6 +429,8 @@ interface MonitorOptions {
 export class Monitor {
   /** the HTTP / WebSocket error counters the 5xx and ws metrics read (when built over the same Counters) */
   readonly counters: Counters;
+  /** the outside pinger's last probe, which the `pinger` metric reads (when built over the same PingerWatch) */
+  readonly pinger: PingerWatch;
   private readonly now: () => number;
   private readonly log: Pick<Console, "log" | "warn">;
   private readonly world: World;
@@ -394,6 +445,7 @@ export class Monitor {
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? console;
     this.counters = opts.counters ?? new Counters(this.now);
+    this.pinger = opts.pinger ?? new PingerWatch(this.now);
     const p = this.load();
     this.lastSampleAt = p.lastSampleAt ? Date.parse(p.lastSampleAt) : null;
     for (const a of p.alerts) this.alerts.set(a.key, a);

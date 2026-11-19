@@ -16,7 +16,7 @@ import { restoreOnFirstBoot } from "./backup/restore.ts";
 import { loadAuthSettings } from "./auth/index.ts";
 import { Hub } from "./hub.ts";
 import { Directory, directoryEnabled } from "./directory/index.ts";
-import { Counters, defaultMetrics, Monitor, processProbes } from "./monitor.ts";
+import { Counters, defaultMetrics, Monitor, PingerWatch, processProbes } from "./monitor.ts";
 import { DeployWatch } from "./deploy-watch.ts";
 import { hostedTickCap, TickRotation } from "./ticks.ts";
 import { desksFromEnv, loadEnvFile } from "./env.ts";
@@ -99,8 +99,10 @@ async function main() {
     repo: () => { const m = /github\.com[/:]+([\w.-]+)\/([\w.-]+?)(?:\.git)?\/*$/.exec(world.host.repoUrl ?? world.town.get().workspace?.repoUrl ?? ""); return m ? { owner: m[1]!, repo: m[2]! } : null; },
     token: () => world.secrets.value(REPO_TOKEN_SECRET) ?? process.env.GH_TOKEN ?? null, log: (m) => console.warn(m),
   }) : null;
-  const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters, () => deployWatch?.view() ?? null);
-  const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters });
+  // the outside pinger's last /api/health hit (gr_7tl5as3s0a): app.ts marks it, the `pinger` key and /api/health/pinger read it
+  const pinger = new PingerWatch();
+  const probes = processProbes(world, DATA_DIR, () => backup.snapshot(), counters, () => deployWatch?.view() ?? null, pinger);
+  const monitor = new Monitor({ world, metrics: defaultMetrics(probes), counters, pinger });
   // the self-hosted towns directory (design dc_d6chojzl2a): muster.town only; behind Fly's proxy the client IP is Fly-Client-IP.
   // MUSTER_TOWN_DIRECTORY=on|off decides; unset, it is on where MUSTER_TOWN_PUBLIC_URL is muster.town (an [env] change in
   // fly.town.toml reaches the Machine only with an image deploy, the town's redeploy is code only)
