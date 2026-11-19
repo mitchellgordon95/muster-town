@@ -1,0 +1,1 @@
+- 2026-11-19 Prod (Cleo 1, gr_7tl5as3s0a step 2): /api/uptime reads only the UptimeRobot monitor on /api/health itself (isHealthUrl), so the second monitor on /api/health/pinger never becomes the public uptime number.

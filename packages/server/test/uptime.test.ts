@@ -49,6 +49,18 @@ describe("Uptime", () => {
     expect(ranges[30]).toBe(`${sec("2026-10-12T00:00:00Z")}_${Math.floor(NOW / 1000)}`);
   });
 
+  it("reads the /api/health monitor, never the /api/health/pinger watchdog, whatever the order", async () => {
+    secrets = { UPTIMEROBOT_API_KEY: "k" };
+    const days = Array.from({ length: 30 }, () => 100);
+    const site = robot(days, 100).monitors[0];
+    const pinger = { ...robot(days, 90).monitors[0], url: "https://muster.town/api/health/pinger" };
+    const s = await up(fakeFetch({ stat: "ok", monitors: [pinger, site] })).summary();
+    expect(s.pct).toBe(100);
+    const only = await up(fakeFetch({ stat: "ok", monitors: [pinger] })).summary();
+    expect(only.pct).toBeNull();
+    expect(only.error).toMatch(/no monitor/);
+  });
+
   it("days before the monitor existed are unknown; its down logs are the outages", async () => {
     secrets = { UPTIMEROBOT_API_KEY: "k" };
     const days: number[] = Array.from({ length: 30 }, (_, i) => (i < 27 ? 0 : 100));

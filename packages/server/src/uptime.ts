@@ -138,7 +138,9 @@ export class Uptime {
       const j = (await res.json()) as { stat?: string; error?: { type?: string; message?: string }; monitors?: RobotMonitor[] };
       if (j.stat !== "ok") return { at: now, monitor: null, error: `UptimeRobot: ${j.error?.message ?? j.error?.type ?? "stat not ok"}` };
       const mons = j.monitors ?? [];
-      const monitor = mons.find((x) => x.url?.includes("/api/health")) ?? mons[0] ?? null;
+      // the site monitor is the one on /api/health itself: a second monitor on /api/health/pinger (the pinger
+      // watchdog, gr_7tl5as3s0a) also contains "/api/health" and must never be read as the town's uptime
+      const monitor = mons.find((x) => isHealthUrl(x.url)) ?? mons.find((x) => !x.url?.includes("/api/health/")) ?? null;
       return { at: now, monitor, error: monitor ? null : "UptimeRobot: no monitor on this account" };
     } catch (e) {
       return { at: now, monitor: null, error: `UptimeRobot unreachable: ${(e as Error).name}` };
@@ -164,6 +166,11 @@ export class Uptime {
     }
     return out;
   }
+}
+
+/** True for the site's own health URL (https://host/api/health, with or without a trailing slash or query), not a sub-path of it. */
+function isHealthUrl(url: string | undefined): boolean {
+  return !!url && /\/api\/health\/?(\?.*)?$/.test(url);
 }
 
 /** The monitor's down logs (type 1) since `from`, oldest first; a log's duration is in seconds. */
