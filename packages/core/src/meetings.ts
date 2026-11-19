@@ -13,6 +13,8 @@ import { validateWait } from "./waits.ts";
 import { walkHome } from "./home.ts";
 import { decisionEntries, decisionWakes } from "./wakes.ts";
 import { closeScreenViews } from "./screen-views.ts";
+import { setMeetingFocus } from "./meeting-focus.ts";
+import { entryOf } from "./jobs.ts";
 import { TOWN_HALL_ID } from "./world/layout.ts";
 import type { World } from "./world.ts";
 
@@ -179,7 +181,7 @@ function directRefusal(world: World, buildingId: string | null): string {
  * building (its staff, a captain over its goal, or a member granted "direct work under" it: gr_cuobjlny6r, Mitchell
  * mt_hlizi9wxxc); no permission, no 1:1. At the Town Hall, `canPlan`.
  */
-export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string } = {}): Meeting {
+export function createOneOnOne(world: World, human: Agent, buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; goalId?: string; askId?: string } = {}): Meeting {
   const b = world.buildings.require(buildingId, "building");
   // the Town Hall's agents to talk to: the Planner, its manager ("Plan with an agent", docs/goals.md), and the Secretary
   // (the in-tray, gr_kdlogzzo5s); the same people may open either
@@ -197,6 +199,10 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   const grant = opts.grantId ? world.grants.get(opts.grantId) : undefined;
   if (opts.grantId && !grant) throw notFound("Grant", opts.grantId);
   if (grant && grant.buildingId !== b.id) throw badRequest(`${grant.id} belongs to another building.`);
+  // the queue's Steer button (Mitchell, 1:1 mt_mjxwzdhhd7): a 1:1 with the manager of the building that filed the ask
+  const ask = opts.askId ? world.asks.get(opts.askId) : undefined;
+  if (opts.askId && !ask) throw notFound("Ask", opts.askId);
+  if (ask && ask.buildingId !== b.id) throw badRequest(`${ask.id} was filed by another building.`);
   let target: Agent | undefined;
   if (grant && !opts.agentId) {
     const proposer = oneOnOneTarget(world, grant.proposedBy)?.agent;
@@ -215,6 +221,14 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
   const goal = opts.goalId ? world.goals.get(opts.goalId) : undefined;
   if (opts.goalId && !goal) throw notFound("Goal", opts.goalId);
   const present = (m: Meeting): Meeting => {
+    if (ask) {
+      // the ask stays open on the human's screen for the agent: every line of theirs carries it and its job thread (focusBlock)
+      const focused = setMeetingFocus(world, human, m.id, { kind: "ask", id: ask.id });
+      if (focused.transcript.some((u) => u.speakerKind === "user" && u.text.includes(`(${ask.id})`))) return focused;
+      const jobId = ask.sourceEntryId ? entryOf(world, ask.sourceEntryId)?.jobId : undefined;
+      const goalText = b.goalId ? world.goals.get(b.goalId)?.text : undefined;
+      return meetingSpeak(world, human, m.id, `I'd like to talk about ${b.name}'s ask "${oneLine(ask.title, 120)}" (${ask.id}) in my decision queue${jobId ? `, on job ${jobId} (its thread: GET /api/jobs/${jobId})` : ""}.${goalText ? ` I have the goal tree open beside us on this building's goal "${oneLine(goalText, 160)}" (${b.goalId}).` : ""}`);
+    }
     if (goal) {
       if (m.transcript.some((u) => u.speakerKind === "user" && u.text.includes(`(${goal.id})`))) return m;
       return meetingSpeak(world, human, m.id, `Let's plan under the goal "${oneLine(goal.text, 160)}" (${goal.id}).`);

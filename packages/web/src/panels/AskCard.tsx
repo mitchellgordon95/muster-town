@@ -3,7 +3,8 @@
  * title, the delta line (the body's first paragraph), the body, the branches as the buttons (each does the real action
  * by the ask's target, asks.ts `branchCall`; the server's hooks then retire the ask), the recommendation, the claims
  * with their check, the sources by name, and the record one click down. A grant's card adds its
- * step strip. Names, not ids: an id only sits in a tooltip.
+ * step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
+ * on the filing building's goal with a 1:1 with its manager beside it, about this ask and its job thread.
  */
 import { type ReactNode } from "react";
 import { clearDraft, useDraft } from "../draft";
@@ -13,6 +14,7 @@ import { store, useTown } from "../state";
 import { fromMillions, toMillions } from "../format";
 import { Markdown } from "./Markdown";
 import { StepStrip } from "./StepStrip";
+import { steerAsk, steerTarget } from "./oneOnOne";
 import { branchCall, claimMark, deltaOf, retainerCounter, type BranchCall } from "./asks";
 import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
@@ -145,6 +147,8 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
 }) {
   const building = useBuildingName(ask.buildingId);
   const signedIn = useTown((s) => !!s.me);
+  // a string, not the target object: useTown's selector must return a stable value
+  const steer = useTown((s) => s.me && ask.buildingId && ask.status !== "decided" ? steerTarget(ask.buildingId)?.id ?? null : null);
   const { delta, rest } = deltaOf(ask.body);
   return (
     <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title}>
@@ -167,7 +171,12 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       {signedIn && canDecide !== false
         ? <div className="ask-actions"><AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} />{aside}</div>
         : <div className="ask-actions">{aside}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span></div>}
-      {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}
+      {steer || (ask.sourceDocId && onOpenRecord) ? (
+        <div className="ask-foot">
+          {steer ? <Act small run={async () => { const t = steerTarget(steer); if (t) await steerAsk(ask.id, t); }} title={`Open ${building}'s goal in the goal tree, with a 1:1 with its manager about this ask beside it`}>Steer</Act> : null}
+          {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}
+        </div>
+      ) : null}
     </article>
   );
 }

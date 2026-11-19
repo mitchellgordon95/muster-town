@@ -127,13 +127,14 @@ export async function docRoutes(app: FastifyInstance) {
    * A 1:1 (docs/waterfall.md §3.4): open it, or return the human's open one with that agent. Body (optional):
    * `agentId` (default the building's manager; a fork or gone author resolves to its manager) and `docId` (a report
    * the human's first line presents) or `grantId` (a grant presented the same way; without `agentId` it reaches its
-   * proposer, else the building's manager).
+   * proposer, else the building's manager), or `askId` (an ask the building filed: the queue's Steer button; the 1:1
+   * follows it as its focus, so the manager reads the ask and its job thread with each of the human's lines).
    */
   app.post<{ Params: Params }>("/api/buildings/:id/one-on-one", async (req) => {
     requireAuth(req);
-    const body = (req.body ?? {}) as { agentId?: unknown; docId?: unknown; grantId?: unknown };
+    const body = (req.body ?? {}) as { agentId?: unknown; docId?: unknown; grantId?: unknown; askId?: unknown };
     const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
-    return { meeting: world.ops.openOneOnOne(actorOf(world, req), req.params.id, { agentId: str(body.agentId), docId: str(body.docId), grantId: str(body.grantId) }) };
+    return { meeting: world.ops.openOneOnOne(actorOf(world, req), req.params.id, { agentId: str(body.agentId), docId: str(body.docId), grantId: str(body.grantId), askId: str(body.askId) }) };
   });
 
   app.get<{ Params: Params }>("/api/meetings/:id", async (req) => ({ meeting: world.meetings.require(req.params.id, "meeting") }));

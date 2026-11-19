@@ -15,7 +15,7 @@ export const canTalkToManager = (buildingId: string | null | undefined) =>
   !!buildingId && store.state.buildings.find((b) => b.id === buildingId)?.kind !== "town-hall" && (canOneOnOne(buildingId) || !!store.state.me?.directBuildingIds?.includes(buildingId));
 
 /** Open (or return to) my 1:1 with the building's manager agent, or with `opts.agentId` about `opts.docId` / `opts.grantId`, in the meeting panel. */
-export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string } = {}): Promise<Meeting> {
+export async function openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; askId?: string } = {}): Promise<Meeting> {
   const m = await api().openOneOnOne(buildingId, opts);
   store.putMeeting(m);
   store.open({ kind: "meeting", id: m.id });
@@ -68,4 +68,25 @@ export function grantTalkTarget(proposedBy: string, buildingId: string, agents: 
   const b = buildings.find((x) => x.id === buildingId);
   const mgr = b?.managerAgentId ? agents[b.managerAgentId] : undefined;
   return talkable(mgr) ? mgr! : null;
+}
+
+/**
+ * Who may press an ask card's Steer (Mitchell, 1:1 mt_mjxwzdhhd7): the building that filed it, when it is not the Town
+ * Hall, has a manager agent and the viewer may talk to it (`canTalkToManager`). Null: no Steer button.
+ */
+export function steerTarget(buildingId: string | null | undefined): { id: string; goalId: string | null } | null {
+  const b = store.state.buildings.find((x) => x.id === buildingId);
+  if (!b || !b.managerAgentId || !canTalkToManager(b.id)) return null;
+  return { id: b.id, goalId: b.goalId ?? null };
+}
+
+/**
+ * Steer from an ask: the goal editor opens on the filing building's goal (its subtree) and the human's 1:1 with that
+ * building's manager opens beside it, about the ask (core createOneOnOne `askId`: the ask and its job thread stay in
+ * the manager's context with each line). Opening the goal editor closes the queue sheet (app.tsx).
+ */
+export async function steerAsk(askId: string, building: { id: string; goalId: string | null }): Promise<Meeting> {
+  // `tab` scopes the tree to the building's subtree (the goal editor's building filter)
+  store.open({ kind: "goals", id: building.goalId ?? undefined, tab: building.id });
+  return openOneOnOne(building.id, { askId });
 }

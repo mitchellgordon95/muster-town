@@ -266,7 +266,8 @@ export function App() {
   const prevQueue = useRef(open);
   useEffect(() => {
     if (open?.kind === "queue") setQueue(true);
-    else if (!open && prevQueue.current?.kind === "queue") setQueue(false);
+    // the goal editor takes the queue's place (an ask card's Steer, a goal link in an item): it would open under the queue
+    else if (open?.kind === "goals" || (!open && prevQueue.current?.kind === "queue")) setQueue(false);
     prevQueue.current = open;
   }, [open]);
   const closeQueue = useCallback(() => { setQueue(false); if (store.state.panel?.kind === "queue") store.open(null); }, []);
@@ -351,7 +352,7 @@ export function App() {
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
-      {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}`}><GoalTreePanel goalId={goals.id} onClose={closeGoals} /></PanelBoundary> : null}
+      {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}:${goals.tab ?? ""}`}><GoalTreePanel goalId={goals.id} building={goals.tab} onClose={closeGoals} /></PanelBoundary> : null}
       {queue && ready ? <PanelBoundary key="queue"><DecisionQueue onClose={closeQueue} /></PanelBoundary> : null}
       {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
       {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
