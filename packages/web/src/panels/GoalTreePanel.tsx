@@ -46,13 +46,13 @@ function useMe(): { userId: string | null; townWide: boolean } {
  * the right (a canvas, GoalCanvas.tsx: root at the top, children in rows beneath). It stays open while a link opens the side panel beside it (a grant, a building, the Planner's 1:1), so
  * Mitchell can talk to the Planner while he edits; its × (or Esc with no side panel open) closes it.
  */
-export function GoalTreePanel({ goalId, onClose }: { goalId?: string; onClose: () => void }) {
+export function GoalTreePanel({ goalId, building, onClose }: { goalId?: string; /** opens filtered to this building's subtree (an ask card's Steer) */ building?: string; onClose: () => void }) {
   // a key result id (a kr_ link in a doc) opens the tree at its goal with that key result highlighted
   const focusKr = goalId?.startsWith("kr_") ? goalId : null;
   const rev = useGoalRev();
   const me = useMe();
   const [retired, setRetired] = useState(false);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState(building ?? "");
   // null until the viewer folds or unfolds a goal: the tree opens folded below the root's children (defaultFolds)
   const [folds, setCollapsed] = useState<ReadonlySet<string> | null>(null);
   const [selected, setSelected] = useState<string>(goalId ?? ROOT_GOAL_ID);

@@ -826,17 +826,27 @@ export class MockApi implements Api {
     if (m.phase === "collecting") this.collectSummaries(m);
     return clone(m);
   }
-  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string } = {}) {
+  async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; askId?: string } = {}) {
     await wait();
     const b = this.need(this.sim.buildings.find((x) => x.id === buildingId), "building");
     const mgr = opts.agentId ? this.sim.agents.get(opts.agentId) : b.managerAgentId ? this.sim.agents.get(b.managerAgentId) : undefined;
     if (!mgr) throw new ApiError(`${b.name} has no manager agent; send a message instead.`, "conflict", 409);
     const open = [...this.sim.meetings.values()].find((m) => m.kind === "one-on-one" && m.facilitatorId === mgr.id && m.phase === "discussing");
-    if (open) return clone(open);
+    // Steer from an ask card (core createOneOnOne askId): the human's first line presents the ask, the 1:1 follows it
+    const ask = opts.askId ? this.askRows.find((a) => a.id === opts.askId) : undefined;
+    const present = (m: Meeting) => {
+      if (!ask || m.transcript.some((u) => u.text.includes(`(${ask.id})`))) return;
+      m.focus = { kind: "ask", id: ask.id, at: now() };
+      m.transcript.push({ speakerId: "us_mitchell", speakerKind: "user", text: `I'd like to talk about ${b.name}'s ask "${ask.title}" (${ask.id}) in my decision queue, on job jb_${ask.targetId ?? b.id} (its thread: GET /api/jobs/jb_${ask.targetId ?? b.id}).`, at: now() });
+      this.sim.putMeeting(m);
+      this.utter(m.id, mgr.id, `I have "${ask.title}" and its thread open. What would you like to change?`, 1200);
+    };
+    if (open) { present(open); return clone(open); }
     const m: Meeting = { id: newId("mt"), focus: null, kind: "one-on-one", buildingId, title: `1:1: Mitchell and ${mgr.name}`, scheduledAt: now(), phase: "discussing", facilitatorId: mgr.id, attendeeIds: [mgr.id], agenda: "", brings: { mode: "nothing", text: "" }, askHumans: false, deck: null, summaries: {}, transcript: [], decisions: [], notesDocId: null, withUserId: "us_mitchell", createdAt: now(), startedAt: now(), endedAt: null };
     this.sim.putMeeting(m);
     this.sim.event("meeting.created", mgr.id, `Mitchell opened a 1:1 with ${mgr.name}`, { meetingId: m.id }, buildingId);
-    this.utter(m.id, mgr.id, "Hi Mitchell. What's on your mind?", 1200);
+    if (ask) present(m);
+    else this.utter(m.id, mgr.id, "Hi Mitchell. What's on your mind?", 1200);
     return clone(m);
   }
   private collectSummaries(m: Meeting) {
