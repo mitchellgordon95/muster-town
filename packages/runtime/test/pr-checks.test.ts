@@ -273,3 +273,121 @@ describe("main's CI (gr_7op2v8fjcl)", () => {
     expect(q.main()).toMatchObject({ state: "green", fixer: null, fixSha: null, fixAssignmentId: null });
   });
 });
+
+/** Merge when green (gr_rlt0ctnhqk, kr_lse9k08ixi): a fake GitHub that also answers GraphQL, the merge and the branch delete. */
+function fakeMergeGitHub() {
+  const gh = {
+    pr: { state: "open", merged: false, merge_commit_sha: null as string | null, mergeable: true as boolean | null, draft: true, title: "Merge when green", node_id: "PR_node179",
+      head: { sha: SHA, ref: "agent/mara-1/merge-when-green", repo: { full_name: "mitchellgordon95/agent-town" } }, base: { ref: "main", repo: { full_name: "mitchellgordon95/agent-town" } } },
+    suites: [{ status: "completed", conclusion: "success", latest_check_runs_count: 1 }],
+    runs: [{ name: "check", status: "completed", conclusion: "success" }] as { name: string; status: string; conclusion: string | null }[],
+    merge: { status: 200, body: { sha: "beefcafe1234567890", merged: true } as unknown },
+    calls: [] as { method: string; path: string; body?: unknown }[],
+  };
+  const fetch = (async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/git/ref/heads/main")) return new Response("{}", { status: 404 });
+    const method = init?.method ?? "GET";
+    const path = url.replace("https://api.github.com/repos/mitchellgordon95/agent-town", "").replace("https://api.github.com", "");
+    gh.calls.push({ method, path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
+    if (path === "/graphql") { gh.pr.draft = false; return new Response(JSON.stringify({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } })); }
+    if (method === "PUT" && path === "/pulls/179/merge") {
+      if (gh.merge.status === 200) Object.assign(gh.pr, { state: "closed", merged: true, merge_commit_sha: "beefcafe1234567890" });
+      return new Response(JSON.stringify(gh.merge.body), { status: gh.merge.status });
+    }
+    if (method === "DELETE") return new Response(null, { status: 204 });
+    const body = path === "/pulls/179" ? gh.pr : path.includes("/check-suites") ? { check_suites: gh.suites } : path.includes("/check-runs") ? { check_runs: gh.runs } : null;
+    return body ? new Response(JSON.stringify(body)) : new Response("{}", { status: 404 });
+  }) as typeof globalThis.fetch;
+  return { gh, fetch };
+}
+
+function worldWithMergeWait() {
+  const world = World.open(":memory:");
+  const seed = world.seedDefaults({ adminName: "T", importDir: new URL("../../../buildings/carbon-cycle", import.meta.url).pathname });
+  world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/mitchellgordon95/agent-town.git" } });
+  const agent = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [seed.lab!.id])!;
+  const a = world.ops.createWork(world.ops.ensureAvatar(seed.admin.id), agent.id, { title: "Merge #179", waitFor: { pr: 179, merge: true } });
+  return { world, a };
+}
+
+describe("merge when green (gr_rlt0ctnhqk)", () => {
+  const repoUrl = () => "https://github.com/mitchellgordon95/agent-town.git";
+  const setup = () => {
+    const { world, a } = worldWithMergeWait();
+    const { gh, fetch } = fakeMergeGitHub();
+    let t = Date.parse("2026-11-19T15:00:00Z");
+    const p = createPrPoller(world, { repoUrl, token: () => "ghs_x", fetch, now: () => new Date(t += 60_000) });
+    world.host.prChecks = (n) => p.get(n);
+    return { world, a, gh, p };
+  };
+
+  it("green and mergeable: marks the draft ready, squash-merges with its title, deletes the branch; the parked work closes as done with no session", async () => {
+    const { world, a, gh, p } = setup();
+    await p.poll();
+    expect(gh.calls.filter((c) => c.method !== "GET")).toEqual([
+      { method: "POST", path: "/graphql", body: { query: expect.stringContaining("markPullRequestReadyForReview"), variables: { id: "PR_node179" } } },
+      { method: "PUT", path: "/pulls/179/merge", body: { merge_method: "squash", commit_title: "Merge when green (#179)", sha: SHA } },
+      { method: "DELETE", path: "/git/refs/heads/agent/mara-1/merge-when-green" },
+    ]);
+    expect(p.get(179)).toMatchObject({ state: "merged", mergeSha: "beefcafe1234567890", mergedBy: "town" });
+    const { merged, unblocked } = checkWaits(world);
+    expect(unblocked).toEqual([]);
+    expect(merged.map((x) => x.id)).toEqual([a.id]);
+    expect(world.assignments.require(a.id).status).toBe("done");
+    // a later read (the PR now closed and merged) keeps saying the town merged it, and does not merge again
+    await p.poll();
+    expect(gh.calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
+  it("red checks: no merge call; the work wakes with the failed check named", async () => {
+    const { world, a, gh, p } = setup();
+    gh.suites = [{ status: "completed", conclusion: "failure", latest_check_runs_count: 1 }];
+    gh.runs = [{ name: "check", status: "completed", conclusion: "failure" }];
+    await p.poll();
+    expect(gh.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
+    expect(world.assignments.require(a.id).description).toContain("PR #179 when this resumed: failed (check)");
+  });
+
+  it("a conflict: green checks but mergeable false wakes the work with the conflict, no merge; mergeable null waits a poll", async () => {
+    const { world, a, gh, p } = setup();
+    gh.pr.mergeable = null;
+    await p.poll();
+    expect(p.get(179)?.state).toBe("pending");
+    expect(checkWaits(world).unblocked).toEqual([]);
+    gh.pr.mergeable = false;
+    await p.poll();
+    expect(gh.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    expect(p.get(179)).toMatchObject({ state: "failed", failed: ["merge conflict with main: merge it into the branch and push"] });
+    expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
+  });
+
+  it("a merge GitHub refuses wakes the work with GitHub's reason; main moving under it retries next poll", async () => {
+    const { world, a, gh, p } = setup();
+    gh.merge = { status: 405, body: { message: "Base branch was modified. Review and try the merge again." } };
+    await p.poll();
+    expect(p.get(179)?.state).toBe("pending");
+    gh.merge = { status: 405, body: { message: "At least 1 approving review is required by reviewers with write access." } };
+    await p.poll();
+    expect(p.get(179)).toMatchObject({ state: "failed", failed: ["merge refused: HTTP 405: At least 1 approving review is required by reviewers with write access."] });
+    expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
+    expect(world.assignments.require(a.id).status).toBe("pending");
+  });
+
+  it("only an agent branch of this repo is merged: a human's branch or a fork's PR wakes the work instead", async () => {
+    const { gh, p } = setup();
+    gh.pr.head.ref = "mitchell/hotfix";
+    await p.poll();
+    expect(p.get(179)).toMatchObject({ state: "failed", failed: [expect.stringContaining("not merged by the town: mitchell/hotfix is not an agent/")] });
+    expect(gh.calls.filter((c) => c.method !== "GET")).toEqual([]);
+  });
+
+  it("a plain {pr} wait still only reads: passed releases it, nothing is merged", async () => {
+    const { world, a, gh, p } = setup();
+    world.assignments.upsert({ ...a, waitFor: { pr: 179 } });
+    await p.poll();
+    expect(p.get(179)?.state).toBe("passed");
+    expect(gh.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
+  });
+});

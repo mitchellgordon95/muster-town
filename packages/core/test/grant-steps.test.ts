@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyDecision, buildingQueue, reviewDeck, createBuilding, createDoc, createResident, forkManager, jobThread, retireFork, updateBuilding } from "../src/index.ts";
+import { applyDecision, buildingQueue, checkWaits, describeWait, reviewDeck, createBuilding, createDoc, createResident, forkManager, jobThread, retireFork, updateBuilding } from "../src/index.ts";
 import { migrate } from "../src/db.ts";
 import { creditBank, renderNeeds, seededWorld } from "./helpers.ts";
 
@@ -34,7 +34,7 @@ function lab() {
     world.grantDesk.propose(null, world.grantDesk.create(null, b.id, { keyResults: [KR], objective: "A banner", approach: "a", steps, stopCondition: "s", askTokens: 500_000, ...over }).id);
   const fund = (over: Partial<{ steps: typeof steps }> = {}) => world.grantDesk.decide(admin, propose(over).id, { action: "fund" });
   /** a fork takes the building's first queued assignment and files its report */
-  const runStep = async (verdict: "continue" | "pivot" | "stop", resumeWhen?: { after: string }) => {
+  const runStep = async (verdict: "continue" | "pivot" | "stop", resumeWhen?: { after: string } | { pr: number; merge?: boolean }) => {
     const a = buildingQueue(world, b.id)[0]!;
     const { fork } = forkManager(world, b.id, a.id);
     world.assignments.patch(a.id, { status: "active" });
@@ -143,6 +143,44 @@ describe("grant B: a step's report queues the next step", () => {
     expect(buildingQueue(world, b.id).map((a) => a.id)).toEqual([cont.id]);
     const resumed = await runStep("continue");
     expect(world.assignments.require(resumed.r.nextStepId!).grantStep).toBe(1);
+  });
+
+  it("merge when green (gr_rlt0ctnhqk): a step parked on {pr, merge} whose PR the town merged closes as done with no session, names the sha on its thread and queues the next step", async () => {
+    const { world, b, fund, runStep } = lab();
+    world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/o/r.git" } });
+    const g = fund();
+    const parked = await runStep("continue", { pr: 179, merge: true });
+    const cont = world.assignments.require(parked.r.nextAssignmentId!);
+    expect(cont.waitFor).toEqual({ pr: 179, merge: true });
+    // green but not merged yet: a merge wait does not release on passed (the poller merges on the same read)
+    world.host.prChecks = () => ({ state: "passed", sha: "a".repeat(40), done: 2, total: 2, checkedAt: "2026-11-19T15:00:00Z" });
+    expect(checkWaits(world)).toMatchObject({ unblocked: [], merged: [] });
+    expect(describeWait(world, cont.waitFor!)).toContain("and the town to merge it");
+    world.host.prChecks = () => ({ state: "merged", sha: "a".repeat(40), mergeSha: "beefcafe1234567890", mergedBy: "town", done: 2, total: 2, checkedAt: "2026-11-19T15:01:00Z" });
+    const { merged, unblocked } = checkWaits(world);
+    expect(unblocked).toEqual([]);
+    expect(merged.map((a) => a.id)).toEqual([cont.id]);
+    expect(world.assignments.require(cont.id)).toMatchObject({ status: "done", waitFor: null });
+    const entry = jobThread(world, g.id)!.entries.find((e) => e.moved.kind === "merged")!;
+    expect(entry).toMatchObject({ note: "merged PR #179 as beefcafe", authorKind: "code", level: "none", assignmentId: cont.id });
+    expect(entry.moved).toMatchObject({ pr: 179, sha: "beefcafe1234567890", by: "town" });
+    // the plan moves on as the step's report would have made it: step 2 is queued, nothing else
+    expect(buildingQueue(world, b.id).map((a) => [a.title, a.grantStep])).toEqual([["Check it live", 1]]);
+    expect(world.sessions.where("assignmentId = ?", [cont.id])).toHaveLength(0);
+  });
+
+  it("a merge wait whose PR failed wakes the work with the reason in its description", async () => {
+    const { world, fund, runStep } = lab();
+    world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/o/r.git" } });
+    fund();
+    const parked = await runStep("continue", { pr: 179, merge: true });
+    world.host.prChecks = () => ({ state: "failed", sha: "a".repeat(40), done: 2, total: 2, failed: ["merge conflict with main: merge it into the branch and push"], checkedAt: "2026-11-19T15:00:00Z" });
+    const { merged, unblocked } = checkWaits(world);
+    expect(merged).toEqual([]);
+    expect(unblocked.map((a) => a.id)).toEqual([parked.r.nextAssignmentId]);
+    const cont = world.assignments.require(parked.r.nextAssignmentId!);
+    expect(cont).toMatchObject({ status: "pending", waitFor: null, grantStep: 0 });
+    expect(cont.description).toContain("PR #179 when this resumed: failed (merge conflict with main: merge it into the branch and push) on aaaaaaaa.");
   });
 });
 
