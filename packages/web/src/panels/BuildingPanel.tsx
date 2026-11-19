@@ -171,7 +171,7 @@ function defaultsLine(b: SnapshotBuilding, repo: Workspace | undefined): ReactNo
 
 /** What a fire creates, in words: its lane and who takes it ("exploration · the building queue (a fork runs it)"). */
 function createsLabel(x: Schedule, b: SnapshotBuilding): ReactNode {
-  const lane = x.lane === "retainer" ? "retainer" : x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? <>exploration{x.keyResultId ? <> <IdLink id={x.keyResultId} /></> : null}</> : "directed";
+  const lane = x.lane === "retainer" ? "retainer" : x.lane === "grant" ? <>grant {x.grantId ? <IdLink id={x.grantId} /> : null}</> : x.lane === "exploration" ? "exploration" : "directed";
   return <>{lane} · {b.managerAgentId ? "the building queue (a fork runs it)" : "nobody (no manager agent)"}</>;
 }
 

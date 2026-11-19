@@ -17,13 +17,13 @@ function setup() {
   const { world, admin } = s;
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   const child = world.goalTree.create(admin, { parentId: world.goalTree.attachmentOf(LAB), text: "Child goal" });
-  const kr = world.keyResults.require(world.grantDesk.create(admin, LAB, { goalId: child.id, keyResults: [{ text: "A thing", howToCheck: "Look", due: "2026-12-31" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+  const kr = world.keyResults.require(world.grantDesk.create(admin, LAB, { goalId: child.id, keyResults: [{ text: "A thing", howToCheck: "Look", due: "2026-12-31" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResults[0]!.id);
   const townKey = world.bank.addInput(admin.ownerUserId!, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-town" } as never);
   const sub = world.bank.addInput(admin.ownerUserId!, { label: "Max plan", source: "subscription", model: "claude-opus-5-5", tokens: 500_000, recurrence: "daily", weeklyCapTokens: 3_500_000, token: TOKEN } as never);
   const donor = world.ops.createUser("Donor").user;
   const earmark = world.bank.addInput(donor.id, { label: "My key", source: "api-key", model: "m", tokens: 800_000, apiKey: "sk-mine", goalId: child.id } as never);
   const asg = createAssignment(world, { agentId: manager.id, title: "Build the thing", description: "d", createdBy: { kind: "system", id: "system" } });
-  world.assignments.patch(asg.id, { keyResultId: kr.id });
+  world.assignments.patch(asg.id, { grantId: kr.grantId });
   const now = new Date();
   const run = (credentialInputId: string | null, output: number, endedAt = now, assignmentId: string | null = asg.id) => {
     const x = world.ops.startSession(manager.id, { purpose: "work", model: "claude-opus-5-5", assignmentId, credentialInputId });
@@ -39,12 +39,12 @@ function setup() {
 const adj = (s: { model: string; output: number }) => adjustedOfUsage(s.model, { output: s.output });
 
 describe("the funder filter (goal tree build step 8): read-only", () => {
-  it("a key donor gets the literal story: the sessions on their key in the window, with assignment and KR", () => {
+  it("a key donor gets the literal story: the sessions on their key in the window, with assignment and grant", () => {
     const { world, donor, earmark, lit, kr, asg, child } = setup();
     const before = { balance: world.bank.balance(), earmark: world.bank.inputBalance(earmark.id), debits: world.events.list({ types: ["bank.debited"] }).length };
     const w = funderWeek(world, donor.id);
     expect(w.literal.sessions.map((l) => l.sessionId)).toEqual([lit.id]);
-    expect(w.literal.sessions[0]).toMatchObject({ assignmentId: asg.id, title: "Build the thing", keyResultId: kr.id, goalId: child.id, inputId: earmark.id, tokens: adj(lit) });
+    expect(w.literal.sessions[0]).toMatchObject({ assignmentId: asg.id, title: "Build the thing", grantId: kr.grantId, goalId: child.id, inputId: earmark.id, tokens: adj(lit) });
     expect(w.literal.tokens).toBe(adj(lit));
     expect(w.streams).toEqual([expect.objectContaining({ inputId: earmark.id, story: "literal", sessions: 1, tokens: adj(lit), goalId: child.id })]);
     expect(w.proRata).toMatchObject({ share: 0, tokens: 0, byAssignment: [] });

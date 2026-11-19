@@ -52,7 +52,7 @@ describe("grant B: funding queues step 1, no kickoff session", () => {
     expect(world.grants.require(g.id).steps).toHaveLength(3);
     const q = buildingQueue(world, b.id);
     expect(q).toHaveLength(1);
-    expect(q[0]).toMatchObject({ title: "Build the banner", queue: "building", agentId: pix.id, lane: "grant", grantId: g.id, keyResultId: g.keyResultId, grantStep: 0, model: "claude-haiku-5-5", pages: [page.id] });
+    expect(q[0]).toMatchObject({ title: "Build the banner", queue: "building", agentId: pix.id, lane: "grant", grantId: g.id, grantStep: 0, model: "claude-haiku-5-5", pages: [page.id] });
     expect(q[0]!.description).toContain("step 1 of 3");
     expect(q[0]!.description).toContain("Ship the banner PR");
     // no kickoff: nothing on the manager's own queue, nothing titled "funded"

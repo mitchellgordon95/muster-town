@@ -86,7 +86,7 @@ describe("manager team-lead session", () => {
     const townRows = () => world.docs.where("authorId = 'system' AND buildingId = ? AND type = 'report'", [lab.id]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
     const draft = world.grantDesk.create(mei, lab.id, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
-    const kr = world.keyResults.require(draft.keyResultId!);
+    const kr = world.keyResults.require(draft.keyResults[0]!.id);
     // a human edits the key result: a record on the thread (the waker's durable rule writes it), nobody is woken
     world.grantDesk.updateKeyResult(admin, kr.id, { text: "Visitors can read the goal at a glance" });
     await settle();

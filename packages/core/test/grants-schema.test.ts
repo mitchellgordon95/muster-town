@@ -51,7 +51,7 @@ describe("goal-directed budgets, step 1 foundation", () => {
       createdAt: now, updatedAt: now,
     } as never);
     world.keyResults.upsert({ id: newId("kr"), position: 0, text: "Banner shows purpose", howToCheck: "Open the lab", grantId: g.id, updatedAt: now } as never);
-    expect(world.grants.require(g.id)).toMatchObject({ keyResultId: null, approach: "", testingPlan: [] });
+    expect(world.grants.require(g.id)).toMatchObject({ approach: "", testingPlan: [] });
     expect(world.grants.require(g.id).history[0].action).toBe("propose");
     expect(world.keyResults.where("grantId = ?", [g.id])[0].status).toBe("open");
     expect(b.blockedAt).toBeNull();
@@ -156,5 +156,25 @@ describe("migration 032: key results move onto the building goal", () => {
     expect(db.prepare("SELECT id, keyResultId, gap FROM assignments ORDER BY id").all()).toEqual([
       { id: "as_e", keyResultId: null, gap: "Nobody works on it" }, { id: "as_g", keyResultId: "kr_named", gap: null },
     ]);
+  });
+
+  it("migration 126: grants route by goalId; keyResultId leaves grants, assignments and schedules (gr_h4m0lyhb1f step 3)", () => {
+    const dir = tempDir(), migrations = join(dir, "migrations");
+    mkdirSync(migrations);
+    const all = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+    for (const f of readdirSync(all).filter((f) => f.endsWith(".sql") && Number(f.slice(0, 3)) <= 125)) copyFileSync(join(all, f), join(migrations, f));
+    const db = new Database(":memory:");
+    migrate(db, migrations);
+    const now = "2026-11-19T00:00:00.000Z";
+    db.prepare("INSERT INTO key_results (id, position, text, howToCheck, status, goalId, grantId, updatedAt) VALUES ('kr_a', 0, 't', 'h', 'open', 'gl_kr', 'gr_old', ?)").run(now);
+    const grant = db.prepare("INSERT INTO grants (id, buildingId, goalId, keyResultId, objective, stopCondition, askTokens, status, testingPlan, proposedBy, createdAt, updatedAt) VALUES (?, 'bl_a', ?, ?, 'o', 's', 1000, 'funded', '[]', 'ag_x', ?, ?)");
+    grant.run("gr_old", null, "kr_a", now, now);
+    grant.run("gr_new", "gl_mine", "kr_a", now, now);
+    copyFileSync(join(all, "126_grants_route_by_goal.sql"), join(migrations, "126_grants_route_by_goal.sql"));
+    migrate(db, migrations);
+    // a grant with no goal takes its old first key result's; one with a goal keeps it
+    expect(db.prepare("SELECT id, goalId FROM grants ORDER BY id").all()).toEqual([{ id: "gr_new", goalId: "gl_mine" }, { id: "gr_old", goalId: "gl_kr" }]);
+    const cols = (t: string) => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name);
+    for (const t of ["grants", "assignments", "schedules"]) expect(cols(t)).not.toContain("keyResultId");
   });
 });

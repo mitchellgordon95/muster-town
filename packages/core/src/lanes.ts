@@ -9,8 +9,8 @@ import { retainerHold } from "./retainers.ts";
 import type { World } from "./world.ts";
 
 /** The lane part of an assignment. */
-export type Lane = Pick<Assignment, "lane" | "grantId" | "keyResultId" | "gap" | "sourceId">;
-export const DIRECTED: Lane = { lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null };
+export type Lane = Pick<Assignment, "lane" | "grantId" | "gap" | "sourceId">;
+export const DIRECTED: Lane = { lane: "directed", grantId: null, gap: null, sourceId: null };
 
 /** Every lab is lane-gated (grants, exploration, directed work with a human source); the Town Hall never is. */
 export const laneGated = (b: Building | undefined) => !!b && b.kind !== "town-hall";
@@ -58,7 +58,7 @@ function humanSource(world: World, sourceId: string, buildingId: string): string
 
 /**
  * The lane of a new assignment (docs/goal-directed-budgets.md, three spend lanes). Given fields are validated:
- * exploration names a goal gap; grant names a grant of the building (its first key result is stored on the assignment).
+ * exploration names a goal gap; grant names a grant of the building.
  * Key results belong to grants (docs/how-work-gets-done.md §4), so exploration and directed work name none. No
  * fields: a continuation (`from`) inherits its lane, anything else is directed. In a goal-directed building an agent
  * creates directed work only when it cites a human source (`sourceId`, 1:1 mt_ryw7ejayvu). Meeting decisions stay
@@ -69,7 +69,7 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
   const building = world.buildings.get(buildingId);
   const gap = input?.gap?.trim() || null;
   const lane = input?.lane ?? (input?.grantId ? "grant" : gap ? "exploration" : input?.sourceId ? "directed" : undefined);
-  if (!lane && opts.from) return { lane: opts.from.lane, grantId: opts.from.grantId, keyResultId: opts.from.keyResultId, gap: opts.from.gap, sourceId: opts.from.sourceId ?? null };
+  if (!lane && opts.from) return { lane: opts.from.lane, grantId: opts.from.grantId, gap: opts.from.gap, sourceId: opts.from.sourceId ?? null };
   if (!lane || lane === "directed") {
     // a meeting's decision records the meeting as its source only when a human in it may direct work here
     const meetingSource = opts.humanMeetingId && meetingDirector(world, world.meetings.require(opts.humanMeetingId, "meeting"), buildingId) ? opts.humanMeetingId : null;
@@ -83,17 +83,17 @@ export function resolveLane(world: World, buildingId: string, createdBy: Holder 
     // a schedule's run (schedules.ts fireSchedules): the system creates it with sourceId = the schedule
     const sc = input?.sourceId ? world.schedules.get(input.sourceId) : undefined;
     if (createdBy.kind !== "system" || !sc || sc.buildingId !== buildingId) throw badRequest("Lane retainer belongs to a schedule's runs: put the recurring job on the building's schedule (`schedule` with tokensPerRun) and a human approves its retainer.");
-    return { lane, grantId: null, keyResultId: null, gap, sourceId: sc.id };
+    return { lane, grantId: null, gap, sourceId: sc.id };
   }
   if (lane === "exploration") {
     if (!gap) throw badRequest("An exploration assignment names a goal gap (gap: one sentence on what is missing between the goal and the live town).");
-    return { lane, grantId: null, keyResultId: null, gap, sourceId: null };
+    return { lane, grantId: null, gap, sourceId: null };
   }
   if (!input?.grantId) throw badRequest("A grant assignment names its grant (grantId); the grant's key results are implied.");
   const g = world.grants.get(input.grantId);
   if (!g || g.buildingId !== buildingId) throw badRequest(`Grant ${input.grantId} is not one of this building's grants.`);
   if (g.status === "closed" || g.status === "rejected" || g.status === "draft" || g.status === "stopping") throw badRequest(`Grant ${g.id} is ${g.status}: work can't be charged to it.`);
-  return { lane, grantId: g.id, keyResultId: g.keyResultId, gap, sourceId: null };
+  return { lane, grantId: g.id, gap, sourceId: null };
 }
 
 /**

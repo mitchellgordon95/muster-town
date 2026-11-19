@@ -93,14 +93,14 @@ export class MockApi implements Api {
   private schedules = new Map<string, ScheduleView>([["sc_nightly", {
     id: "sc_nightly", buildingId: "bl_carbon", title: "Nightly: check the live rollup", description: "Read the latest rollup and check its numbers against the live town.",
     nextRunAt: new Date(Date.now() + 3 * 3600_000).toISOString(), everyMinutes: null, dailyAt: ["08:00", "20:00"], endsAt: new Date(Date.now() + 14 * 86400_000).toISOString(), maxRuns: null, paused: false,
-    lane: "exploration", grantId: null, keyResultId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
+    lane: "exploration", grantId: null, gap: "rollup numbers drift from the live town", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 2, createdBy: "ag_moss", createdByKind: "agent",
     tokensPerRun: 0, retainer: "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, takerId: null, runsLeft: 27, askTokens: 0, drawnTokens: 0, claimTokens: 0,
     createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }], ["sc_weekly", {
     id: "sc_weekly", buildingId: "bl_carbon", title: "Every 6 h: refresh the emissions source cards", description: "Re-check the Global Carbon Budget source cards for new releases.",
     nextRunAt: new Date(Date.now() + 5 * 3600_000).toISOString(), everyMinutes: 360, dailyAt: null, endsAt: new Date(Date.now() + 7 * 86400_000).toISOString(), maxRuns: null, paused: true,
-    lane: "retainer", grantId: null, keyResultId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
+    lane: "retainer", grantId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0, createdBy: "ag_moss", createdByKind: "agent",
     // a retainer ask (1:1 mt_cyd2t5ioob decision 2): the Town Hall in-tray's "Retainers for scheduled jobs" row and deck slide
     tokensPerRun: 3_000, retainer: "asked", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, takerId: null, runsLeft: 28, askTokens: 84_000, drawnTokens: 0, claimTokens: 0, buildingName: "Carbon Cycle Lab",
@@ -281,18 +281,18 @@ export class MockApi implements Api {
     await wait();
     const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
     const now = Date.now();
-    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byKeyResult: [], results: [], visitors: 0 };
+    return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byGrant: [], results: [], visitors: 0 };
   }
   async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
     await wait();
     const now = Date.now(), at = (h: number) => new Date(now - h * 3_600_000).toISOString();
     const mine = this.bankInputs.filter((i) => !i.cancelledAt || i.goalId);
     const key = mine.find((i) => i.source === "api-key");
-    const line = (h: number, tokens: number, title: string, building: string, kr: string | null): FunderWeek["literal"]["sessions"][number] => ({
+    const line = (h: number, tokens: number, title: string, building: string, grant: string | null): FunderWeek["literal"]["sessions"][number] => ({
       sessionId: `se_toy${h}`, at: at(h), purpose: "work", tokens, assignmentId: `as_toy${h}`, title, buildingId: building, buildingName: this.sim.buildings.find((b) => b.id === building)?.name ?? building,
-      goalId: key?.goalId ?? "gl_town", keyResultId: kr, keyResultText: kr ? "Visitors finish a first task" : null, reportId: null, reportTitle: null, inputId: key?.id ?? null,
+      goalId: key?.goalId ?? "gl_town", grantId: grant, grantName: grant ? "Visitors finish a first task" : null, reportId: null, reportTitle: null, inputId: key?.id ?? null,
     });
-    const literal = key ? [line(3, 84_000, "Draft the starter brief", this.sim.buildings[0]?.id ?? "workshop", "kr_toy"), line(27, 51_000, "Check the brief live", this.sim.buildings[0]?.id ?? "workshop", "kr_toy")] : [];
+    const literal = key ? [line(3, 84_000, "Draft the starter brief", this.sim.buildings[0]?.id ?? "workshop", "gr_toy"), line(27, 51_000, "Check the brief live", this.sim.buildings[0]?.id ?? "workshop", "gr_toy")] : [];
     const week: FunderWeek = {
       userId, userName: "Mitchell", days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(),
       streams: mine.map((i) => ({ inputId: i.id, label: i.label, source: i.source, story: i.source === "api-key" ? "literal" : "pro-rata", goalId: i.goalId ?? null, goalPath: i.goalId ?? null, balance: i.creditedTokens, cancelledAt: i.cancelledAt, creditedTokens: i.source === "subscription" ? 3_500_000 : 0, sessions: i === key ? literal.length : 0, tokens: i === key ? 135_000 : 0 })),
@@ -521,7 +521,7 @@ export class MockApi implements Api {
     const agent = this.sim.agents.get(a.agentId);
     const live = agent?.status === "working" && agent.currentAssignmentId === a.id;
     return {
-      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId,
+      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, gap: a.gap, sourceId: a.sourceId,
       agentId: a.agentId, agentName: agent?.name ?? null, buildingId: a.buildingId, buildingName: this.sim.buildings.find((b) => b.id === a.buildingId)?.name ?? null,
       reportId: a.reportId, fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.fromAssignmentId, chainId: a.chainId,
       heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt,

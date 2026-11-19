@@ -24,7 +24,7 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
   const add = (id: string, item: Parameters<World["goalTree"]["route"]>[0], canDecide: boolean) => {
     const r = world.goalTree.route(item);
     routes[id] = {
-      goalId: r.goalId, ownerId: r.userId, ownerName: world.users.get(r.userId)?.name ?? r.userId,
+      goalId: r.goalId, goalText: world.goals.get(r.goalId)?.text ?? undefined, ownerId: r.userId, ownerName: world.users.get(r.userId)?.name ?? r.userId,
       mine: !!userId && r.userId === userId, canDecide,
     };
   };

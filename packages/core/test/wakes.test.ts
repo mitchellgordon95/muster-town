@@ -13,7 +13,7 @@ function setup() {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   world.buildings.patch(LAB, { managerAgentId: manager.id });
   const g = world.grantDesk.create(manager, LAB, { keyResults: [{ text: "Visitors can read the goal", howToCheck: "Open the board" }], objective: "Goal on the board", approach: "a line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two tries", askTokens: 10_000_000 });
-  const kr = world.keyResults.require(g.keyResultId!);
+  const kr = world.keyResults.require(g.keyResults[0]!.id);
   const funded = world.grantDesk.decide(admin, world.grantDesk.propose(manager, g.id).id, { action: "fund", tokens: 10_000_000 });
   world.grants.patch(funded.id, { status: "checkpoint", checkpointsDone: [0.5] });
   const last = (type: string): Event => world.events.list({ buildingId: LAB, types: [type as never], limit: 1000 }).at(-1)!;

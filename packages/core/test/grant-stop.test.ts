@@ -51,7 +51,7 @@ describe("Grants.stop (gr_8i952perny)", () => {
     const fork = world.agents.upsert({ ...manager, id: newId("ag"), name: `${manager.name} 1`, forkOf: manager.id, forkN: 1, status: "working" });
     const running = session(fork.id, g.id, "running");
     session(manager.id, g.id, "done", 30_000);
-    const queued = createAssignment(world, { agentId: manager.id, title: "Step 2", description: "Do it.", createdBy: { kind: "system", id: "system" }, laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null } });
+    const queued = createAssignment(world, { agentId: manager.id, title: "Step 2", description: "Do it.", createdBy: { kind: "system", id: "system" }, laneOverride: { lane: "grant", grantId: g.id, gap: null, sourceId: null } });
     const before = free();
 
     const out = world.grantDesk.stop(admin, g.id, { reason: "the plan is wrong" });

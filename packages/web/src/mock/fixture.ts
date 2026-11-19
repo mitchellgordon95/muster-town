@@ -143,14 +143,14 @@ export const docs: Doc[] = [
   { ...docBase, id: "dc_proposed", type: "article", state: "library", title: "Why 350 ppm needs net-negative emissions", authorId: "ag_ingrid", buildingId: "bl_carbon", body: "# Why 350 ppm needs net-negative emissions\n\nEven at zero emissions the ocean and land sinks keep drawing CO2 down, but too slowly: reaching 350 ppm by 2100 needs roughly 200 GtC of net removal.", createdAt: ago(900), updatedAt: ago(800) },
 ];
 
-const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null, grantStep: null };
+const asgBase = { createdBy: "us_mitchell", createdByKind: "user" as const, fromMeetingId: null, fromReportId: null, fromAssignmentId: null, reportId: null, lane: "directed" as const, grantId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent" as const, model: null, reservationId: null, grantStep: null };
 const asg = (a: Omit<Assignment, keyof typeof asgBase | "position"> & Partial<Assignment>): Assignment => ({ ...asgBase, position: Date.parse(a.createdAt), ...a });
 const grantBase = { outcome: null, findingsDocIds: [] as string[], checkpointsDone: [] as number[], checkpointDocId: null as string | null, fundedBy: null as string | null, fundedWith: null as string | null, fundedAt: null as string | null, closedAt: null, spentTokens: 0, approach: "", picture: null as string | null, whatYoudSee: "", estimate: null as GrantView["estimate"], topUpTokens: null as number | null, whatTopUpBuys: "", continues: null as string | null, steps: [] as GrantView["steps"] };
-type Kr = NonNullable<GrantView["keyResult"]>;
+type Kr = GrantView["keyResults"][number];
 const kr = (buildingId: string, position: number, text: string, howToCheck: string, status: Kr["status"] = "open"): Kr =>
   ({ id: `kr_${buildingId}_${position}`, position, text, howToCheck, status, statusNote: "", statusBy: null, createdBy: "us_mitchell", editedBy: null, sourceDocIds: [], goalId: "gl_town", grantId: null, due: null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: ago(30) });
-/** A grant carries its own key results (docs/how-work-gets-done.md §4); the first is its keyResultId. */
-const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResultId: k.id, keyResult: k, keyResults: [k, ...rest], testingPlan: [] });
+/** A grant carries its own key results (docs/how-work-gets-done.md §4) and sits in the tree by its goalId. */
+const plan = (k: Kr, ...rest: Kr[]) => ({ goalId: "gl_town", keyResults: [k, ...rest], testingPlan: [] });
 /** Grants waiting for a human (Town Hall in-tray): a proposal and a checkpoint. */
 export const grants: GrantView[] = [
   {
@@ -252,7 +252,7 @@ export const grants: GrantView[] = [
  * Workshop key result with no grant yet (open for exploration). The Carbon Cycle Lab is open, so its are informational.
  */
 export const keyResults: Kr[] = [
-  ...grants.flatMap((g) => (g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [])).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
+  ...grants.flatMap((g) => g.keyResults).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i),
   kr("bl_workshop", 3, "A redeploy loses nothing: parked sessions resume once and meetings continue", "Redeploy during a meeting and a work session; both continue, nothing runs twice"),
 ];
 

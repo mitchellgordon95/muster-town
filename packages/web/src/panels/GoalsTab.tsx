@@ -27,11 +27,11 @@ const openTab = (id: string, tab: "Goals" | "Grants") => store.open({ kind: "bui
 export function GoalTabsSummary({ b }: { b: SnapshotBuilding }) {
   const { tree, grants } = useGoalData(b.id);
   const g = grants.data ?? [];
-  const krIds = tree.data ? new Set(tree.data.keyResults.map((k) => k.id)) : undefined;
+  const goalIds = tree.data ? new Set([...(b.goalId ? [b.goalId] : []), ...tree.data.keyResults.flatMap((k) => k.goalId ? [k.goalId] : [])]) : undefined;
   return (
     <div className="goal-tabs-summary">
       <button className="link" onClick={() => openTab(b.id, "Goals")}><b>Goals:</b> {tree.data ? goalsSummary(tree.data.keyResults, g) : "…"} →</button>
-      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(g, krIds) : "…"} →</button>
+      <button className="link" onClick={() => openTab(b.id, "Grants")}><b>Grants:</b> {grants.data ? grantsSummary(g, goalIds) : "…"} →</button>
     </div>
   );
 }
@@ -52,7 +52,7 @@ export function GoalsTab({ b }: { b: SnapshotBuilding }) {
   const all = tree.data?.keyResults ?? [];
   const num = new Map(all.map((k, i) => [k.id, i + 1]));
   const g = grants.data ?? [];
-  const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k.id, g)} />;
+  const row = (k: GoalKeyResult) => <GoalRow key={k.id} n={num.get(k.id)!} kr={k} word={krGrantWord(k, g)} />;
   // met and missed key results are the record: they fold to their count under the open ones (gr_zak30564zh step 5)
   const isOpen = (k: GoalKeyResult) => !isJudgedKr(k.status);
   const judged = all.filter((k) => !isOpen(k));
@@ -179,7 +179,7 @@ function GrantTabRow({ g, steps }: { g: GrantView; steps: SpendNode[] }) {
           <span className="muted">{grantSpendLine(g)}</span>
         </div>
       ) : <div className="muted">{grantStatusLine(g)}</div>}
-      <div className="muted">{g.keyResult ? <>Key result: {clipText(g.keyResult.text, 48).head} · {krStatusLabel(g.keyResult.status)}</> : "Names no key result"}</div>
+      <div className="muted">{g.keyResults.length ? <>{g.keyResults.length === 1 ? "Key result" : `${g.keyResults.length} key results`}: {clipText(g.keyResults[0]!.text, 48).head} · {krStatusLabel(g.keyResults[0]!.status)}</> : "No key results"}</div>
       {/* the steps as one line; each session is listed on the grant's page (gr_zak30564zh step 4: one control per row) */}
       {steps.length ? <div className="muted" title={steps.map((s) => `${s.name} · ${fmtTokens(s.tokens)} ${ADJ}`).join("\n")}>{steps.length} step{steps.length === 1 ? "" : "s"}{live ? "" : ` · ${fmtTokens(steps.reduce((t, s) => t + s.tokens, 0))} ${ADJ}`} · {steps.reduce((t, s) => t + s.sessions, 0)} sessions</div>
         : live ? <div className="muted">No step sessions yet.</div> : null}

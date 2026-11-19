@@ -75,12 +75,12 @@ function GoalSpendView({ goalId }: { goalId: string }) {
             <tr key={b.id}><td><button className="link" onClick={() => store.open({ kind: "building", id: b.id })}>{b.name}</button></td><td>{fmtTokens(b.tokens)}</td><td>{b.sessions}</td><td className="muted">{laneLine(b.byLane)}</td></tr>
           ))}</tbody>
         </table>
-        {d.byKeyResult.length ? (
+        {d.byGrant.length ? (
           <table className="goal-spend-table">
-            <thead><tr><th>Key result</th><th>Spent</th><th>Sessions</th></tr></thead>
-            <tbody>{d.byKeyResult.map((k) => <tr key={k.id}><td>{k.text} <span className="muted">· {k.status.replace(/-/g, " ")}</span></td><td>{fmtTokens(k.tokens)}</td><td>{k.sessions}</td></tr>)}</tbody>
+            <thead><tr><th>Grant</th><th>Spent</th><th>Sessions</th></tr></thead>
+            <tbody>{d.byGrant.map((g) => <tr key={g.id}><td><button className="link" onClick={() => store.open({ kind: "grant", id: g.id })}>{g.title}</button> <span className="muted">· {g.status}</span></td><td>{fmtTokens(g.tokens)}</td><td>{g.sessions}</td></tr>)}</tbody>
           </table>
-        ) : <div className="muted">No session in this window named a key result (grant or exploration).</div>}
+        ) : <div className="muted">No session in this window ran on a grant.</div>}
       </>}
       {d?.results.length ? (
         <div className="goal-spend-results">

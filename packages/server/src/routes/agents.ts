@@ -210,7 +210,7 @@ export async function agentRoutes(app: FastifyInstance) {
       return { id: v.id, status: v.status, startedAt: v.startedAt, endedAt: v.endedAt, adjustedOutputTokens: v.adjustedOutputTokens, turns: v.turns, reportId: v.reportId };
     });
     return { assignment: {
-      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId,
+      id: a.id, title: a.title, description: a.description, status: a.status, lane: a.lane, grantId: a.grantId, gap: a.gap, sourceId: a.sourceId,
       agentId: a.agentId, agentName: world.agents.get(a.agentId)?.name ?? null, buildingId: a.buildingId, buildingName: world.buildings.get(a.buildingId)?.name ?? null,
       reportId: a.reportId, fromReportId: a.fromReportId, fromMeetingId: a.fromMeetingId, fromAssignmentId: a.fromAssignmentId, chainId: a.chainId,
       heldReason: a.heldReason, createdAt: a.createdAt, updatedAt: a.updatedAt, sessions,

@@ -17,13 +17,10 @@ const DAYS_PER: Record<BankInput["recurrence"], number | null> = { once: null, d
 export class Streams {
   constructor(private world: World) {}
 
-  /** The goal a session's work sits on, the same attribution as the Bank's Spend by goal: its grant's goal (or key result's), else its building's attachment. */
-  nodeOf(a: Pick<Assignment, "buildingId" | "grantId" | "keyResultId"> | null | undefined, buildingId: string): string {
+  /** The goal a session's work sits on, the same attribution as the Bank's Spend by goal: its grant's goal, else its building's attachment. */
+  nodeOf(a: Pick<Assignment, "buildingId" | "grantId"> | null | undefined, buildingId: string): string {
     const grant = a?.grantId ? this.world.grants.get(a.grantId) : undefined;
     if (grant?.goalId && this.world.goalTree.get(grant.goalId)) return grant.goalId;
-    const krId = grant?.keyResultId ?? a?.keyResultId ?? null;
-    const kr = krId ? this.world.keyResults.get(krId) : undefined;
-    if (kr?.goalId && this.world.goalTree.get(kr.goalId)) return kr.goalId;
     return this.world.goalTree.attachmentOf(a?.buildingId ?? buildingId);
   }
 
@@ -31,7 +28,7 @@ export class Streams {
    * The earmark a session on `a` runs on: walking up from its node, the first goal with a live keyed earmark whose
    * balance covers the building's expected session (oldest earmark first at that goal); null = the general balance.
    */
-  pick(a: Pick<Assignment, "buildingId" | "grantId" | "keyResultId"> | null | undefined, buildingId: string, now = new Date()): BankInput | null {
+  pick(a: Pick<Assignment, "buildingId" | "grantId"> | null | undefined, buildingId: string, now = new Date()): BankInput | null {
     const bank = this.world.bank;
     const need = bank.expectedSession(buildingId, now).tokens;
     for (const g of this.world.goalTree.ancestors(this.nodeOf(a, buildingId))) {

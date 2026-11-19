@@ -16,7 +16,7 @@ export function queueLane(world: World, buildingId: string, now = new Date()): Q
   const b = world.buildings.require(buildingId, "building");
   const since = new Date(now.getTime() - QUEUE_DONE_MS).toISOString();
   const card = (a: Assignment, extra: Partial<QueueCard> = {}): QueueCard => ({
-    id: a.id, title: a.title, lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, agentId: a.agentId,
+    id: a.id, title: a.title, lane: a.lane, grantId: a.grantId, agentId: a.agentId,
     // building-queue work waiting for a fork names no one yet
     agentName: a.queue === "building" && a.status === "pending" ? "next free desk" : world.nameOf(a.agentId),
     status: a.status, createdAt: a.createdAt, updatedAt: a.updatedAt, heldReason: null, tokens: null, reportId: a.reportId, ...extra,

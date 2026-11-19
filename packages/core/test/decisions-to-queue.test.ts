@@ -88,7 +88,7 @@ describe("decisions naming a forking manager go to the building queue", () => {
 
   it("createAssignment routes by building: work naming a forking manager goes on its building queue, whoever names it", () => {
     const { world, b, pix, ann } = lab();
-    const lane = { lane: "directed" as const, grantId: null, keyResultId: null, gap: null, sourceId: null };
+    const lane = { lane: "directed" as const, grantId: null, gap: null, sourceId: null };
     const by = { kind: "system" as const, id: "system" };
     // any caller (a wake, a human's assign or POST /work, a schedule takerId, a retry) names the manager: a fork runs it
     expect(createAssignment(world, { agentId: pix.id, createdBy: by, laneOverride: lane, title: "Message from Mitchell", description: "d" }).queue).toBe("building");

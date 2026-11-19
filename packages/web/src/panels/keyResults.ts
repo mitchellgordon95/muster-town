@@ -43,8 +43,8 @@ export function blockedLabel(b: { kind: string; blockedAt?: string | null }): st
 }
 
 /** Why a proposal can't be funded yet (it carries no key results), or null when it can. */
-export function unfundableReason(g: Pick<GrantView, "status" | "keyResult">): string | null {
-  return g.status === "proposed" && !g.keyResult ? "It carries no key results, so it can't be funded: counter it so the manager adds them." : null;
+export function unfundableReason(g: Pick<GrantView, "status" | "keyResults">): string | null {
+  return g.status === "proposed" && !g.keyResults.length ? "It carries no key results, so it can't be funded: counter it so the manager adds them." : null;
 }
 
 /** "Written by Pix, edited by Mitchell" for a goal key result (a manager writes its own building's too); null when unknown (older ones). */
@@ -56,20 +56,20 @@ export function krAuthorLine(k: { createdByName?: string | null; editedByName?: 
 
 // ---------- the building panel's Goals and Grants tabs ----------
 
-/** A key result's grant state in one word: a live (funded or checkpoint) grant names it, an open proposal does, or neither. */
+/** A key result's grant state in one word, read from its one parent (`grantId`): its grant is live (funded or checkpoint), an open proposal, or neither. */
 export type KrGrantWord = "funded" | "proposed" | "open";
 const LIVE = new Set<GrantView["status"]>(["funded", "checkpoint"]);
 const OPEN_PROPOSAL = new Set<GrantView["status"]>(["proposed", "countered"]);
-export function krGrantWord(krId: string, grants: Pick<GrantView, "keyResultId" | "status">[]): KrGrantWord {
-  const mine = grants.filter((g) => g.keyResultId === krId);
-  return mine.some((g) => LIVE.has(g.status)) ? "funded" : mine.some((g) => OPEN_PROPOSAL.has(g.status)) ? "proposed" : "open";
+export function krGrantWord(kr: Pick<KeyResult, "grantId">, grants: Pick<GrantView, "id" | "status">[]): KrGrantWord {
+  const g = kr.grantId ? grants.find((x) => x.id === kr.grantId) : undefined;
+  return g && LIVE.has(g.status) ? "funded" : g && OPEN_PROPOSAL.has(g.status) ? "proposed" : "open";
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The Overview's Goals line: "5 key results, 2 funded". */
-export function goalsSummary(krs: Pick<KeyResult, "id">[], grants: Pick<GrantView, "keyResultId" | "status">[]): string {
-  const funded = krs.filter((k) => krGrantWord(k.id, grants) === "funded").length;
+export function goalsSummary(krs: Pick<KeyResult, "grantId">[], grants: Pick<GrantView, "id" | "status">[]): string {
+  const funded = krs.filter((k) => krGrantWord(k, grants) === "funded").length;
   return `${plural(krs.length, "key result")}, ${funded} funded`;
 }
 
@@ -84,14 +84,13 @@ export function grantGroups<G extends Pick<GrantView, "status" | "createdAt" | "
 }
 
 /**
- * The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. Given the goal's key
- * result ids (`krIds`), funded grants on key results outside them (named before the building moved to its goal) are
- * called out, so the line can't read as contradicting the Goals line's "n funded" (which counts only the goal's own).
+ * The Overview's Grants line: "1 proposal, 3 funded", plus ", 2 closed or held" when there are any. Given the goal ids of
+ * the building's subtree (`goalIds`), funded grants filed on a goal outside it are called out by their goalId.
  */
-export function grantsSummary(grants: Pick<GrantView, "keyResultId" | "status" | "createdAt" | "updatedAt" | "fundedAt">[], krIds?: ReadonlySet<string>): string {
+export function grantsSummary(grants: Pick<GrantView, "goalId" | "status" | "createdAt" | "updatedAt" | "fundedAt">[], goalIds?: ReadonlySet<string>): string {
   const { proposals, funded, settled } = grantGroups(grants);
-  const outside = krIds ? funded.filter((g) => !(g.keyResultId && krIds.has(g.keyResultId))).length : 0;
-  const where = outside ? ` (${outside === 1 ? `${funded.length === 1 ? "" : "1 "}on a key result` : `${outside === funded.length ? "all" : outside} on key results`} outside this goal)` : "";
+  const outside = goalIds ? funded.filter((g) => !(g.goalId && goalIds.has(g.goalId))).length : 0;
+  const where = outside ? ` (${outside === 1 ? `${funded.length === 1 ? "" : "1 "}on a goal` : `${outside === funded.length ? "all" : outside} on goals`} outside this goal)` : "";
   return `${plural(proposals.length, "proposal")}, ${funded.length} funded${where}${settled.length ? `, ${settled.length} closed or held` : ""}`;
 }
 
