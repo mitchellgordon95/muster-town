@@ -5,7 +5,7 @@
  * tokens. Hovering (or focusing) a day shows its numbers; the ✓ line under it is `dailyCheck`; a table view sits below.
  */
 import { useState } from "react";
-import type { Finance, FinanceDaily } from "../api";
+import type { Finance, FinanceDaily, SplitWindow } from "../api";
 
 /** Fixed categorical order (dark steps of the dataviz palette); "Other" is neutral gray. Colour follows the building's slot, not its day's rank. */
 const SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500"];
@@ -27,6 +27,57 @@ export function daySegments(row: FinanceDaily["rows"][number], stacks: DailyStac
   const named = new Set(stacks.map((s) => s.key));
   const other = Object.entries(row.byBuilding).filter(([id]) => !named.has(id)).reduce((s, [, t]) => s + t, 0);
   return stacks.map((s) => ({ key: s.key, tokens: s.key === "other" ? other : row.byBuilding[s.key] ?? 0 }));
+}
+
+/** Work versus coordination (gr_3ougmyubdm): the bars' second view and its colours. Work is the accent blue, coordination orange. */
+const SPLIT_STACKS: DailyStack[] = [
+  { key: "work", name: "Work (grants, requests, exploration, retainers)", color: "#3987e5" },
+  { key: "coordination", name: "Coordination (manager and Secretary wakes)", color: "#d95926" },
+  { key: "other", name: "Other (reviews, meetings, summaries)", color: OTHER },
+];
+
+/**
+ * One day's bar split into work, coordination and other. The bar is the day's Bank debits (`used`); the split is that
+ * day's session spend by lane (`byLane`), so each part is `used` × its lane share. The parts sum to `used` exactly
+ * (other takes the rounding). A day with no session spend is all other.
+ */
+export function splitSegments(row: FinanceDaily["rows"][number]): { key: string; tokens: number }[] {
+  const l = row.byLane;
+  const work = l ? l.grant + l.exploration + l.directed + l.retainer : 0, coord = l ? l.manager : 0;
+  const total = l ? work + coord + l.other : 0;
+  const w = total > 0 ? Math.round((row.used * work) / total) : 0, c = total > 0 ? Math.round((row.used * coord) / total) : 0;
+  return [{ key: "work", tokens: w }, { key: "coordination", tokens: c }, { key: "other", tokens: row.used - w - c }];
+}
+
+const pct = (share: number) => `${Math.round(share * 100)}%`;
+
+/** The sentence under the chart (kr_6fwxvjormh): "Last 7 days: X adj. tokens; A% bought work (…), B% went to managers and the Secretary coordinating". */
+export function splitSentence(w: SplitWindow): string {
+  const head = `Last ${w.days} days: ${n(Math.round(w.total.tokens))} adj. tokens; ${pct(w.work.share)} bought work (grants, requests, exploration, retainers), ${pct(w.coordination.share)} went to managers and the Secretary coordinating`;
+  return w.other.tokens > 0 ? `${head}; ${pct(w.other.share)} other (reviews, meetings, summaries).` : `${head}.`;
+}
+
+/** The ✓ line under the sentences: `split.check`. */
+export function splitCheckLine(f: Pick<Finance, "split">): { ok: boolean; text: string } | null {
+  const s = f.split;
+  if (!s) return null;
+  const sum = (w: SplitWindow) => `${n(Math.round(w.work.tokens))} + ${n(Math.round(w.coordination.tokens))} + ${n(Math.round(w.other.tokens))} = ${n(Math.round(w.total.tokens))}`;
+  const text = `7 days: ${sum(s.d7)}; 30 days: ${sum(s.d30)}. Work + coordination + other = the sessions' total, which equals the chart's daily session spend`;
+  return s.check.ok ? { ok: true, text } : { ok: false, text: `${text}: off by ${n(s.check.diff)} (sessions), ${n(s.check.dailyDiff)} (daily rows)` };
+}
+
+/** The two sentences and their ✓ line, under the chart. */
+function SplitSummary({ f }: { f: Finance }) {
+  const s = f.split;
+  if (!s) return null;
+  const check = splitCheckLine(f)!;
+  return (
+    <div className="split-summary" style={{ marginTop: 6 }}>
+      <p style={{ margin: "2px 0" }}>{splitSentence(s.d7)}</p>
+      <p style={{ margin: "2px 0" }}>{splitSentence(s.d30)}</p>
+      <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div>
+    </div>
+  );
 }
 
 /** The ✓ line under the chart (kr_l0zj80iz8z). */
@@ -56,8 +107,12 @@ const W = 640, H = 200, L = 44, R = 8, T = 10, B = 22;
 export function DailyChart({ f }: { f: Finance }) {
   const d = f.daily;
   const [hover, setHover] = useState<number | null>(null);
+  const hasLanes = !!d?.rows.some((r) => r.byLane);
+  const [mode, setMode] = useState<"lane" | "building">("lane");
   if (!d || d.rows.length === 0) return null;
-  const stacks = dailyStacks(d);
+  const byLane = hasLanes && mode === "lane";
+  const stacks = byLane ? SPLIT_STACKS : dailyStacks(d);
+  const segsOf = (r: FinanceDaily["rows"][number]) => (byLane ? splitSegments(r) : daySegments(r, stacks));
   const top = niceMax(Math.max(...d.rows.map((r) => Math.max(r.used, r.credited))));
   const pw = W - L - R, ph = H - T - B, slot = pw / d.rows.length, bw = Math.max(2, Math.min(18, slot - 3));
   const y = (v: number) => T + ph - (v / top) * ph;
@@ -69,6 +124,13 @@ export function DailyChart({ f }: { f: Finance }) {
   const labelEvery = Math.ceil(d.rows.length / 6);
   return (
     <div className="daily-chart" aria-label="Day by day: tokens used and credited per UTC day">
+      {hasLanes ? (
+        <div className="daily-mode" role="group" aria-label="Split the bars by" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-sm)", marginBottom: 4 }}>
+          <span className="muted">Split by:</span>
+          <button type="button" className="btn sm bank-toggle" aria-pressed={mode === "lane"} onClick={() => setMode("lane")}>Work vs coordination</button>
+          <button type="button" className="btn sm bank-toggle" aria-pressed={mode === "building"} onClick={() => setMode("building")}>Building</button>
+        </div>
+      ) : null}
       <div className="daily-legend" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", fontSize: "var(--fs-sm)", marginBottom: 4 }}>
         {stacks.map((s) => <span key={s.key}><i style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: s.color, marginRight: 4 }} />{s.name}</span>)}
         <span><i style={{ display: "inline-block", width: 14, height: 0, borderTop: `2px solid ${CREDIT}`, verticalAlign: "middle", marginRight: 4 }} />Credited</span>
@@ -81,7 +143,7 @@ export function DailyChart({ f }: { f: Finance }) {
           </g>)}
           {d.rows.map((r, i) => {
             let acc = 0;
-            const segs = daySegments(r, stacks).filter((s) => s.tokens > 0);
+            const segs = segsOf(r).filter((s) => s.tokens > 0);
             return <g key={r.day}>
               {segs.map((s, j) => {
                 const y0 = y(acc), y1 = y(acc + s.tokens);
@@ -104,7 +166,7 @@ export function DailyChart({ f }: { f: Finance }) {
             <b>{h.day}</b> (UTC)
             <div>Used: <b>{n(h.used)}</b></div>
             <div>Credited: <b>{n(h.credited)}</b></div>
-            {daySegments(h, stacks).filter((s) => s.tokens > 0).map((s) => {
+            {segsOf(h).filter((s) => s.tokens > 0).map((s) => {
               const st = stacks.find((x2) => x2.key === s.key)!;
               return <div key={s.key} className="muted"><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: st.color, marginRight: 4 }} />{st.name}: {n(s.tokens)}</div>;
             })}
@@ -112,12 +174,13 @@ export function DailyChart({ f }: { f: Finance }) {
         ) : null}
       </div>
       {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
+      <SplitSummary f={f} />
       {d.undatedUsed > 0 ? <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Not in the bars: {n(d.undatedUsed)} spent from donations straight to buildings, which carry no date.</div> : null}
       <details>
         <summary className="muted" style={{ fontSize: "var(--fs-sm)" }}>The numbers as a table</summary>
         <table className="table">
           <thead><tr><th>Day (UTC)</th><th>Used</th><th>Credited</th>{stacks.map((s) => <th key={s.key}>{s.name}</th>)}</tr></thead>
-          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{daySegments(r, stacks).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
+          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{segsOf(r).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
         </table>
       </details>
     </div>
@@ -126,5 +189,5 @@ export function DailyChart({ f }: { f: Finance }) {
 
 /** The sidebar's line on how to read the chart. */
 export const DailyAbout = () => (
-  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}), split by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day. Hover or tab to a day for its numbers.</p>
+  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}). By default it is split into work (grant, request, exploration and retainer sessions), coordination (manager and Secretary wakes) and other, by that day&apos;s session spend in each lane; switch to Building to split it by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day. Hover or tab to a day for its numbers.</p>
 );
