@@ -237,7 +237,7 @@ describe("financeSpend (GET /api/finance/spend)", () => {
         { id: "g2", objective: "Cut thing", grantTokens: 50, status: "closed", outcome: "cut" },
         { id: "g3", objective: "Open thing", grantTokens: 100, status: "checkpoint", outcome: null },
       ],
-      keyResults: [{ grantId: "g1", status: "met" }, { grantId: "g1", status: "claimed" }, { grantId: "g2", status: "missed" }, { grantId: "g3", status: "on-track" }, { grantId: null, status: "met" }],
+      keyResults: [{ grantId: "g1", status: "met" }, { grantId: "g1", status: "claimed" }, { grantId: "g2", status: "missed" }, { grantId: "g3", status: "open" }, { grantId: null, status: "met" }],
     };
     const f = financeSpend(inp, 1_885, T0);
     expect(f.check.ok).toBe(true);

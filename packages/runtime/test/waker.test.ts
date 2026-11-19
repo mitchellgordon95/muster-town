@@ -128,7 +128,7 @@ describe("WAKE_RULES: each of the old onEvent branches is one rule, first match 
     const entries = () => (world.db.prepare("SELECT id, level FROM entries WHERE json_extract(moved, '$.keyResultId') = ? ORDER BY seq").all(kr.id) as { id: string; level: string }[]);
     const manages = () => world.sessions.where("agentId = ? AND purpose = 'manage'", [mei.id]);
     // live: an edit is a record on the thread and wakes nobody
-    world.grantDesk.updateKeyResult(admin, kr.id, { status: "on-track" });
+    world.grantDesk.updateKeyResult(admin, kr.id, { status: "claimed" });
     await settle(); await runtime.whenIdle();
     expect(entries().map((e) => e.level)).toEqual(["none"]);
     const before = manages().length;

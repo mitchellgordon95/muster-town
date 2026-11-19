@@ -52,7 +52,7 @@ describe("review deck (GET /api/review-deck)", () => {
     expect(deck.slides[0]!.text).toMatch(/\*\*Desks by pillar:\*\* Fund \d+ · Steer \d+ · Trust \d+/);
     expect(deck.slides[0]!.text).toMatch(/\*\*Bank:\*\*/);
     expect(deck.slides[0]!.text).toMatch(/4 decisions below, oldest waiting/);
-    expect(deck.slides[0]!.text).toMatch(/\| .* \| [🟢🟡🔴] \| .*on track|not started/);
+    expect(deck.slides[0]!.text).toMatch(/\| [^|\n]* \| [^|\n]* \| [⚪🔵] (open|claimed)/);
     const rest = ours(deck).slice(1);
     expect(rest.map((s) => s.key)).toEqual([`proposal:${g1.id}`, `proposal:${g2.id}`, `report:${r1.id}`, `report:${r2.id}`]);
     expect(rest[0]!.text).toMatch(/\*\*What it is:\*\* Plan for/);
@@ -106,12 +106,12 @@ describe("review deck (GET /api/review-deck)", () => {
     const [k1, k2] = world.grantDesk.get(held.id).keyResults;
     // (forks file this with submit_report keyResults, core/test/grant-evidence.test.ts; here it is set directly)
     world.grantDesk.updateKeyResult(manager, k1!.id, { status: "claimed", note: "Usage is on the banner (PR #9)" });
-    world.grantDesk.updateKeyResult(manager, k2!.id, { status: "at-risk", note: "line drafted, not live" });
+    world.grantDesk.updateKeyResult(manager, k2!.id, { status: "open", note: "line drafted, not live" });
     world.grants.patch(held.id, { topUpTokens: 300_000, whatTopUpBuys: "KR 2: the banner line" });
     slide = ours(reviewDeck(world)).find((s) => s.key === `checkpoint:${held.id}`)!;
     expect(slide.text).toContain("1. ✓ shipped: Usage is on the banner (PR #9)");
     expect(slide.text).not.toContain("No evidence filed by the forks");
-    expect(slide.text).toContain("2. ~ partly: line drafted, not live");
+    expect(slide.text).toContain("2. ✗ not shipped: line drafted, not live");
     expect(slide.text).toContain("**A top-up of 300,000 tokens buys: KR 2: the banner line**");
     // the plan (key results, stop condition) comes after the call
     expect(slide.text.indexOf("**Your call:**")).toBeLessThan(slide.text.indexOf("Stops when: two failed tries"));
@@ -126,7 +126,7 @@ describe("review deck (GET /api/review-deck)", () => {
     const again = proposal(1, { continues: held.id });
     const ps = ours(reviewDeck(world)).find((s) => s.key === `proposal:${again.id}`)!;
     expect(ps.text).toMatch(new RegExp(`Continues the earlier grant ${held.id}`));
-    expect(ps.text).toContain("2. ~ partly: line drafted, not live");
+    expect(ps.text).toContain("2. ✗ not shipped: line drafted, not live");
     expect(world.grantDesk.get(again.id).evidence).toMatchObject({ grantId: held.id, topUpTokens: 300_000 });
     // only a grant of the same building
     expect(() => proposal(0, { continues: "gr_nope" })).toThrow(/not an earlier grant of your building/);

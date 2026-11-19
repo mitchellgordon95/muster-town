@@ -84,7 +84,7 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     buildings: [{ id: "b1", name: "One", goalId: "gl_a" }, { id: "b2", name: "Two", goalId: "gl_b" }, { id: "b3", name: "Three", goalId: "gl_b" }],
     grants: [{ id: "gr_1", keyResultId: "kr_1", buildingId: "b1" }],
     keyResults: [
-      { id: "kr_1", text: "one", goalId: "gl_a1", status: "on-track", updatedAt: at(50) },
+      { id: "kr_1", text: "one", goalId: "gl_a1", status: "open", updatedAt: at(50) },
       { id: "kr_2", text: "two", goalId: "gl_a", status: "met", updatedAt: at(5) },
       { id: "kr_3", text: "old", goalId: "gl_a", status: "missed", updatedAt: at(24 * 30) },
     ],

@@ -424,8 +424,8 @@ describe("goal-directed budgets: the Key results block", () => {
     spend(noor.id, 1_000_000, "grant", g.id);
     const a = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB), a);
-    expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [not-started] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
-    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResultId} [not-started] The board shows the lab's goal first (how to check: Open the lab board)`);
+    expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [open] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
+    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResultId} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
     expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id} (first key result ${krs[0]!.id} "A visitor can see today's spend on the banner")`);
     expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
@@ -453,7 +453,7 @@ describe("goal-directed budgets: a decision on a proposal reaches the manager (1
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({ queue: "building", lane: "grant", grantId: g.id, keyResultId: g.keyResultId, grantStep: 0, title: "Step 1" });
     expect(pending[0]!.description).toContain("The funder's note: go");
-    expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [not-started] ${KRS[0]!.text}`);
+    expect(pending[0]!.description).toContain(`Key results (the grant's own):\n- ${g.keyResultId} [open] ${KRS[0]!.text}`);
   });
 
   it("countered and rejected: each is the human's entry on the proposal's job, waiting for the manager; no town-written report, no job (plan dc_uwx045472m step 5)", async () => {

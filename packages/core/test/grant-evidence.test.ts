@@ -45,7 +45,7 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     });
     expect(r.warnings ?? []).toEqual([]);
     expect(world.keyResults.require(k1!.id)).toMatchObject({ status: "claimed", statusNote: `PR #12, live at /lab: the banner shows Usage (report ${r.id})`, statusBy: noor.id });
-    expect(world.keyResults.require(k2!.id)).toMatchObject({ status: "not-started", statusBy: null });
+    expect(world.keyResults.require(k2!.id)).toMatchObject({ status: "open", statusBy: null });
     expect(world.grants.require(g.id)).toMatchObject({ topUpTokens: 200_000, whatTopUpBuys: "KR 2: the board leads with the goal" });
     expect(world.events.recent({ types: ["kr.updated"] })[0]?.payload).toMatchObject({ keyResultId: k1!.id, by: noor.id, reportId: r.id });
   });
@@ -55,10 +55,10 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     const g = fund(), other = fund();
     const mine = world.grantDesk.keyResultsOf(g.id)[0]!, theirs = world.grantDesk.keyResultsOf(other.id)[0]!;
     start("grant", other.id);
-    await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", keyResults: [{ id: mine.id, status: "on-track", evidence: "x" }] }))
+    await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", keyResults: [{ id: mine.id, status: "open", evidence: "x" }] }))
       .rejects.toThrow(/not a key result of your session's grant/);
     start("exploration");
-    await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", keyResults: [{ id: mine.id, status: "on-track", evidence: "x" }] }))
+    await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", keyResults: [{ id: mine.id, status: "open", evidence: "x" }] }))
       .rejects.toThrow(/only from a grant-lane session.*exploration/);
     await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", topUp: { tokens: 1, buys: "x" } }))
       .rejects.toThrow(/topUp is filed only from a grant-lane session/);
@@ -68,7 +68,7 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     await expect(world.verbs.submit_report(noor, { title: "t", body: REPORT, verdict: "continue", keyResults: [{ id: mine.id, status: "met" as never, evidence: "x" }] }))
       .rejects.toThrow();
     // nothing was filed by the refusals
-    expect(world.keyResults.require(mine.id)).toMatchObject({ status: "not-started", statusBy: null });
+    expect(world.keyResults.require(mine.id)).toMatchObject({ status: "open", statusBy: null });
     expect(world.docs.where("type = 'report' AND title = 't'", [])).toHaveLength(0);
   });
 
@@ -104,17 +104,17 @@ describe("grant C: forks file key-result evidence with submit_report (kr_13txlz2
     world.grants.patch(g.id, { status: "funded" });
 
     start("grant", g.id);
-    await world.verbs.submit_report(noor, { title: "Step 2", body: REPORT, verdict: "continue", keyResults: [{ id: k1!.id, status: "on-track", evidence: "half the banner" }], topUp: { tokens: 100_000, buys: "the first try" } });
+    await world.verbs.submit_report(noor, { title: "Step 2", body: REPORT, verdict: "continue", keyResults: [{ id: k1!.id, status: "open", evidence: "half the banner" }], topUp: { tokens: 100_000, buys: "the first try" } });
     start("grant", g.id);
     const third = await world.verbs.submit_report(noor, { title: "Step 3", body: REPORT, verdict: "continue", topUp: { tokens: 300_000, buys: "the board" } });
     e = world.grantDesk.evidence(world.grants.require(g.id));
     expect(e).toMatchObject({ filed: true, topUpTokens: 300_000, whatTopUpBuys: "the board" });
     expect(e.reports.map((x) => x.title)).toEqual(["Step 1, nothing to claim", "Step 2", "Step 3"]);
-    expect(e.keyResults[0]).toMatchObject({ status: "on-track", verdict: "partly", by: "Noor" });
+    expect(e.keyResults[0]).toMatchObject({ status: "open", verdict: "not", by: "Noor" });
     world.grants.patch(g.id, { status: "checkpoint" });
     slide = reviewDeck(world).slides.find((s) => s.grantId === g.id)!;
     expect(slide.text).not.toContain("No evidence filed by the forks");
-    expect(slide.text).toContain("~ partly: half the banner (report");
+    expect(slide.text).toContain("✗ not shipped: half the banner (report");
     expect(slide.text).toContain("(Noor)");
     expect(slide.text).toContain("A top-up of 300,000 tokens buys: the board");
     expect(slide.text).toContain(third.id);

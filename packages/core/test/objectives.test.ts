@@ -48,7 +48,7 @@ describe("objectives are goals", () => {
     const g = propose(KR.text, sub.id);
     const block = keyResultsBlock(world, world.buildings.require(LAB));
     expect(block).toContain("Attached to: ");
-    expect(block).toMatch(new RegExp(`  Goal ${sub.id}: Strangers can join\n    - grant ${g.id} [^\n]*\n        - ${g.keyResultId} \\[not-started\\] A visitor can see`));
-    expect(block).toMatch(new RegExp(`- grant ${loose.id} [^\n]*\n      - ${loose.keyResultId} \\[not-started\\] Loose one`));
+    expect(block).toMatch(new RegExp(`  Goal ${sub.id}: Strangers can join\n    - grant ${g.id} [^\n]*\n        - ${g.keyResultId} \\[open\\] A visitor can see`));
+    expect(block).toMatch(new RegExp(`- grant ${loose.id} [^\n]*\n      - ${loose.keyResultId} \\[open\\] Loose one`));
   });
 });

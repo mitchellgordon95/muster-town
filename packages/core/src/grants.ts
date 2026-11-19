@@ -146,7 +146,7 @@ export class Grants {
     });
     return {
       grantId: g.id, objective: g.objective,
-      keyResults: krs.map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote, by: k.statusBy && k.statusNote ? this.world.nameOf(k.statusBy) : null, evidence: k.evidence })),
+      keyResults: krs.map((k) => ({ id: k.id, text: k.text, status: k.status, verdict: krVerdict(k.status), note: k.statusNote, by: k.statusBy && k.statusNote ? this.world.nameOf(k.statusBy) : null })),
       spentTokens: this.spent(g.id), grantTokens: g.grantTokens ?? 0,
       topUpTokens: g.topUpTokens, whatTopUpBuys: g.whatTopUpBuys,
       reportId: report ? report.id : null,
@@ -184,10 +184,9 @@ export class Grants {
     const now = nowIso();
     for (const e of krs) {
       const k = this.world.keyResults.require(e.id, "key result");
-      // step 10: a report that claims the key result makes its evidence "claimed" (a verified one stays verified)
-      const next = this.world.keyResults.upsert({ ...k, status: e.status, statusNote: `${e.evidence} (report ${reportId})`.slice(0, 2000), statusBy: me.id, evidence: evidenceAfter(k, e.status, false), updatedAt: now });
+      const next = this.world.keyResults.upsert({ ...k, status: e.status, statusNote: `${e.evidence} (report ${reportId})`.slice(0, 2000), statusBy: me.id, updatedAt: now });
       this.world.events.append({
-        type: "kr.updated", agentId: me.id, buildingId: k.buildingId, text: `Key result ${next.status}: ${next.text}`,
+        type: "kr.updated", agentId: me.id, buildingId: g.buildingId, text: `Key result ${next.status}: ${next.text}`,
         payload: { grantId: g.id, keyResultId: k.id, status: next.status, from: k.status, by: me.id, byKind: "agent", edited: false, reportId },
       });
     }
@@ -406,8 +405,8 @@ export class Grants {
     const now = nowIso();
     const last = this.world.keyResults.first("1 = 1", [], "ORDER BY position DESC");
     const ids = krs.map((k, i) => this.world.keyResults.upsert({
-      id: newId("kr"), buildingId: g.buildingId, position: (last?.position ?? 0) + 1 + i, text: k.text, howToCheck: k.howToCheck,
-      status: "not-started", statusNote: "", statusBy: null, evidence: "unknown", createdBy: by?.id ?? null, editedBy: null, sourceDocIds: [], objectiveId: null,
+      id: newId("kr"), position: (last?.position ?? 0) + 1 + i, text: k.text, howToCheck: k.howToCheck,
+      status: "open", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: [],
       goalId: g.goalId, grantId: g.id, due: k.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: now,
     }).id);
     for (const a of this.world.assignments.where("grantId = ? AND status IN ('pending', 'active') AND keyResultId IS NOT NULL", [g.id])) this.world.assignments.upsert({ ...a, keyResultId: ids[0]! });
@@ -704,7 +703,7 @@ export class Grants {
       for (const k of this.keyResultsOf(g.id).filter(isOpenKr)) {
         // a human is acting, so missed is allowed; no postmortem: the stop note is the why
         const kr = this.world.keyResults.upsert({ ...k, status: "missed", statusNote: `Grant stopped: ${reason}`.slice(0, 2000), statusBy: actor ? holderOf(actor).id : "system", archivedAt: k.archivedAt ?? now, updatedAt: now });
-        const missed = this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: k.buildingId, text: `Key result missed: ${kr.text}`, payload: { grantId: g.id, keyResultId: k.id, status: "missed", from: k.status, by: actor ? holderOf(actor).id : "system", byKind: actor ? holderOf(actor).kind : "system", edited: false, stopped: true } });
+        const missed = this.world.events.append({ type: "kr.updated", agentId: actor?.id ?? null, buildingId: g.buildingId, text: `Key result missed: ${kr.text}`, payload: { grantId: g.id, keyResultId: k.id, status: "missed", from: k.status, by: actor ? holderOf(actor).id : "system", byKind: actor ? holderOf(actor).kind : "system", edited: false, stopped: true } });
         retireAsks(this.world, "keyResult", k.id, missed.text);
       }
       const cancelled = this.cancelQueued(g.id, reason);
@@ -867,11 +866,12 @@ export class Grants {
   /** DELETE /api/key-results/:id (a human with `building.manage`). Refused while an open or live grant names it. */
   deleteKeyResult(actor: Actor, id: string): void {
     const kr = this.world.keyResults.require(id, "key result");
-    this.requireHuman(actor, kr.buildingId, "deletes");
+    const buildingId = this.world.krBuildingId(kr);
+    this.requireHuman(actor, buildingId, "deletes");
     const g = kr.grantId ? this.world.grants.get(kr.grantId) : undefined;
     if (g && !TERMINAL.includes(g.status)) throw new AppError("conflict", `Grant ${g.id} ("${g.objective}", ${g.status}) carries this key result: edit the proposal's key results or close the grant first.`);
     this.world.keyResults.delete(id);
-    this.world.events.append({ type: "kr.deleted", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: `Key result removed: ${kr.text}`, payload: { keyResultId: id } });
+    this.world.events.append({ type: "kr.deleted", agentId: actor?.id ?? null, buildingId, text: `Key result removed: ${kr.text}`, payload: { keyResultId: id } });
   }
 
   /**
@@ -882,6 +882,7 @@ export class Grants {
   updateKeyResult(actor: Actor, id: string, input: UpdateKeyResultInput, opts: { closing?: boolean } = {}): KeyResult {
     const inp = UpdateKeyResultInput.parse(input);
     const kr = this.world.keyResults.require(id, "key result");
+    const buildingId = this.world.krBuildingId(kr);
     const words = {
       ...(inp.text !== undefined && { text: inp.text }), ...(inp.howToCheck !== undefined && { howToCheck: inp.howToCheck }),
       ...(inp.sourceDocIds !== undefined && { sourceDocIds: inp.sourceDocIds }), ...(inp.due !== undefined && { due: inp.due }),
@@ -891,7 +892,8 @@ export class Grants {
     // re-marking the current status with no new note changes nothing: no write, no kr.updated, no manager wake
     if (inp.status === kr.status && !edited && (!inp.note.trim() || inp.note === kr.statusNote)) return kr;
     if (edited) {
-      this.requireWriter(actor, this.world.buildings.require(kr.buildingId, "building"));
+      if (!buildingId) throw badRequest(`Key result ${kr.id} belongs to no grant: its words are history and stay as written.`);
+      this.requireWriter(actor, this.world.buildings.require(buildingId, "building"));
       if (inp.sourceDocIds) this.requireSources(inp.sourceDocIds);
     }
     if (actor && inp.status && !opts.closing) {
@@ -900,8 +902,8 @@ export class Grants {
       const judged = isJudgedKr(inp.status) || isJudgedKr(kr.status);
       // a human who can fund the building, or the owner of the key result's goal (docs/goals.md "Captains on nodes")
       if (judged) {
-        if (!this.world.permissions.can(actor, "building.fund", kr.buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
-      } else if (!this.canManage(actor, kr.buildingId) && !this.managesGrantOf(actor, kr)) throw forbidden("building.manage");
+        if (!this.world.permissions.can(actor, "building.fund", buildingId) && !(kr.goalId && this.world.goalTree.owns(actor, kr.goalId))) throw forbidden("building.fund");
+      } else if (!buildingId || !this.canManage(actor, buildingId)) throw forbidden("building.manage");
       // a human marking it missed says why: the line is the postmortem's source (docs/goals.md "Postmortems on missed KRs")
       if (inp.status === "missed" && kr.status !== "missed" && actor.kind === "human" && !inp.note.trim()) throw badRequest("Say why it was missed (note): the line files the postmortem's source.");
     }
@@ -910,11 +912,10 @@ export class Grants {
     // met or missed archives it under its goal (the goal stays); undoing that brings it back
     const archive = inp.status ? { archivedAt: isJudgedKr(inp.status) ? kr.archivedAt ?? now : null } : {};
     const status = inp.status ? { status: inp.status, statusNote: inp.note, statusBy: by?.id ?? "system", ...archive } : {};
-    const evidence = inp.status ? { evidence: evidenceAfter(kr, inp.status, by?.kind === "user" && !opts.closing) } : {};
-    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...status, ...evidence, updatedAt: now });
+    const next = this.world.keyResults.upsert({ ...kr, ...words, ...(edited && { editedBy: by?.id ?? null }), ...status, updatedAt: now });
     if (inp.status === "missed" && kr.status !== "missed") queuePostmortem(this.world, actor, next, inp.note);
     const patched = this.world.events.append({
-      type: "kr.updated", agentId: actor?.id ?? null, buildingId: kr.buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
+      type: "kr.updated", agentId: actor?.id ?? null, buildingId, text: inp.status ? `Key result ${inp.status}: ${next.text}` : `Key result edited: ${next.text}`,
       payload: {
         grantId: kr.grantId, keyResultId: kr.id, status: next.status, from: kr.status,
         by: by?.id ?? "system", byKind: by?.kind ?? "system", edited,
@@ -929,16 +930,6 @@ export class Grants {
   }
 
   // ---- helpers ----
-  /**
-   * The manager of the grant that carries a key result sets its status (up to `claimed`) even when the key result sits under another
-   * building (a grant filed against a goal outside its building, or a goal key result folded into a grant: gr_mjr7nb438v, a Workshop
-   * grant on Onboarding's kr_hee2pa2d5r, whose checkpoint was refused on 2026-10-31).
-   */
-  private managesGrantOf(actor: Actor, kr: KeyResult): boolean {
-    const g = kr.grantId ? this.world.grants.get(kr.grantId) : undefined;
-    return !!g && this.canManage(actor, g.buildingId);
-  }
-
   /** A grant's key results as brief lines: id, status, words, how to check, due. */
   private krLines(g: Grant): string {
     const krs = this.keyResultsOf(g.id);
@@ -956,7 +947,7 @@ export class Grants {
   }
 
   /** Only a human (`building.manage`) deletes a key result. */
-  private requireHuman(actor: Actor, buildingId: string, verb: string): void {
+  private requireHuman(actor: Actor, buildingId: string | null, verb: string): void {
     if (!actor) return;
     if (actor.kind !== "human") throw forbidden("building.manage", `Only a human ${verb} a grant's key result.`);
     this.world.permissions.require(actor, "building.manage", buildingId);
@@ -1035,16 +1026,3 @@ export function counteredTokens(g: Pick<Grant, "status" | "history">): number | 
   return last?.action === "counter" && last.tokens ? last.tokens : null;
 }
 
-/**
- * A key result's evidence class after its status is set (docs/legible-delegation.md §5, build step 10): a human marking
- * it met verifies it; a claim makes unknown evidence claimed; a human taking back met drops it to what the new status
- * says (claimed, else unknown). Anything else keeps it. A passed `kr` claim check also verifies it (ask-checks.ts).
- */
-function evidenceAfter(kr: KeyResult, status: KeyResult["status"], byHuman: boolean): NonNullable<KeyResult["evidence"]> {
-  if (byHuman && status === "met") return "verified";
-  // met on code and tests: the evidence is a claim, whoever closed the grant
-  if (status === "met-unverified") return "claimed";
-  if (byHuman && kr.status === "met" && status !== "met") return status === "claimed" ? "claimed" : "unknown";
-  if (status === "claimed" && (kr.evidence ?? "unknown") === "unknown") return "claimed";
-  return kr.evidence ?? "unknown";
-}

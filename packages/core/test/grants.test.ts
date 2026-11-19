@@ -34,8 +34,8 @@ describe("grants service", () => {
     expect(g).toMatchObject({ keyResultId: g.keyResult?.id, approach: "a banner line", goalId: world.goalTree.attachmentOf(LAB) });
     expect(g.keyResult?.text).toBe(KRS[0]!.text);
     // the grant's own key results: under its goal, naming it
-    expect(g.keyResults.map((k) => [k.text, k.grantId, k.goalId, k.status])).toEqual([[KRS[0]!.text, g.id, g.goalId, "not-started"]]);
-    expect(world.keyResults.require(g.keyResultId!)).toMatchObject({ grantId: g.id, goalId: g.goalId, buildingId: LAB });
+    expect(g.keyResults.map((k) => [k.text, k.grantId, k.goalId, k.status])).toEqual([[KRS[0]!.text, g.id, g.goalId, "open"]]);
+    expect(world.keyResults.require(g.keyResultId!)).toMatchObject({ grantId: g.id, goalId: g.goalId });
     expect(world.grantDesk.list(LAB)).toHaveLength(0);
     expect(world.grantDesk.list(LAB, { includeDrafts: true })).toHaveLength(1);
     const edited = world.grantDesk.update(manager, g.id, { askTokens: 12_000_000, keyResults: [...KRS, { text: "third", howToCheck: "look", due: "2026-12-31" }] });
@@ -135,7 +135,7 @@ describe("grants service", () => {
     const { world, manager, admin, draft } = setup();
     const rejected = world.grantDesk.propose(manager, draft(KRS).id);
     world.grantDesk.decide(admin, rejected.id, { action: "reject", note: "not now" });
-    expect(world.grantDesk.keyResultsOf(rejected.id).map((k) => [k.status, !!k.archivedAt, k.statusNote])).toEqual([["not-started", true, `grant ${rejected.id} rejected`], ["not-started", true, `grant ${rejected.id} rejected`]]);
+    expect(world.grantDesk.keyResultsOf(rejected.id).map((k) => [k.status, !!k.archivedAt, k.statusNote])).toEqual([["open", true, `grant ${rejected.id} rejected`], ["open", true, `grant ${rejected.id} rejected`]]);
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, draft(KRS).id).id, { action: "fund" });
     const [k0, k1] = g.keyResults;
     world.grantDesk.updateKeyResult(admin, k1!.id, { status: "missed", note: "not shipped" }); // already marked: not open, left alone
@@ -205,21 +205,19 @@ describe("grants service", () => {
     expect(world.grantDesk.close(admin, g.id, { outcome: "met" })).toMatchObject({ status: "closed", outcome: "met" });
   });
 
-  it("the grant's manager sets the status of a key result filed under another building when the grant carries it", () => {
+  it("a key result's building is its grant's: that manager sets its status up to claimed; one no grant carries takes no manager's status", () => {
     const { world, manager, draft } = setup();
     const d = draft(KRS);
-    const other = world.buildings.all().find((b) => b.id !== LAB)!.id;
     const kr = world.keyResults.require(d.keyResults[1]!.id);
-    world.keyResults.upsert({ ...kr, buildingId: other, goalId: world.goalTree.attachmentOf(other) });
-    // the manager of the grant's building, not of the key result's: allowed up to claimed
-    expect(world.grantDesk.updateKeyResult(manager, kr.id, { status: "on-track", note: "lag 1.6 h" })).toMatchObject({ status: "on-track", buildingId: other });
+    expect(kr).not.toHaveProperty("buildingId");
+    expect(world.krBuildingId(kr)).toBe(LAB);
+    expect(world.grantDesk.updateKeyResult(manager, kr.id, { status: "claimed", note: "lag 1.6 h" })).toMatchObject({ status: "claimed", grantId: d.id });
     expect(() => world.grantDesk.updateKeyResult(manager, kr.id, { status: "met" })).toThrow(/building.fund/);
-    // an agent who manages neither building is still refused
     const outsider = world.agents.first("homeBuildingId != ? AND kind != 'human'", [LAB]);
-    if (outsider) expect(() => world.grantDesk.updateKeyResult(outsider, kr.id, { status: "at-risk" })).toThrow(/building.manage/);
-    // a key result under another building that no grant carries stays that building's
-    const loose = world.keyResults.upsert({ ...world.keyResults.require(d.keyResults[0]!.id), buildingId: other, grantId: null });
-    expect(() => world.grantDesk.updateKeyResult(manager, loose.id, { status: "on-track" })).toThrow(/building.manage/);
+    if (outsider) expect(() => world.grantDesk.updateKeyResult(outsider, kr.id, { status: "open" })).toThrow(/building.manage/);
+    const loose = world.keyResults.upsert({ ...world.keyResults.require(d.keyResults[0]!.id), grantId: null });
+    expect(world.krBuildingId(loose)).toBeNull();
+    expect(() => world.grantDesk.updateKeyResult(manager, loose.id, { status: "claimed" })).toThrow(/building.manage/);
   });
 
   it("a grant's key results: the manager sets status up to claimed, only funders set or undo met / missed; an open grant's can't be deleted", () => {
@@ -233,9 +231,9 @@ describe("grants service", () => {
     expect(world.grantDesk.updateKeyResult(manager, kr.id, { status: "claimed", note: "see banner" }).status).toBe("claimed");
     expect(() => world.grantDesk.updateKeyResult(manager, kr.id, { status: "met" })).toThrow(/building.fund/);
     expect(world.grantDesk.updateKeyResult(admin, kr.id, { status: "met" })).toMatchObject({ status: "met", statusBy: admin.ownerUserId });
-    expect(() => world.grantDesk.updateKeyResult(manager, kr.id, { status: "on-track" })).toThrow(/building.fund/);
+    expect(() => world.grantDesk.updateKeyResult(manager, kr.id, { status: "open" })).toThrow(/building.fund/);
     const outsider = world.agents.first("homeBuildingId != ? AND kind != 'human'", [LAB]);
-    if (outsider) expect(() => world.grantDesk.updateKeyResult(outsider, krs[1]!.id, { status: "at-risk" })).toThrow(/building.manage/);
+    if (outsider) expect(() => world.grantDesk.updateKeyResult(outsider, krs[1]!.id, { status: "claimed" })).toThrow(/building.manage/);
     // an open grant carries it: it can't be deleted; the board shows it on the grant
     const g = world.grantDesk.decide(admin, world.grantDesk.propose(manager, d.id).id, { action: "fund" });
     expect(() => world.grantDesk.deleteKeyResult(admin, krs[1]!.id)).toThrow(/carries this key result/);
