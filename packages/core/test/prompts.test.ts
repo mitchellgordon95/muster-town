@@ -134,6 +134,11 @@ describe("workshop code-access rules", () => {
     expect(p).toContain("- Never force-push, never rewrite history, never run destructive commands.");
     expect(p).not.toContain("Never push to main");
   });
+  it("teach a finished PR to park with merge when green, not a check-CI-and-merge session (gr_rlt0ctnhqk step 2)", () => {
+    const p = workshopPrompt({ dir: "/w", base: "main" }, "agent-town");
+    expect(p).toContain("resumeWhen: {pr: <number>, merge: true}");
+    expect(p).toContain("Never end a session to have another one check CI and merge.");
+  });
 });
 
 describe("meeting prompts (docs/meetings.md §3.3, §3.5)", () => {

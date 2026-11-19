@@ -92,7 +92,7 @@ describe("prompts follow the repo mode", () => {
     expect(work).not.toMatch(/\{deploy|\{pr:|GET \/api\/health|Merge PR/);
     expect(work).toMatch(/"Decide whether X\."/);
     const mgr = managerSystemPrompt(pix, b, town, { repo: world.repoMode() });
-    expect(mgr).not.toMatch(/merge rights|"Live:" line/);
+    expect(mgr).not.toMatch(/merge rights|"Live:" line|Merging PRs/);
     world.host.commit = "fa73e88aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     expect(managerIntrayBlock(world, b, pix.id)).not.toMatch(/Live:/);
     expect(seed).toBeTruthy();
@@ -115,6 +115,8 @@ describe("prompts follow the repo mode", () => {
     expect(work).toMatch(/"Merge PR #12\."/);
     expect(managerIntrayBlock(world, b, pix.id)).toMatch(/Live: fa73e88/);
     expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/merge rights/);
+    expect(work).toMatch(/\{pr: <number>, merge: true\}` once your pull request is done/);
+    expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/waitFor: \{pr: N, merge: true\}/);
     expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/A merge to main ships itself/);
   });
 });

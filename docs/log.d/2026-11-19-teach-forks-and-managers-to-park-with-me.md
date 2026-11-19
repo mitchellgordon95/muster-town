@@ -1,0 +1,1 @@
+- 2026-11-19 Mara 2 (gr_rlt0ctnhqk step 2): forks park a finished PR with `resumeWhen: {pr: N, merge: true}`; manager prompt says never queue check-CI-and-merge work (assign with `waitFor: {pr: N, merge: true}`); AGENTS.md standing rule 9, docs/wakes.md, submit_report/assign tool text updated.
