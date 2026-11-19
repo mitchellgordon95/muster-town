@@ -784,9 +784,6 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .warn-line { color: var(--warn); font-size: var(--fs-md); margin: 10px 0; }
 
 /* objectives (board, settings) */
-.kr-objective { margin: 8px 0 10px; }
-.kr-objective-head { margin: 6px 0 4px; }
-.kr-objective-head .muted { font-size: var(--fs-sm); }
 .kr-move { margin-left: auto; max-width: 180px; }
 .kr-hint { font-size: var(--fs-sm); margin: 2px 0 6px; }
 /* Finance (public): the sum check under the summary, and overdrawn lines */
