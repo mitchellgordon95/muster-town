@@ -33,7 +33,7 @@ export function AssignmentPanel({ id }: { id: string }) {
             <KV items={[
               ["Status", <><StatusPill status={a.status} />{a.heldReason ? <span className="muted"> · {a.heldReason}</span> : null}</>],
               ["Who", <button className="link" onClick={() => store.open({ kind: "agent", id: a.agentId })}>{a.agentName ?? a.agentId}</button>],
-              ["Lane", <>{LANE_WORDS[a.lane]}{a.grantId ? <> · <IdLink id={a.grantId} /></> : null}{a.keyResultId ? <> · <IdLink id={a.keyResultId} /></> : null}{a.sourceId ? <> · from <IdLink id={a.sourceId} /></> : null}</>],
+              ["Lane", <>{LANE_WORDS[a.lane]}{a.grantId ? <> · <IdLink id={a.grantId} /></> : null}{a.sourceId ? <> · from <IdLink id={a.sourceId} /></> : null}</>],
               ...(a.gap ? [["Gap", a.gap] as [string, ReactNode]] : []),
               ["Report", a.reportId ? <IdLink id={a.reportId} /> : a.status === "done" || a.status === "cancelled" ? "none" : "not yet"],
               ...(a.fromAssignmentId ? [["Retry of", <IdLink id={a.fromAssignmentId} />] as [string, ReactNode]] : []),

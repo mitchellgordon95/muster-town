@@ -159,13 +159,13 @@ export class Sim {
   }
   /** A key result's building: its grant's (the grant that carries it, or names it), else the building its fixture id names. */
   private krBuildingId(k: KeyResult): string | null {
-    const g = [...this.grants.values()].find((x) => x.id === k.grantId || x.keyResultId === k.id || x.keyResults.some((y) => y.id === k.id));
+    const g = [...this.grants.values()].find((x) => x.id === k.grantId || x.keyResults.some((y) => y.id === k.id));
     return g?.buildingId ?? /^kr_(.+)_\d+$/.exec(k.id)?.[1] ?? null;
   }
-  /** GET /api/buildings/:id/key-results: the goal's key results in order, each with the live grant naming it. */
+  /** GET /api/buildings/:id/key-results: the goal's key results in order, each with its grant (the one parent). */
   goalKeyResults(buildingId: string): GoalKeyResult[] {
-    const live = new Map([...this.grants.values()].filter((g) => g.keyResultId && (g.status === "funded" || g.status === "checkpoint")).map((g) => [g.keyResultId!, g.id]));
-    return [...this.keyResults.values()].filter((k) => this.krBuildingId(k) === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: k.grantId ?? live.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
+    const owner = new Map([...this.grants.values()].flatMap((g) => g.keyResults.map((k) => [k.id, g.id] as const)));
+    return [...this.keyResults.values()].filter((k) => this.krBuildingId(k) === buildingId).sort((a, b) => a.position - b.position).map((k) => ({ ...k, grantId: k.grantId ?? owner.get(k.id) ?? null, createdByName: this.nameOf(k.createdBy), editedByName: this.nameOf(k.editedBy) }));
   }
   /** PATCH /api/key-results/:id: words and / or status (the mock skips the status permission split). */
   updateKeyResult(id: string, i: UpdateKeyResultInput): KeyResult {
@@ -176,7 +176,6 @@ export class Sim {
     const next: KeyResult = { ...k, ...words, ...(Object.keys(words).length && { editedBy: "us_mitchell" }), ...(i.status ? { status: i.status, statusNote: i.note ?? "", statusBy: "us_mitchell" } : {}), updatedAt: now() };
     this.keyResults.set(id, next);
     for (const g of this.grants.values()) {
-      if (g.keyResultId === id) g.keyResult = { ...next };
       if (g.keyResults.some((x) => x.id === id)) g.keyResults = g.keyResults.map((x) => (x.id === id ? { ...next } : x));
     }
     this.event("kr.updated", null, i.status ? `Key result ${i.status}: ${next.text}` : `Key result edited: ${next.text}`, { keyResultId: id, status: next.status, from: k.status }, this.krBuildingId(k));
@@ -186,7 +185,7 @@ export class Sim {
   deleteKeyResult(id: string): void {
     const k = this.keyResults.get(id);
     if (!k) throw new Error(`key result not found: ${id}`);
-    const g = [...this.grants.values()].find((x) => x.keyResultId === id && ["draft", "proposed", "countered", "funded", "checkpoint"].includes(x.status));
+    const g = [...this.grants.values()].find((x) => x.keyResults.some((y) => y.id === id) && ["draft", "proposed", "countered", "funded", "checkpoint"].includes(x.status));
     if (g) throw new Error(`Grant ${g.id} ("${g.objective}", ${g.status}) names this key result: close or re-point it first.`);
     this.keyResults.delete(id);
     this.event("kr.deleted", null, `Key result removed: ${k.text}`, { keyResultId: id }, this.krBuildingId(k));
@@ -226,7 +225,7 @@ export class Sim {
     const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
     Object.assign(g, { status: "closed", outcome: i.outcome, closedAt: now(), updatedAt: now() });
     g.history.push({ at: now(), byId: "us_mitchell", byKind: "user", action: "close", tokens: i.outcome === "done" ? unspent : null, note });
-    if (i.outcome === "done") for (const k of g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : []) if (k.status !== "met" && k.status !== "met-unverified" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
+    if (i.outcome === "done") for (const k of g.keyResults) if (k.status !== "met" && k.status !== "met-unverified" && k.status !== "missed") this.updateKeyResult(k.id, { status: "met", note });
     this.event("grant.closed", null, `Closed (${i.outcome}): ${g.objective}`, { grantId: g.id }, g.buildingId);
     this.emitBuilding(this.buildings.find((x) => x.kind === "town-hall")?.id ?? null);
     return g;
@@ -347,7 +346,7 @@ export class Sim {
     const asg = this.putAssignment({
       id: newId("as"), agentId, buildingId: a.homeBuildingId ?? "bl_carbon", title: f.title, description: f.description,
       status: "pending", createdBy: f.by ?? "us_mitchell", createdByKind: "user", fromMeetingId: null, fromReportId: f.fromReportId ?? null, reportId: null,
-      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, keyResultId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, reservationId: null, grantStep: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
+      fromAssignmentId: f.fromAssignmentId ?? null, lane: "directed", grantId: null, gap: null, sourceId: null, heldReason: null, origin: null, chainId: null, queue: "agent", model: null, reservationId: null, grantStep: null, position: f.front && q.length ? q[0].position - 1 : Date.now(), createdAt: now(), updatedAt: now(),
     });
     this.event("assignment.created", agentId, `Assignment for ${a.name}: ${asg.title}`, { assignmentId: asg.id }, a.homeBuildingId);
     return asg;

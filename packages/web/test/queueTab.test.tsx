@@ -6,7 +6,7 @@ import { DONE_SHOWN, Lane } from "../src/panels/QueueTab";
 vi.mock("../src/map/sprites", async (orig) => ({ ...(await orig<object>()), iconUrl: () => "", portraitUrl: () => "" }));
 
 const card = (i: number, status = "done"): QueueCard => ({
-  id: `as_${i}`, title: `Job ${i}`, lane: "directed", grantId: null, keyResultId: null, agentId: "ag_p", agentName: "Pix",
+  id: `as_${i}`, title: `Job ${i}`, lane: "directed", grantId: null, agentId: "ag_p", agentName: "Pix",
   status, createdAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z", heldReason: null, tokens: null, reportId: null,
 });
 const lane = (done: number, queued = 0): QueueLane => ({

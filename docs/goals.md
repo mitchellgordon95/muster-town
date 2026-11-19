@@ -25,7 +25,7 @@ Everything is additive (see Migration). Ids stay stable: every `kr_…` keeps it
 - **`goal_changes`** (new, the reorg): see "Change this goal".
 - **History is the event log.** Every change appends an event with the actor and a before/after payload: `goal.created / edited / moved / retired / owned / changed`, `kr.created / updated / archived / under-review`, `goal.attached`, `goal.proposal`. Agents read these events (`GET /api/goals/:id/history`, the Planner's event digest); the web shows no history, not even a "last changed" line (1:1 mt_n25udpflus decision 5: agents care about the changelog, humans don't). There is no audit table.
 
-**Grants** keep `keyResultId` and `buildingId`. Only the scope check changes. Today the KR must belong to the grant's building (`grants.ts` requireGoalKeyResult, `lanes.ts` `resolveLane`). After the switch, the KR must be **open (not archived) and in the building's subtree**: one helper, `Goals.inScope(buildingId, krId)`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
+**Grants** sit in the tree by `goalId` alone (grant gr_h4m0lyhb1f step 3, migration 126 dropped `grants.keyResultId` and its copies on assignments and schedules). Routing (`Goals.route`), the funder line, spend by goal (`goal-spend.ts`, now by grant: `GoalSpend.byGrant`), the Bank's earmark pick (`Streams.nodeOf`) and `Grants.canFund` all read grant → goalId; a grant's key results are read by their own `grantId`. The grant's building still does the work, and the Bank pays by draw order (see Finance).
 
 ## Who can change the tree
 
@@ -88,7 +88,7 @@ There is a new place in the Town Hall, the **Goal tree** (a wall chart by the in
 
 **Routing.** Every Town Hall item routes to the captain of the node it belongs to:
 
-- a **grant proposal or checkpoint** belongs to its KR's goal;
+- a **grant proposal or checkpoint** belongs to its goal (`grant.goalId`; its building's attachment if that goal is gone);
 - a **goal proposal** belongs to its target or parent node;
 - a **report for the humans** (an unhomed visitor's; before 2026-11-12 a manager's rollup) or a retainer belongs to the building's attachment. Since 2026-11-12 rollups are retired: what a manager needs from a human is an ask, shown under Mine with the item it is about;
 - a **captain request** belongs to the goal asked about (the root too).

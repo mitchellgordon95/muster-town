@@ -183,10 +183,11 @@ function ReportLead({ doc, forkOf }: { doc: Doc; forkOf?: string | null }) {
   return a ? <img src={portraitUrl(a.sprite, 1)} alt={name} title={name} /> : null;
 }
 
-/** "→ Lena via <goal>": who a waiting item is routed to (docs/goals.md "Routing"). */
+/** "Under <goal> · for Lena": the goal a waiting item sits under and who it is routed to (docs/goals.md "Routing"). */
 function RoutedTo({ route }: { route?: IntrayRoute }) {
   if (!route) return null;
-  return <div className="muted intray-route" title={`Routed by goal ${route.goalId}`}>For {route.mine ? <b>you</b> : route.ownerName}{route.canDecide && !route.mine ? " (you can decide it too)" : ""}</div>;
+  const goal = route.goalText ? <>Under <button className="link" onClick={() => store.open({ kind: "goals", id: route.goalId })}>{clipText(route.goalText, 60).head}</button> · for </> : "For ";
+  return <div className="muted intray-route" title={`Routed by goal ${route.goalId}`}>{goal}{route.mine ? <b>you</b> : route.ownerName}{route.canDecide && !route.mine ? " (you can decide it too)" : ""}</div>;
 }
 
 /**
@@ -400,7 +401,7 @@ export function GrantRow({ grant: g, onDecided, onMarked, onOpenDoc, deckSlide, 
   const checkpoint = g.status === "checkpoint";
   // closed as done (close_grant or the Close grant button): its key results went to met; a human may flip one to missed
   const closedDone = g.status === "closed" && g.outcome === "done";
-  const krs = g.keyResults.length ? g.keyResults : g.keyResult ? [g.keyResult] : [];
+  const krs = g.keyResults;
   const unspent = Math.max(0, (g.grantTokens ?? 0) - g.spentTokens);
   const ceiling = checkpoint ? g.grantTokens ?? g.askTokens : g.askTokens;
   const dk = `grant:${g.id}:`; // what's typed survives the panel closing until it is sent (src/draft.ts)

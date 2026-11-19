@@ -73,7 +73,7 @@ function Card({ c }: { c: QueueCard }) {
       <div className="queue-card-title">{c.reportId ? <button className="link" onClick={() => void openDocLink(c.reportId!)}>{c.title}</button> : c.title}</div>
       <div className="queue-card-meta">
         <Pill>{c.lane}</Pill>
-        {c.grantId ? <button className="link" onClick={() => store.open({ kind: "grant", id: c.grantId! })}>grant</button> : c.keyResultId ? <span className="muted" title={c.keyResultId}>KR</span> : null}
+        {c.grantId ? <button className="link" onClick={() => store.open({ kind: "grant", id: c.grantId! })}>grant</button> : null}
         <span className="muted">{c.agentName}</span>
         <span className="muted">{timeAgo(c.status === "pending" ? c.createdAt : c.updatedAt)}</span>
         {c.status === "cancelled" ? <Pill tone="bad">cancelled</Pill> : null}

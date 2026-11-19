@@ -258,12 +258,11 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   const owner = tree.ownerOf(at);
   const ownerName = world.users.get(owner.userId)?.name ?? owner.userId;
   const attached = `Attached to: ${tree.pathText(at)} (captain: ${ownerName}). Key results belong to grants: a grant is filed against a goal in this subtree and carries its own dated key results; goals keep none open.${met || missed ? ` Archived: ${met} met, ${missed} missed.` : ""}`;
-  const krText = (id: string | null) => { const k = id ? world.keyResults.get(id) : undefined; return k ? `${k.id} "${oneLine(k.text, 120)}"` : id ?? ""; };
   // plan dc_uwx045472m step 4: the session's job, its budget rule and its pocket (the rule replaces the lane)
   const job = assignment ? jobOf(assignment) : null;
   const head = job ? `This session: job ${job.id} (rule ${job.rule}${job.pocketRef ? `, pocket ${job.pocketRef}` : ""})` : "";
   const lane = !assignment ? "" : assignment.lane === "grant"
-    ? `${head}, grant ${assignment.grantId}${assignment.keyResultId ? ` (first key result ${krText(assignment.keyResultId)})` : ""}.${assignment.grantStep != null ? " Your report on this step says what is left of the grant's work (`left`)." : ""}`
+    ? `${head}, grant ${assignment.grantId}.${assignment.grantStep != null ? " Your report on this step says what is left of the grant's work (`left`)." : ""}`
     : assignment.lane === "exploration"
       ? assignment.reservationId ? `${head}.\n${explorerBrief(world, building, assignment)}` : `${head}, exploration on gap: ${oneLine(assignment.gap ?? "", 300)}. Its report is a findings note for the manager's next proposal.`
       : `${head}, directed (a human asked for it${assignment.sourceId ? `: ${assignment.sourceId}` : " directly"})${assignment.gap ? `, on gap: ${oneLine(assignment.gap, 300)}` : ""}.`;

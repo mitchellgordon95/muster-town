@@ -9,7 +9,7 @@ const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replac
 const pct = (x: number) => `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
 
 function sessionText(l: FunderSessionLine): string {
-  const where = [l.buildingName, l.keyResultText ? `KR ${l.keyResultId}: ${l.keyResultText}` : null].filter(Boolean).join(" · ");
+  const where = [l.buildingName, l.grantName ? `grant ${l.grantId}: ${l.grantName}` : null].filter(Boolean).join(" · ");
   return `- ${l.at.slice(5, 16).replace("T", " ")} · **${fmt(l.tokens)}** · ${l.title}${where ? ` · ${where}` : ""}${l.reportId ? ` · report ${l.reportId}` : ""}`;
 }
 

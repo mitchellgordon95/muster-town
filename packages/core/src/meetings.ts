@@ -221,9 +221,10 @@ export function createOneOnOne(world: World, human: Agent, buildingId: string, o
     }
     if (grant) {
       if (m.transcript.some((u) => u.attachment?.ref === `grant:${grant.id}`)) return m;
-      const kr = grant.keyResultId ? world.keyResults.get(grant.keyResultId) : undefined;
+      const goalText = grant.goalId ? world.goals.get(grant.goalId)?.text : undefined;
+      const krs = world.grantDesk.keyResultsOf(grant.id);
       const what = grant.status === "proposed" || grant.status === "countered" || grant.status === "draft" ? "proposal" : "grant";
-      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${grantName(grant)}" (${grant.id})${kr ? `, for key result ${kr.id}: "${oneLine(kr.text, 160)}"` : ""}.`, grant.id);
+      return meetingSpeak(world, human, m.id, `I'd like to talk about the ${grant.status === "proposed" ? what : `${grant.status} ${what}`} "${grantName(grant)}" (${grant.id})${goalText ? `, under the goal "${oneLine(goalText, 160)}" (${grant.goalId})` : ""}${krs.length ? `, with key result${krs.length === 1 ? "" : "s"} ${krs.map((k) => `${k.id} "${oneLine(k.text, 80)}"`).join(", ")}` : ""}.`, grant.id);
     }
     if (!doc || m.transcript.some((u) => u.attachment?.kind === "doc" && u.attachment.ref === doc.id)) return m;
     const by = doc.authorId === target.id ? "your" : `${world.nameOf(doc.authorId)}'s`;

@@ -27,7 +27,7 @@ function setup() {
 /** A draft grant of the lab filed against `goalId`; returns its (first) key result. */
 function grantKr(world: ReturnType<typeof seededWorld>["world"], goalId: string, text = "k") {
   const g = world.grantDesk.create(null, LAB, { goalId, keyResults: [{ text, howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
-  return world.keyResults.require(g.keyResultId!);
+  return world.keyResults.require(g.keyResults[0]!.id);
 }
 
 describe("the town goal tree (docs/goals.md, step 1)", () => {
@@ -72,7 +72,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     const sub = tree.create(admin, { parentId: labGoal.id, text: "Every grant shows its sessions" });
     const plan = { objective: "o", approach: "a", steps: [{ size: "M" as const, title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 };
     const g = world.grantDesk.create(null, LAB, { ...plan, goalId: sub.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }] });
-    const mine = world.keyResults.require(g.keyResultId!);
+    const mine = world.keyResults.require(g.keyResults[0]!.id);
     expect(mine).toMatchObject({ due, goalId: sub.id, grantId: g.id });
     expect(world.krBuildingId(mine)).toBe(LAB);
     expect(world.grants.require(g.id).goalId).toBe(sub.id);
@@ -152,7 +152,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     expect(() => tree.update(lenaAv, labGoal.id, { ownerId: null })).toThrow(/captain of/); // the goal above isn't hers
     // she decides and funds a grant whose key result sits in her subtree
     const g = world.grantDesk.create(null, LAB, { goalId: sub.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
-    const kr = world.keyResults.require(g.keyResultId!);
+    const kr = world.keyResults.require(g.keyResults[0]!.id);
     world.grantDesk.propose(null, g.id);
     expect(tree.route({ grantId: g.id })).toEqual({ goalId: labGoal.id, userId: lena.id });
     expect(tree.route({ buildingId: LAB })).toEqual({ goalId: labGoal.id, userId: lena.id });
@@ -197,7 +197,7 @@ describe("the town goal tree (docs/goals.md, step 1)", () => {
     const o = world.goalTree.create(admin, { parentId: labGoal.id, text: "A sub-goal" });
     const kr = grantKr(world, o.id);
     expect(kr.goalId).toBe(o.id);
-    const loose = world.keyResults.require(world.grantDesk.create(null, LAB, { keyResults: [{ text: "k2", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const loose = world.keyResults.require(world.grantDesk.create(null, LAB, { keyResults: [{ text: "k2", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResults[0]!.id);
     expect(loose.goalId).toBe(labGoal.id);
     expect(world.grantDesk.keyResults(LAB).map((k) => k.id)).toEqual([kr.id, loose.id]);
   });

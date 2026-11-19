@@ -13,7 +13,7 @@ const s = (key: string, itemId: string | null, extra: Partial<ReviewSlide> = {})
 const week = (extra: Partial<FunderWeek> = {}): FunderWeek => ({
   userId: "us_d", userName: "Dana", days: 7, from: "2026-10-24T00:00:00.000Z", to: "2026-10-31T00:00:00.000Z",
   streams: [{ inputId: "bi_k", label: "My key", source: "api-key", story: "literal", goalId: "gl_child", goalPath: "Town › Lab › Child", balance: 300_000, cancelledAt: null, creditedTokens: 0, sessions: 1, tokens: 84_000 }],
-  literal: { tokens: 84_000, sessions: [{ sessionId: "se_1", at: "2026-10-30T10:00:00.000Z", purpose: "work", tokens: 84_000, assignmentId: "as_1", title: "Draft the brief", buildingId: "lab", buildingName: "Lab", goalId: "gl_child", keyResultId: "kr_1", keyResultText: "A thing", reportId: "dc_rep", reportTitle: "Brief", inputId: "bi_k" }] },
+  literal: { tokens: 84_000, sessions: [{ sessionId: "se_1", at: "2026-10-30T10:00:00.000Z", purpose: "work", tokens: 84_000, assignmentId: "as_1", title: "Draft the brief", buildingId: "lab", buildingName: "Lab", goalId: "gl_child", grantId: "gr_1", grantName: "A thing", reportId: "dc_rep", reportTitle: "Brief", inputId: "bi_k" }] },
   proRata: { share: 0, yourCreditedTokens: 0, poolCreditedTokens: 0, poolSessions: 0, poolTokens: 0, tokens: 0, byAssignment: [] },
   goalIds: ["gl_child"], everything: false, ...extra,
 });

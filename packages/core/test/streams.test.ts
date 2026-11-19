@@ -12,7 +12,7 @@ function setup() {
   const manager = world.agents.first("homeBuildingId = ? AND kind != 'human'", [LAB])!;
   const top = world.goalTree.attachmentOf(LAB);
   const child = world.goalTree.create(admin, { parentId: top, text: "Child goal" });
-  const kr = world.keyResults.require(world.grantDesk.create(admin, LAB, { goalId: child.id, keyResults: [{ text: "A thing", howToCheck: "Look", due: "2026-12-31" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+  const kr = world.keyResults.require(world.grantDesk.create(admin, LAB, { goalId: child.id, keyResults: [{ text: "A thing", howToCheck: "Look", due: "2026-12-31" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResults[0]!.id);
   world.bank.addInput(admin.ownerUserId!, { label: "Town key", source: "api-key", model: "m", tokens: 1_000_000, apiKey: "sk-town" } as never);
   const user = world.ops.createUser("Donor").user;
   const avatar = world.ops.ensureAvatar(user.id);
@@ -43,11 +43,11 @@ describe("funding streams (goal tree step 7)", () => {
     const { world, manager, top, child, kr, earmark } = setup();
     const high = earmark(top, 400_000, "High");
     const near = earmark(child.id, 300_000, "Near");
-    const asg = { buildingId: LAB, grantId: null, keyResultId: kr.id };
+    const asg = { buildingId: LAB, grantId: kr.grantId };
     expect(world.streams.nodeOf(asg, LAB)).toBe(child.id);
     expect(world.streams.pick(asg, LAB)!.id).toBe(near.id);
     // work on the building's attachment (no key result) only sees the higher earmark
-    expect(world.streams.pick({ buildingId: LAB, grantId: null, keyResultId: null }, LAB)!.id).toBe(high.id);
+    expect(world.streams.pick({ buildingId: LAB, grantId: null }, LAB)!.id).toBe(high.id);
     const f = world.budget.fundingFor(LAB, { stream: near });
     expect(f).toMatchObject({ auth: "api-key", inputId: near.id, credential: { secret: "sk-Near" } });
     const general = world.bank.balance();
@@ -65,7 +65,7 @@ describe("funding streams (goal tree step 7)", () => {
   it("an earmark below one expected session is never picked: it accrues", () => {
     const { world, child, kr, earmark } = setup();
     earmark(child.id, EXPECTED_SESSION_DEFAULT - 1, "Small");
-    expect(world.streams.pick({ buildingId: LAB, grantId: null, keyResultId: kr.id }, LAB)).toBeNull();
+    expect(world.streams.pick({ buildingId: LAB, grantId: kr.grantId }, LAB)).toBeNull();
     const row = world.streams.list().streams.find((x) => x.label === "Small")!;
     expect(row).toMatchObject({ coversSession: false, goalId: child.id, balance: EXPECTED_SESSION_DEFAULT - 1 });
     expect(row.goalPath).toMatch(/Child goal$/);

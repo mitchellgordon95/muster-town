@@ -197,8 +197,7 @@ export class Goals {
     if (item.goalId && this.get(item.goalId)) goalId = item.goalId;
     else if (item.grantId) {
       const g = this.world.grants.get(item.grantId);
-      const kr = g?.keyResultId ? this.world.keyResults.get(g.keyResultId) : undefined;
-      goalId = g?.goalId ?? kr?.goalId ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
+      goalId = (g?.goalId && this.get(g.goalId) ? g.goalId : null) ?? (g ? this.attachmentOf(g.buildingId) : ROOT_GOAL_ID);
     } else if (item.proposalId) {
       const p = this.world.goalProposals.get(item.proposalId);
       goalId = (p && this.nodeOfProposal(p)) ?? ROOT_GOAL_ID;

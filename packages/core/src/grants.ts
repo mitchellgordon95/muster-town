@@ -81,7 +81,7 @@ export class Grants {
     const sessions = this.world.sessions.where("grantId = ?", [g.id]);
     const spentCounts = sessions.reduce<TokenCounts>((s, x) => addTokens(s, x), { ...ZERO_TOKENS });
     return {
-      ...g, keyResult: (g.keyResultId && this.world.keyResults.get(g.keyResultId)) || null, keyResults: this.keyResultsOf(g.id), spentTokens: this.adjustedSum(sessions), spentCounts,
+      ...g, keyResults: this.keyResultsOf(g.id), spentTokens: this.adjustedSum(sessions), spentCounts,
       fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
       holdAtTokens: g.status === "funded" ? holdAtTokens(g) : null,
       evidence: this.evidenceFor(g), stepStates: this.stepStates(g),
@@ -362,7 +362,7 @@ export class Grants {
     const steps = this.requireSteps(buildingId, inp.steps);
     const now = nowIso();
     const g = this.world.transaction(() => this.writeKeyResults(actor, this.world.grants.upsert({
-      id: newId("gr"), buildingId, goalId, keyResultId: null, title: inp.title ?? grantTitleOf(inp.objective), objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
+      id: newId("gr"), buildingId, goalId, title: inp.title ?? grantTitleOf(inp.objective), objective: inp.objective, approach: inp.approach, testingPlan: [], steps,
       stopCondition: inp.stopCondition, askTokens: this.askOf(steps), continues: this.requireContinues(buildingId, inp.continues),
       grantTokens: null, status: "draft", outcome: null, findingsDocIds: inp.findingsDocIds, picture: inp.picture ?? null, whatYoudSee: inp.whatYoudSee ?? "", checkpointsDone: [], checkpointDocId: null, topUpTokens: null, whatTopUpBuys: "",
       proposedBy: actor?.id ?? "system", fundedBy: null, fundedWith: null, fundedAt: null, closedAt: null, history: [], estimate: null, forecast: null, needsTopUp: false, createdAt: now, updatedAt: now,
@@ -395,7 +395,6 @@ export class Grants {
 
   /**
    * A draft or countered grant's key results, replaced by `list` (1-5): each dated and checkable, under the grant's goal.
-   * The first is the grant's `keyResultId`; work queued on the grant (never funded) follows it.
    */
   private writeKeyResults(actor: Actor, g: Grant, list: GrantKeyResultInput[]): Grant {
     const krs = list.map((k) => GrantKrInput.parse(k));
@@ -404,13 +403,12 @@ export class Grants {
     const by = actor ? holderOf(actor) : null;
     const now = nowIso();
     const last = this.world.keyResults.first("1 = 1", [], "ORDER BY position DESC");
-    const ids = krs.map((k, i) => this.world.keyResults.upsert({
+    krs.forEach((k, i) => this.world.keyResults.upsert({
       id: newId("kr"), position: (last?.position ?? 0) + 1 + i, text: k.text, howToCheck: k.howToCheck,
       status: "open", statusNote: "", statusBy: null, createdBy: by?.id ?? null, editedBy: null, sourceDocIds: [],
       goalId: g.goalId, grantId: g.id, due: k.due ?? null, archivedAt: null, underReviewSince: null, postmortemDocId: null, updatedAt: now,
-    }).id);
-    for (const a of this.world.assignments.where("grantId = ? AND status IN ('pending', 'active') AND keyResultId IS NOT NULL", [g.id])) this.world.assignments.upsert({ ...a, keyResultId: ids[0]! });
-    return this.world.grants.upsert({ ...g, keyResultId: ids[0]!, updatedAt: now });
+    }));
+    return this.world.grants.upsert({ ...g, updatedAt: now });
   }
 
   /** The goal a grant is filed against: the building's goal or one under it (default the building's). */
@@ -484,7 +482,7 @@ export class Grants {
     const a = createAssignment(this.world, {
       agentId: manager.id, buildingId: g.buildingId, title: step.title.slice(0, 160),
       createdBy: by && by.kind === "human" ? holderOf(by) : { kind: "system", id: "system" },
-      laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null },
+      laneOverride: { lane: "grant", grantId: g.id, gap: null, sourceId: null },
       ...(forkable ? { model } : {}),
       ...(from ? { fromAssignmentId: from.assignmentId, fromReportId: from.reportId } : {}),
       description: `Grant ${g.id} "${g.objective}", step ${k + 1} of ${n}.${note.trim() ? `\n\nThe funder's note: ${note.trim()}` : ""}${gone.length ? `\n\nThe plan's topic pages ${gone.join(", ")} are gone or no longer this building's: they are not loaded.` : ""}\n\n${step.description}\n\nThe plan's steps:\n${g.steps.map((s, i) => `${i + 1}. ${s.title}${i === k ? " (this one)" : i < k ? " (done)" : ""}`).join("\n")}\n\nKey results (the grant's own):\n${this.krLines(g)}\nStop condition: ${g.stopCondition}\n\n${nextLine}`,
@@ -964,8 +962,7 @@ export class Grants {
   /** Who decides a grant: a human with `building.fund` on its building, or the captain of its goal (docs/goals.md "Captains on nodes"). */
   canFund(actor: Actor, g: Grant): boolean {
     if (!actor || this.world.permissions.can(actor, "building.fund", g.buildingId)) return true;
-    const goalId = g.goalId ?? (g.keyResultId ? this.world.keyResults.get(g.keyResultId)?.goalId : null);
-    return !!goalId && this.world.goalTree.owns(actor, goalId);
+    return !!g.goalId && this.world.goalTree.owns(actor, g.goalId);
   }
 
   private requireStatus(g: Grant, ok: GrantStatus[], verb: string): void {

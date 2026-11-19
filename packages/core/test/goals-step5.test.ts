@@ -18,7 +18,7 @@ function setup() {
   const goal = tree.create(admin, { parentId: "gl_trust", text: "A funder sees what every token bought" });
   tree.attach(admin, LAB, goal.id);
   const g = world.grantDesk.create(null, LAB, { goalId: goal.id, keyResults: [{ text: "Grant panel lists sessions", howToCheck: "Open a grant", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 });
-  const kr = world.keyResults.require(g.keyResultId!);
+  const kr = world.keyResults.require(g.keyResults[0]!.id);
   world.grantDesk.propose(null, g.id);
   world.grantDesk.decide(admin, g.id, { action: "fund" });
   return { ...s, mei, tree, goal, kr, grant: g };
@@ -38,7 +38,7 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
     expect(prep[0]).toMatchObject({ buildingId: LAB, lane: "directed", queue: "building", agentId: mei.id });
     expect(prep[0].description).toContain(`reorgId ${c.id}`);
     expect(world.keyResults.require(kr.id).underReviewSince).toBeTruthy();
-    expect(world.grants.first("keyResultId = ?", [kr.id])?.status).toBe("funded"); // grants keep running
+    expect(world.grants.get(kr.grantId!)?.status).toBe("funded"); // grants keep running
     const planner = world.reorgs.planner()!;
     expect(planner).toMatchObject({ name: "Planner", homeBuildingId: "town-hall", kind: "resident" });
     const m = world.meetings.require(c.meetingId!);
@@ -108,7 +108,7 @@ describe("Change this goal (docs/goals.md, step 5)", () => {
     // one building per goal: Other nests on a goal under the lab's
     const sub = tree.create(admin, { parentId: goal.id, text: "Sub" });
     const other = createBuilding(world, { name: "Other", goalId: sub.id }, null);
-    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: buildingId === LAB ? goal.id : sub.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResultId!);
+    const krOf = (buildingId: string, text: string) => world.keyResults.require(world.grantDesk.create(null, buildingId, { goalId: buildingId === LAB ? goal.id : sub.id, keyResults: [{ text, howToCheck: "h", due }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1000 }).keyResults[0]!.id);
     const k2 = krOf(other.id, "k2");
     const k3 = krOf(LAB, "k3");
     const c = world.reorgs.file(admin, goal.id, { toText: "Y words", why: "w" });

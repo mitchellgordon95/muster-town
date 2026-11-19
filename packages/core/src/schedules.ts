@@ -111,7 +111,7 @@ export function createSchedule(world: World, buildingId: string, by: Holder, raw
   const ts = at.toISOString();
   const s = world.schedules.upsert({
     id: newId("sc"), buildingId: b.id, title: input.title, description: input.description, nextRunAt: next.toISOString(),
-    ...rep, endsAt, paused: false, missedRuns: 0, missedSince: null, lane: lane.lane, grantId: lane.grantId, keyResultId: lane.keyResultId, gap: lane.gap, sourceId: lane.sourceId,
+    ...rep, endsAt, paused: false, missedRuns: 0, missedSince: null, lane: lane.lane, grantId: lane.grantId, gap: lane.gap, sourceId: lane.sourceId,
     pages, model, origin, takerId: taker?.id ?? null, status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0,
     tokensPerRun, retainer: lane.lane === "retainer" ? "asked" : "none", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null,
     createdBy: by.id, createdByKind: by.kind === "agent" ? "agent" : "user", createdAt: ts, updatedAt: ts,
@@ -132,7 +132,7 @@ function scheduleLane(world: World, buildingId: string, by: Holder, input: Creat
     if (input.lane && input.lane !== "retainer") throw badRequest(`tokensPerRun makes the schedule a retainer: leave lane out (or say "retainer"), not "${input.lane}".`);
     if (input.grantId) throw badRequest("A retainer draws on its own approved money, not a grant: leave grantId out.");
     if (tokensPerRun <= 0) throw badRequest("A retainer names tokensPerRun: what one run may spend, in Bank tokens (Opus 5.5 output tokens).");
-    return { lane: "retainer" as const, grantId: null, keyResultId: null, gap: input.gap?.trim() || null, sourceId: null };
+    return { lane: "retainer" as const, grantId: null, gap: input.gap?.trim() || null, sourceId: null };
   }
   if (repeating && by.kind === "agent") throw badRequest("A repeating job runs on a retainer a human approves: give tokensPerRun (what one run may spend, in Bank tokens). It asks in the Town Hall in-tray; its runs start once approved.");
   return resolveLane(world, buildingId, by, input);

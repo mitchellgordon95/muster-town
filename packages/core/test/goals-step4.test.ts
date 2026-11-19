@@ -75,14 +75,14 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
   const inputs = (sessions: GoalSpendInputs["sessions"]): GoalSpendInputs => ({
     subtree: new Set(["gl_a", "gl_a1"]), rootId: "gl_town", sessions,
     assignments: [
-      { id: "as_g", buildingId: "b1", grantId: "gr_1", keyResultId: "kr_1", lane: "grant" },
-      { id: "as_e", buildingId: "b2", grantId: null, keyResultId: "kr_2", lane: "exploration" },
-      { id: "as_d", buildingId: "b1", grantId: null, keyResultId: null, lane: "directed" },
-      { id: "as_x", buildingId: "b3", grantId: null, keyResultId: null, lane: "directed" },
+      { id: "as_g", buildingId: "b1", grantId: "gr_1", lane: "grant" },
+      { id: "as_e", buildingId: "b2", grantId: null, lane: "exploration" },
+      { id: "as_d", buildingId: "b1", grantId: null, lane: "directed" },
+      { id: "as_x", buildingId: "b3", grantId: null, lane: "directed" },
     ],
     agents: [{ id: "ag_a", buildingId: "b1" }, { id: "ag_c", buildingId: "b3" }],
     buildings: [{ id: "b1", name: "One", goalId: "gl_a" }, { id: "b2", name: "Two", goalId: "gl_b" }, { id: "b3", name: "Three", goalId: "gl_b" }],
-    grants: [{ id: "gr_1", keyResultId: "kr_1", buildingId: "b1" }],
+    grants: [{ id: "gr_1", goalId: "gl_a1", buildingId: "b1", title: "Grant one", objective: "o", status: "funded" }],
     keyResults: [
       { id: "kr_1", text: "one", goalId: "gl_a1", status: "open", updatedAt: at(50) },
       { id: "kr_2", text: "two", goalId: "gl_a", status: "met", updatedAt: at(5) },
@@ -90,26 +90,26 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     ],
   });
 
-  it("a session belongs by its lane: grant → the KR's goal, a named KR → its goal, else the building's attachment", () => {
+  it("a session belongs by its grant: grant → the grant's goal, else the building's attachment", () => {
     const one = adjustedOfUsage("claude-opus-4-5", { output: 1000 });
     const r = goalSpend("gl_a", inputs([
       s("grant", { assignmentId: "as_g", grantId: "gr_1", lane: "grant" }),
-      s("expl", { assignmentId: "as_e", lane: "exploration" }), // building b2 is elsewhere, but its KR is in the subtree
+      s("expl", { assignmentId: "as_e", lane: "exploration" }), // building b2 → gl_b: not counted (no key result routes it any more)
       s("dir", { assignmentId: "as_d", lane: "directed" }),
       s("mgr", {}), // no assignment: agent's building b1 → gl_a
       s("out", { assignmentId: "as_x", agentId: "ag_c", lane: "directed" }), // b3 → gl_b: not counted
       s("old", { assignmentId: "as_d", lane: "directed", startedAt: at(24 * 9), endedAt: at(24 * 8) }), // outside 7 days
     ]), 7, now);
-    expect(r.sessions).toBe(4);
-    expect(r.total).toBe(4 * one);
-    expect(r.byLane).toEqual({ grant: one, exploration: one, directed: one, none: one });
-    expect(r.byBuilding.map((b) => [b.id, b.tokens])).toEqual([["b1", 3 * one], ["b2", one]]);
-    expect(r.byKeyResult.map((k) => [k.id, k.tokens])).toEqual([["kr_1", one], ["kr_2", one]]);
+    expect(r.sessions).toBe(3);
+    expect(r.total).toBe(3 * one);
+    expect(r.byLane).toEqual({ grant: one, exploration: 0, directed: one, none: one });
+    expect(r.byBuilding.map((b) => [b.id, b.tokens])).toEqual([["b1", 3 * one]]);
+    expect(r.byGrant.map((g) => [g.id, g.title, g.goalId, g.tokens])).toEqual([["gr_1", "Grant one", "gl_a1", one]]);
     expect(r.seriesUnit).toBe("day");
     expect(r.series).toHaveLength(7);
-    expect(r.series.at(-1)!.tokens).toBe(4 * one);
+    expect(r.series.at(-1)!.tokens).toBe(3 * one);
     expect(r.results.map((k) => k.id)).toEqual(["kr_2"]);
-    // a narrower node sees only its own: gl_a1 holds kr_1's goal
+    // a narrower node sees only its own: gl_a1 is gr_1's goal
     const sub = goalSpend("gl_a1", { ...inputs([s("grant", { assignmentId: "as_g", grantId: "gr_1", lane: "grant" }), s("dir", { assignmentId: "as_d", lane: "directed" })]), subtree: new Set(["gl_a1"]) }, 30, now);
     expect(sub).toMatchObject({ sessions: 1, seriesUnit: "week" });
     expect(sub.series).toHaveLength(5);
@@ -140,7 +140,7 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
   it("over the world: reads sessions, writes nothing to the Bank", () => {
     const { world, admin, labGoal, mei } = setup();
     const g = world.grantDesk.create(null, LAB, { goalId: labGoal.id, keyResults: [{ text: "k", howToCheck: "h", due }], objective: "o", approach: "a", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 100000 });
-    const kr = world.keyResults.require(g.keyResultId!);
+    const kr = world.keyResults.require(g.keyResults[0]!.id);
     world.grantDesk.propose(null, g.id);
     world.grantDesk.decide(admin, g.id, { action: "fund" });
     const agent = mei;
@@ -150,7 +150,7 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
     const before = snapshot();
     const r = worldGoalSpend(world, "gl_trust");
     expect(r.sessions).toBe(1);
-    expect(r.byKeyResult[0]?.id).toBe(kr.id);
+    expect(r.byGrant[0]?.id).toBe(kr.grantId);
     expect(worldGoalSpend(world, "gl_join").sessions).toBe(0);
     expect(snapshot()).toEqual(before);
   });

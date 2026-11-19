@@ -34,7 +34,7 @@ export function requireOpenEntry(world: World, id: string): Entry & { buildingId
 }
 
 /** The lane of the work an entry is about, so what follows it is charged where it was. */
-const laneOfAssignment = (a: Assignment) => ({ lane: a.lane, grantId: a.grantId, keyResultId: a.keyResultId, gap: a.gap, sourceId: a.sourceId });
+const laneOfAssignment = (a: Assignment) => ({ lane: a.lane, grantId: a.grantId, gap: a.gap, sourceId: a.sourceId });
 
 /**
  * The lane of work that follows an entry with no assignment behind it: its job's grant while that grant can still run
@@ -44,7 +44,7 @@ const laneOfAssignment = (a: Assignment) => ({ lane: a.lane, grantId: a.grantId,
 function followLane(world: World, e: Entry): { laneOverride?: Lane } {
   const job = world.db.prepare("SELECT rule, pocketRef FROM jobs WHERE id = ?").get(e.jobId) as { rule: string; pocketRef: string | null } | undefined;
   const g = job?.rule === "ceiling" && job.pocketRef ? world.grants.get(job.pocketRef) : undefined;
-  if (g && (g.status === "funded" || g.status === "checkpoint")) return { laneOverride: { lane: "grant", grantId: g.id, keyResultId: g.keyResultId, gap: null, sourceId: null } };
+  if (g && (g.status === "funded" || g.status === "checkpoint")) return { laneOverride: { lane: "grant", grantId: g.id, gap: null, sourceId: null } };
   if (e.authorKind === "human") return { laneOverride: { ...DIRECTED, sourceId: e.id } };
   return {};
 }
