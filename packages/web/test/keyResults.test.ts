@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSteps, grantsSummary, krAuthorLine, krGrantWord, unfundableReason, grantSpendLine, objectiveLine, krStatusLabel, krTone, settableStatuses, spentShare } from "../src/panels/keyResults";
+import { BLOCKED_LABEL, UNBLOCK_LINE, blockedLabel, goalsSummary, grantGroups, grantSteps, grantsSummary, krAuthorLine, krGrantWord, unfundableReason, grantSpendLine, krStatusLabel, krTone, settableStatuses, spentShare } from "../src/panels/keyResults";
 import type { FinanceSpend } from "../src/api";
 import { MockApi } from "../src/mock/server";
 import { stoplightOf } from "@muster-town/schema";
@@ -33,15 +33,13 @@ describe("board key-results view", () => {
   });
   it("Goals tab: one grant word per key result and the Overview line", async () => {
     const api = new MockApi();
-    const tree = await api.objectives("bl_workshop");
+    const { keyResults: all } = await api.keyResults("bl_workshop");
     const grants = await api.grants("bl_workshop");
     expect(grants.map((g) => [g.id, g.status]).sort()).toEqual([["gr_cli", "countered"], ["gr_hud", "checkpoint"], ["gr_tour", "funded"]]);
-    const all = [...tree.objectives.flatMap((o) => o.keyResults), ...tree.unsorted];
     expect(all.map((k) => [k.id, krGrantWord(k.id, grants)]).sort()).toEqual([
       ["kr_bl_workshop_0", "funded"], ["kr_bl_workshop_1", "funded"], ["kr_bl_workshop_2", "proposed"], ["kr_bl_workshop_3", "open"],
     ]);
-    expect(goalsSummary(tree, grants)).toBe("3 objectives, 4 key results, 2 funded");
-    expect(objectiveLine(tree.objectives[0]!)).toBe("Moves Trust · 2026-Q4");
+    expect(goalsSummary(all, grants)).toBe("4 key results, 2 funded");
     expect(krStatusLabel("not-started")).toBe("not started");
     expect(krGrantWord("kr_x", [{ keyResultId: "kr_x", status: "closed" }])).toBe("open");
   });
