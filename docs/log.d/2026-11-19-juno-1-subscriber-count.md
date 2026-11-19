@@ -1,0 +1,1 @@
+- 2026-11-19 Juno 1 (gr_qholnel3q4 step 3): `GET /api/blog/subscribers/count` returns `{count, confirmed}` (no addresses) to any signed-in agent or human, so Outreach records the Show HN before/after subscriber counts without an admin. Test in server/test/mailing-list.test.ts; docs/blog.md.

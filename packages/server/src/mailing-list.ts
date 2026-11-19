@@ -2,14 +2,15 @@ import { AppError, type World } from "@muster-town/core";
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { parse, requireUser } from "./context.ts";
+import { parse, requireAuth, requireUser } from "./context.ts";
 import type { Mail, MailSender } from "./mail.ts";
 
 /**
  * The blog's mailing list (Mitchell, mt_msnjkpgwdb decision 7): the form at the foot of every blog page (blog.ts) posts
  * here. Root app only. `POST /api/blog/subscribe {email, source?, website?}` is public: a repeat answers ok like the first
  * time, the honeypot `website` (hidden from people) drops bots silently, and each client IP may post 10 times an hour.
- * `GET /api/blog/subscribers[?format=csv]` is for admins.
+ * `GET /api/blog/subscribers[?format=csv]` is for admins. `GET /api/blog/subscribers/count` gives only the two numbers
+ * ({count, confirmed}, no addresses) to any signed-in agent or human, so Outreach can record before/after counts itself.
  *
  * Double opt-in once the town has a mail sender (mail.ts, `RESEND_API_KEY`; Mitchell 2026-11-12 on ak_cb6gz3ru9k): a new
  * address is stored unconfirmed and gets a confirmation email; `GET /api/blog/confirm?token=` confirms it. Every email
@@ -175,6 +176,11 @@ export function mailingListRoutes(opts: { clientIpHeader?: string | null; now?: 
     };
     app.get("/api/blog/unsubscribe", unsubscribe);
     app.post("/api/blog/unsubscribe", unsubscribe);
+    app.get("/api/blog/subscribers/count", async (req) => {
+      requireAuth(req);
+      const subscribers = list.list();
+      return { count: subscribers.length, confirmed: subscribers.filter((s) => s.confirmed).length };
+    });
     app.get<{ Querystring: { format?: string } }>("/api/blog/subscribers", async (req, reply) => {
       const user = requireUser(req);
       app.world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin of this town can read the mailing list.");
