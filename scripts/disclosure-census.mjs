@@ -28,6 +28,13 @@
  * (.sheet.link-sheet): it counts like the side panel. A doc opened from the library, an in-tray or a filing cabinet is a
  * centred doc sheet (.sheet.doc-sheet): a document body, excluded. In-trays and cabinets are measured as their sidebar list.
  *
+ * Goal-tree readability (grant gr_nhayb7s9bd, kr_vdvagvpm47): the goal tree's sheet also gets a "(goal titles on the first screen)"
+ * row: how many goal titles show on its first screen (canvas boxes .gc-text inside the canvas viewport, or the phone outline's
+ * rows .go-text) and the smallest of their on-screen sizes (computed font size × the canvas zoom). It passes at 11 px or more.
+ *
+ * The decision queue (.sheet.queue-sheet, the hydrant) is a target too: mock opens it with open({kind: "queue"}), live with #/queue.
+ * Live also opens the goal tree at its root with #/goals.
+ *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
@@ -50,7 +57,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT ?? "/tmp/pw/node_module
 const list = (s) => (typeof s === "string" ? s.split(",").filter(Boolean) : []);
 if (flags.shots) fs.mkdirSync(flags.shots, { recursive: true });
 
-const BAR = { ctl: 12, words: 200, screens: 3 };
+const BAR = { ctl: 12, words: 200, screens: 3, titlePx: 11 };
 const SIZES = [{ n: "laptop", w: 1280, h: 800, touch: false }, { n: "phone", w: 390, h: 844, touch: true }]
   .filter((s) => !flags.sizes || list(flags.sizes).includes(s.n));
 
@@ -67,7 +74,7 @@ if (mode === "mock") {
     { kind: "intray", id: "bl_carbon" }, { kind: "intray", id: "bl_townhall" }, { kind: "board", id: "bl_carbon" }, { kind: "cabinet", id: "bl_carbon" },
     { kind: "planning" }, { kind: "schedule", id: "bl_carbon" }, { kind: "mod" }, { kind: "grant", id: "gr_ocean" }, { kind: "grant", id: "gr_stress" },
     { kind: "assignment", id: "as_noor2" }, { kind: "session", id: "se_fork1" }, { kind: "manual" }, { kind: "stats" }, { kind: "help", id: "bl_carbon" },
-    { kind: "goals" }, { kind: "goals", id: "gl_join" }, { kind: "outbox" }, { kind: "connect" }, { kind: "bank" },
+    { kind: "goals" }, { kind: "goals", id: "gl_join" }, { kind: "outbox" }, { kind: "connect" }, { kind: "bank" }, { kind: "queue" },
   ];
 } else {
   const origin = new URL(url).origin;
@@ -86,7 +93,7 @@ if (mode === "mock") {
     ...(meetings[0] ? [{ kind: "meeting", id: meetings[0].id }] : []),
     ...list(flags.assignments).map((id) => ({ kind: "assignment", id })), ...list(flags.sessions).map((id) => ({ kind: "session", id })),
     ...[...new Set(["kr_p6l1w6tade", ...list(flags.krs)])].map((id) => ({ kind: "kr", id })),
-    { kind: "manual" }, { kind: "connect" }, { kind: "bank" },
+    { kind: "goals" }, { kind: "queue" }, { kind: "manual" }, { kind: "connect" }, { kind: "bank" },
   ];
 }
 // --only=goals,kr keeps just those panel kinds (one panel's before/after without the whole ~3 min run)
@@ -97,13 +104,13 @@ const label = (t) => t.kind + (t.id ? ":" + t.id : "") + (t.docId ? ":" + t.docI
 // ---- measuring ----
 /**
  * Where the open panel is: the side panel (aside.panel), or a sheet over the map: the goal tree (.sheet.goal-sheet; its `part` "detail" is the
- * selected goal's pane, .sheet-side), the manual and help cards (.paper), the Bank (.sheet[aria-label="The Bank"]). Marked data-census for the tab locator.
+ * selected goal's pane, .sheet-side), the decision queue (.sheet.queue-sheet, over the Secretary's 1:1 in the side panel), the manual and help cards (.paper), the Bank (.sheet[aria-label="The Bank"]). Marked data-census for the tab locator.
  */
 const measure = (page, part) => page.evaluate((part) => {
   document.querySelectorAll("[data-census]").forEach((el) => el.removeAttribute("data-census"));
   // a link sheet (a grant or an agent opened from a link or a hash, gr_4csjpgh346 step 3) sits over any side panel: it is the panel;
   // a doc sheet (a report, a rollup, an in-tray or cabinet item opened from its list) is a document body (excluded)
-  let panel = document.querySelector(".sheet.link-sheet") ?? document.querySelector(".sheet.doc-sheet") ?? document.querySelector("aside.panel") ?? document.querySelector(".sheet.goal-sheet") ?? document.querySelector(".paper.manual") ?? document.querySelector('.sheet[aria-label="The Bank"]');
+  let panel = document.querySelector(".sheet.link-sheet") ?? document.querySelector(".sheet.doc-sheet") ?? document.querySelector(".sheet.queue-sheet") ?? document.querySelector("aside.panel") ?? document.querySelector(".sheet.goal-sheet") ?? document.querySelector(".paper.manual") ?? document.querySelector('.sheet[aria-label="The Bank"]');
   if (panel && part === "detail") panel = panel.querySelector(".sheet-side");
   if (!panel) return null;
   panel.setAttribute("data-census", "");
@@ -138,6 +145,28 @@ const measure = (page, part) => page.evaluate((part) => {
   const screens = Math.max(1, ...scrollers.map((el) => el.scrollHeight / Math.max(1, el.clientHeight)));
   return { docSheet: panel.matches(".sheet.doc-sheet"), ctl: ctrls.filter(shown).length, ctlAll: ctrls.length, words, total, screens: +screens.toFixed(1) };
 }, part);
+
+/**
+ * The goal tree's first screen (kr_vdvagvpm47): the goal titles shown inside the canvas viewport (.gc) or the outline (.go-tree),
+ * and the smallest on-screen size among them: the computed font size times the canvas zoom (the .gc-stage scale).
+ */
+const measureTitles = (page) => page.evaluate(() => {
+  const sheet = document.querySelector(".sheet.goal-sheet");
+  if (!sheet) return null;
+  const outline = sheet.querySelector(".go-tree");
+  const frame = (outline ?? sheet.querySelector(".gc"))?.getBoundingClientRect();
+  if (!frame) return null;
+  const top = Math.max(0, frame.top), bottom = Math.min(innerHeight, frame.bottom), left = Math.max(0, frame.left), right = Math.min(innerWidth, frame.right);
+  // the canvas zoom is the stage's scale (the outline is not zoomed); a box's own height is rounded to whole px, so not that
+  const stage = outline ? null : sheet.querySelector(".gc-stage");
+  const zoom = stage ? new DOMMatrix(getComputedStyle(stage).transform).a : 1;
+  const sizes = [...sheet.querySelectorAll(outline ? ".go-row .go-text" : ".gc-box .gc-text")].flatMap((el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.height || getComputedStyle(el).visibility === "hidden" || r.bottom <= top || r.top >= bottom || r.right <= left || r.left >= right) return [];
+    return [parseFloat(getComputedStyle(el).fontSize) * zoom];
+  });
+  return { view: outline ? "outline" : "canvas", titles: sizes.length, minPx: sizes.length ? +Math.min(...sizes).toFixed(1) : null };
+});
 
 const verdict = (t, m, part) => {
   if (!m) return "no panel";
@@ -176,6 +205,12 @@ for (const size of SIZES) {
       rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab, ...(m ?? {}), verdict: verdict(t, m) });
       // the goal tree is a sheet with the tree beside the selected goal: its detail pane gets its own row (kr_3jie8qwdt6)
       if (t.kind === "goals" || t.kind === "kr") { const d = await measure(page, "detail"); if (d) rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab: "(selected goal's detail)", ...d, verdict: verdict(t, d, "detail") }); }
+      // its first screen's goal titles: readable at 11 px or more (kr_vdvagvpm47)
+      if (t.kind === "goals" && i === 0) {
+        const g = await measureTitles(page);
+        rows.push({ size: `${size.w}×${size.h}`, panel: label(t), tab: `(goal titles on the first screen${g ? `, ${g.view}` : ""})`, titles: g?.titles, minPx: g?.minPx,
+          verdict: !g || !g.titles ? "no titles" : g.minPx >= BAR.titlePx ? "pass" : `FAIL title<${BAR.titlePx}px` });
+      }
       if (i === 0 && flags.shots) await page.screenshot({ path: `${flags.shots}/${size.n}-${label(t).replace(/[:/]/g, "_")}.png` }).catch(() => {});
     }
     // close the side panel and any link or doc sheet (store.sheet), which a side panel's open(null) leaves up
@@ -189,8 +224,9 @@ if (flags.json) console.log(JSON.stringify(rows, null, 1));
 else {
   console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words (over ${BAR.screens} screens is noted as long)`);
   console.log("In-trays and filing cabinets are measured as their sidebar list; an item opened from them is a centred doc sheet, a document body (excluded, like the Bank). Grants and agents opened by link or hash are centred link sheets and count.");
-  console.log("| size | panel | tab | ctl | ctl total | words | words total | screens | verdict |\n|---|---|---|---|---|---|---|---|---|");
-  for (const r of rows) console.log(`| ${r.size} | ${r.panel} | ${r.tab ?? ""} | ${r.ctl ?? ""} | ${r.ctlAll ?? ""} | ${r.words ?? ""} | ${r.total ?? ""} | ${r.screens ?? ""} | ${r.verdict} |`);
+  console.log(`The goal tree's title row: goal titles on its first screen and the smallest on-screen title size (pass at ${BAR.titlePx} px or more).`);
+  console.log("| size | panel | tab | ctl | ctl total | words | words total | screens | titles | min title px | verdict |\n|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const r of rows) console.log(`| ${r.size} | ${r.panel} | ${r.tab ?? ""} | ${r.ctl ?? ""} | ${r.ctlAll ?? ""} | ${r.words ?? ""} | ${r.total ?? ""} | ${r.screens ?? ""} | ${r.titles ?? ""} | ${r.minPx ?? ""} | ${r.verdict} |`);
   const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
   console.log(`\n${counted.filter((r) => r.verdict.startsWith("pass")).length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
 }
