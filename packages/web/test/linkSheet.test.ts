@@ -55,6 +55,15 @@ describe("hash routes", () => {
     expect(routeOf("#/nothing")).toBeNull();
   });
 
+  it("#/goals opens the goal tree at its root and #/queue the decision queue; the address bar shows them", () => {
+    expect(routeOf("#/goals")).toEqual({ panel: { kind: "goals" } });
+    expect(routeOf("#/queue")).toEqual({ panel: { kind: "queue" } });
+    expect(routeOf("#/connect")).toEqual({ panel: { kind: "connect" } });
+    expect(shownHash(null, { kind: "goals" })).toBe("#/goals");
+    expect(shownHash(null, { kind: "goals", id: "gl_join" })).toBe("");
+    expect(shownHash(null, { kind: "queue" })).toBe("#/queue");
+  });
+
   it("#/building opens a bl_ building and the two un-prefixed ones (the Workshop, the Town Hall)", () => {
     expect(routeOf("#/building/bl_hzjw0z0zlz")).toEqual({ panel: { kind: "building", id: "bl_hzjw0z0zlz" } });
     expect(routeOf("#/building/workshop")).toEqual({ panel: { kind: "building", id: "workshop" } });
