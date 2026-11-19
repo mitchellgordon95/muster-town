@@ -251,7 +251,7 @@ export function ManagerWakesLines({ mw, buildingId, initialOpen = false }: { mw?
   const days = b ? (open ? b.days : b.days.slice(0, WAKE_FOLD)) : [];
   return (
     <section className="manager-wakes" aria-label="Manager wakes per day">
-      <b>Manager wakes</b> <span className="muted">· {mw.windowNote}; decided = reports and flags the manager decided inside a wake</span>
+      <b>Manager wakes</b> <span className="muted">· {mw.windowNote}; decided = reports, flags and ask actions (fund, approve, rank…) the manager settled inside a wake</span>
       {b ? (
         <table className="table spend-table manager-wakes-table">
           <thead><tr><th>Day (UTC)</th><th>Wakes</th><th>{ADJ}</th><th title="At API list price">$</th><th>Per wake</th><th>Decided</th><th>Per decision</th></tr></thead>

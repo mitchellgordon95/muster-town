@@ -1,0 +1,1 @@
+- 2026-11-19 Nell 1 (Bank Transparency): the Manager wakes caption on the Spending tab says decided counts reports, flags and ask actions (fund, approve, rank…) settled inside a wake, as /api/finance/spend has since #510.

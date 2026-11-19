@@ -185,7 +185,7 @@ describe("finance page: spending", () => {
     expect(wakeLine(line(1, 0))).toContain("no decisions");
     // a building's level: the newest 7 days, folded, then the total
     const lvl = centreOf(spendAt("spend:workshop", { ...sp, managerWakes: mw }));
-    for (const s of ["Manager wakes", days[0]!.day, "Show 1 more day", "7 d total", "160k"]) expect(lvl).toContain(s);
+    for (const s of ["Manager wakes", "reports, flags and ask actions", days[0]!.day, "Show 1 more day", "7 d total", "160k"]) expect(lvl).toContain(s);
     expect(lvl).not.toContain(days[7]!.day);
     expect(renderToStaticMarkup(<ManagerWakesLines mw={mw} buildingId="workshop" initialOpen />)).toContain(days[7]!.day);
     expect(renderToStaticMarkup(<ManagerWakesLines mw={mw} buildingId="bl_none" />)).toContain("No manager wakes in this window.");
