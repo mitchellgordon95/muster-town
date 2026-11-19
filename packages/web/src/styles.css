@@ -947,6 +947,18 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .gc-ask .actions { display: flex; gap: 6px; justify-content: flex-end; }
 .ge-tools { display: flex; gap: 10px; align-items: center; padding: 2px 4px 8px; position: sticky; top: -8px; background: var(--panel); z-index: 1; }
 .ge-tools select { width: auto; max-width: 170px; padding: 4px 6px; font-size: var(--fs-sm); }
+/* the phone outline of the goal tree (GoalOutline.tsx, grant gr_nhayb7s9bd step 2): one row per goal, words at --fs-md */
+.ge-view { display: inline-flex; gap: 4px; margin-left: auto; }
+.ge-view .btn.on { border-color: var(--accent); color: var(--accent); }
+.go-tree { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 4px 0; list-style: none; }
+.go-row { display: grid; gap: 2px; padding: 8px 10px; min-height: 44px; box-sizing: border-box; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; cursor: pointer; outline: none; }
+.go-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blue) 44%, var(--line-2)); }
+.go-row.on { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); border-left-color: var(--accent); }
+.go-row.root .go-text { font-weight: 700; }
+.go-row.dim { opacity: .45; }
+.go-row.retired .go-text { text-decoration: line-through; color: var(--muted); }
+.go-text { font-size: var(--fs-md); line-height: 1.3; overflow-wrap: anywhere; }
+.go-meta { font-size: var(--fs-sm); color: var(--muted); }
 .ge-node-meta { display: flex; flex-wrap: wrap; gap: 4px; }
 .ge-node-meta:empty { display: none; }
 .ge-tag { font-size: var(--fs-xs); line-height: 16px; padding: 0 6px; border-radius: 8px; background: color-mix(in srgb, var(--line-2) 25%, var(--panel-2)); color: var(--muted); white-space: nowrap; }

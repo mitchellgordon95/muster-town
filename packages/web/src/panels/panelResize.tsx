@@ -27,6 +27,29 @@ export function savedPanelWidth(s: Store | null = storage()): number | null {
 export function savePanelWidth(w: number | null, s: Store | null = storage()): void {
   try { if (w === null) s?.removeItem(PANEL_WIDTH_KEY); else s?.setItem(PANEL_WIDTH_KEY, String(Math.round(w))); } catch { /* private window */ }
 }
+/** Whether the window is a phone's (≤ 760 px wide): the side panel takes the whole width and a sheet goes full screen. */
+export function useNarrow(): boolean {
+  const q = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 760px)") : null;
+  const [narrow, setNarrow] = useState(() => q?.matches ?? false);
+  useEffect(() => {
+    if (!q) return;
+    const f = () => setNarrow(q.matches);
+    q.addEventListener("change", f);
+    return () => q.removeEventListener("change", f);
+  }, []);
+  return narrow;
+}
+
+/** The goal tree's view on a phone (grant gr_nhayb7s9bd step 2): the outline (default) or the canvas ("map"). */
+export const GE_VIEW_KEY = "musterTown.goalEditor.phoneView";
+export type GoalView = "outline" | "map";
+export function savedGoalView(s: Store | null = storage()): GoalView {
+  try { return s?.getItem(GE_VIEW_KEY) === "map" ? "map" : "outline"; } catch { return "outline"; }
+}
+export function saveGoalView(v: GoalView, s: Store | null = storage()): void {
+  try { s?.setItem(GE_VIEW_KEY, v); } catch { /* private window */ }
+}
+
 /** what the panel shows: the saved width clamped to this window, else the default */
 export function panelWidthFor(vw: number, saved: number | null): number { return saved === null ? defaultPanelWidth(vw) : clampPanelWidth(saved, vw); }
 
