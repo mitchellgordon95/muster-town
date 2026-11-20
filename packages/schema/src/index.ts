@@ -1778,6 +1778,8 @@ export interface QueueCard {
 /** One building's board: four columns, and its desks (the WIP limit: `headcount`). */
 export interface QueueLane {
   buildingId: string; buildingName: string; desks: number;
+  /** why the explore tick would not start an explorer here now (core explore.ts `exploreBlock`, the backoff's wait included); null = it may start one */
+  exploreBlock: string | null;
   queued: QueueCard[]; held: QueueCard[]; running: QueueCard[]; done: QueueCard[];
 }
 /** GET /api/buildings/:id/queue (one lane) and GET /api/goals/:id/queue (a lane per building attached in the subtree): read-only. */

@@ -1,6 +1,8 @@
 import type { Assignment, QueueBoard, QueueCard, QueueLane } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { describeWait } from "./waits.ts";
+import { exploreBlock } from "./explore.ts";
+import { freeTokensAll } from "./free-tokens.ts";
 import type { World } from "./world.ts";
 
 /** Done cards stay on the board this long. */
@@ -12,7 +14,7 @@ export const QUEUE_DONE_MS = 24 * 60 * 60_000;
  * Running = active, with its live session's adjusted tokens; Done = done or cancelled in the last 24 h. The WIP limit
  * shown is the building's desks (`headcount`); nothing is enforced here. Read-only: no schema change, no Bank write.
  */
-export function queueLane(world: World, buildingId: string, now = new Date()): QueueLane {
+export function queueLane(world: World, buildingId: string, now = new Date(), free = freeTokensAll(world, now)): QueueLane {
   const b = world.buildings.require(buildingId, "building");
   const since = new Date(now.getTime() - QUEUE_DONE_MS).toISOString();
   const card = (a: Assignment, extra: Partial<QueueCard> = {}): QueueCard => ({
@@ -21,7 +23,7 @@ export function queueLane(world: World, buildingId: string, now = new Date()): Q
     agentName: a.queue === "building" && a.status === "pending" ? "next free desk" : world.nameOf(a.agentId),
     status: a.status, createdAt: a.createdAt, updatedAt: a.updatedAt, heldReason: null, tokens: null, reportId: a.reportId, ...extra,
   });
-  const lane: QueueLane = { buildingId: b.id, buildingName: b.name, desks: b.headcount, queued: [], held: [], running: [], done: [] };
+  const lane: QueueLane = { buildingId: b.id, buildingName: b.name, desks: b.headcount, exploreBlock: exploreBlock(world, b, now, free), queued: [], held: [], running: [], done: [] };
   for (const a of world.assignments.where("buildingId = ? AND status = 'pending'", [b.id], "ORDER BY position, createdAt, rowid")) {
     const held = a.heldReason ?? (a.waitFor ? `waits for ${describeWait(world, a.waitFor)}` : a.offered ? "offered to a visitor" : null);
     (held ? lane.held : lane.queued).push(card(a, { heldReason: held }));
@@ -44,5 +46,6 @@ export function goalBoard(world: World, goalId: string, now = new Date()): Queue
   world.goalTree.require(goalId);
   const sub = world.goalTree.subtreeIds(goalId);
   const buildings = world.buildings.all().filter((b) => b.kind !== "town-hall" && sub.has(world.goalTree.attachmentOf(b)));
-  return { lanes: buildings.map((b) => queueLane(world, b.id, now)), at: now.toISOString() };
+  const free = freeTokensAll(world, now);
+  return { lanes: buildings.map((b) => queueLane(world, b.id, now, free)), at: now.toISOString() };
 }

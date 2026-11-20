@@ -9,8 +9,8 @@ const card = (i: number, status = "done"): QueueCard => ({
   id: `as_${i}`, title: `Job ${i}`, lane: "directed", grantId: null, agentId: "ag_p", agentName: "Pix",
   status, createdAt: "2026-10-31T00:00:00Z", updatedAt: "2026-10-31T00:00:00Z", heldReason: null, tokens: null, reportId: null,
 });
-const lane = (done: number, queued = 0): QueueLane => ({
-  buildingId: "workshop", buildingName: "Town Workshop", desks: 2,
+const lane = (done: number, queued = 0, exploreBlock: string | null = null): QueueLane => ({
+  buildingId: "workshop", buildingName: "Town Workshop", desks: 2, exploreBlock,
   queued: Array.from({ length: queued }, (_, i) => card(100 + i, "pending")), held: [], running: [],
   done: Array.from({ length: done }, (_, i) => card(i)),
 });
@@ -29,5 +29,10 @@ describe("Queue tab Done column (live check dc_7hi2zypctp: 43 done cards made th
     expect(titles(html).filter((n) => n >= 100)).toHaveLength(15);
     expect(titles(html).filter((n) => n < 100)).toHaveLength(10);
     expect(html).not.toContain("Show all");
+  });
+  it("names the explore tick's wait above the columns (gr_6id9g7u9cj)", () => {
+    expect(renderToStaticMarkup(<Lane lane={lane(0, 0, "the last 3 explorers found nothing; next may start at 2026-11-20 05:30 UTC")} />))
+      .toContain("Explore: the last 3 explorers found nothing; next may start at 2026-11-20 05:30 UTC.");
+    expect(renderToStaticMarkup(<Lane lane={lane(0)} />)).toContain("Explore: an explorer may start at the next tick.");
   });
 });
