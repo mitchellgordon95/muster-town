@@ -74,6 +74,8 @@ tag: blog
   function assemble() {
     const one = (v) => v.replace(/\s*\n\s*/g, " ").trim();
     const lines = [];
+    // the slug is written down at the first save, so a later title change never moves the post's address
+    if (!$("slug").value.trim()) $("slug").value = slugify($("title").value);
     for (const k of KEYS) { const v = one($(k).value); if (v) lines.push(k + ": " + v); }
     const up = $("upcoming").value.split("\n").map((s) => s.trim()).filter(Boolean);
     if (up.length) lines.push("upcoming:", ...up.map((u) => "  - " + u));
