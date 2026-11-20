@@ -41,6 +41,8 @@ export function QueueTab({ buildingId }: { buildingId: string }) {
 export function Lane({ lane }: { lane: QueueLane }) {
   return (
     <div className="queue-lane">
+      {/* the explore tick's line (gr_6id9g7u9cj): why no explorer starts here now, the backoff's wait included */}
+      <div className="queue-explore muted">{lane.exploreBlock ? `Explore: ${lane.exploreBlock}.` : "Explore: an explorer may start at the next tick."}</div>
       <div className="queue-cols">
         {COLUMNS.map((c) => (
           <div key={c.id} className={`queue-col ${c.id === "running" && lane.running.length >= lane.desks ? "full" : ""}`}>

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { buildingRoleId, createAssignment, createBuilding, exploreBlock, exploreOrder, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildingBoard, buildingRoleId, createAssignment, createBuilding, emptyExplorations, exploreBlock, exploreGapMs, plantFlag, stamp, EXPLORE_MAX_GAP_MS, exploreOrder, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
 import { ruleBlock } from "../src/lanes.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -58,7 +58,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     expect(a.description).toMatch(/Before you propose anything, read/);
   });
 
-  it("closes the reservation when its work ends (spent booked, rest returns), then waits 30 min before the next explorer", () => {
+  it("closes the reservation when its work ends (spent booked, rest returns), then waits before the next explorer (60 min: it found nothing)", () => {
     const { world, mei, goalId, explorers } = setup();
     const t0 = new Date();
     const a = exploreTick(world, t0).started[0]!;
@@ -76,8 +76,9 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     expect(closed[0]!.spentTokens).toBeGreaterThan(0);
     expect(started).toHaveLength(0);
     expect(freeTokens(world, goalId).reservedTokens).toBe(0);
-    expect(exploreBlock(world, world.buildings.require(LAB), t1)).toMatch(/30 min/);
-    expect(exploreTick(world, new Date(t0.getTime() + EXPLORE_MIN_GAP_MS + 1000)).started).toHaveLength(1);
+    expect(exploreBlock(world, world.buildings.require(LAB), t1)).toMatch(/the last explorer found nothing; next may start at/);
+    expect(exploreTick(world, new Date(t0.getTime() + EXPLORE_MIN_GAP_MS + 1000)).started).toHaveLength(0);
+    expect(exploreTick(world, new Date(t0.getTime() + 2 * EXPLORE_MIN_GAP_MS + 1000)).started).toHaveLength(1);
     expect(explorers()).toHaveLength(2);
   });
 
@@ -149,4 +150,135 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     expect(turns[2]).toBe(turns[0]);
   });
 
+});
+
+describe("the explore backoff after empty explorations (gr_6id9g7u9cj step 1)", () => {
+  const MIN = 60_000;
+  const T0 = Date.parse("2026-11-19T00:00:00.000Z");
+  afterEach(() => vi.useRealTimers());
+  /** The world's clock is the fake one: events, assignments and reservations all read it. */
+  function clocked() {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(T0);
+    const s = setup();
+    const lab = () => s.world.buildings.require(LAB);
+    const at = (ms: number) => { vi.setSystemTime(ms); return new Date(ms); };
+    /** One explorer starts at `ms`, ends with no proposal, and its reservation closes a minute later. */
+    const empty = (ms: number) => {
+      const a = exploreTick(s.world, at(ms)).started[0];
+      expect(a, `an explorer starts at ${new Date(ms).toISOString()}`).toBeDefined();
+      s.world.assignments.patch(a!.id, { status: "done" });
+      exploreTick(s.world, at(ms + MIN));
+      return a!;
+    };
+    return { ...s, lab, at, empty };
+  }
+
+  it("the wait doubles from 30 min with each empty exploration in a row, to at most 24 h", () => {
+    expect([0, 1, 2, 3, 5, 6, 10].map(exploreGapMs)).toEqual([30, 60, 120, 240, 960, 1440, 1440].map((m) => m * MIN));
+    expect(EXPLORE_MAX_GAP_MS).toBe(24 * 60 * MIN);
+  });
+
+  it("after 1, 2 and 3 empty explorations the Queue tab names the wait and the next may start only then", () => {
+    const { world, lab, at, empty } = clocked();
+    let t = T0;
+    for (const n of [1, 2, 3]) {
+      empty(t);
+      expect(emptyExplorations(world, LAB)).toBe(n);
+      const next = t + exploreGapMs(n);
+      const why = exploreBlock(world, lab(), at(next - MIN));
+      expect(why).toBe(`the last ${n === 1 ? "explorer" : `${n} explorers`} found nothing; next may start at ${stamp(next)}`);
+      expect(buildingBoard(world, LAB, at(next - MIN)).lanes[0]!.exploreBlock).toBe(why);
+      expect(exploreBlock(world, lab(), at(next))).toBeNull();
+      t = next;
+    }
+  });
+
+  it("a day of ticks every 5 min starts at most 6 explorers when each finds nothing (Onboarding ran 29 on 2026-11-19)", () => {
+    const { world, at } = clocked();
+    let started = 0;
+    for (let t = T0; t < T0 + 24 * 60 * MIN; t += 5 * MIN) {
+      const { started: s } = exploreTick(world, at(t));
+      for (const a of s) world.assignments.patch(a.id, { status: "done" });
+      started += s.length;
+    }
+    expect(started).toBeLessThanOrEqual(6);
+    expect(started).toBeGreaterThanOrEqual(4);
+  });
+
+  it("an exploration that ends in a proposal ends the streak", async () => {
+    const { world, mei, by, empty } = clocked();
+    empty(T0);
+    empty(T0 + exploreGapMs(1));
+    expect(emptyExplorations(world, LAB)).toBe(2);
+    const a = exploreTick(world, new Date(T0 + exploreGapMs(1) + exploreGapMs(2))).started[0]!;
+    const fork = world.agents.upsert({ ...by("Noor"), id: newId("ag"), name: "Mei 1", forkOf: mei.id, forkN: 1, homeBuildingId: LAB, currentAssignmentId: a.id });
+    await world.verbs.propose_grant(fork, { title: "A test grant proposal", keyResults: [{ text: "The lab's goal shows first", howToCheck: "Open the lab board" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 200_000 });
+    world.assignments.patch(a.id, { status: "done" });
+    exploreTick(world, new Date(Date.now() + MIN));
+    expect(emptyExplorations(world, LAB)).toBe(0);
+  });
+
+  describe("resets: something happened that makes a new look worth it", () => {
+    /** Two empty explorations, then the signal 10 min after the second: the count is back to 0 and the base 30 min holds. */
+    function afterSignal(signal: (s: ReturnType<typeof clocked>) => void) {
+      const s = clocked();
+      s.empty(T0);
+      const t1 = T0 + exploreGapMs(1);
+      s.empty(t1);
+      expect(emptyExplorations(s.world, LAB)).toBe(2);
+      s.at(t1 + 10 * MIN);
+      signal(s);
+      return { ...s, t1 };
+    }
+
+    it("a proposal filed by the building", () => {
+      const { world } = afterSignal(({ world, mei }) => {
+        const g = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "d" }], stopCondition: "s", askTokens: 1_000 });
+        world.grantDesk.propose(mei, g.id);
+      });
+      expect(emptyExplorations(world, LAB)).toBe(0);
+    });
+
+    it("non-exploration work queued on it", () => {
+      const { world, lab, at, t1 } = afterSignal(({ world, mei }) => {
+        const a = createAssignment(world, { agentId: mei.id, buildingId: LAB, title: "t", description: "d", createdBy: { kind: "system", id: "x" }, laneOverride: { lane: "directed", grantId: null, gap: null, sourceId: null } });
+        expect(a.lane).not.toBe("exploration");
+        world.assignments.patch(a.id, { status: "done" });
+      });
+      expect(emptyExplorations(world, LAB)).toBe(0);
+      expect(exploreBlock(world, lab(), at(t1 + 31 * MIN))).toBeNull();
+    });
+
+    it("a human's decision on one of its grants", () => {
+      // a draft (not a proposal, which resets on its own) that a human's history entry, written straight here, decides
+      const { world } = afterSignal(({ world, admin, mei }) => {
+        const d = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "k", howToCheck: "h" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "d" }], stopCondition: "s", askTokens: 1_000 });
+        world.grants.upsert({ ...d, status: "rejected", history: [...d.history, { at: nowIso(), byId: world.holderOf(admin).id, byKind: "user", action: "reject", tokens: null, note: "no" }], updatedAt: nowIso() });
+      });
+      expect(emptyExplorations(world, LAB)).toBe(0);
+    });
+
+    it("a human's tell to its manager (an agent's tell does not reset)", () => {
+      const { world, mei, admin, by } = afterSignal(() => {});
+      const tell = (fromId: string, fromKind: "agent" | "user") => world.messages.upsert({ id: newId("ms"), kind: "tell", fromId, fromKind, toId: mei.id, body: "hi", meetingId: null, docId: null, origin: null, createdAt: nowIso(), readAt: null });
+      tell(by("Noor").id, "agent");
+      expect(emptyExplorations(world, LAB)).toBe(2);
+      tell(world.holderOf(admin).id, "user");
+      expect(emptyExplorations(world, LAB)).toBe(0);
+    });
+
+    it("a human's flag in the building", () => {
+      const { world } = afterSignal(({ world, admin }) => { plantFlag(world, admin, LAB, "Please look at the queue"); });
+      expect(emptyExplorations(world, LAB)).toBe(0);
+    });
+
+    it("a human's line in a 1:1 with its manager", () => {
+      const { world } = afterSignal(({ world, admin }) => {
+        const m = world.ops.openOneOnOne(admin, LAB);
+        world.ops.meetingSay(admin, m.id, "What should the lab look at next?");
+      });
+      expect(emptyExplorations(world, LAB)).toBe(0);
+    });
+  });
 });
