@@ -254,24 +254,27 @@ describe("the ask card", () => {
   });
 });
 
-describe("the card's order and consequences (gr_x7p580xe1o)", () => {
-  it("puts lead, recommendation, buttons with their 'If you' sentence, then the regular body", async () => {
+describe("the card's order: every button in one row at the bottom (Mitchell, 1:1 mt_gf4un6ct4p)", () => {
+  it("puts lead, recommendation, the whole body with its 'If you' sentences, then the buttons, Steer and the record last", async () => {
     signIn();
-    const el = await mount(<AskCard ask={ask("ak_ocean")} grant={grant("gr_ocean")} onDecided={() => undefined} />);
-    // the Markdown mock drops className: find the parts by their words
+    const el = await mount(<AskCard ask={ask("ak_ocean")} grant={grant("gr_ocean")} onDecided={() => undefined} onOpenRecord={() => undefined} />);
     const t = el.textContent!;
     const at = (w: string) => { const i = t.indexOf(w); expect(i, w).toBeGreaterThan(-1); return i; };
-    const order = [at("This is a new proposal."), at("Moss recommends fund"), at("Fund"), at("If you fund:"), at("Reject"), at("If you reject:"), at("Mei's first run")];
+    const order = [at("This is a new proposal."), at("Moss recommends fund"), at("If you fund:"), at("If you reject:")];
     expect([...order].sort((x, y) => x - y)).toEqual(order);
-    const rows = [...el.querySelectorAll(".ask-branch")].map((r) => [r.querySelector("button")?.textContent?.trim(), r.querySelector(".md")?.textContent ?? ""]);
-    expect(rows).toEqual([["Fund", "If you fund: step 1 starts on the building queue."], ["Counter…", ""], ["Reject", "If you reject: nothing runs, and the tokens stay free."]]);
-    expect(t.match(/If you fund/g)).toHaveLength(1);
+    const card = el.querySelector("article")!;
+    const row = card.querySelector(".ask-actions")!;
+    expect(card.lastElementChild).toBe(row);
+    expect(card.querySelectorAll(".ask-actions")).toHaveLength(1);
+    expect([...card.querySelectorAll("button")].every((b) => row.contains(b))).toBe(true);
+    expect([...row.querySelectorAll("button")].map((b) => b.textContent!.trim())).toEqual(["Fund", "Counter…", "Reject", "Steer", "The full record →"]);
+    expect(t.indexOf("Fund", at("Mei's first run"))).toBeGreaterThan(at("Mei's first run"));
   });
-  it("signed out, shows each consequence under its branch's name and no buttons", () => {
+  it("signed out, ends on 'Sign in to decide.' in the same bottom row, with the 'If you' sentences in the body", () => {
     store.state = { ...store.state, me: null } as never;
     const html = renderToStaticMarkup(<AskCard ask={ask("ak_hud")} onDecided={() => undefined} />);
-    expect(html).toContain('<span class="ask-branch-name">Adjust</span><div class="md">If you adjust: set the ceiling to 2.2M, then the grant closes.</div>');
-    expect(html).toContain("Sign in to decide.");
+    expect(html).toContain("If you adjust: set the ceiling to 2.2M, then the grant closes.");
+    expect(html).toMatch(/<div class="ask-actions"><span class="muted ask-signin">Sign in to decide.<\/span><\/div><\/article>$/);
   });
 });
 
