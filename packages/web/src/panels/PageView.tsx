@@ -13,7 +13,7 @@ import { Sheet } from "./Sheet";
 import { timeAgo, useNameOf } from "./ui";
 
 /** The town's CSS custom properties as declared on :root in its stylesheets, with their computed values. */
-function townCssVars(): Record<string, string> {
+export function townCssVars(): Record<string, string> {
   const names = new Set<string>();
   for (const sheet of [...document.styleSheets]) {
     let rules: CSSRuleList;

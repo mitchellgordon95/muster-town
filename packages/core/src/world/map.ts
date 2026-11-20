@@ -5,6 +5,7 @@ import type { Repos } from "../store.ts";
 import { movedOnly, piecesFor, resolveFurniture, validateLayout, type Furniture, type LayoutError, type Piece } from "./furniture.ts";
 import { computeLayout, MAX_HEADCOUNT, MOD_SEATS, TOWN_HALL_ID, TOWN_HALL_RESTS, type DeskSlot, type Grid } from "./layout.ts";
 import { isWalkable } from "./path.ts";
+import { parsePlugin } from "../plugin-manifest.ts";
 import type { RestSpot } from "./rest-spot.ts";
 import type { Side } from "./road.ts";
 import type { Plaza } from "./tree.ts";
@@ -80,7 +81,10 @@ export class WorldMap {
     const rests = new Map(agents.filter((a) => a.homeBuildingId === TOWN_HALL_ID && a.kind === "resident" && !a.forkOf && a.title && TOWN_HALL_RESTS[a.title]).map((a) => [a.id, TOWN_HALL_RESTS[a.title!]]));
     // where humans dropped agents with the grasper hand (flag dc_d2wkuhoh1l)
     const spots = new Map((this.db.prepare("SELECT agentId, buildingId, x, y FROM rest_spots").all() as (RestSpot & { agentId: string })[]).map(({ agentId, ...s }) => [agentId, s]));
-    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests, spots);
+    // installed plugins hang on their building's back wall (docs/plugins.md); a body that no longer parses is not drawn
+    const plugins = this.repos.docs.where("type = 'plugin' AND state = 'building' AND buildingId IS NOT NULL", [], "ORDER BY createdAt, rowid")
+      .flatMap((d) => { try { return [{ id: d.id, buildingId: d.buildingId!, name: parsePlugin(d.body).manifest.name }]; } catch { return []; } });
+    return computeLayout(buildings.map((b) => this.drawn(b)), this.repos.goals.where("status = 'active'"), occupancy, names, this.repos.town.get().mapLayout, rests, spots, plugins);
   }
 
   /**
