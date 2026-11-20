@@ -40,7 +40,8 @@
  * #/queue (mock: open({kind: "queue"})) at 1366×800 and 390×844 and presses J through every item, one row per ask card: body
  * font-weight, bold blocks (the lead .ask-delta and any bold paragraph in the body; at most 1), the most characters on one line
  * (character rects grouped by line, over the lead, recommendation, body and consequences), the top of the recommendation and
- * of the decision row (.ask-actions: buttons, or Sign in to decide), and stray "If you <branch>:" sentences left in the body.
+ * of the decision row (.ask-actions: buttons, or Sign in to decide), and stray "If you <branch>:" sentences left in the body or lead
+ * (one whose first word starts a branch's label, from the card's data-branches).
  * Passes at 1366: weight 400, ≤1 bold block, ≤80 chars/line, no stray; at 390: recommendation and decision row top < 844.
  *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
@@ -218,8 +219,10 @@ const measureAsk = (page) => page.evaluate(() => {
   const body = c.querySelector(".ask-body"), lead = c.querySelector(".ask-delta"), rec = c.querySelector(".ask-rec"), row = c.querySelector(".ask-actions");
   const bodyBlocks = body ? [...body.querySelectorAll("p, li")] : [];
   const bold = (lead && +cs(lead).fontWeight >= 600 ? 1 : 0) + bodyBlocks.filter((b) => +cs(b).fontWeight >= 600 || (b.textContent.trim() && [...b.querySelectorAll("strong, b")].reduce((a, s) => a + s.textContent.length, 0) >= b.textContent.trim().length * 0.8)).length;
-  const labels = [...c.querySelectorAll(".ask-branch-name, .ask-branches button")].map((b) => b.textContent.replace(/…$/, "").trim().toLowerCase()).filter(Boolean);
-  const stray = [...((body?.textContent ?? "") + " " + (lead?.textContent ?? "")).matchAll(/If you ([^:.\n]{1,40}):/g)].map((m) => m[1].toLowerCase()).filter((w) => labels.some((l) => w.startsWith(l.toLowerCase())));
+  // an "If you …:" left in the body or lead whose first word starts a branch's label (data-branches: a guest sees no buttons)
+  const first = (t) => t.toLowerCase().match(/^[a-z0-9']+/)?.[0];
+  const firsts = (c.dataset.branches ?? "").split("|").map(first).filter(Boolean);
+  const stray = [...((body?.textContent ?? "") + " " + (lead?.textContent ?? "")).matchAll(/If you ([^:.\n]{1,40}):/g)].filter((m) => firsts.includes(first(m[1])));
   return { title: c.querySelector(".ask-title")?.textContent?.trim() ?? "", weight: body ? +cs(body).fontWeight : lead ? 400 : null, bold, maxChars,
     recTop: rec ? Math.round(rec.getBoundingClientRect().top) : null, rowTop: row ? Math.round(row.getBoundingClientRect().top) : null,
     conseq: c.querySelectorAll(".ask-conseq").length, stray: stray.length };
