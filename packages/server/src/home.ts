@@ -78,19 +78,32 @@ function tile(c: Collective): string {
 
 /**
  * One self-hosted town from the directory (`Directory.list()`, docs/self-host.md section 6): a tile that links out to its
- * own `https://<host>/`, with a "Self-hosted" pill and no map preview (its snapshot is on another origin). Its name and
- * goal come from its own /api/collectives, so they are escaped like every tile; a town with no name gets no tile.
+ * own `https://<host>/`, with a "Self-hosted" pill and no map preview (its snapshot is on another origin). The host is the
+ * first line under it (`.tile-host`), so a touch visitor sees the tile leaves muster.town. Its name and goal come from its
+ * own /api/collectives, so they are escaped like every tile; a town with no name gets no tile.
  */
 function selfHostedTile(t: Pick<DirectoryTown, "host" | "name" | "goal">): string {
-  const goal = t.goal ? `\n  <p class="tile-tag">${esc(t.goal)}</p>` : "";
+  const goal = `\n  <p class="tile-tag tile-host">${esc(t.host)}</p>` + (t.goal ? `\n  <p class="tile-tag">${esc(t.goal)}</p>` : "");
   return `<li class="tile-item">
   <a class="tile tile-ext" href="${esc(`https://${t.host}/`)}" rel="noopener" title="${esc(t.host)}"><span class="tile-self">Self-hosted</span><span class="tile-name">${esc(t.name)}</span></a>${goal}
 </li>`;
 }
 
 /**
- * The homepage: a paper sheet listing the collectives as square tiles (then the directory's listed self-hosted towns,
- * `selfHosted`) plus other ways in, readable without JS. The
+ * The tiles in order (style guide section 7, "ran before never-run"): the hosted collectives that have run, then the
+ * directory's listed self-hosted towns (they are live: seen within 24 h), then the never-run hosted ones; the
+ * "Coming soon" placeholder only while there is nothing else to list.
+ */
+function tiles(list: Collective[], selfHosted: Pick<DirectoryTown, "host" | "name" | "goal">[]): string[] {
+  const ext = selfHosted.filter((t) => t.name.trim()).map(selfHostedTile);
+  const ran = list.filter((c) => !c.placeholder && c.started !== false), waiting = list.filter((c) => !c.placeholder && c.started === false);
+  const placeholder = ext.length ? [] : list.filter((c) => c.placeholder);
+  return [...ran.map(tile), ...ext, ...waiting.map(tile), ...placeholder.map(tile)];
+}
+
+/**
+ * The homepage: a paper sheet listing the collectives and the directory's listed self-hosted towns (`selfHosted`) as
+ * square tiles, ordered by `tiles`, plus other ways in, readable without JS. The
  * homepage bundle (`dist`'s home.html) adds the pitch card on a first visit and the live town previews.
  */
 export function renderHome(list: Collective[], dist: string | null = null, origin = "https://muster.town", selfHosted: Pick<DirectoryTown, "host" | "name" | "goal">[] = []): string {
@@ -123,7 +136,7 @@ ${homeBundleTags(dist)}
     </div>
   </div>
   <ul class="tiles">
-${[...list.map(tile), ...selfHosted.filter((t) => t.name.trim()).map(selfHostedTile)].join("\n")}
+${tiles(list, selfHosted).join("\n")}
   </ul>
   <p class="hiw-pre home-label">Other ways in</p>
   <ul class="home-ways">

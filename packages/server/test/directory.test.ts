@@ -102,10 +102,13 @@ describe("Directory", () => {
     const ext = tiles.filter((x) => x.includes("tile-ext"));
     expect(ext).toHaveLength(1);
     expect(ext[0]).toContain('<a class="tile tile-ext" href="https://garden.example.org/" rel="noopener" title="garden.example.org"><span class="tile-self">Self-hosted</span><span class="tile-name">Garden &lt;Town&gt;</span></a>');
-    expect(ext[0]).toContain('<p class="tile-tag">Grow &quot;things&quot;</p>');
+    expect(ext[0]).toContain('<p class="tile-tag tile-host">garden.example.org</p>\n  <p class="tile-tag">Grow &quot;things&quot;</p>');
     expect(ext[0]).not.toContain("data-preview");
-    // after the hosted collectives (here the Workshop and the placeholder), and not in /api/collectives
+    // after the hosted collectives that have run (here the Workshop); a listed town replaces the placeholder; not in /api/collectives
+    expect(before).toContain("Coming soon");
+    expect(tiles).toHaveLength(2);
     expect(tiles.at(-1)).toBe(ext[0]);
+    expect(body).not.toContain("Coming soon");
     expect(body).not.toContain("noname.example.org");
     expect(body).not.toContain("pending.example.org");
     expect(JSON.stringify((await app.inject("/api/collectives")).json())).not.toContain("garden");
