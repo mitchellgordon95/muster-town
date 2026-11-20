@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
+import { funnelSource, isAutomatedClient } from "@muster-town/core";
 
 const POSTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../blog/posts");
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
@@ -168,15 +169,23 @@ function notFound(origin: string, reply: FastifyReply) {
   return reply.code(404).type("text/html; charset=utf-8").send(page({ origin, path: "/blog", title: "Post not found · Muster Town blog", description: "No post at this address.", body: `<h1>Post not found</h1>\n<p>There is no post at this address. <a href="/blog">See all posts</a>.</p>` }));
 }
 
-/** `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`. `origin` is the absolute base for canonical and feed links. */
-export function blogRoutes(origin: string, dir: string = POSTS_DIR) {
+/**
+ * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`. `origin` is the absolute base for canonical and feed links. `onRead`
+ * (gr_ox3fmliv9n) hears each GET of a public post by a browser (bots, scripts and HEAD left out) with its source: the
+ * link's ?ref= tag, else the Referer's host, else "direct" (core `funnelSource`).
+ */
+export function blogRoutes(origin: string, dir: string = POSTS_DIR, onRead?: (slug: string, source: string) => void) {
+  const ownHost = (() => { try { return new URL(origin).host; } catch { return null; } })();
   return async (app: FastifyInstance) => {
     const html = (reply: FastifyReply, body: string) => reply.type("text/html; charset=utf-8").send(body);
     app.get("/blog", async (_req, reply) => html(reply, renderIndex(origin, publicPosts(dir))));
     app.get("/blog/", async (_req, reply) => reply.redirect("/blog"));
     app.get("/blog/feed.xml", async (_req, reply) => reply.type("application/atom+xml; charset=utf-8").header("cache-control", "no-cache").send(renderFeed(origin, publicPosts(dir))));
-    app.get<{ Params: { slug: string } }>("/blog/:slug", async (req, reply) => {
+    app.get<{ Params: { slug: string }; Querystring: { ref?: string } }>("/blog/:slug", async (req, reply) => {
       const post = readPost(dir, req.params.slug);
+      if (post && !post.draft && onRead && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
+        try { onRead(post.slug, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
+      }
       return post ? html(reply, renderPost(origin, post)) : notFound(origin, reply);
     });
   };

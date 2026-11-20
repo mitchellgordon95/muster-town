@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countFunnel, countVisitor, DOORS, HOME_STEPS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countBlogRead, countFunnel, countVisitor, countVisitorFrom, funnelSource, DOORS, HOME_STEPS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -237,12 +237,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   // The join funnel (grant gr_fibsfwr4tz step 3; `acted`, a let-in member's first Say or 1:1 line: gr_58n37j410s step 3): public counts only, never who. The guest card pings `view` once per load
   // (with the browser's random id: `guestVisitors` counts it once per UTC day; gr_zoo2cf2zpp); the homepage pings `home` the same way (the root only).
   // Our own headless checks and scripts never count. The root's GET also lists every hosted collective, so their strangers are rows too.
+  // gr_ox3fmliv9n: the page also sends its ?ref= tag and document.referrer; only a short label is kept (core funnelSource)
+  const sourceOf = (req: { body: unknown; headers: { host?: string } }) => {
+    const b = typeof req.body === "object" && req.body ? req.body as { ref?: unknown; referrer?: unknown } : {};
+    return funnelSource({ ref: b.ref, referrer: b.referrer, ownHost: req.headers.host ?? null });
+  };
   const visitorOf = (body: unknown) => typeof body === "object" && body && typeof (body as { visitor?: unknown }).visitor === "string" ? (body as { visitor: string }).visitor : null;
   app.post(`${prefix}/api/join-funnel/view`, async (req) => {
     if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
     countFunnel(opts.world, "guestCardViews");
     const v = visitorOf(req.body);
-    return { counted: true, visitor: v ? countVisitor(opts.world, "guestVisitors", v) : false };
+    return { counted: true, visitor: v ? countVisitorFrom(opts.world, "guestVisitors", v, sourceOf(req)) : false };
   });
   // with a `step` (gr_ptle4vvujl): what the homepage browser did next: the pitch card's page 2 or 3, Skip or close, Open, a tile
   if (!prefix) app.post("/api/join-funnel/home", async (req) => {
@@ -251,7 +256,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const step = raw === undefined ? "homeViews" : typeof raw === "string" && Object.hasOwn(HOME_STEPS, raw) ? HOME_STEPS[raw as keyof typeof HOME_STEPS] : null;
     if (!step) throw new AppError("bad_request", "step must be page2, page3, skip, open or tile");
     const v = visitorOf(req.body);
-    return { counted: !!v && countVisitor(opts.world, step, v) };
+    return { counted: !!v && (step === "homeViews" ? countVisitorFrom(opts.world, step, v, sourceOf(req)) : countVisitor(opts.world, step, v)) };
   });
   // the three doors (gr_y9bpvx197c): the guest card or You're-in card pings which door this browser opened, once per door per UTC day
   app.post(`${prefix}/api/join-funnel/door`, async (req) => {
@@ -339,7 +344,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
     // the blog (blog/posts/*.md, read per request; docs/blog.md)
-    await app.register(blogRoutes(origin));
+    await app.register(blogRoutes(origin, undefined, (slug, source) => countBlogRead(opts.world, slug, source)));
     // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml (share.ts)
     await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts: () => publicPosts() }));
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set
