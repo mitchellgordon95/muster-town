@@ -69,27 +69,54 @@ function writeJournal(world: World, b: Building, cur: Doc | undefined, head: str
   return updateDoc(world, cur.id, { body, state: "building" });
 }
 
+/** Mark a reservation's line as written, so the tick writes it once. */
+function markJournaled(world: World, r: BankReservation, docId: string): void {
+  world.events.append({ type: "exploration.journaled", buildingId: r.buildingId, text: `The town added reservation ${r.id}'s line to the "${JOURNAL_TITLE}"`, payload: { reservationId: r.id, assignmentId: r.assignmentId, docId } });
+}
+
+const since = (now: Date) => new Date(now.getTime() - JOURNAL_SEED_DAYS * 24 * 60 * 60_000).toISOString();
+
 /** The building's journal page, seeded from the last JOURNAL_SEED_DAYS of closed explorations when missing. Null: no manager to author it, or the Town Hall. */
 export function ensureJournal(world: World, b: Building, now = new Date()): Doc | null {
   if (!laneGated(b)) return null;
   const cur = topicPage(world, b.id, JOURNAL_TITLE);
   if (cur) return cur;
-  const since = new Date(now.getTime() - JOURNAL_SEED_DAYS * 24 * 60 * 60_000).toISOString();
-  const closed = world.bankReservations.where("buildingId = ? AND closedAt IS NOT NULL AND closedAt >= ?", [b.id, since], "ORDER BY closedAt DESC");
-  return writeJournal(world, b, undefined, JOURNAL_HEAD, closed.map((r) => journalLine(world, r)));
+  // a reservation whose chain still runs is left to the tick, which adds its line once its tokens are booked
+  const closed = world.bankReservations.where("buildingId = ? AND closedAt IS NOT NULL AND closedAt >= ?", [b.id, since(now)], "ORDER BY closedAt DESC").filter((r) => !chainRunning(world, r));
+  const doc = writeJournal(world, b, undefined, JOURNAL_HEAD, closed.map((r) => journalLine(world, r)));
+  if (doc) for (const r of closed) if (!journaled(world, r.id)) markJournaled(world, r, doc.id);
+  return doc;
 }
 
-/** Append (on top) the line for a reservation that just closed. */
-export function appendJournal(world: World, r: BankReservation, now = new Date()): Doc | null {
-  const b = world.buildings.get(r.buildingId);
-  if (!b || !laneGated(b)) return null;
-  const cur = topicPage(world, b.id, JOURNAL_TITLE);
-  if (!cur) return ensureJournal(world, b, now); // the seed already holds this reservation's line
-  const { head, lines } = splitPage(cur.body);
-  return writeJournal(world, b, cur, head, [journalLine(world, r), ...lines]);
+function journaled(world: World, reservationId: string): boolean {
+  return !!world.db.prepare("SELECT 1 FROM events WHERE type = 'exploration.journaled' AND json_extract(payload, '$.reservationId') = ? LIMIT 1").get(reservationId);
 }
 
-/** Every goal-directed building with a manager has its journal (the tick calls this; cheap once the pages exist). */
-export function ensureJournals(world: World, now = new Date()): void {
+/** Whether a session of the reservation's chain is still running: its tokens are booked only when it ends (endSession). */
+function chainRunning(world: World, r: BankReservation): boolean {
+  if (!r.assignmentId) return false;
+  return !!world.db.prepare(`SELECT 1 FROM sessions s JOIN assignments a ON a.id = s.assignmentId
+    WHERE s.status = 'running' AND COALESCE(a.chainId, a.id) = (SELECT COALESCE(chainId, id) FROM assignments WHERE id = ?) LIMIT 1`).get(r.assignmentId);
+}
+
+/**
+ * The tick's journal step: every goal-directed building with a manager has its page, and each reservation closed in
+ * the last JOURNAL_SEED_DAYS gets its line on top once none of its chain's sessions runs (so its tokens are booked:
+ * at close a desk session often has not ended yet). Cheap once the pages exist.
+ */
+export function ensureJournals(world: World, now = new Date()): Doc[] {
   for (const b of world.buildings.all()) if (b.managerAgentId && laneGated(b) && !topicPage(world, b.id, JOURNAL_TITLE)) ensureJournal(world, b, now);
+  const due = world.bankReservations.where(`closedAt IS NOT NULL AND closedAt >= ? AND NOT EXISTS (SELECT 1 FROM events e WHERE e.type = 'exploration.journaled'
+    AND json_extract(e.payload, '$.reservationId') = bank_reservations.id)`, [since(now)], "ORDER BY closedAt ASC");
+  const written: Doc[] = [];
+  for (const r of due) {
+    if (chainRunning(world, r)) continue;
+    const b = world.buildings.get(r.buildingId);
+    const cur = b && laneGated(b) ? topicPage(world, b.id, JOURNAL_TITLE) : undefined;
+    if (!b || !cur) continue;
+    const { head, lines } = splitPage(cur.body);
+    const doc = writeJournal(world, b, cur, head, [journalLine(world, r), ...lines]);
+    if (doc) { markJournaled(world, r, doc.id); written.push(doc); }
+  }
+  return written;
 }

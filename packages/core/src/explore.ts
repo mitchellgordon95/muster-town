@@ -14,7 +14,7 @@ import { jobOf, refreshJob } from "./jobs.ts";
 import { sessionView } from "./bank.ts";
 import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
-import { appendJournal, ensureJournal, ensureJournals, JOURNAL_TITLE } from "./exploration-journal.ts";
+import { ensureJournal, ensureJournals, JOURNAL_TITLE } from "./exploration-journal.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
 import { stamp } from "./time.ts";
@@ -156,7 +156,6 @@ function closeReservations(world: World, now: Date): BankReservation[] {
     const c = world.bankReservations.upsert({ ...r, closedAt: now.toISOString(), spentTokens: spent });
     // plan dc_uwx045472m step 4: the explorer's chunk job closes with its reservation (done with a proposal, else nothing found)
     if (a) refreshJob(world, jobOf(a).id);
-    appendJournal(world, c, now);
     world.events.append({
       type: "exploration.closed", buildingId: r.buildingId,
       text: `Explorer reservation ${r.id} closed: ${spent.toLocaleString("en-US")} of ${r.tokens.toLocaleString("en-US")} tokens spent, ${Math.max(0, r.tokens - spent).toLocaleString("en-US")} returned to free tokens`,

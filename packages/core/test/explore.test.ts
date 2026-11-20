@@ -342,6 +342,27 @@ describe("the exploration journal (gr_6id9g7u9cj step 2)", () => {
     expect(revisionsOf(world, page.id).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("waits for the explorer's desk session to end, so the line carries its booked tokens (at close they are often 0)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T = Date.parse("2026-11-19T10:00:00Z");
+    vi.setSystemTime(T);
+    const { world, mei } = setup();
+    const a = exploreTick(world, new Date(T)).started[0]!;
+    const se = spend(world, mei, a.id, 0);
+    world.sessions.upsert({ ...se, status: "running", endedAt: null });
+    world.assignments.patch(a.id, { status: "done" });
+    vi.setSystemTime(T + MIN);
+    expect(exploreTick(world, new Date(T + MIN)).closed).toHaveLength(1);
+    const line = () => topicPage(world, LAB, JOURNAL_TITLE)!.body.split("\n").filter((l) => l.startsWith("- 2026"));
+    expect(line()).toHaveLength(0);
+    world.sessions.upsert({ ...se, status: "done", output: 12_000, endedAt: nowIso() });
+    vi.setSystemTime(T + 2 * MIN);
+    exploreTick(world, new Date(T + 2 * MIN));
+    exploreTick(world, new Date(T + 3 * MIN));
+    expect(line()).toHaveLength(1);
+    expect(line()[0]).not.toMatch(/\| 0 tokens$/);
+  });
+
   it("keeps the last 60 lines and any text a manager wrote above them", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     let t = Date.parse("2026-11-19T00:00:00Z");
