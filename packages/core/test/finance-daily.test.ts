@@ -43,4 +43,25 @@ describe("financeDaily (GET /api/finance daily, gr_epbcgb0hvs)", () => {
     const { daily } = financeDaily({ debits: [d("2026-11-17", "b1", 10)], credits: [], usage, usedBank: 10, usedDonations: 0 }, NOW);
     expect(daily.usageLedgerInWindow).toBe(12);
   });
+
+  it("dates each expired subscription credit by its expiresAt day and closes on the Bank's expired (gr_z13gmx54su)", () => {
+    const credits = [
+      { id: "c0", tokens: 500, createdAt: "2026-10-01T03:00:00.000Z", expiresAt: "2026-10-02T03:00:00.000Z" }, // before the window
+      { id: "c1", tokens: 1000, createdAt: "2026-11-15T03:00:00.000Z", expiresAt: "2026-11-16T03:00:00.000Z" },
+      { id: "c2", tokens: 1000, createdAt: "2026-11-16T03:00:00.000Z", expiresAt: "2026-11-17T03:00:00.000Z" }, // overdrawn: floor 0
+      { id: "c3", tokens: 1000, createdAt: "2026-11-17T03:00:00.000Z", expiresAt: "2026-11-18T03:00:00.000Z" }, // not yet expired
+      { id: "k", tokens: 300, createdAt: "2026-11-16T03:00:00.000Z", expiresAt: null }, // durable: never expires
+    ];
+    const debits = [
+      { buildingId: "b1", tokens: 100, createdAt: "2026-10-01T10:00:00.000Z", creditId: "c0" },
+      { buildingId: "b1", tokens: 250, createdAt: "2026-11-15T10:00:00.000Z", creditId: "c1" },
+      { buildingId: "b1", tokens: 1200, createdAt: "2026-11-16T10:00:00.000Z", creditId: "c2" },
+    ];
+    const { daily, dailyCheck } = financeDaily({ debits, credits, usedBank: 1550, usedDonations: 0, expired: 400 + 750 }, NOW);
+    expect(daily.expiredBefore).toBe(400);
+    expect(daily.rows.filter((r) => r.expired).map((r) => [r.day, r.expired])).toEqual([["2026-11-16", 750]]);
+    expect(dailyCheck).toMatchObject({ ok: true, expiredDiff: 0, rowsExpired: 750 });
+    const off = financeDaily({ debits, credits, usedBank: 1550, usedDonations: 0, expired: 1000 }, NOW);
+    expect(off.dailyCheck).toMatchObject({ ok: false, expiredDiff: 150 });
+  });
 });

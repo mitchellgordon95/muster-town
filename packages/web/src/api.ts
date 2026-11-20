@@ -151,10 +151,28 @@ export interface Finance {
   /** the last 30 UTC days (at most back to the ledger's start), one row per day: Bank debits (by building) and credits (core finance-daily.ts, gr_epbcgb0hvs); absent from an older server */
   daily?: FinanceDaily;
   /** Σ daily used = the Bank's used since the window start, and each day's buildings sum to its used */
-  dailyCheck?: { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; laneDiff?: number; identity: string };
+  dailyCheck?: { ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number; laneDiff?: number; expiredDiff?: number; rowsExpired?: number; identity: string };
+  /** how much subscription credit came in, was used, expired undrawn or is left, 7 and 30 days, per credit (core finance-utilization.ts, gr_z13gmx54su); absent from an older server */
+  utilization?: FinanceUtilization;
   /** work versus coordination over 7 and 30 days, from session rows (core finance-split.ts, gr_3ougmyubdm); absent from an older server */
   split?: FinanceSplit;
   at: string;
+}
+/** One window of `utilization`: the subscription credits created in it; used + expired + left = credited, per credit. */
+export interface UtilizationWindow {
+  days: number; from: string; to: string;
+  credits: number; credited: number; used: number; expired: number; left: number;
+  /** used / credited and expired / credited, 0..1 */
+  usedShare: number; expiredShare: number;
+  /** draws past a credit's size (overdrawn, not in used) */
+  drawnPastSize: number;
+  /** durable (API key) credits in the window: they never expire, so they sit outside the identity */
+  durable: number;
+}
+export interface FinanceUtilization {
+  d7: UtilizationWindow; d30: UtilizationWindow;
+  /** diff: used + expired + left vs credited; dailyDiff: credited + durable vs Σ the daily rows' credited */
+  check: { ok: boolean; diff: number; dailyDiff: number; identity: string };
 }
 export type SplitLane = "grant" | "exploration" | "directed" | "retainer" | "manager" | "other";
 export interface SplitPart { tokens: number; usd: number; sessions: number; /** 0..1 of the window's total */ share: number }
@@ -176,10 +194,12 @@ export interface FinanceSplit {
 export interface FinanceDaily {
   days: number; from: string; to: string;
   /** byLane / sessionsTokens: that day's session spend by lane (gr_3ougmyubdm); absent from an older server */
-  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number>; byLane?: Record<SplitLane, number>; sessionsTokens?: number }[];
+  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number>; byLane?: Record<SplitLane, number>; sessionsTokens?: number; /** subscription credit that expired undrawn that day, by expiresAt day (gr_z13gmx54su); absent from an older server */ expired?: number }[];
   /** buildings by their window total, largest first */
   buildings: { id: string; name: string; tokens: number }[];
   usedBefore: number; undatedUsed: number; usageLedgerInWindow: number;
+  /** expired credit dated before `from` (absent from an older server) */
+  expiredBefore?: number;
 }
 export interface FinanceCash {
   windowDays: number; from: string; to: string;

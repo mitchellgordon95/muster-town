@@ -23,6 +23,11 @@ export interface FinanceDailyRow {
   byLane: Record<SplitLane, number>;
   /** Σ that day's sessions (adj. tokens) */
   sessionsTokens: number;
+  /**
+   * subscription credit that expired undrawn that day (gr_z13gmx54su, kr_no6seja7f6): each credit past expiresAt, its
+   * tokens minus its debits (floor 0, as /api/finance `expired` counts it), dated by its expiresAt day
+   */
+  expired: number;
 }
 
 /**
@@ -41,6 +46,8 @@ export interface FinanceDaily {
   buildings: { id: string; name: string; tokens: number }[];
   /** Bank debits dated before `from` (outside the window) */
   usedBefore: number;
+  /** expired credit whose expiresAt day is before `from` (outside the window) */
+  expiredBefore: number;
   /** donation spend: in `used`, but dated nowhere, so in no row */
   undatedUsed: number;
   /** the usage ledger over the same window, for comparison (it can exceed the rows by usage nothing funds) */
@@ -52,18 +59,23 @@ export interface FinanceDailyCheck {
   ok: boolean; diff: number; rowsUsed: number; usedSinceStart: number; buildingDiff: number;
   /** Σ rows (Σ byLane − sessionsTokens): each day's lanes sum to its session spend, within rounding */
   laneDiff: number;
+  /** Σ rows' expired − (/api/finance expired − expiredBefore): 0 when the days' expiry adds up to the Bank's */
+  expiredDiff: number;
+  rowsExpired: number;
   identity: string;
 }
 
 export interface FinanceDailyInputs {
-  debits: Pick<BankDebit, "buildingId" | "tokens" | "createdAt">[];
-  credits: Pick<BankCredit, "tokens" | "createdAt">[];
+  debits: (Pick<BankDebit, "buildingId" | "tokens" | "createdAt"> & Partial<Pick<BankDebit, "creditId">>)[];
+  credits: (Pick<BankCredit, "tokens" | "createdAt"> & Partial<Pick<BankCredit, "id" | "expiresAt">>)[];
   usage?: Pick<UsageEntry, "tokens" | "createdAt">[];
   /** building names by id (unknown ids show as the id) */
   buildingNames?: Map<string, string>;
   /** FinanceSummary.usedBank and usedDonations: the totals the rows are checked against */
   usedBank: number;
   usedDonations: number;
+  /** FinanceSummary.expired, the total the rows' expired is checked against (none: the rows' own sum) */
+  expired?: number;
   /** session spend per UTC day by lane (finance-split.ts `byDay`); a day not in it is all zeros */
   lanesByDay?: Map<string, DayLanes>;
 }
@@ -83,7 +95,7 @@ export function financeDaily(inp: FinanceDailyInputs, now = new Date(), days = F
   for (let t = start; t <= today; t += DAY_MS) {
     const day = dayOf(new Date(t).toISOString());
     const lanes = inp.lanesByDay?.get(day);
-    const row: FinanceDailyRow = { day, used: 0, credited: 0, byBuilding: {}, byLane: lanes ? { ...lanes.byLane } : NO_LANES(), sessionsTokens: lanes?.sessionsTokens ?? 0 };
+    const row: FinanceDailyRow = { day, used: 0, credited: 0, byBuilding: {}, byLane: lanes ? { ...lanes.byLane } : NO_LANES(), sessionsTokens: lanes?.sessionsTokens ?? 0, expired: 0 };
     rows.push(row);
     index.set(row.day, row);
   }
@@ -104,6 +116,19 @@ export function financeDaily(inp: FinanceDailyInputs, now = new Date(), days = F
     const row = index.get(dayOf(c.createdAt));
     if (row) row.credited += c.tokens;
   }
+  // expired undrawn, dated by expiresAt day: the same per-credit rule as financeSummary and finance-sources
+  const drawn = new Map<string, number>();
+  for (const d of inp.debits) if (d.creditId) drawn.set(d.creditId, (drawn.get(d.creditId) ?? 0) + d.tokens);
+  const iso = now.toISOString();
+  let expiredBefore = 0;
+  for (const c of inp.credits) {
+    if (!c.expiresAt || c.expiresAt > iso) continue;
+    const rest = Math.max(0, c.tokens - (c.id ? drawn.get(c.id) ?? 0 : 0));
+    const day = c.expiresAt.slice(0, 10);
+    if (day < from) { expiredBefore += rest; continue; }
+    const row = index.get(day);
+    if (row) row.expired += rest;
+  }
   let usageLedgerInWindow = 0;
   for (const u of inp.usage ?? []) { const day = dayOf(u.createdAt); if (day >= from && day <= to) usageLedgerInWindow += u.tokens; }
 
@@ -113,12 +138,14 @@ export function financeDaily(inp: FinanceDailyInputs, now = new Date(), days = F
   const buildingDiff = rows.reduce((s, r) => s + Object.values(r.byBuilding).reduce((a, b) => a + b, 0) - r.used, 0);
   const laneDiff = rows.reduce((s, r) => s + Object.values(r.byLane).reduce((a, b) => a + b, 0) - r.sessionsTokens, 0);
   const usedSinceStart = inp.usedBank - usedBefore;
+  const rowsExpired = rows.reduce((s, r) => s + r.expired, 0);
+  const expiredDiff = inp.expired === undefined ? 0 : rowsExpired - (inp.expired - expiredBefore);
   const diff = rowsUsed - usedSinceStart;
   return {
-    daily: { days: rows.length, from, to, rows, buildings, usedBefore, undatedUsed: inp.usedDonations, usageLedgerInWindow },
+    daily: { days: rows.length, from, to, rows, buildings, usedBefore, expiredBefore, undatedUsed: inp.usedDonations, usageLedgerInWindow },
     dailyCheck: {
-      ok: diff === 0 && buildingDiff === 0 && Math.abs(laneDiff) <= Math.max(1, rows.length * 3), diff, rowsUsed, usedSinceStart, buildingDiff, laneDiff,
-      identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend",
+      ok: diff === 0 && buildingDiff === 0 && expiredDiff === 0 && Math.abs(laneDiff) <= Math.max(1, rows.length * 3), diff, rowsUsed, usedSinceStart, buildingDiff, laneDiff, expiredDiff, rowsExpired,
+      identity: "Σ daily used = Bank used since the window start; Σ daily expired = Bank expired since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend",
     },
   };
 }

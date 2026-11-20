@@ -40,9 +40,12 @@ export function sumCheckLine(f: Finance): { ok: boolean; text: string } {
     : { ok: false, text: `Does not add up (off by ${n(f.sumCheck.diff)}): ${used} comes to ${n(lhs)}, but ${total} comes to ${n(rhs)}.` };
 }
 
-/** Net per day in plain words: burn − inflow, a surplus when more comes in than is used, a shortfall when less does. */
+/**
+ * Net per day in plain words: burn − inflow. When more comes in than is used the gap is not saved (gr_z13gmx54su,
+ * kr_0ke5ezysx9): subscription tokens not drawn expire at the next renewal, so it says "unused" and "expire".
+ */
 export function netPerDay(p: Finance["projection"]): string {
-  if (p.netDailyBurn < 0) return `+${n(-p.netDailyBurn)} / day surplus`;
+  if (p.netDailyBurn < 0) return `${n(-p.netDailyBurn)} / day more comes in than is used; unused subscription tokens expire at renewal, they are not saved`;
   if (p.netDailyBurn > 0) return `−${n(p.netDailyBurn)} / day shortfall`;
   return "0 / day (inflow equals burn)";
 }

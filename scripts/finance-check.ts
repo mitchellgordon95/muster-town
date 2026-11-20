@@ -66,7 +66,50 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...dailyChecks(f),
     // work versus coordination (gr_3ougmyubdm): the split's parts close on its total and on the daily rows' lanes
     ...splitChecks(f),
+    // how much incoming credit was used (gr_z13gmx54su): expired per day, and the 7 d / 30 d used share per credit
+    ...expiredChecks(f, src),
+    ...utilizationChecks(f, src),
   ];
+}
+
+/** Every subscription credit in /api/finance/sources, flattened. */
+const sourceCredits = (src: Json): Json[] => (src.inputs ?? []).flatMap((i: Json) => i.credits ?? []).filter((c: Json) => c.expiresAt);
+
+/**
+ * GET /api/finance daily rows' `expired` (kr_no6seja7f6): Σ rows + expiredBefore = finance.expired; each day's expired =
+ * Σ /api/finance/sources credits' expiredTokens whose expiresAt falls on that day.
+ */
+function expiredChecks(f: Json, src: Json): Check[] {
+  const d = f.daily;
+  if (!d?.rows?.length || d.rows[0].expired === undefined) return [flag("daily expired", false, "GET /api/finance daily rows carry no `expired` (server older than gr_z13gmx54su step 1)")];
+  const rows: Json[] = d.rows;
+  const bySource = new Map<string, number>();
+  for (const c of sourceCredits(src)) if (c.expiredTokens) bySource.set(c.expiresAt.slice(0, 10), (bySource.get(c.expiresAt.slice(0, 10)) ?? 0) + Number(c.expiredTokens));
+  const off = rows.filter((r) => Number(r.expired) !== (bySource.get(r.day) ?? 0));
+  return [
+    eq("daily expired", "Σ daily.rows[].expired + daily.expiredBefore", sum(rows.map((r) => Number(r.expired))) + Number(d.expiredBefore), "finance.expired", f.expired),
+    flag("daily expired per day", off.length === 0, off.length ? `days whose expired ≠ the sources' credits expiring that day: ${off.map((r) => `${r.day} ${fmt(r.expired)} vs ${fmt(bySource.get(r.day) ?? 0)}`).join(", ")}` : `each of ${rows.length} days' expired = Σ sources credits' expiredTokens expiring that day`),
+  ];
+}
+
+/**
+ * GET /api/finance `utilization` (kr_c0g8tvidke): check ok; per window used + expired + left = credited; credited and
+ * expired = the sources' subscription credits created in the window; credited + durable = Σ the daily rows' credited.
+ */
+function utilizationChecks(f: Json, src: Json): Check[] {
+  const u = f.utilization;
+  if (!u) return [flag("utilization", false, "GET /api/finance has no `utilization` (server older than gr_z13gmx54su step 1)")];
+  const out: Check[] = [flag("utilization check", u.check?.ok, `ok ${u.check?.ok}, diff ${fmt(u.check?.diff)}, daily diff ${fmt(u.check?.dailyDiff)} (${u.check?.identity})`)];
+  const credits = sourceCredits(src), rows: Json[] = f.daily?.rows ?? [];
+  for (const k of ["d7", "d30"] as const) {
+    const w = u[k] ?? {};
+    const inWindow = credits.filter((c) => c.createdAt.slice(0, 10) >= w.from && c.createdAt.slice(0, 10) <= w.to);
+    out.push(eq(`utilization ${k} parts`, `used + expired + left`, Number(w.used) + Number(w.expired) + Number(w.left), `utilization.${k}.credited`, w.credited));
+    out.push(eq(`utilization ${k} credited`, `Σ sources subscription credits ${w.from} → ${w.to}`, sum(inWindow.map((c) => Number(c.tokens))), `utilization.${k}.credited`, w.credited));
+    out.push(eq(`utilization ${k} expired`, "Σ those credits' expiredTokens", sum(inWindow.map((c) => Number(c.expiredTokens))), `utilization.${k}.expired`, w.expired));
+    out.push(eq(`utilization ${k} = daily rows`, `Σ daily credited ${w.from} → ${w.to}`, sum(rows.filter((r) => r.day >= w.from && r.day <= w.to).map((r) => Number(r.credited))), "credited + durable", Number(w.credited) + Number(w.durable)));
+  }
+  return out;
 }
 
 /**
@@ -316,6 +359,7 @@ async function main(): Promise<number> {
   if (s.byLaneKind) console.log(`lane × kind today: ${(s.byLaneKind.rows as Json[]).map((r) => `${r.lane} ${fmt(r.tokens)} (cache writes ${(r.cacheWriteShare * 100).toFixed(1)}%)`).join(", ")}; not counted ${fmt(s.byLaneKind.notCounted.tokens)}`);
   if (s.managerWakes) console.log(`manager wakes 7 d: ${s.managerWakes.total.wakes} wakes, ${fmt(s.managerWakes.total.tokens)} adj. tokens, ${s.managerWakes.total.decided} decided (${s.managerWakes.total.askActions ?? "no"} ask actions); town-hall ${s.managerWakes.buildings?.["town-hall"]?.total?.decided ?? 0} decided`);
   if (f.split) console.log(`split: 7 d ${fmt(f.split.d7.total.tokens)}: work ${(f.split.d7.work.share * 100).toFixed(1)}%, coordination ${(f.split.d7.coordination.share * 100).toFixed(1)}%, other ${(f.split.d7.other.share * 100).toFixed(1)}%; 30 d ${fmt(f.split.d30.total.tokens)}: work ${(f.split.d30.work.share * 100).toFixed(1)}%, coordination ${(f.split.d30.coordination.share * 100).toFixed(1)}%`);
+  if (f.utilization) console.log(`utilization: 7 d credited ${fmt(f.utilization.d7.credited)}, used ${fmt(f.utilization.d7.used)} (${(f.utilization.d7.usedShare * 100).toFixed(1)}%), expired ${fmt(f.utilization.d7.expired)}, left ${fmt(f.utilization.d7.left)}; 30 d credited ${fmt(f.utilization.d30.credited)}, used ${(f.utilization.d30.usedShare * 100).toFixed(1)}%`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);
