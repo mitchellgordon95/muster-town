@@ -652,6 +652,8 @@ export const PlaceKind = z.enum([
   "hydrant",
   /** operating-manual — Town Hall: a book open on a lectern beside the library shelves; using it opens the operating manual (the first Town Hall doc tagged operating-manual, GET /api/operating-manual; Mitchell, 2026-11-16) */
   "operating-manual",
+  /** plugin:<docId> — a resident-made town object (docs/plugins.md): a screen on its building's back wall, from an installed doc of type "plugin"; using it opens the plugin's widget */
+  "plugin",
 ]);
 export type PlaceKind = z.infer<typeof PlaceKind>;
 export const Place = z.object({
@@ -684,6 +686,7 @@ export const DocType = z.enum([
   "page",          // a full HTML page (scripts allowed): the web shows it in a sandboxed iframe (sandbox="allow-scripts", no same origin) inside a centred sheet, never in the Markdown sanitizer (PageView.tsx, grant gr_4csjpgh346)
   "digest",        // the Secretary's daily in-tray digest (core secretary.ts): "Decisions needed", then "Shipped since last digest"; filed in the Town Hall, the covered rollups in provenance. Nothing new writes one (legible delegation step 5); old cards stay readable
   "dictionary",    // legible delegation step 10: the town dictionary (core dictionary.ts): one Town Hall doc, one meaning per word and an "avoid → use" list the ask linter reads
+  "plugin",        // a resident-made town object (docs/plugins.md): a frontmatter manifest (name, description, scopes, docType, tag) then a full HTML page; published in a building it hangs on that building's back wall and opens in a sandboxed iframe that talks to the town only through the plugin bridge (PluginSheet.tsx, core plugins.ts)
   "policy",        // the policy ledger (core secretary.ts, legible delegation §6): one Town Hall doc, one rule per line with its origin, pinned in every manager's prompt; a line is added only when a human decides "Add this rule to the ledger?"
 ]);
 export type DocType = z.infer<typeof DocType>;
@@ -2217,7 +2220,7 @@ export const VerbInputs = {
   read: z.object({ id: Id, file: z.string().optional().describe("skills: the path of one bundled file to read (from the skill's file list)") }),
   write: z.object({
     id: Id.optional().describe("update an existing doc you authored (a wiki page can also be found by its title; ignored for type 'log')"),
-    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log; 'deck' is slides: split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only; 'page' is a full HTML page (inline <script> and <style> allowed): it opens in a sandboxed iframe with no network and no access to the town, the town's CSS colour/font variables (--bg, --ink, --accent, --font…) are set on its :root"),
+    type: DocType.default("note").describe("'wiki' creates or rewrites your private page on the topic in `title` (your memory: shown to you at the start of every session); 'log' appends `body` as one dated line to your private log; 'deck' is slides: split on lines `---`, the first slide's `#` heading is the title, an optional last line `Notes: …` per slide is presenter-only; 'page' is a full HTML page (inline <script> and <style> allowed): it opens in a sandboxed iframe with no network and no access to the town, the town's CSS colour/font variables (--bg, --ink, --accent, --font…) are set on its :root; 'plugin' is a town object residents make (skill make-a-town-plugin): a frontmatter manifest (name, description, scopes, docType, tag) then a full HTML page; state 'building' installs it on your building's back wall, a rewrite updates it (the old version kept), state 'draft' takes it down"),
     title: z.string(),
     body: z.string(),
     state: z.enum(["draft", "building"]).default("draft").describe("'building' publishes it: type 'fyi' goes on the building's board, anything else is filed in its filing cabinet"),
@@ -2678,6 +2681,8 @@ export const TILE = {
   HYDRANT: 37,
   /** the Town Hall's operating manual (place `operating-manual`): a book open on a lectern beside the library shelves; not walkable */
   BOOK: 38,
+  /** a plugin's screen on its building's back wall (place `plugin:<docId>`, docs/plugins.md): an installed resident-made widget; the place stands on the floor below it */
+  PLUGIN: 39,
 } as const;
 /**
  * The Bank: a fixed landmark (not a building row, so it never takes a budget share) at the west end of the main street,
