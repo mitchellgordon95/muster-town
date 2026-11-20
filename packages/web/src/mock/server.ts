@@ -305,7 +305,7 @@ export class MockApi implements Api {
   async buildingQueue(id: string): Promise<QueueBoard> {
     await wait();
     const b = this.sim.buildings.find((x) => x.id === id);
-    return { lanes: b ? [{ buildingId: b.id, buildingName: b.name, desks: b.headcount, queued: [], held: [], running: [], done: [] }] : [], at: new Date().toISOString() };
+    return { lanes: b ? [{ buildingId: b.id, buildingName: b.name, desks: b.headcount, exploreBlock: "the last 3 explorers found nothing; next may start at 2026-11-20 05:30 UTC", queued: [], held: [], running: [], done: [] }] : [], at: new Date().toISOString() };
   }
   async goalProposals() { await wait(); return []; }
   async createGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }

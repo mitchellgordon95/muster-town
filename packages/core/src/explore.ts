@@ -16,11 +16,14 @@ import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } fr
 import { freeDesks } from "./forks.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
+import { stamp } from "./time.ts";
 import { newId, truncate } from "./util.ts";
 import type { World } from "./world.ts";
 
 /** At most one new explorer per building per this long (docs/how-work-gets-done.md §3). */
 export const EXPLORE_MIN_GAP_MS = 30 * 60_000;
+/** The backoff's ceiling: after n empty explorations in a row the next waits EXPLORE_MIN_GAP_MS × 2^n, at most this (gr_6id9g7u9cj). */
+export const EXPLORE_MAX_GAP_MS = 24 * 60 * 60_000;
 /** An explorer whose session has used this share of its chunk is asked once to wrap up and file. */
 export const EXPLORE_CEILING_SHARE = 0.9;
 
@@ -33,6 +36,50 @@ export function assignmentSpent(world: World, assignmentId: string): number {
 export function reservationLeft(world: World, r: BankReservation): number {
   if (r.closedAt) return 0;
   return Math.max(0, r.tokens - (r.assignmentId ? assignmentSpent(world, r.assignmentId) : 0));
+}
+
+/** The wait after `empty` explorations in a row found nothing: 30 min × 2^empty, at most 24 h (gr_6id9g7u9cj step 1). */
+export function exploreGapMs(empty: number): number {
+  return Math.min(EXPLORE_MAX_GAP_MS, EXPLORE_MIN_GAP_MS * 2 ** Math.max(0, empty));
+}
+
+/**
+ * The latest time after `since` that something happened in a building that makes a new look worth it, resetting the
+ * explore backoff: a grant proposal it filed, non-exploration work queued on it, a human's decision on one of its grants,
+ * or a human's tell to its manager, flag to it or line in one of its meetings (a 1:1 included). Null: nothing after `since`.
+ */
+export function exploreResetAt(world: World, buildingId: string, since: string): string | null {
+  const manager = world.buildings.get(buildingId)?.managerAgentId ?? null;
+  const at = (sql: string, ...args: unknown[]) => (world.db.prepare(sql).get(...args) as { at: string | null } | undefined)?.at ?? null;
+  const times = [
+    at("SELECT MAX(ts) AS at FROM events WHERE type = 'grant.proposed' AND buildingId = ? AND ts > ?", buildingId, since),
+    at("SELECT MAX(createdAt) AS at FROM assignments WHERE buildingId = ? AND lane IS NOT 'exploration' AND createdAt > ?", buildingId, since),
+    at("SELECT MAX(createdAt) AS at FROM docs WHERE type = 'flag' AND buildingId = ? AND createdAt > ?", buildingId, since),
+    manager ? at("SELECT MAX(createdAt) AS at FROM messages WHERE toId = ? AND fromKind = 'user' AND kind = 'tell' AND createdAt > ?", manager, since) : null,
+    // a human's decision on one of its grants (fund, counter, reject, continue, adjust, cut…: any history entry by a user but the proposal)
+    at(`SELECT MAX(json_extract(h.value, '$.at')) AS at FROM grants g, json_each(g.history) h WHERE g.buildingId = ? AND g.updatedAt > ?
+      AND json_extract(h.value, '$.byKind') = 'user' AND json_extract(h.value, '$.action') != 'propose' AND json_extract(h.value, '$.at') > ?`, buildingId, since, since),
+    at(`SELECT MAX(json_extract(u.value, '$.at')) AS at FROM meetings m, json_each(m.transcript) u WHERE m.buildingId = ?
+      AND json_extract(u.value, '$.speakerKind') = 'user' AND json_extract(u.value, '$.at') > ?`, buildingId, since),
+  ];
+  return times.reduce<string | null>((a, t) => (t && (!a || t > a) ? t : a), null);
+}
+
+/**
+ * How many of the building's latest explorations in a row closed with nothing to propose (their chunk job closed as
+ * "nothing-found", answer.ts close-job), counting back from the newest and stopping at the last reset (`exploreResetAt`).
+ */
+export function emptyExplorations(world: World, buildingId: string): number {
+  const closedAs = world.db.prepare("SELECT closedAs FROM jobs WHERE id = ?");
+  const streak: string[] = [];
+  for (const r of world.bankReservations.where("buildingId = ? AND closedAt IS NOT NULL", [buildingId], "ORDER BY openedAt DESC")) {
+    const a = r.assignmentId ? world.assignments.get(r.assignmentId) : undefined;
+    if (!a || (closedAs.get(jobOf(a).id) as { closedAs: string | null } | undefined)?.closedAs !== "nothing-found") break;
+    streak.push(r.openedAt);
+  }
+  if (!streak.length) return 0;
+  const reset = exploreResetAt(world, buildingId, streak.at(-1)!);
+  return reset ? streak.filter((t) => t > reset).length : streak.length;
 }
 
 /** Why the tick would not start an explorer in this building now, or null when it would (the Queue tab shows it). */
@@ -48,7 +95,16 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";
   if (buildingQueue(world, b.id).some((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null)) return "other work is queued for its desks";
   const last = world.bankReservations.first("buildingId = ?", [b.id], "ORDER BY openedAt DESC");
-  if (last && now.getTime() - Date.parse(last.openedAt) < EXPLORE_MIN_GAP_MS) return `the last explorer started under ${EXPLORE_MIN_GAP_MS / 60_000} min ago`;
+  if (last) {
+    const empty = emptyExplorations(world, b.id);
+    const gap = exploreGapMs(empty);
+    const next = Date.parse(last.openedAt) + gap;
+    if (now.getTime() < next) {
+      return empty === 0
+        ? `the last explorer started under ${EXPLORE_MIN_GAP_MS / 60_000} min ago`
+        : `the last ${empty === 1 ? "explorer" : `${empty} explorers`} found nothing; next may start at ${stamp(next)}`;
+    }
+  }
   if (world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id])) return "a proposal of this building is open and undecided";
   const f = free.get(goalId)?.freeTokens ?? 0;
   if (f < rule.chunkTokens) return `free tokens under the goal (${f.toLocaleString("en-US")}) are less than one chunk (${rule.chunkTokens.toLocaleString("en-US")})`;
