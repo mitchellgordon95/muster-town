@@ -32,7 +32,7 @@ const IF_YOU = /(^|[.!?]\s+)If you ([^:\n]{1,80}):/gi;
 
 /**
  * The card contract's "If you <branch>: …" sentences (docs/legible-delegation.md §5), split out of the body so each
- * shows under its own button. A sentence runs from its "If you" to the next "If you …:" or the line's end. It goes
+ * shows in the card's consequence list, after the body. A sentence runs from its "If you" to the next "If you …:" or the line's end. It goes
  * to the branch whose label starts its words, case-insensitively and on a word boundary ("If you counter at 50k:"
  * is Counter's, "If you add it:" is Add's), else to the one branch whose label shares its first word ("If you cap:" is
  * "Cap at 0.1 million a day"'s). One that names no branch stays in the body, as does a branch's second one.

@@ -1,8 +1,9 @@
 /**
  * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Bottom
  * line first (gr_x7p580xe1o): its title, the one bold lead (the first paragraph, or the first sentence of a one-paragraph
- * body), the recommendation, the branches as the buttons with each "If you <branch>:" sentence under its own, then the
- * rest of the body in regular weight at a reading measure, the claims with their check, and the record one click down.
+ * body), the recommendation, the rest of the body in regular weight at a reading measure, each branch's "If you <branch>:"
+ * sentence gathered after it, the step strip and the claims with their check; then every button together at the bottom
+ * (Mitchell, 1:1 with the Secretary, 2026-11-20: "putting buttons in the middle of the text is weird"), and the record.
  * Each button does the real action by the ask's target (asks.ts `branchCall`; the server's hooks then retire the ask).
  * A grant's card adds its step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
  * on the filing building's goal with a 1:1 with its manager beside it, about this ask and its job thread.
@@ -58,9 +59,9 @@ function doneLine(c: BranchCall, label: string): string {
  * date, a note. `grant` is the ask's target grant, when the in-tray carries it (the fund amount, the ceiling to adjust
  * from); `retainer` its target schedule (the asked per-run amount the field starts from).
  */
-export function AskButtons({ ask, grant, retainer, onDecided, deckSlide, consequences }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number;
-  /** each branch's "If you …:" sentence by label (asks.ts `splitConsequences`), drawn under its button */
-  consequences?: Record<string, string> }) {
+export function AskButtons({ ask, grant, retainer, onDecided, deckSlide, extra }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number;
+  /** more buttons at the end of the same row (the card's Steer) */
+  extra?: ReactNode }) {
   // what the human has typed survives the card closing until they decide (drafts, src/draft.ts)
   const dk = `ask:${ask.id}:`;
   const [form, setForm] = useDraft<{ label: string; call: BranchCall } | null>(`${dk}form`, null);
@@ -98,13 +99,11 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide, consequ
     onDecided();
   };
   const branches = ask.branches.map((b) => ({ b, c: branchCall(ask, b, grant) })).filter((x) => x.c.kind !== "none");
-  if (!branches.length) return null;
+  if (!branches.length) return extra ? <div className="ask-decide"><div className="actions ask-branches">{extra}</div></div> : null;
   const tone = (i: number, c: BranchCall) => (c.kind === "grant" && (c.action === "reject" || c.action === "cut")) || (c.kind === "retainer" && c.action === "reject") ? "bad" : i === 0 ? "primary" : undefined;
   const needsForm = (c: BranchCall) => "form" in c && !!c.form;
   // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
   const plain = branches.some(({ c }) => c.kind === "ask");
-  // with a consequence for any drawn branch, each button stands over its own sentence, one branch per row
-  const conseq = branches.some(({ b }) => !!consequences?.[b.label]);
   // a form whose note may stay empty: a grant's adjust (tokens decide it)
   const noteOptional = (c: BranchCall) => (c.kind === "grant" && c.action === "adjust") || c.kind === "goal";
   return (
@@ -112,13 +111,11 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide, consequ
       {plain && noting ? (
         <Field label="Note"><textarea className="ask-note" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional: what you did instead, or why" aria-label="Note" autoFocus /></Field>
       ) : null}
-      <div className={`actions ask-branches${conseq ? " with-conseq" : ""}`}>
-        {branches.map(({ b, c }, i) => {
-          const btn = needsForm(c)
-            ? <button key={b.label} className={`btn sm${form?.label === b.label ? " on" : ""}`} onClick={() => { setForm(form?.label === b.label ? null : { label: b.label, call: c }); if (grant) setTokens(toMillions(c.kind === "grant" && c.action === "counter" ? grant.askTokens : ceiling)); if (retainer) setPerRun(toMillions(retainer.tokensPerRun)); }}>{b.label}…</button>
-            : <Act key={b.label} small tone={tone(i, c)} run={run(c, b.label)}>{b.label}</Act>;
-          return conseq ? <div key={b.label} className="ask-branch">{btn}{consequences?.[b.label] ? <Markdown text={consequences[b.label]!} className="ask-conseq" /> : null}</div> : btn;
-        })}
+      <div className="actions ask-branches">
+        {branches.map(({ b, c }, i) => needsForm(c)
+          ? <button key={b.label} className={`btn sm${form?.label === b.label ? " on" : ""}`} onClick={() => { setForm(form?.label === b.label ? null : { label: b.label, call: c }); if (grant) setTokens(toMillions(c.kind === "grant" && c.action === "counter" ? grant.askTokens : ceiling)); if (retainer) setPerRun(toMillions(retainer.tokensPerRun)); }}>{b.label}…</button>
+          : <Act key={b.label} small tone={tone(i, c)} run={run(c, b.label)}>{b.label}</Act>)}
+        {extra}
         {plain && !noting && !form ? <button className="link ask-note-toggle" onClick={() => setNoting(true)}>Add a note</button> : null}
       </div>
       {form ? (
@@ -157,10 +154,11 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   const signedIn = useTown((s) => !!s.me);
   // a string, not the target object: useTown's selector must return a stable value
   const steer = useTown((s) => s.me && ask.buildingId && ask.status !== "decided" ? steerTarget(ask.buildingId)?.id ?? null : null);
-  // the "If you <branch>:" sentences go under their buttons, signed in or not; the lead is the one bold part
+  // the "If you <branch>:" sentences leave the body and sit together after it, signed in or not; the lead is the one bold part
   const split = splitConsequences(ask.body, ask.branches.map((b) => b.label));
   const { delta, rest } = deltaOf(split.body);
   const deciding = signedIn && canDecide !== false;
+  const steerBtn = steer ? <Act small run={async () => { const t = steerTarget(steer); if (t) await steerAsk(ask.id, t); }} title={`Open ${building}'s goal in the goal tree, with a 1:1 with its manager about this ask beside it`}>Steer</Act> : null;
   return (
     <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title} data-branches={ask.branches.map((b) => b.label).join("|")}>
       <header className="ask-head">
@@ -172,31 +170,26 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       {ask.status === "deferred" ? <div className="ask-stamp">Deferred until {ask.deferredUntil ?? "an event"}</div> : null}
       {delta ? <Markdown text={delta} className="ask-delta" /> : null}
       {ask.recommendation ? <div className="ask-rec"><span className="ask-label">Recommends</span> {ask.recommendation}</div> : null}
-      {deciding
-        ? <div className="ask-actions"><AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} consequences={split.byLabel} />{aside}</div>
-        : (
-          <div className="ask-actions">
-            {Object.keys(split.byLabel).length ? (
-              <div className="ask-branches with-conseq ask-branches-static">
-                {ask.branches.filter((b) => split.byLabel[b.label]).map((b) => <div key={b.label} className="ask-branch"><span className="ask-branch-name">{b.label}</span><Markdown text={split.byLabel[b.label]!} className="ask-conseq" /></div>)}
-              </div>
-            ) : null}
-            {aside}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span>
-          </div>
-        )}
       {rest ? <Markdown text={rest} className="ask-body" breaks /> : null}
+      {ask.branches.some((b) => split.byLabel[b.label]) ? (
+        <div className="ask-conseqs">
+          {ask.branches.filter((b) => split.byLabel[b.label]).map((b) => <Markdown key={b.label} text={split.byLabel[b.label]!} className="ask-conseq" />)}
+        </div>
+      ) : null}
       {grant ? <StepStrip grant={grant} /> : null}
       {ask.claims.length ? (
         <ul className="ask-claims">
           {ask.claims.map((c, i) => { const m = claimMark(c); return <li key={i} className={`ask-claim ${m.tone}`} title={c.check.ref ? `${c.check.kind}: ${c.check.ref}` : c.check.kind}><span className="ask-mark">{m.mark}</span> {c.text} <span className="muted">· {m.line}{c.result?.note ? ` · ${c.result.note}` : ""}</span></li>; })}
         </ul>
       ) : null}
-      {steer || (ask.sourceDocId && onOpenRecord) ? (
-        <div className="ask-foot">
-          {steer ? <Act small run={async () => { const t = steerTarget(steer); if (t) await steerAsk(ask.id, t); }} title={`Open ${building}'s goal in the goal tree, with a 1:1 with its manager about this ask beside it`}>Steer</Act> : null}
-          {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}
-        </div>
-      ) : null}
+      {/* every button together at the bottom, below the text: the branches, then Steer */}
+      <div className="ask-actions">
+        {deciding
+          ? <AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} extra={steerBtn} />
+          : <div className="actions ask-branches">{steerBtn}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span></div>}
+        {aside}
+      </div>
+      {ask.sourceDocId && onOpenRecord ? <button className="link ask-record" title={ask.sourceDocId} onClick={() => onOpenRecord(ask.sourceDocId!)}>The full record →</button> : null}
     </article>
   );
 }
