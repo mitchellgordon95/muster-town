@@ -111,6 +111,17 @@ describe("collectives homepage and /api/collectives", () => {
     expect(collectives(world, [row("quiet", false)]).map((c) => c.slug)).toEqual(["workshop", "quiet"]);
   });
 
+  // gr_1s31xz74bv, review dc_egc93oh81s: a listed self-hosted town sorts after the hosted ones that ran, before the never-run ones
+  it("self-hosted tiles sit between the hosted collectives that ran and the never-run ones, and replace the placeholder", () => {
+    const row = (slug: string, started: boolean) => ({ slug, name: slug, tagline: "", goal: `${slug} goal`, ownerGithubId: null, createdAt: "2026-11-01T00:00:00.000Z", state: "active" as const, started });
+    const ext = [{ host: "garden.example.org", name: "Garden", goal: "Grow" }];
+    const order = (html: string) => html.split('<li class="tile-item">').slice(1).map((x) => /tile-ext/.test(x) ? "ext" : /placeholder/.test(x) ? "soon" : /tile-name">([^<]*)/.exec(x)![1]);
+    const name = world.town.get().name;
+    expect(order(renderHome(collectives(world, [row("quiet", false), row("busy", true)]), null, undefined, ext))).toEqual([name, "busy", "ext", "quiet"]);
+    expect(order(renderHome(collectives(world, []), null, undefined, ext))).toEqual([name, "ext"]);
+    expect(order(renderHome(collectives(world, []), null, undefined, []))).toEqual([name, "soon"]);
+  });
+
   // gr_rcj8nkbkbt (kr_ay5wb5wfhd): the signed-out landing carries the Uptime block's mount, with a no-JS link to the figures
   it("the homepage has an Uptime section linking /api/uptime", () => {
     const html = renderHome(collectives(world, []));

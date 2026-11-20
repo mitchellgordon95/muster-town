@@ -30,6 +30,9 @@ a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); box-shadow: 0 
 .tile-tag { margin: 6px 2px 0; font-size: var(--fs-sm); line-height: 1.35; color: var(--ink-2); }
 .tile-tag.tile-wait { color: var(--ink); font-weight: 600; }
 .tile-tag.tile-wait + .tile-tag { margin-top: 2px; }
+/* a self-hosted tile's first line: the host it opens, so a touch visitor sees it leaves muster.town */
+.tile-tag.tile-host { color: var(--ink); font-size: var(--fs-xs); font-weight: 600; overflow-wrap: anywhere; }
+.tile-tag.tile-host + .tile-tag { margin-top: 2px; }
 /* other ways in: one line each */
 .home-ways { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .home-ways li { padding: 8px 12px; border: 1px solid var(--rule); border-radius: 6px; background: color-mix(in srgb, var(--warn) 8%, var(--white)); font-size: var(--fs-md); }

@@ -243,7 +243,8 @@ alerts, sessions) are at `GET /api/events`.
 ## 6. Register with the directory
 
 muster.town keeps a directory of self-hosted towns. Each listed town is a tile on the muster.town homepage, after the
-hosted collectives: its name and goal, a "Self-hosted" tag, no live map, and a link to its own `https://<host>/`. No account and no
+hosted collectives that have run and before the ones that have not: its name, a "Self-hosted" tag, no live map, its host and
+goal under it, and a link to its own `https://<host>/`. No account and no
 approval: you prove you control the DNS name. The town must be served at `https://<host>/` (port 443, no sub-path).
 
 1. Ask for a token (the same one comes back every time for your host):

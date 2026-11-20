@@ -1,0 +1,1 @@
+- 2026-11-20: Homepage self-hosted tiles now sort after the hosted collectives that have run and before the never-run ones, a listed town replaces the "Coming soon" placeholder, and each self-hosted tile shows its host (`.tile-tag.tile-host`) under it so a touch visitor sees it leaves muster.town (review dc_egc93oh81s, grant gr_1s31xz74bv).
