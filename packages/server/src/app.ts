@@ -292,7 +292,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
-      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null, origin));
+      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null, origin, app.directory?.list() ?? []));
     });
     app.get("/api/collectives", async () => ({ collectives: list() }));
     // Start a collective (docs/hosted-collectives.md step 3): anyone signed in with GitHub, one active collective each;

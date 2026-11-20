@@ -1,0 +1,1 @@
+- 2026-11-20 Prod (Cleo 1, gr_1s31xz74bv step 1): the muster.town homepage shows each town in /api/directory as a "Self-hosted" tile after the hosted collectives, linking to its own https://<host>/ (no preview; skipped when its name is empty). docs/self-host.md section 6 says so.
