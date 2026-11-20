@@ -14,10 +14,51 @@ export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank"
 /** The hydrant's ask count: every live ask, open or deferred (a deferred one still waits on a human; it opens again when what it waits behind settles). */
 export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open" || a.status === "deferred").length;
 
-/** The card's delta line (the body's first paragraph) and the prose after it. */
+/**
+ * The card's lead (the one bold part) and the prose after it: the body's first paragraph when it has a blank line,
+ * else its first sentence (most live bodies are one paragraph of short lines, and a bold paragraph is a bold wall).
+ */
 export function deltaOf(body: string): { delta: string; rest: string } {
-  const parts = body.trim().split(/\n\s*\n/);
-  return { delta: (parts[0] ?? "").trim(), rest: parts.slice(1).join("\n\n").trim() };
+  const text = body.trim();
+  const parts = text.split(/\n\s*\n/);
+  if (parts.length > 1) return { delta: parts[0]!.trim(), rest: parts.slice(1).join("\n\n").trim() };
+  const m = /^[\s\S]*?(?:[.!?](?=\s)|\n|$)/.exec(text);
+  const delta = (m?.[0] ?? text).trim();
+  return { delta, rest: text.slice(m?.[0].length ?? text.length).trim() };
+}
+
+/** An "If you <words>:" sentence start, at a line start or after a sentence's end. */
+const IF_YOU = /(^|[.!?]\s+)If you ([^:\n]{1,80}):/gi;
+
+/**
+ * The card contract's "If you <branch>: …" sentences (docs/legible-delegation.md §5), split out of the body so each
+ * shows under its own button. A sentence runs from its "If you" to the next "If you …:" or the line's end. It goes
+ * to the branch whose label starts its words, case-insensitively and on a word boundary ("If you counter at 50k:"
+ * is Counter's, "If you add it:" is Add's). One that names no branch stays in the body, as does a branch's second one.
+ */
+export function splitConsequences(body: string, labels: string[]): { body: string; byLabel: Record<string, string> } {
+  const byLabel: Record<string, string> = {};
+  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
+  const labelOf = (words: string) => {
+    const w = norm(words);
+    return labels.filter((l) => { const n = norm(l).replace(/[.…]+$/, ""); return !!n && (w === n || (w.startsWith(n) && /^[^a-z0-9]/.test(w.slice(n.length)))); })
+      .sort((a, b) => b.length - a.length)[0];
+  };
+  const lines = body.split("\n").map((line) => {
+    const hits = [...line.matchAll(IF_YOU)].map((m) => ({ start: m.index! + m[1]!.length, words: m[2]! }));
+    if (!hits.length) return line;
+    let kept = line.slice(0, hits[0]!.start);
+    hits.forEach((h, i) => {
+      const seg = line.slice(h.start, hits[i + 1]?.start ?? line.length);
+      const label = labelOf(h.words);
+      if (label && !(label in byLabel)) byLabel[label] = seg.trim();
+      else kept += seg;
+    });
+    return kept.trimEnd();
+  });
+  // a line emptied by the split goes; a blank line (a paragraph break) stays, collapsed to one
+  const out = lines.filter((l, i) => l.trim() !== "" || (body.split("\n")[i]!.trim() === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { body: out, byLabel };
 }
 
 /**

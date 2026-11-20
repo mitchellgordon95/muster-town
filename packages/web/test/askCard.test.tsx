@@ -254,6 +254,27 @@ describe("the ask card", () => {
   });
 });
 
+describe("the card's order and consequences (gr_x7p580xe1o)", () => {
+  it("puts lead, recommendation, buttons with their 'If you' sentence, then the regular body", async () => {
+    signIn();
+    const el = await mount(<AskCard ask={ask("ak_ocean")} grant={grant("gr_ocean")} onDecided={() => undefined} />);
+    // the Markdown mock drops className: find the parts by their words
+    const t = el.textContent!;
+    const at = (w: string) => { const i = t.indexOf(w); expect(i, w).toBeGreaterThan(-1); return i; };
+    const order = [at("This is a new proposal."), at("Moss recommends fund"), at("Fund"), at("If you fund:"), at("Reject"), at("If you reject:"), at("Mei's first run")];
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    const rows = [...el.querySelectorAll(".ask-branch")].map((r) => [r.querySelector("button")?.textContent?.trim(), r.querySelector(".md")?.textContent ?? ""]);
+    expect(rows).toEqual([["Fund", "If you fund: step 1 starts on the building queue."], ["Counter…", ""], ["Reject", "If you reject: nothing runs, and the tokens stay free."]]);
+    expect(t.match(/If you fund/g)).toHaveLength(1);
+  });
+  it("signed out, shows each consequence under its branch's name and no buttons", () => {
+    store.state = { ...store.state, me: null } as never;
+    const html = renderToStaticMarkup(<AskCard ask={ask("ak_hud")} onDecided={() => undefined} />);
+    expect(html).toContain('<span class="ask-branch-name">Adjust</span><div class="md">If you adjust: set the ceiling to 2.2M, then the grant closes.</div>');
+    expect(html).toContain("Sign in to decide.");
+  });
+});
+
 describe("the step strip", () => {
   it("draws one box per step by size, done steps filled, and goes red past the ceiling", () => {
     const html = renderToStaticMarkup(<StepStrip grant={grant("gr_hud")} />);
