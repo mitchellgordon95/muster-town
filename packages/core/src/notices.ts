@@ -50,7 +50,8 @@ const goalOfBuilding = (world: World, id: string | null) => (id ? world.building
  * A human's own request (a pocket job: a flag, a meeting, a tell) whose last report just closed it: the close is their
  * notice, "Done: <the assignment's title>", with the report and the human's source behind it. A fork and a manager can't
  * `tell` a human, so this is the only way they hear it landed. One caller per way a report is settled: by the town at
- * submit (`submit_report`, verdict stop) or by its manager's review (approve or stop). Files nothing while the job still
+ * submit (`submit_report`, verdict stop), by its manager's review (approve or stop), or by the town merging the PR its
+ * last report parked on (`closeMerged`, waits.ts). Files nothing while the job still
  * has open work (another assignment of the same source, a parked continuation, a flag not yet decided), and nothing
  * when this report already has a shipped notice. Null when nothing was filed.
  */

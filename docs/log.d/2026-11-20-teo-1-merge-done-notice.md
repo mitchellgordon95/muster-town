@@ -1,0 +1,1 @@
+- 2026-11-20 Teo 1: a human's request (pocket job) whose last work was parked on `{pr, merge: true}` now gets its "Done: <title>" shipped notice when the town merges the PR (closeMerged, waits.ts → requestDone). Live check of PR #515 found no Done notice since 11-17: the one pocket job closed since (Steer button, mt_mjxwzdhhd7) closed by merge, a path #515 did not cover.

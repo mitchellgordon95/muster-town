@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyDecision, buildingQueue, createDoc, forkManager, intrayCount, setAssignmentStatus, intrayCounts, intrayOf, managerIntrayBlock, townHallIntray } from "../src/index.ts";
 import { listNotices } from "../src/notices.ts";
+import { checkWaits } from "../src/waits.ts";
 import { buildingRoleId } from "../src/permissions.ts";
 import { seededWorld, tickUntil } from "./helpers.ts";
 
@@ -133,6 +134,19 @@ describe("a flag's Done notice", () => {
     const r = await world.verbs.submit_report(fork, { title: "Parked on deploy", body: "## What I did\nPushed.\n## Findings\nWaiting.\n## What I need from you\nPass it on to Mitchell when live.", verdict: "continue", resumeWhen: { after: new Date(Date.now() + 3_600_000).toISOString() }, next: "check live" });
     await world.verbs.review(manager, { docId: r.id, decision: "approve", note: "" });
     expect(done(world)).toEqual([]);
+  });
+
+  it("work parked on its PR to merge when green: the town's merge closes it and files one Done notice behind the parking report", async () => {
+    const { world, flag, fork } = await delegated("Add a Steer button");
+    world.town.set({ workspace: { path: ".", tools: [], branchPrefix: "agent", base: "main", repoUrl: "https://github.com/o/r.git" } });
+    const r = await world.verbs.submit_report(fork, { title: "Steer button: PR #526, parked to merge when green", body: "## What I did\nOpened PR #526.\n## Findings\nParked.\n## What I need from you\nNothing needed.", verdict: "continue", resumeWhen: { pr: 526, merge: true }, next: "merge when green" });
+    expect(done(world)).toEqual([]);
+    const cont = world.assignments.require(r.nextAssignmentId!);
+    world.host.prChecks = () => ({ state: "merged", sha: "a".repeat(40), mergeSha: "b732e75d01c6", mergedBy: "town", done: 2, total: 2, checkedAt: "2026-11-19T19:04:00Z" });
+    expect(checkWaits(world).merged.map((a) => a.id)).toEqual([cont.id]);
+    expect(done(world).map((n) => [n.title, n.refs])).toEqual([[`Done: ${cont.title}`, [r.id, flag.id]]]);
+    checkWaits(world);
+    expect(done(world)).toHaveLength(1);
   });
 });
 
