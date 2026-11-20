@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
-import { blogRoutes, publicPosts } from "./blog.ts";
+import { blogRoutes, docPosts } from "./blog.ts";
 import { mailFromEnv, type MailSender } from "./mail.ts";
 import { mailingListRoutes } from "./mailing-list.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
@@ -80,6 +80,8 @@ export interface BuildAppOptions {
   throwaway?: boolean;
   /** the blog mailing list's mail sender (mail.ts); default: Resend from the env, off without RESEND_API_KEY */
   mail?: MailSender;
+  /** the building whose published `blog` articles are the root blog (default Outreach, blog.ts `BLOG_BUILDING`) */
+  blogBuildingId?: string;
 }
 
 const API_PREFIXES = ["/api", "/ws", "/mcp", "/auth"];
@@ -345,10 +347,11 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       if (!token) return reply.code(404).send({ error: "Not found: GET /.well-known/muster-town (MUSTER_TOWN_DIRECTORY_TOKEN is not set)", code: "not_found" });
       return reply.type("text/plain; charset=utf-8").header("cache-control", "no-cache").send(token);
     });
-    // the blog (blog/posts/*.md, read per request; docs/blog.md)
-    await app.register(blogRoutes(origin, undefined, (slug, source) => countBlogRead(opts.world, slug, source)));
+    // the blog: published `blog` articles in Outreach, read per request (blog.ts; docs/blog.md)
+    const posts = docPosts(opts.world, opts.blogBuildingId);
+    await app.register(blogRoutes(origin, posts, (slug, source) => countBlogRead(opts.world, slug, source)));
     // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml (share.ts)
-    await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts: () => publicPosts() }));
+    await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts }));
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set
     await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null, origin, mail: opts.mail ?? mailFromEnv() }));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));

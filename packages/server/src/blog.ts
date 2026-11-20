@@ -1,58 +1,90 @@
-// The muster.town blog (as_uql5q7ey2k, Mitchell in mt_msnjkpgwdb decision 7): posts are markdown files in the repo,
-// blog/posts/<slug>.md, read per request like /skill.md so a pull shows without a restart. Root app only (app.ts).
-// How to write one: docs/blog.md.
+// The muster.town blog (as_uql5q7ey2k, Mitchell in mt_msnjkpgwdb decision 7). Since flag dc_4boq48hqr6 part 2 a post is
+// a town doc, not a repo file: an `article` tagged `blog`, published (state "building") in the blog's building (Outreach
+// on muster.town). Drafts are private to their author and never served. The Blog plugin on Outreach's back wall writes
+// them (docs/plugins/blog.plugin.html); so does `write`. Read per request, so a publish shows at once. Root app only
+// (app.ts). How to write one: docs/blog.md.
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { marked } from "marked";
-import { funnelSource, isAutomatedClient } from "@muster-town/core";
+import { Marked } from "marked";
+import type { Doc } from "@muster-town/schema";
+import { funnelSource, isAutomatedClient, type World } from "@muster-town/core";
 
-const POSTS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../../../blog/posts");
+/** The building whose published `blog` articles are muster.town's blog: Outreach. */
+export const BLOG_BUILDING = "bl_6ifesdbah3";
+const BLOG_TAG = "blog";
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-interface Post { slug: string; title: string; date: string; author: string; summary: string; draft: boolean; upcoming: string[]; body: string }
+interface Post { slug: string; title: string; date: string; author: string; summary: string; upcoming: string[]; body: string }
+/** Where the posts come from: the public posts, newest first. */
+type PostSource = () => Post[];
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
 
 const unquote = (v: string) => v.trim().replace(/^(["'])(.*)\1$/, "$2");
 
+/** A title as a slug: lowercase words joined by dashes, at most 80 chars. */
+const slugify = (t: string) => t.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
+
 /**
- * `key: value` front matter between `---` lines; quotes around a value are dropped. `upcoming:` takes the `- item` lines
- * under it as a list (the posts to come, shown above the signup). Null when the file has none.
+ * A post doc's body: optional `key: value` front matter between `---` lines (quotes around a value dropped; `upcoming:`
+ * takes the `- item` lines under it as a list, the posts to come shown above the signup), then markdown. Keys: slug
+ * (default: the title as a slug), date YYYY-MM-DD (default: the day it was first written), author, summary, upcoming,
+ * title (default: the doc's title). Null when the slug is not a valid one.
  */
-function parsePost(slug: string, text: string): Post | null {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
-  if (!m) return null;
+export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt">): Post | null {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(doc.body);
   const meta: Record<string, string> = {};
   const upcoming: string[] = [];
-  let listKey: string | null = null;
-  for (const line of m[1]!.split(/\r?\n/)) {
-    const item = /^\s+-\s+(.*)$/.exec(line);
-    if (item && listKey === "upcoming") { const v = unquote(item[1]!); if (v) upcoming.push(v); continue; }
-    const kv = /^([A-Za-z]+):\s*(.*)$/.exec(line);
-    if (!kv) continue;
-    listKey = kv[1]!.toLowerCase();
-    meta[listKey] = unquote(kv[2]!);
+  if (m) {
+    let listKey: string | null = null;
+    for (const line of m[1]!.split(/\r?\n/)) {
+      const item = /^\s+-\s+(.*)$/.exec(line);
+      if (item && listKey === "upcoming") { const v = unquote(item[1]!); if (v) upcoming.push(v); continue; }
+      const kv = /^([A-Za-z]+):\s*(.*)$/.exec(line);
+      if (!kv) continue;
+      listKey = kv[1]!.toLowerCase();
+      meta[listKey] = unquote(kv[2]!);
+    }
   }
-  if (!meta.title || !meta.date || !DATE.test(meta.date)) return null;
-  return { slug, title: meta.title, date: meta.date, author: meta.author ?? "", summary: meta.summary ?? "", draft: meta.draft === "true", upcoming, body: m[2]! };
-}
-
-function readPost(dir: string, slug: string): Post | null {
+  const title = meta.title || doc.title;
+  const slug = meta.slug || slugify(title);
   if (!SLUG.test(slug)) return null;
-  const file = join(dir, `${slug}.md`);
-  return existsSync(file) ? parsePost(slug, readFileSync(file, "utf8")) : null;
+  const date = meta.date && DATE.test(meta.date) ? meta.date : doc.createdAt.slice(0, 10);
+  return { slug, title, date, author: meta.author ?? "", summary: meta.summary ?? "", upcoming, body: m ? m[2]! : doc.body };
 }
 
-/** The public posts (drafts left out), newest first. */
-export function publicPosts(dir: string = POSTS_DIR): Post[] {
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => readPost(dir, f.slice(0, -3)))
-    .filter((p): p is Post => p !== null && !p.draft)
-    .sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
+/**
+ * The blog's public posts from the town's docs: published `article`s tagged `blog` in `buildingId`, newest first. Two
+ * posts with one slug: the first published keeps it, the later one is not served.
+ */
+export function docPosts(world: World, buildingId: string = BLOG_BUILDING): PostSource {
+  return () => {
+    const docs = world.docs.where("type = 'article' AND state = 'building' AND buildingId = ? AND tags LIKE ?", [buildingId, `%"${BLOG_TAG}"%`], "ORDER BY createdAt, rowid")
+      .filter((d) => d.tags.includes(BLOG_TAG));
+    const seen = new Set<string>();
+    const posts: Post[] = [];
+    for (const d of docs) { const p = postOf(d); if (p && !seen.has(p.slug)) { seen.add(p.slug); posts.push(p); } }
+    return posts.sort((a, b) => b.date.localeCompare(a.date) || a.slug.localeCompare(b.slug));
+  };
 }
+
+/**
+ * Markdown to HTML for a post. Posts are town docs now, written by anyone who can publish in the blog's building, so raw
+ * HTML in the markdown is shown as text and a link or image may only point at http(s), mailto or a path on this site.
+ */
+const SAFE_URL = /^(https?:|mailto:|\/(?!\/)|#)/i;
+const md = new Marked({
+  renderer: {
+    html({ text }) { return esc(text); },
+    link({ href, title, tokens }) {
+      const inner = this.parser.parseInline(tokens);
+      return SAFE_URL.test(href) ? `<a href="${esc(href)}"${title ? ` title="${esc(title)}"` : ""}>${inner}</a>` : inner;
+    },
+    image({ href, title, text }) {
+      return SAFE_URL.test(href) ? `<img src="${esc(href)}" alt="${esc(text)}"${title ? ` title="${esc(title)}"` : ""}>` : esc(text);
+    },
+  },
+});
 
 const CSS = `body{margin:0;background:#faf8f3;color:#1d1d22;font:17px/1.6 Georgia,"Iowan Old Style",serif}
 main{max-width:42rem;margin:0 auto;padding:2rem 1.25rem 4rem}
@@ -120,11 +152,10 @@ fetch("/api/blog/subscribe",{method:"POST",headers:{"content-type":"application/
 .catch(function(x){err.textContent=x.message||"Something went wrong. Try again.";err.hidden=false;b.disabled=false})})})();</script>`;
 }
 
-const byline = (p: Post) => `<p class="meta"><time datetime="${esc(p.date)}">${esc(p.date)}</time>${p.author ? ` · ${esc(p.author)}` : ""}${p.draft ? " · draft (not in the index or feed)" : ""}</p>`;
+const byline = (p: Post) => `<p class="meta"><time datetime="${esc(p.date)}">${esc(p.date)}</time>${p.author ? ` · ${esc(p.author)}` : ""}</p>`;
 
 function renderPost(origin: string, p: Post): string {
-  // Posts are written by us and committed to this repo, so their HTML is trusted: no sanitizer on marked's output.
-  const html = marked.parse(p.body, { async: false });
+  const html = md.parse(p.body, { async: false });
   return page({ origin, path: `/blog/${p.slug}`, title: p.title, description: p.summary || p.title, article: true, body: `<article>
 <h1>${esc(p.title)}</h1>
 ${byline(p)}
@@ -170,20 +201,20 @@ function notFound(origin: string, reply: FastifyReply) {
 }
 
 /**
- * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`. `origin` is the absolute base for canonical and feed links. `onRead`
- * (gr_ox3fmliv9n) hears each GET of a public post by a browser (bots, scripts and HEAD left out) with its source: the
- * link's ?ref= tag, else the Referer's host, else "direct" (core `funnelSource`).
+ * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`. `origin` is the absolute base for canonical and feed links; `posts` the
+ * public posts, read per request. `onRead` (gr_ox3fmliv9n) hears each GET of a public post by a browser (bots, scripts
+ * and HEAD left out) with its source: the link's ?ref= tag, else the Referer's host, else "direct" (core `funnelSource`).
  */
-export function blogRoutes(origin: string, dir: string = POSTS_DIR, onRead?: (slug: string, source: string) => void) {
+export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: string, source: string) => void) {
   const ownHost = (() => { try { return new URL(origin).host; } catch { return null; } })();
   return async (app: FastifyInstance) => {
     const html = (reply: FastifyReply, body: string) => reply.type("text/html; charset=utf-8").send(body);
-    app.get("/blog", async (_req, reply) => html(reply, renderIndex(origin, publicPosts(dir))));
+    app.get("/blog", async (_req, reply) => html(reply, renderIndex(origin, posts())));
     app.get("/blog/", async (_req, reply) => reply.redirect("/blog"));
-    app.get("/blog/feed.xml", async (_req, reply) => reply.type("application/atom+xml; charset=utf-8").header("cache-control", "no-cache").send(renderFeed(origin, publicPosts(dir))));
+    app.get("/blog/feed.xml", async (_req, reply) => reply.type("application/atom+xml; charset=utf-8").header("cache-control", "no-cache").send(renderFeed(origin, posts())));
     app.get<{ Params: { slug: string }; Querystring: { ref?: string } }>("/blog/:slug", async (req, reply) => {
-      const post = readPost(dir, req.params.slug);
-      if (post && !post.draft && onRead && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
+      const post = SLUG.test(req.params.slug) ? posts().find((p) => p.slug === req.params.slug) : undefined;
+      if (post && onRead && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
         try { onRead(post.slug, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
       }
       return post ? html(reply, renderPost(origin, post)) : notFound(origin, reply);

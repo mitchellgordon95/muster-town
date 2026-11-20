@@ -1,27 +1,36 @@
-import { World } from "@muster-town/core";
+import { createDoc, World } from "@muster-town/core";
 import Fastify from "fastify";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { blogRoutes } from "../src/blog.ts";
+import { BLOG_BUILDING, blogRoutes, docPosts, postOf } from "../src/blog.ts";
 
 const ORIGIN = "https://example.town";
 const post = (fm: string, body = "Hello **world**.") => `---\n${fm}\n---\n\n${body}\n`;
 
-async function blogApp(files: Record<string, string>) {
-  const dir = mkdtempSync(join(tmpdir(), "blog-"));
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+/** Write `files` (slug → body) as blog docs: published unless the body says `draft: true`, which writes a draft. */
+function seed(world: World, files: Record<string, string>, o: { buildingId?: string; tags?: string[]; type?: "article" | "note" } = {}) {
+  for (const [slug, text] of Object.entries(files)) {
+    const draft = /\ndraft: true\n/.test(text);
+    const body = text.replace(/\ndraft: true\n/, "\n").replace(/^---\n/, `---\nslug: ${slug}\n`);
+    createDoc(world, { type: o.type ?? "article", title: /title: "?([^"\n]*)/.exec(text)?.[1] ?? slug, body, authorId: "ag_writer", authorKind: "agent",
+      state: draft ? "draft" : "building", buildingId: o.buildingId ?? BLOG_BUILDING, tags: o.tags ?? ["blog"] });
+  }
+}
+
+async function blogApp(files: Record<string, string>, onRead?: (slug: string, source: string) => void) {
+  const world = World.open(":memory:");
+  seed(world, files);
   const app = Fastify();
-  await app.register(blogRoutes(ORIGIN, dir));
+  await app.register(blogRoutes(ORIGIN, docPosts(world), onRead));
   return app;
 }
 
 describe("blog", () => {
-  it("says there are no posts when the folder is empty or missing", async () => {
-    const app = Fastify();
-    await app.register(blogRoutes(ORIGIN, join(tmpdir(), "no-such-blog-dir")));
+  it("says there are no posts when there are none", async () => {
+    const app = await blogApp({});
     const res = await app.inject("/blog");
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/html/);
@@ -30,8 +39,8 @@ describe("blog", () => {
 
   it("lists public posts newest first and renders a post with its preview tags", async () => {
     const app = await blogApp({
-      "older.md": post("title: Older post\ndate: 2026-11-01\nauthor: Mitchell\nsummary: The first one."),
-      "newer.md": post('title: "Newer <post>"\ndate: 2026-11-10\nsummary: The second one.'),
+      "older": post("title: Older post\ndate: 2026-11-01\nauthor: Mitchell\nsummary: The first one."),
+      "newer": post('title: "Newer <post>"\ndate: 2026-11-10\nsummary: The second one.'),
     });
     const index = (await app.inject("/blog")).body;
     expect(index.indexOf("/blog/newer")).toBeGreaterThan(-1);
@@ -56,7 +65,7 @@ describe("blog", () => {
   });
 
   it("puts the email signup at the foot of each post and of the index, tagged with where it was", async () => {
-    const app = await blogApp({ "older.md": post("title: Older post\ndate: 2026-11-01") });
+    const app = await blogApp({ "older": post("title: Older post\ndate: 2026-11-01") });
     const html = (await app.inject("/blog/older")).body;
     expect(html).toContain('<form class="signup" method="post" action="/api/blog/subscribe" data-source="older">');
     expect(html).toContain("New posts by email. Nothing else.");
@@ -66,8 +75,8 @@ describe("blog", () => {
 
   it("shows a post's upcoming list as the signup hook, on the post and on the index", async () => {
     const app = await blogApp({
-      "older.md": post("title: Older\ndate: 2026-11-01"),
-      "next.md": post("title: Next\ndate: 2026-11-19\nupcoming:\n  - the operating layers (jobs + queues)\n  - using <Bend> 2\nauthor: Mitchell"),
+      "older": post("title: Older\ndate: 2026-11-01"),
+      "next": post("title: Next\ndate: 2026-11-19\nupcoming:\n  - the operating layers (jobs + queues)\n  - using <Bend> 2\nauthor: Mitchell"),
     });
     const html = (await app.inject("/blog/next")).body;
     expect(html).toContain("<p>Coming next:</p>\n<ul>\n<li>the operating layers (jobs + queues)</li>\n<li>using &lt;Bend&gt; 2</li>\n</ul>");
@@ -80,23 +89,21 @@ describe("blog", () => {
     expect(older).not.toContain("Coming next:");
   });
 
-  it("serves a draft at its URL but leaves it out of the index and the feed", async () => {
+  it("never serves a draft doc: not at its URL, not in the index or the feed", async () => {
     const app = await blogApp({
-      "live.md": post("title: Live\ndate: 2026-11-02"),
-      "secret.md": post("title: Secret draft\ndate: 2026-11-11\ndraft: true"),
+      "live": post("title: Live\ndate: 2026-11-02"),
+      "secret": post("title: Secret draft\ndate: 2026-11-11\ndraft: true"),
     });
-    const draft = await app.inject("/blog/secret");
-    expect(draft.statusCode).toBe(200);
-    expect(draft.body).toContain("<title>Secret draft</title>");
+    expect((await app.inject("/blog/secret")).statusCode).toBe(404);
     expect((await app.inject("/blog")).body).not.toContain("secret");
     const feed = (await app.inject("/blog/feed.xml")).body;
     expect(feed).toContain(`${ORIGIN}/blog/live`);
     expect(feed).not.toContain("secret");
   });
 
-  it("answers an unknown, malformed or front-matter-less slug with a 404 page", async () => {
-    const app = await blogApp({ "bare.md": "no front matter here\n" });
-    for (const url of ["/blog/nope", "/blog/bare", "/blog/..%2Fsecret", "/blog/UPPER"]) {
+  it("answers an unknown or malformed slug with a 404 page", async () => {
+    const app = await blogApp({ "live": post("title: Live\ndate: 2026-11-02") });
+    for (const url of ["/blog/nope", "/blog/..%2Fsecret", "/blog/UPPER"]) {
       const res = await app.inject(url);
       expect(res.statusCode, url).toBe(404);
       expect(res.headers["content-type"]).toMatch(/text\/html/);
@@ -105,7 +112,7 @@ describe("blog", () => {
   });
 
   it("serves a well-formed Atom feed", async () => {
-    const app = await blogApp({ "a.md": post("title: A & B\ndate: 2026-11-03\nauthor: Juno\nsummary: <x>") });
+    const app = await blogApp({ "a": post("title: A & B\ndate: 2026-11-03\nauthor: Juno\nsummary: <x>") });
     const res = await app.inject("/blog/feed.xml");
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toMatch(/application\/atom\+xml/);
@@ -129,9 +136,11 @@ describe("blog", () => {
     const dist = mkdtempSync(join(tmpdir(), "web-dist-"));
     writeFileSync(join(dist, "index.html"), "<!doctype html><title>t</title>");
     const world = World.open(":memory:");
+    seed(world, { "hello-from-muster-town": post("title: Hello from Muster Town\ndate: 2026-11-12") });
     const app = await buildApp({ world, webDist: dist });
     expect((await app.inject("/blog")).statusCode).toBe(200);
-    expect((await app.inject("/blog/feed.xml")).statusCode).toBe(200);
+    expect((await app.inject("/blog/feed.xml")).body).toContain("/blog/hello-from-muster-town");
+    expect((await app.inject("/sitemap.xml")).body).toContain(`/blog/hello-from-muster-town</loc>`);
     expect((await app.inject("/blog/hello-from-muster-town")).body).toContain("Hello from Muster Town");
     expect((await app.inject("/blog/no-such-post")).statusCode).toBe(404);
     expect((await app.inject("/elsewhere")).statusCode).toBe(302);
@@ -140,12 +149,8 @@ describe("blog", () => {
   });
 
   it("counts each browser read of a public post with its source (gr_ox3fmliv9n); bots, HEAD, drafts and missing posts never count", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "blog-"));
-    writeFileSync(join(dir, "live.md"), post("title: Live\ndate: 2026-11-10"));
-    writeFileSync(join(dir, "wip.md"), post("title: Wip\ndate: 2026-11-10\ndraft: true"));
     const reads: [string, string][] = [];
-    const app = Fastify();
-    await app.register(blogRoutes(ORIGIN, dir, (slug, source) => reads.push([slug, source])));
+    const app = await blogApp({ "live": post("title: Live\ndate: 2026-11-10"), "wip": post("title: Wip\ndate: 2026-11-10\ndraft: true") }, (slug, source) => reads.push([slug, source]));
     const ua = "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36";
     await app.inject({ url: "/blog/live", headers: { "user-agent": ua, referer: "https://news.ycombinator.com/item?id=42" } });
     await app.inject({ url: "/blog/live?ref=Discord", headers: { "user-agent": ua, referer: "https://news.ycombinator.com/" } });
@@ -162,6 +167,7 @@ describe("blog", () => {
     const dist = mkdtempSync(join(tmpdir(), "web-dist-"));
     writeFileSync(join(dist, "index.html"), "<!doctype html><title>t</title>");
     const world = World.open(":memory:");
+    seed(world, { "hello-from-muster-town": post("title: Hello\ndate: 2026-11-12\ndraft: true"), "engineering-human-oversight-with-decision-queues": post("title: Oversight\ndate: 2026-11-19") });
     const app = await buildApp({ world, webDist: dist });
     const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
     await app.inject({ url: "/blog/hello-from-muster-town", headers: ua }); // a draft: never counted
@@ -184,5 +190,32 @@ describe("blog", () => {
     expect(JSON.stringify(world.db.prepare("SELECT * FROM join_funnel_sources").all())).not.toContain("item?id");
     await app.close();
     world.close();
+  });
+
+  it("reads only published blog articles in the blog's building", async () => {
+    const world = World.open(":memory:");
+    seed(world, { "ok": post("title: Ok\ndate: 2026-11-01") });
+    seed(world, { "elsewhere": post("title: Elsewhere\ndate: 2026-11-01") }, { buildingId: "bl_other" });
+    seed(world, { "untagged": post("title: Untagged\ndate: 2026-11-01") }, { tags: ["blogger"] });
+    seed(world, { "a-note": post("title: A note\ndate: 2026-11-01") }, { type: "note" });
+    seed(world, { "ok": post("title: Second with the same slug\ndate: 2026-11-05") });
+    expect(docPosts(world)().map((p) => [p.slug, p.title])).toEqual([["ok", "Ok"]]);
+  });
+
+  it("takes the slug from the title and the date from the doc when the front matter leaves them out", () => {
+    expect(postOf({ title: "Why We Built It!", body: "Plain **markdown**.", createdAt: "2026-11-20T02:00:00.000Z" }))
+      .toEqual({ slug: "why-we-built-it", title: "Why We Built It!", date: "2026-11-20", author: "", summary: "", upcoming: [], body: "Plain **markdown**." });
+    expect(postOf({ title: "x", body: post("slug: Bad Slug"), createdAt: "2026-11-20T02:00:00.000Z" })).toBeNull();
+  });
+
+  it("shows raw HTML as text and drops script links: posts are town docs, not trusted files", async () => {
+    const app = await blogApp({ "x": post("title: X\ndate: 2026-11-01", '<script>alert(1)</script>\n\n[ok](https://a.example/) [bad](javascript:alert(1)) ![i](/og.png)') });
+    const html = (await app.inject("/blog/x")).body;
+    const article = html.slice(html.indexOf("<article>"), html.indexOf("</article>"));
+    expect(article).not.toContain("<script>");
+    expect(article).toContain("&lt;script&gt;");
+    expect(article).toContain('<a href="https://a.example/">ok</a>');
+    expect(article).not.toContain("javascript:");
+    expect(article).toContain('<img src="/og.png" alt="i">');
   });
 });
