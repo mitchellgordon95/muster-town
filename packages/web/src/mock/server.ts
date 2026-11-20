@@ -2,7 +2,7 @@
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
@@ -49,6 +49,22 @@ function toyLaneKind(window: "today" | "7d"): SpendByLaneKind {
   };
 }
 /** Toy `split` (gr_3ougmyubdm) from the toy daily rows' byLane: the last 7 and all 30 rows, so it closes on them exactly. */
+// the toy's used share (core finance-utilization.ts): one subscription credit per row, drawn by that row's used up to its
+// size; every credit but today's has expired, so used + expired + left = credited exactly
+function toyUtilization(rows: { day: string; used: number; credited: number }[]): FinanceUtilization {
+  const window = (n: number): UtilizationWindow => {
+    const tail = rows.slice(-n);
+    let credited = 0, used = 0, expired = 0, left = 0;
+    tail.forEach((r, i) => {
+      const u = Math.min(r.used, r.credited);
+      credited += r.credited; used += u;
+      if (i === tail.length - 1) left += r.credited - u; else expired += r.credited - u;
+    });
+    const share = (x: number) => (credited ? Math.round((x / credited) * 10_000) / 10_000 : 0);
+    return { days: n, from: tail[0]!.day, to: tail[tail.length - 1]!.day, credits: tail.length, credited, used, expired, left, usedShare: share(used), expiredShare: share(expired), drawnPastSize: 0, durable: 0 };
+  };
+  return { d7: window(7), d30: window(30), check: { ok: true, diff: 0, dailyDiff: 0, identity: "used + expired + left = subscription tokens credited in the window, per credit" } };
+}
 function toySplit(rows: { day: string; byLane: Record<SplitLane, number> }[]): FinanceSplit {
   const lanes: SplitLane[] = ["grant", "exploration", "directed", "retainer", "manager", "other"];
   const groups: FinanceSplit["groups"] = { work: ["grant", "exploration", "directed", "retainer"], coordination: ["manager"], other: ["other"] };
@@ -1047,7 +1063,7 @@ export class MockApi implements Api {
   }
   // the Balance tab's "Day by day" chart (core finance-daily.ts): `usedBank` spread over 30 UTC days and the toy's
   // buildings (a weekday wave, so the bars move), one credit a day; the rows sum to usedBank exactly, so the check is ✓
-  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck" | "split"> {
+  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck" | "split" | "utilization"> {
     const DAY = 86_400_000, days = 30, today = Date.parse(now().slice(0, 10) + "T00:00:00.000Z");
     const bs = this.sim.buildings.filter((b) => b.kind !== "town-hall");
     const weights = Array.from({ length: days }, (_, i) => 1 + 0.6 * Math.sin(i / 2.3) + (i % 7 === 5 ? -0.5 : 0));
@@ -1069,8 +1085,10 @@ export class MockApi implements Api {
       let rest = used;
       for (const [l, f] of shares) { byLane[l] = Math.floor(used * f); rest -= byLane[l]; }
       byLane.retainer = rest;
-      return { day: new Date(today - (days - 1 - i) * DAY).toISOString().slice(0, 10), used, credited: inflow || 1_000_000, byBuilding, byLane, sessionsTokens: used };
+      return { day: new Date(today - (days - 1 - i) * DAY).toISOString().slice(0, 10), used, credited: inflow || 1_000_000, byBuilding, byLane, sessionsTokens: used, expired: 0 };
     });
+    // each toy day's credit lasts until the next day: what that day did not draw expires on the next row (gr_z13gmx54su)
+    rows.forEach((r, i) => { r.expired = i === 0 ? 0 : Math.max(0, rows[i - 1]!.credited - rows[i - 1]!.used); });
     const totals = new Map<string, number>();
     for (const r of rows) for (const [id, t] of Object.entries(r.byBuilding)) totals.set(id, (totals.get(id) ?? 0) + t);
     const buildings = [...totals].map(([id, tokens]) => ({ id, name: bs.find((b) => b.id === id)?.name ?? id, tokens })).sort((a, z) => z.tokens - a.tokens);
@@ -1078,6 +1096,7 @@ export class MockApi implements Api {
       daily: { days, from: rows[0]!.day, to: rows[days - 1]!.day, rows, buildings, usedBefore: 0, undatedUsed: 0, usageLedgerInWindow: usedBank },
       dailyCheck: { ok: true, diff: 0, rowsUsed: usedBank, usedSinceStart: usedBank, buildingDiff: 0, laneDiff: 0, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend" },
       split: toySplit(rows),
+      utilization: toyUtilization(rows),
     };
   }
   // Paid in cash, last 30 days (gr_qggxximtru step 2) as core finance-cash.ts counts it: the toy fees prorated over the

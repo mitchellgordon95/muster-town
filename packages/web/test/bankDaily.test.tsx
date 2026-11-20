@@ -1,8 +1,8 @@
 // gr_epbcgb0hvs step 1 (kr_86jpcp8x0w, kr_l0zj80iz8z): the Balance tab's "Day by day" chart over GET /api/finance `daily`
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceDaily, FinanceSplit, SplitWindow } from "../src/api";
-import { DailyChart, axisLabel, dailyCheckLine, dailyStacks, daySegments, niceMax, splitCheckLine, splitSegments, splitSentence } from "../src/panels/BankDaily";
+import type { Finance, FinanceDaily, FinanceSplit, FinanceUtilization, SplitWindow, UtilizationWindow } from "../src/api";
+import { DailyChart, axisLabel, dailyCheckLine, dailyStacks, daySegments, niceMax, splitCheckLine, splitSegments, splitSentence, utilizationCheckLine, utilizationSentence } from "../src/panels/BankDaily";
 
 const ids = ["a", "b", "c", "d", "e", "f"];
 const daily: FinanceDaily = {
@@ -95,5 +95,45 @@ describe("Work versus coordination", () => {
     const html = renderToStaticMarkup(<DailyChart f={{ daily, dailyCheck: check } as Finance} />);
     expect(html).not.toContain("Split by:");
     expect(html).toContain("Other (2 buildings)");
+  });
+});
+
+// gr_z13gmx54su step 1 (kr_c0g8tvidke, kr_no6seja7f6): how much incoming credit was used, and each day's expired
+describe("Used share and expired per day", () => {
+  const win = (days: number, credited: number, used: number, expired: number, left: number, durable = 0): UtilizationWindow => ({
+    days, from: "2026-11-14", to: "2026-11-20", credits: 3, credited, used, expired, left,
+    usedShare: Math.round((used / credited) * 10_000) / 10_000, expiredShare: Math.round((expired / credited) * 10_000) / 10_000, drawnPastSize: 0, durable,
+  });
+  const utilization: FinanceUtilization = { d7: win(7, 148_000_000, 24_672_835, 110_000_000, 13_327_165), d30: win(30, 453_833_333, 170_852_384, 261_631_813, 21_349_136, 500), check: { ok: true, diff: 0, dailyDiff: 0, identity: "x" } };
+
+  it("says what came in, what share was used, what expired and what is left", () => {
+    expect(utilizationSentence(utilization.d7)).toBe("Last 7 days: 148,000,000 subscription tokens came in; 24,672,835 were used (16.7%), 110,000,000 expired undrawn (74.3%) and 13,327,165 are still left until renewal.");
+    expect(utilizationSentence(utilization.d30)).toContain("Plus 500 API-key tokens, which never expire.");
+    expect(utilizationSentence({ ...utilization.d7, left: 0, expired: 123_327_165, expiredShare: 0.8333 })).toBe("Last 7 days: 148,000,000 subscription tokens came in; 24,672,835 were used (16.7%) and 123,327,165 expired undrawn (83.3%).");
+    expect(utilizationSentence({ ...utilization.d7, credited: 0 })).toBe("Last 7 days: no tokens came in.");
+  });
+
+  it("puts a ✓ line under them that the parts add up, and ✗ with the gap when not", () => {
+    expect(utilizationCheckLine({ utilization })!.text).toContain("7 days: 24,672,835 + 110,000,000 + 13,327,165 = 148,000,000");
+    const bad = utilizationCheckLine({ utilization: { ...utilization, check: { ok: false, diff: 3, dailyDiff: 0, identity: "x" } } })!;
+    expect(bad.ok).toBe(false);
+    expect(bad.text).toContain("off by 3 (credits)");
+    expect(utilizationCheckLine({})).toBeNull();
+  });
+
+  it("shows each day's expired on hover targets and as a table column, and the sentences under the chart", () => {
+    const withExpired: FinanceDaily = { ...daily, rows: [{ ...daily.rows[0]!, expired: 0 }, { ...daily.rows[1]!, expired: 850 }] };
+    const html = renderToStaticMarkup(<DailyChart f={{ daily: withExpired, dailyCheck: { ...check, rowsExpired: 850, expiredDiff: 0 }, utilization } as Finance} />);
+    expect(html).toContain("2026-11-17: used 60, credited 0, expired 850");
+    expect(html).toContain("<th>Expired</th>");
+    expect(html).toContain("<td>850</td>");
+    expect(html).toContain("Σ daily expired 850 = Bank expired since 2026-11-16");
+    expect(html).toContain("Last 7 days: 148,000,000 subscription tokens came in");
+    expect(html).toContain("✓ 7 days: 24,672,835 + 110,000,000");
+  });
+
+  it("has no Expired column from an older server", () => {
+    const html = renderToStaticMarkup(<DailyChart f={{ daily, dailyCheck: check } as Finance} />);
+    expect(html).not.toContain("<th>Expired</th>");
   });
 });

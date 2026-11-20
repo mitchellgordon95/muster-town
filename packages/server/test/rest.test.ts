@@ -428,6 +428,12 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.split.groups.coordination).toEqual(["manager"]);
     expect(finance.body.daily.rows.at(-1).byLane).toMatchObject({ grant: expect.any(Number), manager: expect.any(Number) });
     expect(finance.body.dailyCheck.laneDiff).toBe(0);
+    // the used share and expired per day (gr_z13gmx54su step 1): each row carries expired; utilization closes per credit
+    expect(finance.body.daily.rows.at(-1).expired).toEqual(expect.any(Number));
+    expect(finance.body.dailyCheck.expiredDiff).toBe(0);
+    expect(finance.body.utilization).toMatchObject({ d7: { days: 7 }, d30: { days: 30 }, check: { ok: true, diff: 0, dailyDiff: 0 } });
+    const u7 = finance.body.utilization.d7;
+    expect(u7.used + u7.expired + u7.left).toBe(u7.credited);
     expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);

@@ -42,11 +42,11 @@ describe("finance page", () => {
     const p = f.projection;
     expect([netPerDay(p), runwayText(p)]).toEqual(["−15 / day shortfall", "3 days"]);
     const covered = { ...p, dailyInflow: 30, netDailyBurn: -10, projectedInflow30d: 900, runwayDays: null, runway: "covered" as const };
-    expect([netPerDay(covered), runwayText(covered)]).toEqual(["+10 / day surplus", "covered by the daily inflow"]);
+    expect([netPerDay(covered), runwayText(covered)]).toEqual(["10 / day more comes in than is used; unused subscription tokens expire at renewal, they are not saved", "covered by the daily inflow"]);
     const idle = { ...p, trailingDailyBurn: 0, netDailyBurn: -5, runwayDays: null, runway: "no-usage" as const };
     expect(runwayText(idle)).toBe("nothing used lately");
     const ov = tabOf("Balance", { f: { ...f, projection: covered } });
-    for (const s of ["Coming in (expected from recurring inputs)", "30 / day", "+10 / day surplus", "covered by the daily inflow", "one-off donations"]) expect(ov).toContain(s);
+    for (const s of ["Coming in (expected from recurring inputs)", "30 / day", "10 / day more comes in than is used; unused subscription tokens expire at renewal, they are not saved", "covered by the daily inflow", "one-off donations"]) expect(ov).toContain(s);
     expect(ov).not.toContain(">0 days<");
   });
   it("lists overdrawn's non-zero parts, which sum to it, with the pre-conversion note on the subscription part", () => {
