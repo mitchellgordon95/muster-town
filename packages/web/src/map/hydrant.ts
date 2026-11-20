@@ -1,7 +1,8 @@
 /**
  * The Town Hall's hydrant (docs/legible-delegation.md §3, UI / UX A): the stream the humans process, pouring from a
- * Town Hall object; clicking it opens the decision queue (DecisionQueue.tsx). Asks pour as water-blue dots and settle at the
- * Secretary beside it. The counts come from the Town Hall's waiting items (GET
+ * Town Hall object; clicking it opens the decision queue (DecisionQueue.tsx). Asks pour as water-blue dots on a short arc
+ * from the spout into a small pool on the floor beside it; the pool widens with the open asks (Mitchell's flag dc_umioej89iy:
+ * the water no longer aims at the Secretary). The counts come from the Town Hall's waiting items (GET
  * /api/buildings/<hall>/intray), fetched once on load and again when their count changes (WS `building`); no new
  * polling, no new endpoint. Bodies are free: the particles are a few dots on the existing frame.
  */
@@ -32,16 +33,28 @@ export function hydrantCounts(t: Pick<Intray, "asks" | "notices"> | null | undef
 
 /** At most this many dots on screen. */
 export const MAX_PARTICLES = 12;
-/** seconds for one dot to travel from the hydrant to where it lands */
-const PERIOD = 2.6;
+/** seconds for one dot to travel from the spout to the pool */
+const PERIOD = 1.6;
+/** how high the arc rises above the straight line from spout to pool, in world px (about half a tile) */
+const ARC = 8;
 
 interface Pt { x: number; y: number }
 
 /**
- * The water this frame, in world px: one dot per open ask flying from the hydrant's spout to the Secretary on a low arc,
- * easing out so it settles, staggered so the dots don't clump. Capped at MAX_PARTICLES; none under reduced motion or
- * without a target. (Notices used to drift to the feed as a second stream; it read as a straight jet beside the arc, so
- * there is one stream now: Mitchell, 1:1 mt_db6itzy2br.)
+ * The pool's width in world px: a 4 px puddle with no asks waiting, growing with each open ask up to `max` (a tile) at
+ * MAX_PARTICLES, so the hydrant still says how much is waiting without a number.
+ */
+export function poolWidth(asks: number, max = 16): number {
+  const n = Math.max(0, Math.min(asks, MAX_PARTICLES));
+  return Math.round(4 + (max - 4) * (n / MAX_PARTICLES));
+}
+
+/**
+ * The water this frame, in world px: one dot per open ask flying from the hydrant's spout to the pool on a short arc
+ * (rising about half a tile, falling into the pool), staggered so the dots don't clump. Capped at MAX_PARTICLES; none
+ * under reduced motion or without a pool. (Notices used to drift to the feed as a second stream; it read as a straight
+ * jet beside the arc, so there is one stream: Mitchell, 1:1 mt_db6itzy2br. The dots used to settle at the Secretary;
+ * they fall into a pool now: Mitchell's flag dc_umioej89iy.)
  */
 export function streamParticles(from: Pt, to: Pt | null, counts: Pick<HydrantCounts, "asks">, nowMs: number, reducedMotion: boolean): Pt[] {
   if (reducedMotion || !to) return [];
@@ -49,8 +62,8 @@ export function streamParticles(from: Pt, to: Pt | null, counts: Pick<HydrantCou
   const out: Pt[] = [];
   for (let i = 0; i < n; i++) {
     const t = (nowMs / 1000 / PERIOD + i / n) % 1;
-    const e = 1 - (1 - t) * (1 - t);
-    out.push({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e - Math.sin(Math.PI * e) * 6 });
+    // even speed across, a parabola up and down: water thrown out, falling under gravity
+    out.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t - 4 * ARC * t * (1 - t) });
   }
   return out;
 }
