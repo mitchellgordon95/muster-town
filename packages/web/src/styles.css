@@ -1114,16 +1114,14 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-body { font-weight: 400; margin-top: 8px; }
 .ask-delta p, .ask-body p, .ask-conseq p { margin: 0 0 4px; }
 .ask-rec { margin: 6px 0; }
-.ask-branches.with-conseq { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-.ask-branch { display: grid; gap: 2px; justify-items: start; }
-.ask-conseq { font-size: var(--fs-sm); padding-left: 2px; }
-.ask-branch-name { font-weight: 600; font-size: var(--fs-sm); }
+.ask-conseqs { display: grid; gap: 2px; margin-top: 6px; }
+.ask-conseq { font-size: var(--fs-sm); }
 .ask-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-right: 4px; }
 .ask-claims { list-style: none; padding: 0; margin: 6px 0; font-size: var(--fs-sm); }
 .ask-claim .ask-mark { display: inline-block; width: 1.2em; font-weight: 700; }
 .ask-claim.ok .ask-mark { color: var(--ok); }
 .ask-claim.bad .ask-mark { color: var(--bad); }
-.ask-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.ask-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .ask-decide { flex: 1 1 260px; }
 .ask-branches .btn.on { border-color: var(--accent); }
 .ask-note { width: 100%; max-width: 420px; resize: vertical; font: inherit; }
@@ -1132,8 +1130,6 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
 .ask-form-row input[type="date"] { min-height: 30px; }
 .ask-record { display: inline-block; margin-top: 6px; font-size: var(--fs-sm); }
-.ask-foot { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
-.ask-foot .ask-record { margin-top: 0; }
 .step-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; font-size: var(--fs-sm); }
 .step-strip-boxes { display: flex; gap: 3px; list-style: none; margin: 0; padding: 0; }
 .step-box { border: 1px solid var(--line-2); border-radius: 3px; text-align: center; font-size: var(--fs-xs); line-height: 18px; color: var(--muted); }
