@@ -200,7 +200,7 @@ export class Ops {
     this.world.buildings.require(buildingId, "building");
     return intrayCount(this.world, buildingId);
   }
-  /** The Town Hall in-tray: managers' rollups and checkpoint reports plus grants awaiting a human's decision. */
+  /** The decision queue: managers' rollups and checkpoint reports plus grants awaiting a human's decision. */
   townHallIntray() {
     return townHallIntray(this.world);
   }

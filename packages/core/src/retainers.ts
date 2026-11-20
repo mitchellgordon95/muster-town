@@ -2,7 +2,7 @@
  * Retainers (1:1 mt_cyd2t5ioob decision 2; docs/bank.md "Retainers", docs/how-work-gets-done.md §9): standing money for a
  * scheduled job, approved by a human, claimed in the Bank. Grants are one-time, so a recurring job never draws on one: a
  * schedule carries `tokensPerRun` (Bank tokens, Opus 5.5 output tokens) and asks for tokensPerRun × runs left in the
- * Town Hall in-tray. Each fire's assignment runs in lane "retainer" with sourceId = the schedule; its sessions book
+ * decision queue. Each fire's assignment runs in lane "retainer" with sourceId = the schedule; its sessions book
  * against the schedule (drawn, derived from sessions like a grant's spend). Runs are held while the retainer is not
  * funded, or when one more run would pass the approved total; a run that reaches tokensPerRun is asked to wrap up.
  * A funded retainer is the Bank's fourth claim (free-tokens.ts). Since 2026-11-01 it claims only what is near: the runs
@@ -129,7 +129,7 @@ export function scheduleView(world: World, s: Schedule, now = new Date()): Sched
   return { ...s, runsLeft: left, askTokens: s.tokensPerRun * left, drawnTokens, claimTokens: retainerClaim(world, s, now, drawnTokens), buildingName: world.buildings.get(s.buildingId)?.name };
 }
 
-/** Retainers waiting on a human (asked) or on the manager (countered), oldest first: Town Hall in-tray rows and deck slides. */
+/** Retainers waiting on a human (asked) or on the manager (countered), oldest first: decision queue rows and deck slides. */
 export function pendingRetainers(world: World, now = new Date()): ScheduleView[] {
   return world.schedules.where("status = 'active' AND retainer IN ('asked', 'countered')", [], "ORDER BY updatedAt, rowid").map((s) => scheduleView(world, s, now));
 }
@@ -151,13 +151,13 @@ export function retainerLine(world: World, v: ScheduleView): string {
   return `${world.buildings.get(v.buildingId)?.name ?? v.buildingId} asks for a retainer: ${v.title}, ${fmt(v.tokensPerRun)} tokens × ${v.runsLeft} run${v.runsLeft === 1 ? "" : "s"}${to} = ${fmt(v.askTokens)}`;
 }
 
-/** Ask (or ask again): the retainer goes to the Town Hall in-tray; the humans who can decide it hear in their inbox. */
+/** Ask (or ask again): the retainer goes to the decision queue; the humans who can decide it hear in their inbox. */
 export function askRetainer(world: World, s: Schedule, why: string, now = new Date()): void {
   const v = scheduleView(world, s, now);
   world.events.append({ type: "retainer.asked", buildingId: s.buildingId, text: `${retainerLine(world, v)} (${why})`, payload: { scheduleId: s.id, tokensPerRun: s.tokensPerRun, runsLeft: v.runsLeft, askTokens: v.askTokens } });
   for (const h of world.agents.where("kind = 'human' AND status != 'retired'")) {
     if (!canDecideRetainer(world, h, s)) continue;
-    sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: h.id, body: `${retainerLine(world, v)}. Approve, counter or reject it in the Town Hall in-tray.` });
+    sendMessage(world, { kind: "system", fromId: "system", fromKind: "system", toId: h.id, body: `${retainerLine(world, v)}. Approve, counter or reject it in the decision queue.` });
   }
   askForRetainer(world, s, why);
   emitTownHall(world);

@@ -145,7 +145,7 @@ The recommendation names the branch you recommend and why, in one sentence.
 
 /**
  * The Planner's weekly calibration schedule, made once: on the Town Hall, taken by the Planner, on Fable, on a retainer of
- * CALIBRATION_TOKENS_PER_RUN per run (asked in the Town Hall in-tray: its runs start once a human approves). Never made
+ * CALIBRATION_TOKENS_PER_RUN per run (asked in the decision queue: its runs start once a human approves). Never made
  * again once any calibration schedule of the Planner's exists; its description is kept equal to CALIBRATION_RUN_PROMPT.
  */
 export function ensureCalibrationSchedule(world: World, at: Date = new Date()): Schedule | null {
@@ -186,7 +186,7 @@ export function calibrate(world: World, me: Agent, input: { title?: string; body
     need: "rule", targetKind: "rule", targetId: CALIBRATION_TARGET, type: "policy", branches, jobId: `jb_${TOWN_HALL_ID}`, authorKind: "manager",
     note: proposalSentence(proposal), body: input.body,
   }, { title: input.title, body: input.body, recommendation: input.recommendation, claims: [] }, me.id, proposal);
-  return { askId: ask.id, proposal, note: `Filed ${ask.id} in the Town Hall in-tray. Now submit_report (verdict stop) naming it.` };
+  return { askId: ask.id, proposal, note: `Filed ${ask.id} in the decision queue. Now submit_report (verdict stop) naming it.` };
 }
 
 const adopts = (a: Ask, said: string) => !!a.proposal && a.targetKind === "rule" && /^adopt\b/i.test(said);

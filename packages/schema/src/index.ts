@@ -1008,7 +1008,7 @@ export interface AssignmentCard {
  * Why a queued assignment can't start now (GET /api/agents/:id on pending assignments, GET /api/blocked): `kind` and the
  * thing it waits on (`targetId`: an assignment, a commit sha, a report, a grant, a building), the reason in words, and
  * where the map's red line goes: the blocking colleague's body (`agentId`) or a place (`placeId`: the in-tray that holds
- * the decision, the Town Hall in-tray for a grant or allowance hold, the building's door for a deploy). Neither = no line.
+ * the decision, the decision queue for a grant or allowance hold, the building's door for a deploy). Neither = no line.
  */
 export const BlockedKind = z.enum(["assignment", "deploy", "decision", "pr", "grant", "exploration", "reserved", "budget", "retainer"]);
 export type BlockedKind = z.infer<typeof BlockedKind>;
@@ -1064,7 +1064,7 @@ export const Schedule = z.object({
   runs: z.number().int().default(0),
   /** retainer (1:1 mt_cyd2t5ioob decision 2): what one run may spend, in Bank tokens (Opus 5.5 output tokens); 0 = no retainer */
   tokensPerRun: z.number().int().nonnegative().default(0),
-  /** the retainer's state: asked (waits on a human in the Town Hall in-tray), funded, countered, rejected, ended */
+  /** the retainer's state: asked (waits on a human in the decision queue), funded, countered, rejected, ended */
   retainer: RetainerStatus.default("none"),
   /** funded: the approved total (what it had drawn + tokensPerRun × runs left when approved); runs are held past it */
   retainerTokens: z.number().int().nullable().default(null),
@@ -1653,7 +1653,7 @@ export interface IntrayRoute { goalId: string; /** the goal's words: a grant sho
  */
 export interface DigestGroup { heading: string; note: string | null; lines: string[]; /** "Already overtaken": the rollups one Approve-all archives */ docIds?: string[] }
 /**
- * The Secretary's latest digest card (gr_kdlogzzo5s step 3), first in the Town Hall in-tray and slide 2 of the deck:
+ * The Secretary's latest digest card (gr_kdlogzzo5s step 3), first in the decision queue and slide 2 of the deck:
  * "Decisions needed" live at every read (core digestDecisions, grouped), the card's own "Shipped since last digest"
  * markdown (grouped under the run's theme headings), and the rollups it covers (archived ones leave the in-tray's list
  * and stay here; `pending` ones still ask a call).
@@ -2289,7 +2289,7 @@ export const VerbInputs = {
     repeat: ScheduleRepeat.nullable().optional().describe("repeat it every N hours or every day at UTC times, until a date (default 14 days, at most 90) or for a number of times; left out = runs once (with scheduleId: replaces the repeat, null makes it a one-shot)"),
     pages: z.array(Id).max(3).optional().describe("topic pages of this building for its fork's memory, at most 3"),
     model: z.string().optional().describe("forks buildings: the model its fork runs on (the building's model or cheapModel)"),
-    tokensPerRun: z.number().int().min(0).max(10_000_000).optional().describe("its retainer: what one run may spend, in Bank tokens (Opus 5.5 output tokens). A repeating job needs one: a human approves tokensPerRun × runs left in the Town Hall in-tray before runs start; raising it or extending the end asks again. Answer a counter by editing it (scheduleId)"),
+    tokensPerRun: z.number().int().min(0).max(10_000_000).optional().describe("its retainer: what one run may spend, in Bank tokens (Opus 5.5 output tokens). A repeating job needs one: a human approves tokensPerRun × runs left in the decision queue before runs start; raising it or extending the end asks again. Answer a counter by editing it (scheduleId)"),
   }),
   cancel: z.object({ assignmentId: Id.optional().describe("a queued (not started) assignment in my building"), scheduleId: Id.optional().describe("or a schedule of my building (sc_…): it stops firing") }),
   fork_status: z.object({
@@ -2435,11 +2435,11 @@ export const VERB_DESCRIPTIONS: Record<VerbName, string> = {
   stop_fork: "(manager) Stop a running fork of my building gracefully (forkId, or the assignmentId it runs): it is interrupted now with \"finish the step you are on, write your pages, submit_report\"; if it hasn't filed its report within 5 minutes the town stops its session and files \"Session ended without a report\" (assignment cancelled). Either way it retires and the report reaches the in-tray. To redirect a fork instead, `tell` it.",
   cancel: "(manager) Cancel a queued (not started) assignment in my building, or one of its schedules (scheduleId). Started assignments and other buildings' are refused.",
   fork_status: "(manager) What a fork of my building is doing right now (forkId or assignmentId): its assignment and lane, when its session started, adjusted tokens booked so far, and its last tool calls (default 10) with the first line of each input and a one-line result, plus its latest thought. Use it to answer \"what is Pix 4 doing?\".",
-  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the Town Hall in-tray for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
+  propose_grant: "(manager) Propose a grant for my building in one call, filed against a goal (goalId: your building's goal or one under it; default your building's): its own 1-5 key results (text, howToCheck, due: what a human checks in the live town to call the work done), its 1-5 steps (title, size S, M or L, description, optional model and pages: one session each; no XL: split a step bigger than L), a title (a short name of 3-8 words every card and row uses, e.g. Self-host image restores from backup), an objective, the approach and a stop condition. The ask is computed: the sum of the steps' sizes from the collective's table (askTokens, if given, is ignored). Funding it queues step 1 on the building queue; each step's report queues the next (not on a pivot verdict). It goes to the decision queue for a human to fund, counter or reject. A building can have several proposals open at once, each decided on its own. To answer a counter, pass its grantId: the new plan rewrites that proposal (and its key results) and re-proposes it under the same id. The answer carries `estimate`: one line on what similar closed grants spent (advisory).",
   ask: "(manager) Ask the humans the one thing only they can settle (money, permission, a credential, a rule, a meeting): a card in their decision queue with its branches and your recommendation. It is one entry on a job's thread, and their decision comes back to you on that thread. This replaces a rollup's Needs: file it when the need appears, one ask per decision. One need, one ask: a second ask on a need already asked fails with an error naming the open ask; its words go on the thread. To change your own building's card, `ask` again with its askId and the whole card (title, body, recommendation); to take it back, askId with withdraw: true and a note (nothing is ever deleted). To pass up an item already in your in-tray use `review` with `ask`; for a real-world act use `request_human`.",
   close_grant: "(manager) Close a funded grant early because its work is done: it closes as done, its open key results go to met with your note as the evidence when the note (or a key result's own claimed evidence) names a live check (a live URL, a notice or event id, or the words that you saw it on the live town), else to \"met, unverified\" (met on code and tests; shown as such, nobody is asked about it; a human can still flip one to met or missed from the grant), and the unspent tokens return to the Bank. Say what shipped in `shipped` (what a human can now see or do): each item is a notice for the humans. There is no rollup. A grant held at its checkpoint whose work is not done waits for a human to continue, adjust or cut it.",
   act_in_1on1: "In a 1:1 a human opened with you: do a decision the human just said in their own words (\"fund gr_x at 600k\", \"approve that retainer\", \"decline dc_x\") as that human: fund / counter / reject a proposal, continue / adjust / cut a checkpoint, approve / counter / reject a retainer, decline an open outbox request (dc_…: it leaves the outbox and its author hears why). Cite their line by its `at` (last 30 min). Leave targetId out when their line means the item open on their screen (\"fund it\"): it acts on that one. Their own permissions apply: you can never do what they couldn't with the button. The record (the grant's history, the request) says it was theirs, via you, quoting them. Never stop a grant (a button only), delete a request or touch Bank inputs; one call per target.",
-  withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the Town Hall in-tray and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
+  withdraw_grant: "(manager) Withdraw your building's own proposed (or countered) grant, with a note saying why: it leaves the decision queue and the review deck, its key results archive, and the note stays on the grant and goes to the humans who could fund it. To change a plan, withdraw it, then propose_grant fresh. A funded grant is not withdrawn: close_grant (done) or ask a human to cut it.",
   propose_goal: "(manager) Propose a change to the town goal tree (it shows in your desk brief: your building's attachment and the goals under it): add a goal, edit or move one, retire one, or promote a key result to a standing goal. It goes on your building's thread as an entry, and the town files its need: you write its ask with `ask` (targetId the gp_ id, type policy: say the change; its branches Accept / Edit and accept / Cut are fixed). A human with goals.edit there (an admin or the goal's captain) decides it; you hear back in your inbox. A proposal outside your building's subtree is allowed but flagged.",
   promote: "(manager) Publish a document to the building (board if it's an fyi, else the filing cabinet) or promote it to the library.",
   ban: "(admin) Ban an agent town-wide pending review.",
@@ -2939,7 +2939,7 @@ export const AccessRequest = z.object({
   decidedAt: z.string().nullable().default(null),
 });
 export type AccessRequest = z.infer<typeof AccessRequest>;
-/** A Town Hall in-tray row: the request plus who asked. */
+/** A decision queue row: the request plus who asked. */
 export type AccessRequestView = AccessRequest & { name: string; githubLogin: string | null; avatarUrl: string | null };
 export const AccessRequestInput = z.object({ message: z.string().trim().max(140).optional() });
 /** `directGoalId`: Let in + "direct work under <goal>" in one step (gr_cuobjlny6r); left out, Let in grants nothing more. */
@@ -2968,7 +2968,7 @@ export const CaptainRequest = z.object({
   decidedAt: z.string().nullable().default(null),
 });
 export type CaptainRequest = z.infer<typeof CaptainRequest>;
-/** A Town Hall in-tray row: the request plus who asked, the goal's words and who decides it now. */
+/** A decision queue row: the request plus who asked, the goal's words and who decides it now. */
 export type CaptainRequestView = CaptainRequest & {
   name: string; githubLogin: string | null; avatarUrl: string | null; goalText: string;
   /** the goal's current captain (its own or inherited; the root always has one) */

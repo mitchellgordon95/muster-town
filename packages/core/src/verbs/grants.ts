@@ -10,7 +10,7 @@ import type { World } from "../world.ts";
 import type { VerbIn } from "./types.ts";
 
 /**
- * `propose_grant` (the manager, or a fork of it on the manager's behalf): create the draft and propose it in one call; it lands in the Town Hall in-tray. A
+ * `propose_grant` (the manager, or a fork of it on the manager's behalf): create the draft and propose it in one call; it lands in the decision queue. A
  * building can have several proposals open at once (1:1 mt_akz25kqo2q). With `grantId` the call answers a counter: it
  * rewrites that countered proposal with the given plan and re-proposes it under the same id (work queued on it stays
  * attached). Without one it is a new proposal. It is filed against a goal and carries its own key results
@@ -58,7 +58,7 @@ export async function propose_grant(world: World, caller: Agent, input: VerbIn<"
     grantId: g.id, status: g.status, goalId: g.goalId, keyResults: g.keyResults.map((k) => ({ id: k.id, text: k.text, due: k.due })),
     // advisory only (docs/how-work-gets-done.md §4 "What a grant is likely to cost"): the ask is the sum of the steps' sizes
     estimate: g.estimate?.sentence ?? null,
-    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the Town Hall in-tray.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${warnings.length ? ` Its ask card is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ")}` : ""}`,
+    note: `${open ? `Re-proposed ${g.id} with this plan after the counter.` : `New proposal ${g.id}.`} A human funds, counters or rejects it from the decision queue.${others ? ` Your building has ${others} other open proposal(s); each is decided on its own.` : ""}${warnings.length ? ` Its ask card is filed with ${warnings.length} style warning(s), kept in its history; next time: ${warnings.join("; ")}` : ""}`,
   };
 }
 
@@ -79,7 +79,7 @@ export async function close_grant(world: World, me: Agent, input: VerbIn<"close_
 
 /**
  * `withdraw_grant` (the manager, or a fork of it on the manager's behalf; 1:1 mt_a6wb51enia): take back the building's own
- * proposed or countered grant with a note. It leaves the Town Hall in-tray and the deck; its key results archive.
+ * proposed or countered grant with a note. It leaves the decision queue and the deck; its key results archive.
  */
 export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<"withdraw_grant">) {
   const me = world.permissions.managerOfFork(caller) ?? caller;
@@ -89,7 +89,7 @@ export async function withdraw_grant(world: World, caller: Agent, input: VerbIn<
   const g = world.grantDesk.withdraw(me, input.grantId, input.note);
   return {
     grantId: g.id, status: g.status, outcome: g.outcome, keyResults: g.keyResults.map((k) => ({ id: k.id, archived: !!k.archivedAt })),
-    note: `Withdrawn: ${g.id} left the Town Hall in-tray and its key results are archived; your note is on the grant. To try a new plan, propose_grant fresh (no grantId).`,
+    note: `Withdrawn: ${g.id} left the decision queue and its key results are archived; your note is on the grant. To try a new plan, propose_grant fresh (no grantId).`,
   };
 }
 

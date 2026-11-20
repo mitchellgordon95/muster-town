@@ -664,7 +664,7 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .secret-row { padding: 8px 0; border-bottom: 1px solid var(--line, color-mix(in srgb, var(--white) 8%, transparent)); }
 .secret-row .doc-row-meta > span { display: inline-flex; align-items: center; gap: 2px; }
 .skill-pin-form input { flex: 1 1 160px; min-width: 0; width: auto; }
-/* Town Hall in-tray: building tag, rollup's covered reports, grant rows */
+/* decision queue: building tag, rollup's covered reports, grant rows */
 .intray-building { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 600; margin-right: 4px; }
 .intray-building .glyph { width: 14px; height: 14px; }
 /* a rollup's Shipped items as cards (packages/web/src/panels/RollupCards.tsx) */

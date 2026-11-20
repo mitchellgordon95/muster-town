@@ -1,6 +1,6 @@
 # Meetings: the changes agreed at the 2026-10-24 town hall
 
-Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8fgt`, decision 5; notes in the library). Author: Kelly. Town copy: dc_2i93rukmeq. Written from main at d6111c6. Background: [How meetings happen today](dc_q9pmstkli1) (all 28 live meetings, the code paths, the 9 gaps). The waterfall note (`docs/waterfall.md`, dc_g9d74v8kdb) owns rollups, the Town Hall in-tray and the manager's 1:1; this note owns only the meeting machinery and, in §5, comments on docs.
+Status: **design note, settled unless marked "proposal"** (town hall `mt_zyy96z8fgt`, decision 5; notes in the library). Author: Kelly. Town copy: dc_2i93rukmeq. Written from main at d6111c6. Background: [How meetings happen today](dc_q9pmstkli1) (all 28 live meetings, the code paths, the 9 gaps). The waterfall note (`docs/waterfall.md`, dc_g9d74v8kdb) owns rollups, the decision queue and the manager's 1:1; this note owns only the meeting machinery and, in §5, comments on docs.
 
 ## 1. What is true today (verified in code)
 
@@ -33,7 +33,7 @@ The system prompt's Did line becomes "what I did since the last meeting, against
 
 **3.2 The facilitator gets the building's material; an empty agenda stays allowed.** `facilitatePrompt` gains, after the summaries:
 
-- *In-tray:* the building's pending reports from `intrayOf` (`core/domain.ts:162`): title, author, verdict, the report's "What I need from you" line (the same gist `recentWorkBlock` already extracts). For a town hall: per building, the pending count and the pending rollups and proposals once the waterfall's Town Hall in-tray exists (`docs/waterfall.md` §3.5); until then, each attending manager's building in-tray. (Since 2026-11-12 rollups are retired: the Town Hall's pending items are asks, proposals and checkpoints.)
+- *In-tray:* the building's pending reports from `intrayOf` (`core/domain.ts:162`): title, author, verdict, the report's "What I need from you" line (the same gist `recentWorkBlock` already extracts). For a town hall: per building, the pending count and the pending rollups and proposals once the waterfall's decision queue exists (`docs/waterfall.md` §3.5); until then, each attending manager's building in-tray. (Since 2026-11-12 rollups are retired: the Town Hall's pending items are asks, proposals and checkpoints.)
 - *Last meeting:* the previous meeting's decisions with their outcomes (same query as 3.1, all assignees), so "we said X, it landed / it didn't" is on the table.
 - *Needs:* the "Need:" lines of this meeting's summaries, pulled out as a list (gap 7).
 

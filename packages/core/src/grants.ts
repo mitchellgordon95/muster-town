@@ -42,7 +42,7 @@ const LIVE: GrantStatus[] = ["funded", "checkpoint"];
 const TERMINAL: GrantStatus[] = ["closed", "rejected"];
 const isOpenKr = (k: KeyResult) => !k.archivedAt && !isJudgedKr(k.status);
 
-/** Why a goal-directed building is blocked (shown on GET /api/buildings/:id, the board and the Town Hall in-tray). */
+/** Why a goal-directed building is blocked (shown on GET /api/buildings/:id, the board and the decision queue). */
 
 /**
  * Today's exploration of a building (docs/how-work-gets-done.md §8): no allowance. What it spent today, the free tokens
@@ -225,7 +225,7 @@ export class Grants {
     return estimateVsActual(g.estimate, this.spent(g.id)) ?? {};
   }
 
-  /** A grant as GET /api/grants/:id and the Town Hall in-tray serve it: an open or live one carries `estimate` (recorded at propose, else fresh). */
+  /** A grant as GET /api/grants/:id and the decision queue serve it: an open or live one carries `estimate` (recorded at propose, else fresh). */
   withEstimate(g: GrantView): GrantView {
     if (g.estimate || !["proposed", "countered", "funded", "checkpoint"].includes(g.status)) return g;
     return { ...g, estimate: this.estimateFor(g) };
@@ -272,7 +272,7 @@ export class Grants {
     return stoplightOf(this.world.grants.where("buildingId = ? AND status IN ('funded', 'checkpoint')", [building.id], "ORDER BY fundedAt, rowid"));
   }
 
-  /** Every blocked building (the Town Hall in-tray's summary). */
+  /** Every blocked building (the decision queue's summary). */
   blockedBuildings(): BlockedBuilding[] {
     return this.world.buildings.where("kind != 'town-hall'", [], "ORDER BY createdAt, rowid").flatMap((b) => {
       const reason = this.blocked(b);
@@ -665,7 +665,7 @@ export class Grants {
 
   /**
    * The manager's `withdraw_grant` (1:1 mt_a6wb51enia): the manager takes back its own proposed or countered grant with a
-   * note saying why. It closes as `stopped` (history action "withdraw", the note kept on it), leaves the Town Hall in-tray
+   * note saying why. It closes as `stopped` (history action "withdraw", the note kept on it), leaves the decision queue
    * and the review deck, and its open key results archive like a rejected proposal's. The humans who could fund it are
    * told why it vanished. A funded grant is refused: close_grant (done) or a human's cut.
    */
@@ -845,7 +845,7 @@ export class Grants {
         `Spend reached its ceiling: ${fmt(spent)} of ${fmt(tokens)} tokens (${pct}%). New sessions on it are held until a human decides.`);
       const hold = this.world.events.append({ type: "grant.checkpoint", buildingId, text: `Checkpoint at ${fmt(at)} tokens: ${grantName(g)} (${fmt(spent)} / ${fmt(tokens)} tokens)`, payload: { grantId: g.id, status: next.status, holdAtTokens: at, fraction: 1, spentTokens: spent, grantTokens: tokens } });
       needAtCheckpoint(this.world, next, spent);
-      this.notifyFunders(next, null, `"${grantName(g)}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the Town Hall in-tray.`);
+      this.notifyFunders(next, null, `"${grantName(g)}" reached its ceiling (${fmt(spent)} of ${fmt(tokens)} tokens spent): new sessions on it are held. Its checkpoint card shows its reports and key-result evidence; adjust or cut it in the decision queue.`);
       held.push(next);
     }
     return held;

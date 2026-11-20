@@ -304,7 +304,7 @@ const MAX_PARKS = 3;
 
 export async function submit_report(world: World, me: Agent, input: VerbIn<"submit_report">) {
   if (me.kind === "human") throw badRequest("Humans don't submit reports.");
-  // a visitor with no home building (bench, plaza, or standing in someone else's lab) reports to the Town Hall in-tray
+  // a visitor with no home building (bench, plaza, or standing in someone else's lab) reports to the decision queue
   // as a visitor report, which the humans work (dc_04i3sll7q5); a homed visitor reports to its home building like a resident
   const unhomedVisitor = me.kind === "visitor" && !me.homeBuildingId;
   const bid = unhomedVisitor ? world.buildings.first("kind = 'town-hall'")?.id ?? null : homeOf(me);
@@ -413,7 +413,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
     const decision: Doc["decision"] = settled ? "approve" : "pending";
     if (world.agents.get(me.id)?.status === "working") world.setStatus(me.id, "idle", `${me.name} filed a report and is idle`);
     const intray = unhomedVisitor ? "town-hall" : bid;
-    const where = unhomedVisitor ? "the Town Hall in-tray as a visitor report (a human works it)"
+    const where = unhomedVisitor ? "the decision queue as a visitor report (a human works it)"
       : settled ? `the thread of job ${entryJob}; nobody needs to decide it (${loop.why}), so it is not in ${manager ? `${manager.name}'s` : "the"} in-tray`
       : manager?.id === me.id ? `the ${building!.name} in-tray, which you work as its manager: decide it in your next team-lead session`
       : manager ? `the ${building!.name} in-tray, which ${manager.name}, your manager, works` : "your building's in-tray (a human works it)";
@@ -462,7 +462,7 @@ export async function review(world: World, me: Agent, input: VerbIn<"review">) {
   // an agent decides its own report only as the manager deciding its own work report (town hall 2026-10-25, decision 6);
   // a rollup waits for the humans
   if (me.kind !== "human" && doc.authorId === me.id && (isTownHallItem(world, doc) || managerAgentOf(world, world.buildings.get(doc.buildingId ?? ""))?.id !== me.id)) {
-    throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup or visitor report; it waits for the humans in the Town Hall in-tray." : "You can't decide on your own report.");
+    throw badRequest(isTownHallItem(world, doc) ? "You can't decide on your own rollup or visitor report; it waits for the humans in the decision queue." : "You can't decide on your own report.");
   }
   const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
   const entry = entryOf(world, `en_${doc.id}`);
@@ -587,7 +587,7 @@ export async function schedule(world: World, me: Agent, input: VerbIn<"schedule"
 function retainerOut(world: World, s: Schedule) {
   if (s.lane !== "retainer") return {};
   const v = scheduleView(world, s);
-  const state = v.retainer === "asked" ? "asked: waits on a human in the Town Hall in-tray; its runs are held until approved" : v.retainer === "countered" ? `countered: ${v.retainerNote ?? ""} Answer by editing tokensPerRun and/or repeat` : v.retainer;
+  const state = v.retainer === "asked" ? "asked: waits on a human in the decision queue; its runs are held until approved" : v.retainer === "countered" ? `countered: ${v.retainerNote ?? ""} Answer by editing tokensPerRun and/or repeat` : v.retainer;
   return { retainer: { tokensPerRun: v.tokensPerRun, runsLeft: v.runsLeft, askTokens: v.askTokens, drawnTokens: v.drawnTokens, approvedTokens: v.retainerTokens, state } };
 }
 

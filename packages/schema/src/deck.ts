@@ -62,7 +62,7 @@ export function parseDeck(body: string): ParsedDeck {
 
 /**
  * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): GET /api/review-deck, assembled in code from the
- * Town Hall in-tray and key results on every request (zero tokens). Each slide is a DeckSlide (DeckView renders it)
+ * decision queue and key results on every request (zero tokens). Each slide is a DeckSlide (DeckView renders it)
  * plus what its decision buttons need. Slide 1 is the state of the town; then one slide per pending decision,
  * blocking-most first.
  */

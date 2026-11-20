@@ -351,7 +351,7 @@ export function deferAsk(world: World, actor: Agent | null, id: string, until: s
   return next;
 }
 
-/** Every live ask (open and deferred), oldest first: the Town Hall in-tray's `asks`. */
+/** Every live ask (open and deferred), oldest first: the decision queue's `asks`. */
 export function openAsks(world: World): Ask[] {
   return world.asks.where(LIVE_ASK, [], "ORDER BY createdAt, rowid");
 }

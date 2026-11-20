@@ -1,7 +1,7 @@
 /**
  * The feed and closed loops (docs/legible-delegation.md §8, UI / UX D). The feed: every notice, newest first, filtered
  * by building, goal and kind, pictures inline; nothing to decide. Closed loops: the human's past decisions paying off,
- * shown beside the asks in the Town Hall in-tray.
+ * shown beside the asks in the decision queue.
  */
 import { useState } from "react";
 import { NoticeKind, type Notice } from "@muster-town/schema";

@@ -61,7 +61,7 @@ export async function goalRoutes(app: FastifyInstance) {
   app.patch<{ Params: Params }>("/api/goals/:id", async (req) => ({ goal: tree.update(actorOf(world, req), req.params.id, parse(UpdateGoalInput, req.body)) }));
 
   // "Ask to captain this goal" (gr_bwm0iz7rwl): a member asks; the goal's current captain (or an admin) decides. The
-  // pending requests are also Town Hall in-tray items (`captains` on GET /api/buildings/town-hall/intray, routed there).
+  // pending requests are also decision queue items (`captains` on GET /api/buildings/town-hall/intray, routed there).
   app.post<{ Params: Params }>("/api/goals/:id/captain-requests", async (req, reply) => {
     const user = requireUser(req);
     const input = parse(CaptainRequestInput, req.body ?? {});

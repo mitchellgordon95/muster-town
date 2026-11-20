@@ -118,7 +118,7 @@ export class MockApi implements Api {
     nextRunAt: new Date(Date.now() + 5 * 3600_000).toISOString(), everyMinutes: 360, dailyAt: null, endsAt: new Date(Date.now() + 7 * 86400_000).toISOString(), maxRuns: null, paused: true,
     lane: "retainer", grantId: null, gap: "source cards go stale", sourceId: null, pages: [], model: null, origin: null,
     status: "active", endedReason: null, lastRunAt: null, lastAssignmentId: null, runs: 0, createdBy: "ag_moss", createdByKind: "agent",
-    // a retainer ask (1:1 mt_cyd2t5ioob decision 2): the Town Hall in-tray's "Retainers for scheduled jobs" row and deck slide
+    // a retainer ask (1:1 mt_cyd2t5ioob decision 2): the decision queue's "Retainers for scheduled jobs" row and deck slide
     tokensPerRun: 3_000, retainer: "asked", retainerTokens: null, retainerDecidedBy: null, retainerDecidedAt: null, retainerNote: null, missedRuns: 0, missedSince: null, takerId: null, runsLeft: 28, askTokens: 84_000, drawnTokens: 0, claimTokens: 0, buildingName: "Carbon Cycle Lab",
     createdAt: new Date(Date.now() - 86400_000).toISOString(), updatedAt: new Date().toISOString(),
   }]]);
@@ -132,7 +132,7 @@ export class MockApi implements Api {
     return x;
   }
 
-  /** who may interact (dc_f0cumcfubk): one stranger already waiting in the Town Hall in-tray; `?as=visitor` can ask too */
+  /** who may interact (dc_f0cumcfubk): one stranger already waiting in the decision queue; `?as=visitor` can ask too */
   private access: AccessRequestView[] = [{ id: "ar_octo", userId: "us_octo", message: "I'd like to help with the onboarding copy", status: "pending", decidedBy: null, createdAt: new Date(Date.now() - 40 * 60_000).toISOString(), decidedAt: null, name: "Octo Cat", githubLogin: "octocat", avatarUrl: null }];
 
   /** "Ask to captain this goal" (gr_bwm0iz7rwl): Octo already asks to captain Trust */

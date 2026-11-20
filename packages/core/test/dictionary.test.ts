@@ -65,3 +65,17 @@ describe("needs and asks in the dictionary (1:1 mt_t65exni4et)", () => {
     expect(ensureDictionary(world)!.body).toMatch(/^- \*\*ask\*\*: Mitchell's words\.\n- \*\*need\*\*: /m);
   });
 });
+
+describe("Town Hall in-tray → decision queue (1:1 mt_gf4un6ct4p)", () => {
+  it("is seeded, appended once to a dictionary seeded before it, and the lint names the replacement", () => {
+    const { world } = seededWorld();
+    const d = ensureDictionary(world)!;
+    expect(dictionaryPairs(world)).toContainEqual({ avoid: "Town Hall in-tray", use: "decision queue" });
+    world.docs.patch(d.id, { body: d.body.replace(/^- Town Hall in-tray → decision queue\n/m, "") });
+    expect(dictionaryPairs(world)).not.toContainEqual({ avoid: "Town Hall in-tray", use: "decision queue" });
+    const fixed = ensureDictionary(world)!;
+    expect(fixed.body).toMatch(/- decision card → ask\n- Town Hall in-tray → decision queue\n/);
+    expect(ensureDictionary(world)!.body).toBe(fixed.body);
+    expect(lintAskBody("It waits in the Town Hall in-tray.", { dictionary: dictionaryPairs(world) }).find((p) => p.startsWith("dictionary"))).toContain('use "decision queue"');
+  });
+});

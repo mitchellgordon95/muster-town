@@ -827,7 +827,7 @@ export class MapRenderer {
       this.blockHits.push({ id: d.id, ...drawBadge(g, q.x - 18, q.y, `blocked ${s.blocked[d.id].length}`, "bad", d.id === this.hoverBlock) });
     }
     // in-tray badges on the managers' desks, after the name labels so a body standing at the in-tray never covers them: the desk is the tile above the place's standing spot, or below it
-    // (the Town Hall in-tray, and rooms south of the road)
+    // (the decision queue, and rooms south of the road)
     for (const b of s.buildings) {
       if (!b.intray) continue;
       const p = s.places.find((x) => x.id === `intray:${b.id}`);

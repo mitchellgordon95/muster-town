@@ -122,7 +122,7 @@ export async function agentRoutes(app: FastifyInstance) {
   });
   /** Edit, pause or resume a schedule (building.assign on its building; EditScheduleInput). → { schedule } */
   app.post<{ Params: Params }>("/api/schedules/:id", async (req) => ({ schedule: scheduleView(world, editSchedule(world, actorOf(world, req), req.params.id, req.body ?? {})) }));
-  // the Town Hall in-tray's "Rank now" button: one Secretary ranking run now, booked on its retainer (core pressRank);
+  // the decision queue's "Rank now" button: one Secretary ranking run now, booked on its retainer (core pressRank);
   // /api/digest/run is the old name (the "Daily digest" button), kept one release for a web that still calls it
   app.post("/api/rank/run", async (req) => ({ assignment: pressRank(world, actorOf(world, req)) }));
   app.post("/api/digest/run", async (req) => ({ assignment: pressRank(world, actorOf(world, req)) }));

@@ -149,7 +149,7 @@ export async function townRoutes(app: FastifyInstance) {
     return [...granted, ...captained];
   };
 
-  // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the Town Hall in-tray.
+  // Who may interact (dc_f0cumcfubk): a signed-in visitor asks to join; an admin lets them in from the decision queue.
   app.post("/api/access-requests", async (req) => {
     const user = requireUser(req);
     const input = parse(AccessRequestInput, req.body);
@@ -442,7 +442,7 @@ export async function townRoutes(app: FastifyInstance) {
   });
 
   /**
-   * The review deck (design dc_y7a8g257of §2): the Town Hall in-tray as slides, computed on each request from the
+   * The review deck (design dc_y7a8g257of §2): the decision queue as slides, computed on each request from the
    * in-tray and key results (zero tokens). Readable by anyone, like the in-tray. `?meeting=<id>`: the deck as that
    * meeting presents it, its slide list pinned (a decided item's slide stays at its number, marked `decided`).
    */

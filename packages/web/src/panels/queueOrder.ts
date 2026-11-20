@@ -25,7 +25,7 @@ export type QueueItem =
   | { kind: "access"; id: string; req: AccessRequestView }
   | { kind: "blocked"; id: string; blocked: Blocked };
 
-/** The waiting items of a Town Hall in-tray read, already filtered to the viewer's Mine / All / Funded view. */
+/** The waiting items of a decision queue read, already filtered to the viewer's Mine / All / Funded view. */
 interface QueueInput {
   asks: AskView[];
   reports: Doc[]; grants: GrantView[]; retainers: ScheduleView[]; captains: CaptainRequestView[];
