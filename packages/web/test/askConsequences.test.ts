@@ -30,6 +30,21 @@ describe("splitConsequences on the live bodies", () => {
   });
 });
 
+// ak_twfr93gbix, live GET /api/asks of 2026-11-20 02:05 UTC verbatim (step 2): its labels are not the sentences' words
+const CAP = "Onboarding has waited on the homepage grant's 7-day click read since Monday Nov 17. Nothing else moves under this goal until that read on Monday Nov 24.\nMeanwhile Onboarding's explorer ran 29 times on Wednesday and found nothing each time. That cost about 306 thousand tokens in one day.\nThe town's code starts a new explorer every 30 minutes while free tokens exist under a goal. Code Legibility proposed a fix that backs off after empty explorations. Until it lands, only a cap on the goal brakes the loop. Only a human can set one.\nIf you cap: open the goal tree, pick the Onboarding goal, and set its exploration cap to 0.1 million a day. Explorers then run a few times a day instead of 29. You can clear the cap after Monday.\nIf you leave it: the loop spends about 300 thousand tokens a day on empty reads until the fix lands.";
+
+describe("splitConsequences by a label's first word", () => {
+  it("gives 'If you cap:' to 'Cap at 0.1 million a day' and 'If you leave it:' to 'Leave uncapped'", () => {
+    const { body, byLabel } = splitConsequences(CAP, ["Cap at 0.1 million a day", "Leave uncapped"]);
+    expect(byLabel["Cap at 0.1 million a day"]).toMatch(/^If you cap: open the goal tree, .* clear the cap after Monday\.$/);
+    expect(byLabel["Leave uncapped"]).toBe("If you leave it: the loop spends about 300 thousand tokens a day on empty reads until the fix lands.");
+    expect(body).not.toMatch(/If you/);
+  });
+  it("names no branch when two labels share the first word", () => {
+    expect(splitConsequences("If you fund: a.", ["Fund at 300k", "Fund at 100k"]).byLabel).toEqual({});
+  });
+});
+
 describe("splitConsequences edge cases", () => {
   it("leaves a sentence that names no branch, or has no colon, in the body", () => {
     const r = splitConsequences("Keel recommends a bar. If you agree, reply Bar.\n\nIf you claim: it is yours.\nIf you decline: Noor drops it.", ["Done", "Decline"]);

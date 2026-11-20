@@ -162,7 +162,7 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   const { delta, rest } = deltaOf(split.body);
   const deciding = signedIn && canDecide !== false;
   return (
-    <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title}>
+    <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title} data-branches={ask.branches.map((b) => b.label).join("|")}>
       <header className="ask-head">
         <span className="ask-asking">{subjectName(building)} is asking {ASKING[ask.type]}</span>
         {typeof ask.rank === "number" ? <Pill title="The Secretary's rank">#{ask.rank}</Pill> : null}
