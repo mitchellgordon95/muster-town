@@ -7,6 +7,7 @@
 import { WAIT_TTL_MS, WaitFor, waitKindsFor, type Assignment } from "@muster-town/schema";
 import { createDoc, setAssignmentStatus } from "./domain.ts";
 import { appendEntry, jobOf } from "./jobs.ts";
+import { requestDone } from "./notices.ts";
 import { AppError } from "./errors.ts";
 import { nowIso, truncate } from "./util.ts";
 import type { PrChecks, World } from "./world.ts";
@@ -114,6 +115,9 @@ function closeMerged(world: World, a: Assignment, pr: number, c: PrChecks): Assi
     });
     world.events.append({ type: "pr.merged", agentId: a.agentId, buildingId: a.buildingId, text: `${who} PR #${pr} as ${sha.slice(0, 8)}: "${truncate(a.title, 80)}" is done with no new session`, payload: { assignmentId: a.id, pr, sha, by: c.mergedBy ?? null } });
     if (a.grantStep != null && a.fromReportId) world.grantDesk.queueNextStep(done, a.fromReportId, "continue");
+    // a human's own request whose last work was this merge: their "Done" notice, behind the report that parked it
+    const parkedBy = a.fromReportId ? world.docs.get(a.fromReportId) : null;
+    if (parkedBy) requestDone(world, parkedBy, done);
     return done;
   });
 }
