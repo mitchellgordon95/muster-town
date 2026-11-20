@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { TILE, type Notice } from "@muster-town/schema";
 import { computeLayout } from "../src/mock/layout";
 import { agents, asks, buildings, notices } from "../src/mock/fixture";
-import { MAX_PARTICLES, hydrantCounts, streamParticles } from "../src/map/hydrant";
+import { MAX_PARTICLES, hydrantCounts, poolWidth, streamParticles } from "../src/map/hydrant";
 
 
 const notice = (id: string, kind: Notice["kind"], createdAt: string): Notice => ({ ...notices[0], id, kind, createdAt });
@@ -46,6 +46,24 @@ describe("the Town Hall hydrant", () => {
     for (const d of few) {
       expect(d.x).toBeGreaterThanOrEqual(0);
       expect(d.x).toBeLessThanOrEqual(32);
+      // an arc: never below the line from spout to pool, at most half a tile above it
+      expect(d.y).toBeLessThanOrEqual(0);
+      expect(d.y).toBeGreaterThanOrEqual(-8);
     }
-});
+    // a dot halfway across is at the top of the arc; one just leaving the spout is still at it
+    const [mid] = streamParticles(from, to, { asks: 1 }, 800, false);
+    expect(mid).toEqual({ x: 16, y: -8 });
+    const [start] = streamParticles(from, to, { asks: 1 }, 0, false);
+    expect(start).toEqual({ x: 0, y: 0 });
+  });
+
+  it("the pool: a 4 px puddle at no asks, wider with each ask, a tile wide at the cap and never wider (flag dc_umioej89iy)", () => {
+    expect(poolWidth(0)).toBe(4);
+    expect(poolWidth(-3)).toBe(4);
+    expect(poolWidth(MAX_PARTICLES)).toBe(16);
+    expect(poolWidth(100)).toBe(16);
+    expect(poolWidth(MAX_PARTICLES, 20)).toBe(20);
+    for (let i = 0; i < MAX_PARTICLES; i++) expect(poolWidth(i + 1)).toBeGreaterThanOrEqual(poolWidth(i));
+    expect(poolWidth(6)).toBeGreaterThan(poolWidth(0));
+  });
 });

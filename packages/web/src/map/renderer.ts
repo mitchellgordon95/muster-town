@@ -23,8 +23,7 @@ import { TILE, bankTabOf } from "@muster-town/schema";
 import { defaultZoom, coarsePointer } from "./zoom";
 import { GHOST_ALPHA, buildingTint, forkLabel, forkTip, ghostAlpha } from "../forks";
 import { drawTour, spotBox, type Tour } from "./tour";
-import { HydrantStream, prefersReducedMotion, streamParticles } from "./hydrant";
-import { secretaryOf } from "../panels/oneOnOne";
+import { HydrantStream, poolWidth, prefersReducedMotion, streamParticles } from "./hydrant";
 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
@@ -581,26 +580,30 @@ export class MapRenderer {
   }
 
   /**
-   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as water-blue dots settling at the
-   * Secretary beside it (else pooling in front of it). World px; nothing under reduced motion.
+   * The stream from the Town Hall hydrant (docs/legible-delegation.md §3): open asks as water-blue dots on a short arc from
+   * the spout into a small pool on the floor tile beside it (east, else west; Mitchell's flag dc_umioej89iy). The pool
+   * widens with the open asks and shows as a puddle at none. World px; under reduced motion the pool stays, with no dots.
    */
   private drawStream(g: CanvasRenderingContext2D, now: number) {
     const s = store.state, w = this.world!;
     const hall = s.buildings.find((b) => b.kind === "town-hall");
     if (!hall) return;
     this.stream.sync(hall.id, hall.intray);
-    const place = (id: string) => s.places.find((p) => p.id === id);
-    /** the centre of the tile of kind `k` beside place `p` (the thing used from there), else of the place's own tile */
-    const beside = (p: Place, k: number, dy = 0) => {
-      const n = [[0, 1], [0, -1], [1, 0], [-1, 0]].find(([ax, ay]) => w.at(p.pos.x + ax, p.pos.y + ay) === k) ?? [0, 0];
-      return { x: (p.pos.x + n[0]) * T + T / 2, y: (p.pos.y + n[1]) * T + T / 2 + dy };
-    };
-    const hydrant = place(`hydrant:${hall.id}`);
+    const hydrant = s.places.find((p) => p.id === `hydrant:${hall.id}`);
     if (!hydrant) return;
-    const secretary = secretaryOf(s.agents, hall.id);
-    const settle = (secretary && place(`desk:${secretary.id}`)) || hydrant;
-    const dots = streamParticles(beside(hydrant, TILE.HYDRANT, -T / 2 + 1),
-      { x: settle.pos.x * T + T / 2, y: settle.pos.y * T + T - 3 }, this.stream.counts, now, prefersReducedMotion());
+    // the hydrant's own tile, beside the place it is used from
+    const n = [[0, -1], [0, 1], [1, 0], [-1, 0]].find(([ax, ay]) => w.at(hydrant.pos.x + ax, hydrant.pos.y + ay) === TILE.HYDRANT) ?? [0, 0];
+    const hx = hydrant.pos.x + n[0], hy = hydrant.pos.y + n[1];
+    const side = w.at(hx + 1, hy) === TILE.FLOOR ? 1 : w.at(hx - 1, hy) === TILE.FLOOR ? -1 : 1;
+    // out of the side outlet facing the pool (sprites.ts drawHydrant: its cap at px+1 / px+14, rows 7-9)
+    const spout = { x: hx * T + T / 2 + side * 8, y: hy * T + 8 };
+    const pool = { x: (hx + side) * T + T / 2 + side * 2, y: hy * T + T - 3 };
+    const pw = poolWidth(this.stream.counts.asks, T);
+    g.fillStyle = "rgba(76,150,220,.55)";
+    g.beginPath(); g.ellipse(pool.x, pool.y, pw / 2, Math.max(1.5, pw / 6), 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "rgba(170,220,255,.55)";
+    g.fillRect(Math.round(pool.x - pw / 4), Math.round(pool.y - 1), Math.max(1, Math.round(pw / 4)), 1);
+    const dots = streamParticles(spout, pool, this.stream.counts, now, prefersReducedMotion());
     g.fillStyle = "#7cc4ff";
     for (const d of dots) {
       g.fillRect(Math.round(d.x) - 1, Math.round(d.y) - 1, 2, 2);
