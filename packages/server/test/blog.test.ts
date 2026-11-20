@@ -138,4 +138,51 @@ describe("blog", () => {
     await app.close();
     world.close();
   });
+
+  it("counts each browser read of a public post with its source (gr_ox3fmliv9n); bots, HEAD, drafts and missing posts never count", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "blog-"));
+    writeFileSync(join(dir, "live.md"), post("title: Live\ndate: 2026-11-10"));
+    writeFileSync(join(dir, "wip.md"), post("title: Wip\ndate: 2026-11-10\ndraft: true"));
+    const reads: [string, string][] = [];
+    const app = Fastify();
+    await app.register(blogRoutes(ORIGIN, dir, (slug, source) => reads.push([slug, source])));
+    const ua = "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36";
+    await app.inject({ url: "/blog/live", headers: { "user-agent": ua, referer: "https://news.ycombinator.com/item?id=42" } });
+    await app.inject({ url: "/blog/live?ref=Discord", headers: { "user-agent": ua, referer: "https://news.ycombinator.com/" } });
+    await app.inject({ url: "/blog/live", headers: { "user-agent": ua, referer: `${ORIGIN}/blog` } });
+    await app.inject({ url: "/blog/live", headers: { "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" } });
+    await app.inject({ url: "/blog/live", headers: { "user-agent": "curl/8.5.0" } });
+    await app.inject({ method: "HEAD", url: "/blog/live", headers: { "user-agent": ua } });
+    await app.inject({ url: "/blog/wip", headers: { "user-agent": ua } });
+    await app.inject({ url: "/blog/nope", headers: { "user-agent": ua } });
+    expect(reads).toEqual([["live", "news.ycombinator.com"], ["live", "ref:discord"], ["live", "direct"]]);
+  });
+
+  it("the root app's blog reads and homepage sources show on GET /api/join-funnel", async () => {
+    const dist = mkdtempSync(join(tmpdir(), "web-dist-"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html><title>t</title>");
+    const world = World.open(":memory:");
+    const app = await buildApp({ world, webDist: dist });
+    const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
+    await app.inject({ url: "/blog/hello-from-muster-town", headers: ua }); // a draft: never counted
+    await app.inject({ url: "/blog/engineering-human-oversight-with-decision-queues", headers: { ...ua, referer: "https://news.ycombinator.com/" } });
+    const home = (body: object) => app.inject({ method: "POST", url: "/api/join-funnel/home", headers: { ...ua, host: "muster.town" }, payload: body });
+    expect((await home({ visitor: "visitor-from-hn-1", referrer: "https://news.ycombinator.com/item?id=1" })).json()).toEqual({ counted: true });
+    expect((await home({ visitor: "visitor-tagged-01", ref: "test", referrer: "https://muster.town/blog" })).json()).toEqual({ counted: true });
+    expect((await home({ visitor: "visitor-internal1", referrer: "https://muster.town/blog" })).json()).toEqual({ counted: true });
+    expect((await home({ visitor: "visitor-from-hn-1", step: "page2" })).json()).toEqual({ counted: true }); // a step carries no source
+    const f = (await app.inject("/api/join-funnel")).json();
+    const today = new Date().toISOString().slice(0, 10);
+    expect(f.blogReads).toEqual([{ day: today, slug: "engineering-human-oversight-with-decision-queues", source: "news.ycombinator.com", count: 1 }]);
+    expect(f.sources).toEqual(expect.arrayContaining([
+      { day: today, step: "homeViews", source: "news.ycombinator.com", count: 1 },
+      { day: today, step: "homeViews", source: "ref:test", count: 1 },
+      { day: today, step: "homeViews", source: "direct", count: 1 },
+    ]));
+    expect(f.sources).toHaveLength(3);
+    expect(f.collectives[0].blogReads).toEqual(f.blogReads);
+    expect(JSON.stringify(world.db.prepare("SELECT * FROM join_funnel_sources").all())).not.toContain("item?id");
+    await app.close();
+    world.close();
+  });
 });

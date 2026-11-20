@@ -462,12 +462,14 @@ export class MockApi implements Api {
       { ...zero, day: day(0), homeViews: 3, guestCardViews: this.guestCardViews - 23, guestVisitors: 2, asked: 1 },
     ];
     const hosted = [{ ...zero, day: day(2), guestCardViews: 4, guestVisitors: 2, signInStarted: 1, signIns: 1, asked: 1, declined: 1 }];
+    const sources = [{ day: day(0), step: "homeViews" as const, source: "news.ycombinator.com", count: 2 }, { day: day(0), step: "homeViews" as const, source: "direct", count: 1 }];
+    const blogReads = [{ day: day(0), slug: "engineering-human-oversight-with-decision-queues", source: "ref:hn", count: 3 }];
     const sum = (rows: typeof workshop) => Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, rows.reduce((n, r) => n + r[k], 0)])) as typeof zero;
     const collectives = [
-      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000 },
-      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000 },
+      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000, sources, blogReads },
+      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000, sources: [], blogReads: [] },
     ];
-    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives };
+    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives, sources, blogReads };
   }
   async countGuestCardView() { this.guestCardViews++; }
   async countDoor(_door: "fund" | "captain" | "agent") { /* the mock keeps no door counts */ }

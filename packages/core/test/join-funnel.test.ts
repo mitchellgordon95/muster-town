@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db.ts";
-import { countFunnel, countMemberAct, countVisitor, decideAccess, HOME_STEPS, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
+import { countBlogRead, countFunnel, countMemberAct, countVisitor, countVisitorFrom, funnelSource, MAX_SOURCES_PER_DAY, decideAccess, HOME_STEPS, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // The join funnel (grant gr_fibsfwr4tz step 3): counted where each step happens, counts only, never who.
@@ -80,6 +80,59 @@ describe("join funnel", () => {
     const id = "home-card-visitor-0001";
     for (const step of [HOME_STEPS.page2, HOME_STEPS.page3, HOME_STEPS.page2, HOME_STEPS.open, HOME_STEPS.tile, HOME_STEPS.skip]) countVisitor(world, step, id, now);
     expect(joinFunnel(world, 30, now).totals).toMatchObject({ homePage2: 1, homePage3: 1, homeSkip: 1, homeOpen: 1, homeTile: 1, homeViews: 0 });
+  });
+
+  it("sources (gr_ox3fmliv9n): a ref tag, else the external referrer's host, else direct; never a path", () => {
+    expect(funnelSource({ ref: "HN-launch", referrer: "https://news.ycombinator.com/item?id=1" })).toBe("ref:hn-launch");
+    expect(funnelSource({ ref: "x".repeat(25), referrer: "https://news.ycombinator.com/item?id=1" })).toBe("news.ycombinator.com");
+    expect(funnelSource({ ref: "bad tag!", referrer: "https://www.Reddit.com:443/r/x?y=1" })).toBe("reddit.com");
+    expect(funnelSource({ referrer: "https://muster.town/blog/x", ownHost: "muster.town" })).toBe("direct");
+    expect(funnelSource({ referrer: "https://www.muster.town/", ownHost: "muster.town:443" })).toBe("direct");
+    expect(funnelSource({ referrer: "android-app://com.slack/" })).toBe("direct");
+    expect(funnelSource({ referrer: "not a url" })).toBe("direct");
+    expect(funnelSource({})).toBe("direct");
+    expect(funnelSource({ ref: 42, referrer: ["x"] })).toBe("direct");
+  });
+
+  it("a visitor's source counts once with its first ping of the day; sources add up to homeViews; blog reads per slug; summed across collectives", () => {
+    const { world } = seededWorld();
+    const now = Date.parse("2026-11-20T12:00:00Z");
+    expect(countVisitorFrom(world, "homeViews", "visitor-one-xyz", "news.ycombinator.com", now)).toBe(true);
+    expect(countVisitorFrom(world, "homeViews", "visitor-one-xyz", "direct", now)).toBe(false); // same browser, same day
+    expect(countVisitorFrom(world, "homeViews", "visitor-two-xyz", "news.ycombinator.com", now)).toBe(true);
+    expect(countVisitorFrom(world, "guestVisitors", "visitor-one-xyz", "ref:test", now)).toBe(true);
+    expect(countVisitorFrom(world, "homeViews", "short", "direct", now)).toBe(false); // a bad id never counts
+    countBlogRead(world, "a-post", "news.ycombinator.com", now);
+    countBlogRead(world, "a-post", "news.ycombinator.com", now);
+    countBlogRead(world, "a-post", "direct", now);
+    const f = joinFunnel(world, 30, now);
+    expect(f.sources).toEqual([
+      { day: "2026-11-20", step: "homeViews", source: "news.ycombinator.com", count: 2 },
+      { day: "2026-11-20", step: "guestVisitors", source: "ref:test", count: 1 },
+    ]);
+    expect(f.sources.filter((r) => r.step === "homeViews").reduce((n, r) => n + r.count, 0)).toBe(f.totals.homeViews);
+    expect(f.blogReads).toEqual([
+      { day: "2026-11-20", slug: "a-post", source: "news.ycombinator.com", count: 2 },
+      { day: "2026-11-20", slug: "a-post", source: "direct", count: 1 },
+    ]);
+    const other = seededWorld().world;
+    countBlogRead(other, "a-post", "direct", now);
+    const both = sumFunnels([world, other], 30, now);
+    expect(both.blogReads).toContainEqual({ day: "2026-11-20", slug: "a-post", source: "direct", count: 2 });
+    expect(both.sources).toEqual(f.sources);
+    expect(joinFunnel(world, 30, now + 31 * 86_400_000).sources).toEqual([]); // out of the window
+  });
+
+  it("a day past MAX_SOURCES_PER_DAY distinct sources folds new ones into other", () => {
+    const { world } = seededWorld();
+    const now = Date.parse("2026-11-20T12:00:00Z");
+    for (let i = 0; i < MAX_SOURCES_PER_DAY; i++) countBlogRead(world, "p", `s${i}.example`, now);
+    countBlogRead(world, "p", "one-too-many.example", now);
+    countBlogRead(world, "p", "s0.example", now);
+    const rows = joinFunnel(world, 30, now).blogReads;
+    expect(rows).toHaveLength(MAX_SOURCES_PER_DAY + 1);
+    expect(rows).toContainEqual({ day: "2026-11-20", slug: "p", source: "other", count: 1 });
+    expect(rows).toContainEqual({ day: "2026-11-20", slug: "p", source: "s0.example", count: 2 });
   });
 
   it("keeps 30 days: an older day drops out; the median is over the window's waits", () => {
