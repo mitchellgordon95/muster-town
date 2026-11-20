@@ -10,6 +10,7 @@ import { townSpend, type FinanceSpend } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
 import { townFinanceSplit, type FinanceSplit } from "./finance-split.ts";
+import { financeUtilization, utilizationAgainstDaily, type FinanceUtilization } from "./finance-utilization.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
 import { cashCheck, financeCash, CASH_FLY_DAYS, type CashCheck, type FinanceCash } from "./finance-cash.ts";
@@ -971,17 +972,20 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck; split: FinanceSplit } {
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck; split: FinanceSplit; utilization: FinanceUtilization } {
     const f = townFinance(this.repos, now);
     // work versus coordination (finance-split.ts, gr_3ougmyubdm): session spend by lane, 7 and 30 days, and per chart day
     const { split, byDay } = townFinanceSplit(this.repos, now, FINANCE_DAILY_DAYS);
     // the Balance tab's "Day by day" chart (finance-daily.ts, gr_epbcgb0hvs): Bank debits and credits per UTC day, by building
+    const debits = this.repos.bankDebits.all(), credits = this.repos.bankCredits.all();
     const { daily, dailyCheck } = financeDaily({
-      debits: this.repos.bankDebits.all(), credits: this.repos.bankCredits.all(), usage: this.repos.usage.all(),
+      debits, credits, usage: this.repos.usage.all(),
       buildingNames: new Map(this.repos.buildings.all().map((b) => [b.id, b.name])), usedBank: f.usedBank, usedDonations: f.usedDonations,
-      lanesByDay: byDay,
+      expired: f.expired, lanesByDay: byDay,
     }, now);
-    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck, split };
+    // how much of what came in was used (finance-utilization.ts, gr_z13gmx54su): 7 and 30 days, per subscription credit
+    const utilization = utilizationAgainstDaily(financeUtilization({ credits, debits }, now), daily.rows);
+    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck, split, utilization };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */

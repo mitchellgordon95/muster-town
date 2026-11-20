@@ -5,7 +5,7 @@
  * tokens. Hovering (or focusing) a day shows its numbers; the ✓ line under it is `dailyCheck`; a table view sits below.
  */
 import { useState } from "react";
-import type { Finance, FinanceDaily, SplitWindow } from "../api";
+import type { Finance, FinanceDaily, SplitWindow, UtilizationWindow } from "../api";
 
 /** Fixed categorical order (dark steps of the dataviz palette); "Other" is neutral gray. Colour follows the building's slot, not its day's rank. */
 const SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500"];
@@ -80,13 +80,52 @@ function SplitSummary({ f }: { f: Finance }) {
   );
 }
 
+const pct1 = (share: number) => `${(Math.round(share * 1000) / 10).toFixed(1)}%`;
+
+/**
+ * How much of what came in was used (gr_z13gmx54su, kr_c0g8tvidke): "Last 7 days: X subscription tokens came in; Y were
+ * used (p%), Z expired undrawn (q%) and W are still left until renewal." From `utilization`, per credit.
+ */
+export function utilizationSentence(w: UtilizationWindow): string {
+  if (w.credited === 0 && w.durable === 0) return `Last ${w.days} days: no tokens came in.`;
+  const parts = [`${n(w.used)} were used (${pct1(w.usedShare)})`, `${n(w.expired)} expired undrawn (${pct1(w.expiredShare)})`];
+  const left = w.left > 0 ? ` and ${n(w.left)} are still left until renewal` : "";
+  const head = `Last ${w.days} days: ${n(w.credited)} subscription tokens came in; ${parts.join(left ? ", " : " and ")}${left}`;
+  return w.durable > 0 ? `${head}. Plus ${n(w.durable)} API-key tokens, which never expire.` : `${head}.`;
+}
+
+/** The ✓ line under the two sentences: `utilization.check`. */
+export function utilizationCheckLine(f: Pick<Finance, "utilization">): { ok: boolean; text: string } | null {
+  const u = f.utilization;
+  if (!u) return null;
+  const sum = (w: UtilizationWindow) => `${n(w.used)} + ${n(w.expired)} + ${n(w.left)} = ${n(w.credited)}`;
+  const text = `7 days: ${sum(u.d7)}; 30 days: ${sum(u.d30)}. Used + expired + left = credited, credit by credit, and the credits match the chart's credited line`;
+  return u.check.ok ? { ok: true, text } : { ok: false, text: `${text}: off by ${n(u.check.diff)} (credits), ${n(u.check.dailyDiff)} (daily rows)` };
+}
+
+/** The two used-share sentences and their ✓ line, under the chart. */
+function UtilizationSummary({ f }: { f: Finance }) {
+  const u = f.utilization;
+  if (!u) return null;
+  const check = utilizationCheckLine(f)!;
+  return (
+    <div className="utilization-summary" style={{ marginTop: 6 }}>
+      <p style={{ margin: "2px 0" }}>{utilizationSentence(u.d7)}</p>
+      <p style={{ margin: "2px 0" }}>{utilizationSentence(u.d30)}</p>
+      <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div>
+      <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Subscription tokens do not roll over: what is not drawn before the next renewal expires. Used counts what was drawn from these credits, up to each credit&apos;s size.</div>
+    </div>
+  );
+}
+
 /** The ✓ line under the chart (kr_l0zj80iz8z). */
 export function dailyCheckLine(f: Pick<Finance, "daily" | "dailyCheck">): { ok: boolean; text: string } | null {
   const c = f.dailyCheck, d = f.daily;
   if (!c || !d) return null;
   const head = `Σ daily used ${n(c.rowsUsed)} = Bank used since ${d.from} ${n(c.usedSinceStart)}`;
-  return c.ok ? { ok: true, text: `${head}; each day's buildings add up to its used` }
-    : { ok: false, text: `${head}: off by ${n(c.diff)}${c.buildingDiff ? `, buildings off by ${n(c.buildingDiff)}` : ""}` };
+  const exp = c.rowsExpired !== undefined ? `; Σ daily expired ${n(c.rowsExpired)} = Bank expired since ${d.from}` : "";
+  return c.ok ? { ok: true, text: `${head}${exp}; each day's buildings add up to its used` }
+    : { ok: false, text: `${head}: off by ${n(c.diff)}${c.buildingDiff ? `, buildings off by ${n(c.buildingDiff)}` : ""}${c.expiredDiff ? `, expired off by ${n(c.expiredDiff)}` : ""}` };
 }
 
 /** A round axis top ≥ max: 1, 2, 2.5 or 5 × 10^k. */
@@ -121,6 +160,7 @@ export function DailyChart({ f }: { f: Finance }) {
   const line = d.rows.map((r, i) => `${x(i).toFixed(1)},${y(r.credited).toFixed(1)}`).join(" ");
   const check = dailyCheckLine(f);
   const h = hover === null ? null : d.rows[hover]!;
+  const hasExpired = d.rows.some((r) => r.expired !== undefined);
   const labelEvery = Math.ceil(d.rows.length / 6);
   return (
     <div className="daily-chart" aria-label="Day by day: tokens used and credited per UTC day">
@@ -158,7 +198,7 @@ export function DailyChart({ f }: { f: Finance }) {
           <polyline points={line} fill="none" stroke={CREDIT} strokeWidth={2} strokeLinejoin="round" />
           {d.rows.map((r, i) => r.credited > 0 && hover === i ? <circle key={r.day} cx={x(i)} cy={y(r.credited)} r={4} fill={CREDIT} stroke="var(--panel)" strokeWidth={2} /> : null)}
           {d.rows.map((r, i) => <rect key={r.day} x={L + i * slot} y={T} width={slot} height={ph} fill="transparent" tabIndex={0}
-            aria-label={`${r.day}: used ${n(r.used)}, credited ${n(r.credited)}`}
+            aria-label={`${r.day}: used ${n(r.used)}, credited ${n(r.credited)}${r.expired !== undefined ? `, expired ${n(r.expired)}` : ""}`}
             onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)} />)}
         </svg>
         {h ? (
@@ -166,6 +206,7 @@ export function DailyChart({ f }: { f: Finance }) {
             <b>{h.day}</b> (UTC)
             <div>Used: <b>{n(h.used)}</b></div>
             <div>Credited: <b>{n(h.credited)}</b></div>
+            {hasExpired ? <div>Expired (undrawn): <b>{n(h.expired ?? 0)}</b></div> : null}
             {segsOf(h).filter((s) => s.tokens > 0).map((s) => {
               const st = stacks.find((x2) => x2.key === s.key)!;
               return <div key={s.key} className="muted"><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: st.color, marginRight: 4 }} />{st.name}: {n(s.tokens)}</div>;
@@ -174,13 +215,14 @@ export function DailyChart({ f }: { f: Finance }) {
         ) : null}
       </div>
       {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
+      <UtilizationSummary f={f} />
       <SplitSummary f={f} />
       {d.undatedUsed > 0 ? <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Not in the bars: {n(d.undatedUsed)} spent from donations straight to buildings, which carry no date.</div> : null}
       <details>
         <summary className="muted" style={{ fontSize: "var(--fs-sm)" }}>The numbers as a table</summary>
         <table className="table">
-          <thead><tr><th>Day (UTC)</th><th>Used</th><th>Credited</th>{stacks.map((s) => <th key={s.key}>{s.name}</th>)}</tr></thead>
-          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{segsOf(r).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
+          <thead><tr><th>Day (UTC)</th><th>Used</th><th>Credited</th>{hasExpired ? <th>Expired</th> : null}{stacks.map((s) => <th key={s.key}>{s.name}</th>)}</tr></thead>
+          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{hasExpired ? <td>{n(r.expired ?? 0)}</td> : null}{segsOf(r).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
         </table>
       </details>
     </div>
@@ -189,5 +231,5 @@ export function DailyChart({ f }: { f: Finance }) {
 
 /** The sidebar's line on how to read the chart. */
 export const DailyAbout = () => (
-  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}). By default it is split into work (grant, request, exploration and retainer sessions), coordination (manager and Secretary wakes) and other, by that day&apos;s session spend in each lane; switch to Building to split it by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day. Hover or tab to a day for its numbers.</p>
+  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}). By default it is split into work (grant, request, exploration and retainer sessions), coordination (manager and Secretary wakes) and other, by that day&apos;s session spend in each lane; switch to Building to split it by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day; subscription credit not drawn before renewal expires, and each day shows what expired on it. Hover or tab to a day for its numbers.</p>
 );
