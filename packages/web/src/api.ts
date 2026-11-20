@@ -719,6 +719,14 @@ export interface Api {
   promote(docId: string, state: DocState): Promise<Doc>;
   /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
   unpublish(docId: string): Promise<Doc>;
+  /** GET /api/plugins/:id — an installed plugin (docs/plugins.md): its manifest and its page */
+  plugin(id: string): Promise<PluginWithPage>;
+  /** GET /api/plugins/:id/docs — bridge docs.list: the plugin's docs the viewer may see, newest first */
+  pluginDocs(id: string, q?: { state?: "draft" | "building"; limit?: number }): Promise<Doc[]>;
+  /** GET /api/plugins/:id/docs/:docId — bridge docs.read */
+  pluginDoc(id: string, docId: string): Promise<Doc>;
+  /** POST /api/plugins/:id/docs — bridge docs.write: create (no id) or rewrite one, as the signed-in viewer */
+  writePluginDoc(id: string, input: PluginDocWrite): Promise<Doc>;
   /** GET /api/bulletin — the bulletin board in the town square: humans' notes, newest first (anyone reads) */
   bulletin(limit?: number): Promise<Doc[]>;
   /** GET /api/bulletin with read state (flag dc_04q4h8s229): for a signed-in human each note carries `unread` and the board an `unread` count; guests get neither */
@@ -852,6 +860,10 @@ export const tokenStore = {
 };
 
 /** Single-object endpoints aren't pinned down in the contract: accept `{doc}` or the bare object. */
+/** An installed plugin as GET /api/plugins/:id returns it (= core's PluginView, plus its page). */
+export interface PluginInfo { id: string; name: string; description: string; scopes: string[]; docType: string; tag: string; buildingId: string | null; state: Doc["state"]; authorId: string; author: string; updatedAt: string }
+export interface PluginWithPage { plugin: PluginInfo; html: string }
+export interface PluginDocWrite { id?: string; title: string; body: string; state: "draft" | "building"; tags?: string[] }
 /** A bulletin board note with its read state for the signed-in human (= core's BulletinNote; absent for guests). */
 export type BulletinNote = Doc & { unread?: boolean };
 /** GET /api/bulletin: the notes, plus `unread` (how many the signed-in human hasn't opened) when signed in. */
@@ -1014,6 +1026,10 @@ class HttpApi implements Api {
   }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
+  plugin(id: string) { return this.get<PluginWithPage>(`/api/plugins/${encodeURIComponent(id)}`); }
+  async pluginDocs(id: string, q: { state?: "draft" | "building"; limit?: number } = {}) { return unwrap<Doc[]>(await this.get(`/api/plugins/${encodeURIComponent(id)}/docs${qs(q)}`), "docs"); }
+  async pluginDoc(id: string, docId: string) { return unwrap<Doc>(await this.get(`/api/plugins/${encodeURIComponent(id)}/docs/${encodeURIComponent(docId)}`), "doc"); }
+  async writePluginDoc(id: string, input: PluginDocWrite) { return unwrap<Doc>(await this.post(`/api/plugins/${encodeURIComponent(id)}/docs`, input), "doc"); }
   async bulletin(limit = 50) { return (await this.bulletinBoard(limit)).docs; }
   async bulletinBoard(limit = 50) { return await this.get<BulletinBoard>(`/api/bulletin${qs({ limit })}`); }
   async readBulletin(id: string) { return (await this.post<{ unread: number }>(`/api/bulletin/${id}/read`, {})).unread; }

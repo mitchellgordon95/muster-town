@@ -60,6 +60,8 @@ const PLACE_PANEL: Partial<Record<Place["kind"], (p: Place) => PanelRef & { verb
   stats: () => ({ kind: "stats", verb: "Read the user stats" }),
   bulletin: () => ({ kind: "bulletin", verb: "Read the bulletin board" }),
   help: (p) => ({ kind: "help", id: p.buildingId ?? undefined, verb: `Read the ${bname(p)} help sign` }),
+  // a resident-made plugin on the back wall (docs/plugins.md): its widget opens as a sheet
+  plugin: (p) => ({ kind: "plugin", id: p.id.slice("plugin:".length), verb: `Use ${p.name.replace(/ \(a plugin\)$/, "")}` }),
   // the vault opens Balance; each station its own tab (BANK_FIXTURES.stations)
   bank: (p) => {
     const tab = bankTabOf(p.id);

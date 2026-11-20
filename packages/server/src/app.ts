@@ -29,6 +29,7 @@ import { directoryRoutes } from "./routes/directory.ts";
 import { uptimeRoutes } from "./routes/uptime.ts";
 import { Uptime } from "./uptime.ts";
 import { docRoutes } from "./routes/docs.ts";
+import { pluginRoutes } from "./routes/plugins.ts";
 import { goalRoutes } from "./routes/goals.ts";
 import { askRoutes } from "./routes/asks.ts";
 import { grantRoutes } from "./routes/grants.ts";
@@ -196,6 +197,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     await c.register(deskRoutes);
     await c.register(agentRoutes);
     await c.register(docRoutes);
+    await c.register(pluginRoutes);
     await c.register(grantRoutes);
     await c.register(askRoutes);
     await c.register(goalRoutes);

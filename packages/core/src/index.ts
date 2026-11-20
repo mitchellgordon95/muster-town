@@ -75,6 +75,8 @@ export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, noteOneOn
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
+export { installedPlugins, listPluginDocs, pluginView, readPluginDoc, requirePlugin, writePluginDoc, type PluginView, type PluginWrite } from "./plugins.ts";
+export { parsePlugin, PLUGIN_SCOPES, type PluginManifest } from "./plugin-manifest.ts";
 export { bulletinNotes, bulletinNotesFor, bulletinUnreadCount, markBulletinRead, postBulletin, takeDownBulletin, type BulletinNote } from "./bulletin.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";

@@ -293,6 +293,12 @@ export class World {
     this.events.addHook((e) => {
       if (e.type === "goal.created" || e.type === "goal.edited" || e.type === "goal.moved" || e.type === "goal.retired" || e.type === "goal.attached") this.layout.rebuild();
     });
+    // a plugin installed, rewritten or taken down (docs/plugins.md): its screen hangs on, moves along or leaves its building's back wall
+    this.events.addHook((e) => {
+      if (e.type !== "doc.created" && e.type !== "doc.updated") return;
+      const id = String((e.payload as { docId?: unknown } | null)?.docId ?? "");
+      if (this.docs.get(id)?.type === "plugin") this.layout.rebuild();
+    });
     // "Change this goal": its planning meeting starting sets the new words; its end decides the change
     this.events.addHook((e) => {
       if (e.type !== "meeting.phase") return;
