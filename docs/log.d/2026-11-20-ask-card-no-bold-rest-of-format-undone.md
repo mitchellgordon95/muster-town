@@ -1,0 +1,1 @@
+- 2026-11-20 Ask card: no bold lead, the rest of gr_x7p580xe1o's formatting undone (first-sentence lead, 56ch measure, line breaks, recommendation before the body); body stays regular weight, buttons stay in one row at the bottom (Mitchell, 1:1 mt_eq521xwgth). Census ask-card row now passes on weight 400, no bold, row last.

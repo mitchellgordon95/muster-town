@@ -1,9 +1,8 @@
 /**
- * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Bottom
- * line first (gr_x7p580xe1o): its title, the one bold lead (the first paragraph, or the first sentence of a one-paragraph
- * body), the recommendation, the rest of the body in regular weight at a reading measure (its "If you <branch>:" sentences
- * where the author wrote them), the step strip, the claims with their check, then one row of every action at the very
- * bottom: the branch buttons, Steer and the record (Mitchell, 1:1 mt_gf4un6ct4p: no buttons in the middle of the text).
+ * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Its
+ * title, the delta line (the body's first paragraph), the body, the step strip, the recommendation, the claims with
+ * their check, then one row of every action at the very bottom: the branch buttons, Steer and the record (Mitchell,
+ * 1:1 mt_gf4un6ct4p: no buttons in the middle of the text). All text is regular weight (Mitchell, 1:1 mt_eq521xwgth).
  * Each button does the real action by the ask's target (asks.ts `branchCall`; the server's hooks then retire the ask).
  * A grant's card adds its step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
  * on the filing building's goal with a 1:1 with its manager beside it, about this ask and its job thread.
@@ -151,7 +150,6 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   const signedIn = useTown((s) => !!s.me);
   // a string, not the target object: useTown's selector must return a stable value
   const steer = useTown((s) => s.me && ask.buildingId && ask.status !== "decided" ? steerTarget(ask.buildingId)?.id ?? null : null);
-  // the lead is the one bold part; the body keeps its "If you <branch>:" sentences in place
   const { delta, rest } = deltaOf(ask.body);
   const deciding = signedIn && canDecide !== false;
   const record = ask.sourceDocId && onOpenRecord ? ask.sourceDocId : null;
@@ -165,9 +163,9 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       <h4 className="ask-title" title={ask.targetId ?? undefined}>{ask.title}</h4>
       {ask.status === "deferred" ? <div className="ask-stamp">Deferred until {ask.deferredUntil ?? "an event"}</div> : null}
       {delta ? <Markdown text={delta} className="ask-delta" /> : null}
-      {ask.recommendation ? <div className="ask-rec"><span className="ask-label">Recommends</span> {ask.recommendation}</div> : null}
-      {rest ? <Markdown text={rest} className="ask-body" breaks /> : null}
+      {rest ? <Markdown text={rest} className="ask-body" /> : null}
       {grant ? <StepStrip grant={grant} /> : null}
+      {ask.recommendation ? <div className="ask-rec"><span className="ask-label">Recommends</span> {ask.recommendation}</div> : null}
       {ask.claims.length ? (
         <ul className="ask-claims">
           {ask.claims.map((c, i) => { const m = claimMark(c); return <li key={i} className={`ask-claim ${m.tone}`} title={c.check.ref ? `${c.check.kind}: ${c.check.ref}` : c.check.kind}><span className="ask-mark">{m.mark}</span> {c.text} <span className="muted">· {m.line}{c.result?.note ? ` · ${c.result.note}` : ""}</span></li>; })}

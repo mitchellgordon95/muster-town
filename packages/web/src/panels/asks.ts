@@ -14,17 +14,10 @@ export function sortAsks<T extends Pick<AskView, "status" | "createdAt" | "rank"
 /** The hydrant's ask count: every live ask, open or deferred (a deferred one still waits on a human; it opens again when what it waits behind settles). */
 export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a) => a.status === "open" || a.status === "deferred").length;
 
-/**
- * The card's lead (the one bold part) and the prose after it: the body's first paragraph when it has a blank line,
- * else its first sentence (most live bodies are one paragraph of short lines, and a bold paragraph is a bold wall).
- */
+/** The card's delta line (the body's first paragraph) and the prose after it. Both are regular weight (Mitchell, 1:1 mt_eq521xwgth: no bold). */
 export function deltaOf(body: string): { delta: string; rest: string } {
-  const text = body.trim();
-  const parts = text.split(/\n\s*\n/);
-  if (parts.length > 1) return { delta: parts[0]!.trim(), rest: parts.slice(1).join("\n\n").trim() };
-  const m = /^[\s\S]*?(?:[.!?](?=\s)|\n|$)/.exec(text);
-  const delta = (m?.[0] ?? text).trim();
-  return { delta, rest: text.slice(m?.[0].length ?? text.length).trim() };
+  const parts = body.trim().split(/\n\s*\n/);
+  return { delta: (parts[0] ?? "").trim(), rest: parts.slice(1).join("\n\n").trim() };
 }
 
 /**
