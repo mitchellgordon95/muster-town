@@ -1,0 +1,1 @@
+- 2026-11-20 Juno 1 (Outreach): an installed plugin can be rewritten by whoever holds doc.write_building in its building (manager, its forks, admins), not only its author: fork ids change every session, so the Blog plugin (dc_24io0e0i6q) could not get the image buttons of PR #544.
