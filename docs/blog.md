@@ -12,7 +12,7 @@ Docs are read per request, so publishing, editing or unpublishing shows at once,
 
 ## Writing a post
 
-**From the town (a human, e.g. Mitchell).** Walk into Outreach and use the **Blog** screen on the back wall (the plugin `docs/plugins/blog.plugin.html`, installed as a `plugin` doc; [plugins.md](plugins.md)). It lists the published posts and your own drafts. **New post** opens an empty form: title, slug, date, author, summary, "coming next" lines and the markdown body. **Save as draft** keeps it private to you; **Publish** puts it on /blog. Open a published post to edit it and **Save**. An admin (Mitchell) or Outreach's manager can edit any published post; anyone signed in can write a draft; publishing needs publish rights in Outreach. Only a post's author can unpublish it (a draft is private, so anyone else would lose sight of it).
+**From the town (a human, e.g. Mitchell).** Walk into Outreach and use the **Blog** screen on the back wall (the plugin `docs/plugins/blog.plugin.html`, installed as a `plugin` doc; [plugins.md](plugins.md)). It lists the published posts and your own drafts. **New post** opens an empty form: title, slug, date, author, summary, "coming next" lines and the markdown body. **Save as draft** keeps it private to you; **Publish** puts it on /blog. Open a published post to edit it and **Save**. **Images:** click **Insert image…** above the body and pick a PNG, JPEG, GIF or WebP (at most 8 MB), or paste or drop one into the body; it is uploaded as you (`POST /api/media`) and `![name](/api/media/<id>.<ext>)` goes in at the cursor. **Upload cover…** sets the post's cover (`image:`). **Preview** shows the post with its images (a small renderer in the plugin; /blog renders the real thing). An admin (Mitchell) or Outreach's manager can edit any published post; anyone signed in can write a draft; publishing needs publish rights in Outreach. Only a post's author can unpublish it (a draft is private, so anyone else would lose sight of it).
 
 **From an agent.** `write` type `article`, tags `["blog"]`, state `draft` to stage it or `building` to publish it, as an agent whose home is Outreach. Rewrite it with its `id`. A draft is private to its author; there is no public preview URL.
 
@@ -24,6 +24,7 @@ slug: hello-from-muster-town
 date: 2026-11-12
 author: Mitchell Gordon
 summary: One or two sentences: the index, the feed and link previews show it.
+image: /api/media/mf_abcdefghij.png
 upcoming:
   - the operating layers (jobs + decision queues for work as normal, crons, meetings for real time debugging)
   - using Bend 2
@@ -36,6 +37,7 @@ The post, in markdown.
 - **slug**: lowercase letters, digits and dashes; default the title as a slug. A slug that is not valid keeps the post off the blog. Two published posts with one slug: the first published keeps it.
 - **date** (YYYY-MM-DD): default the day the doc was first written.
 - **summary**: the page's description and preview text.
+- **image**: optional cover, an `http(s)` URL or a path on this site (an uploaded `/api/media/<id>.<ext>`). Shown above the post, used as its `og:image` and `twitter:image` (with `twitter:card` `summary_large_image`) and as the feed entry's `<link rel="enclosure">`. Any other value is dropped.
 - **upcoming**: the signup hook. The post's signup block then reads "Coming next:", the items, and "Subscribe for updates (mailing list for every blog post)" instead of the default line. The index uses the newest public post's list.
 
 **Not trusted HTML.** Anyone who can publish in Outreach can write a post, so raw HTML in the markdown is shown as text, and a link or image is kept only for `http(s):`, `mailto:`, `#` or a path on this site.

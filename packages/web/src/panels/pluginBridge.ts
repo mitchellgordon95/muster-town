@@ -12,6 +12,7 @@ const BRIDGE_METHODS = {
   "docs.list": "docs.read",
   "docs.read": "docs.read",
   "docs.write": "docs.write",
+  "media.upload": "media.upload",
 } as const;
 type BridgeMethod = keyof typeof BRIDGE_METHODS;
 
@@ -19,7 +20,15 @@ export type BridgeCall =
   | { method: "town.hello" }
   | { method: "docs.list"; params: { state?: "draft" | "building"; limit?: number } }
   | { method: "docs.read"; params: { id: string } }
-  | { method: "docs.write"; params: { id?: string; title: string; body: string; state: "draft" | "building"; tags?: string[] } };
+  | { method: "docs.write"; params: { id?: string; title: string; body: string; state: "draft" | "building"; tags?: string[] } }
+  | { method: "media.upload"; params: { file: Blob; alt: string } };
+
+/**
+ * What `media.upload` takes: the raster images POST /api/media takes (core media.ts MEDIA_TYPES, never SVG), up to its
+ * MEDIA_MAX_BYTES (8 MB). The server checks both again, by the file's magic bytes.
+ */
+const BRIDGE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+const BRIDGE_MEDIA_MAX_BYTES = 8 * 1024 * 1024;
 
 type Checked = { id: string | number; ok: true; call: BridgeCall } | { id: string | number; ok: false; error: string; code: string };
 
@@ -59,6 +68,14 @@ export function checkBridgeMessage(data: unknown, scopes: readonly string[]): Ch
       if (p.tags !== undefined && !(Array.isArray(p.tags) && p.tags.length <= 10 && p.tags.every((t) => str(t, 40)))) return no("docs.write: tags is a list of at most 10 short words.");
       return { id, ok: true, call: { method, params: { ...(p.id ? { id: p.id as string } : {}), title: p.title, body: p.body, state: (p.state as "draft" | "building" | undefined) ?? "draft", ...(p.tags ? { tags: p.tags as string[] } : {}) } } };
     }
+    case "media.upload": {
+      const f = p.file;
+      if (typeof Blob === "undefined" || !(f instanceof Blob)) return no("media.upload: file is the image itself (a File or Blob, e.g. from an <input type=file>).");
+      if (!(BRIDGE_IMAGE_TYPES as readonly string[]).includes(f.type)) return no(`media.upload: the image must be ${BRIDGE_IMAGE_TYPES.map((t) => t.slice(6).toUpperCase()).join(", ")}${f.type ? `, not ${f.type}` : ""}.`);
+      if (f.size > BRIDGE_MEDIA_MAX_BYTES) return no(`media.upload: the image is ${(f.size / 1048576).toFixed(1)} MB; the limit is ${BRIDGE_MEDIA_MAX_BYTES / 1048576} MB.`, "too_large");
+      if (p.alt !== undefined && !str(p.alt, 200)) return no("media.upload: alt is a short description (at most 200 characters).");
+      return { id, ok: true, call: { method, params: { file: f, alt: typeof p.alt === "string" ? p.alt : "" } } };
+    }
   }
 }
 
@@ -68,6 +85,7 @@ export const bridgeDoc = (d: BridgeDoc): BridgeDoc => ({ id: d.id, title: d.titl
 
 /**
  * The shim put in front of every plugin page: `window.town` with `call(method, params)`, `hello()` and
- * `docs.list(q)`, `docs.read(id)`, `docs.write(doc)`, each a Promise. It answers only messages from its parent.
+ * `docs.list(q)`, `docs.read(id)`, `docs.write(doc)`, `media.upload(file, alt)`, each a Promise. It answers only
+ * messages from its parent.
  */
-export const BRIDGE_SHIM = `<script>(function(){var n=0,w={};addEventListener("message",function(e){var m=e.data;if(e.source!==parent||!m||m.muster!=="plugin"||!(m.id in w))return;var p=w[m.id];delete w[m.id];if(m.ok)p[0](m.result);else{var x=new Error(m.error);x.code=m.code;p[1](x)}});function call(method,params){return new Promise(function(res,rej){var id=++n;w[id]=[res,rej];parent.postMessage({muster:"plugin",id:id,method:method,params:params||{}},"*")})}window.town={call:call,hello:function(){return call("town.hello")},docs:{list:function(q){return call("docs.list",q||{})},read:function(id){return call("docs.read",{id:id})},write:function(d){return call("docs.write",d)}}}})();</script>`;
+export const BRIDGE_SHIM = `<script>(function(){var n=0,w={};addEventListener("message",function(e){var m=e.data;if(e.source!==parent||!m||m.muster!=="plugin"||!(m.id in w))return;var p=w[m.id];delete w[m.id];if(m.ok)p[0](m.result);else{var x=new Error(m.error);x.code=m.code;p[1](x)}});function call(method,params){return new Promise(function(res,rej){var id=++n;w[id]=[res,rej];parent.postMessage({muster:"plugin",id:id,method:method,params:params||{}},"*")})}window.town={call:call,hello:function(){return call("town.hello")},docs:{list:function(q){return call("docs.list",q||{})},read:function(id){return call("docs.read",{id:id})},write:function(d){return call("docs.write",d)}},media:{upload:function(f,a){return call("media.upload",{file:f,alt:a||""})}}}})();</script>`;

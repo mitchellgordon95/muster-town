@@ -25,6 +25,19 @@ describe("the plugin bridge (docs/plugins.md)", () => {
     expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "docs.write", params: { title: " ", body: "" } }, RW)).toMatchObject({ ok: false });
   });
 
+  it("media.upload takes one raster image up to 8 MB, only with its scope", () => {
+    const png = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" });
+    expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "media.upload", params: { file: png, alt: "a chart" } }, ["media.upload"]))
+      .toEqual({ id: 1, ok: true, call: { method: "media.upload", params: { file: png, alt: "a chart" } } });
+    expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "media.upload", params: { file: png } }, RW)).toMatchObject({ ok: false, code: "forbidden" });
+    expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "media.upload", params: { file: "data:image/png;base64,AA" } }, ["media.upload"])).toMatchObject({ ok: false });
+    const svg = new Blob(["<svg/>"], { type: "image/svg+xml" });
+    expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "media.upload", params: { file: svg } }, ["media.upload"])).toMatchObject({ ok: false, error: expect.stringMatching(/not image\/svg\+xml/) });
+    const big = new Blob([new Uint8Array(8 * 1024 * 1024 + 1)], { type: "image/jpeg" });
+    expect(checkBridgeMessage({ muster: "plugin", id: 1, method: "media.upload", params: { file: big } }, ["media.upload"])).toMatchObject({ ok: false, code: "too_large" });
+    expect(BRIDGE_SHIM).toContain('call("media.upload"');
+  });
+
   it("the shim answers only its parent", () => {
     expect(BRIDGE_SHIM).toContain("e.source!==parent");
     expect(BRIDGE_SHIM).toMatch(/^<script>[\s\S]*<\/script>$/);

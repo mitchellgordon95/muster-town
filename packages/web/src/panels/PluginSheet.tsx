@@ -39,6 +39,11 @@ export function PluginSheet({ id, onClose }: { id: string; onClose?: () => void 
         case "docs.write":
           if (!me) throw Object.assign(new Error("Sign in to write."), { code: "unauthorized" });
           return bridgeDoc(await api().writePluginDoc(id, call.params));
+        case "media.upload": {
+          if (!me) throw Object.assign(new Error("Sign in to upload an image."), { code: "unauthorized" });
+          const { media, markdown } = await api().uploadMedia(call.params.file, call.params.alt);
+          return { id: media.id, url: media.url, mime: media.mime, bytes: media.bytes, markdown };
+        }
       }
     };
     const onMessage = (e: MessageEvent) => {
@@ -59,7 +64,7 @@ export function PluginSheet({ id, onClose }: { id: string; onClose?: () => void 
   const info = p?.plugin;
   return (
     <Sheet label={info?.name ?? "Plugin"} title={info?.name ?? "Plugin"} onClose={close} escFirst mainClass="page-main" maxWidth={1100} className="page-sheet"
-      sub={info ? <>plugin by <b>{info.author}</b> · {timeAgo(info.updatedAt)}{info.scopes.length ? <> · may {info.scopes.map((s) => s === "docs.read" ? `read its ${info.docType}s` : `write ${info.docType}s as you`).join(" and ")}</> : null}</> : null}>
+      sub={info ? <>plugin by <b>{info.author}</b> · {timeAgo(info.updatedAt)}{info.scopes.length ? <> · may {info.scopes.map((s) => s === "docs.read" ? `read its ${info.docType}s` : s === "docs.write" ? `write ${info.docType}s as you` : "upload images as you").join(" and ")}</> : null}</> : null}>
       {err ? <div className="error-line">{err}</div> : p ? <iframe ref={frame} className="page-frame" title={p.plugin.name} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={srcDoc} /> : <p className="muted">Loading…</p>}
     </Sheet>
   );

@@ -1,7 +1,7 @@
 ---
 name: Blog
 description: Write muster.town's blog. Lists the published posts and your drafts. Open one to edit it, then save it as a draft or publish it to muster.town/blog.
-scopes: docs.read, docs.write
+scopes: docs.read, docs.write, media.upload
 docType: article
 tag: blog
 ---
@@ -23,6 +23,12 @@ tag: blog
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .muted { opacity: .7; }
   .hidden { display: none; }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #body.drop { outline: 2px dashed var(--accent, #7cc4ff); }
+  #preview { flex: 1; min-height: 12rem; overflow: auto; border: 1px solid #555; border-radius: 6px; padding: 8px 12px; font-family: Georgia, serif; }
+  #preview img, #coverShow img { max-width: 100%; height: auto; }
+  #coverShow img { max-height: 120px; border-radius: 4px; }
+  #preview pre { overflow-x: auto; background: var(--bg, #111); padding: 6px; }
 </style>
 <aside>
   <button id="new">New post</button>
@@ -40,8 +46,21 @@ tag: blog
     <label>Author (the byline) <input id="author"></label>
   </div>
   <label>Summary (the index, the feed and link previews show it) <input id="summary"></label>
+  <div class="tools">
+    <label style="flex:1">Cover image (optional: shown above the post and in link previews) <input id="image" placeholder="/api/media/… or https://…"></label>
+    <button type="button" id="coverBtn">Upload cover…</button>
+  </div>
+  <div id="coverShow"></div>
   <label>Coming next (one per line; shown above the email signup) <textarea id="upcoming" rows="2"></textarea></label>
-  <label>Post, in markdown <textarea id="body"></textarea></label>
+  <div class="tools">
+    <label for="body">Post, in markdown</label>
+    <button type="button" id="imgBtn" title="Upload a PNG, JPEG, GIF or WebP (at most 8 MB) and insert it at the cursor. You can also paste or drop an image into the text.">Insert image…</button>
+    <button type="button" id="previewBtn">Preview</button>
+    <span id="upMsg" class="muted"></span>
+  </div>
+  <textarea id="body"></textarea>
+  <div id="preview" class="hidden"></div>
+  <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden">
   <div class="row">
     <span id="state" class="muted"></span>
     <button type="button" id="draft">Save as draft</button>
@@ -54,7 +73,7 @@ tag: blog
   // then markdown; muster.town/blog serves every published one (packages/server/src/blog.ts postOf).
   let current = null, viewer = {};
   const $ = (id) => document.getElementById(id);
-  const KEYS = ["slug", "date", "author", "summary"];
+  const KEYS = ["slug", "date", "author", "summary", "image"];
   const slugify = (t) => t.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
 
   function parse(text) {
@@ -88,6 +107,7 @@ tag: blog
     $("slug").value = meta.slug || ""; $("date").value = meta.date || (d ? d.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
     $("author").value = meta.author || (d ? "" : viewer.name || ""); $("summary").value = meta.summary || "";
     $("upcoming").value = meta.upcoming.join("\n"); $("body").value = body;
+    $("image").value = meta.image || ""; showCover(); if (previewing) renderPreview();
     const published = d && d.state !== "draft";
     const slug = meta.slug || slugify($("title").value);
     $("state").textContent = !d ? "New post." : published ? "Published at muster.town/blog/" + slug + "." : "Draft: only you see it.";
@@ -124,6 +144,86 @@ tag: blog
       await load(); show(d); $("msg").textContent = state === "draft" ? "Saved as a draft." : "Published.";
     } catch (err) { $("msg").textContent = err.message; }
   }
+  // Images (scope media.upload): the file goes to the town as the viewer (POST /api/media, at most 8 MB) and comes back
+  // as /api/media/<id>.<ext>; the editor puts ![alt](that) at the cursor, or the URL in the cover line.
+  const SAFE = /^(https?:|mailto:|\/(?!\/)|#)/i;
+  const esc = (t) => t.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const altOf = (f) => (f.name || "image").replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").replace(/[\[\]\n]/g, " ").trim().slice(0, 100) || "image";
+  async function upload(f) {
+    if (!viewer.signedIn) throw new Error("Sign in to upload an image.");
+    $("upMsg").textContent = "Uploading " + (f.name || "image") + "…";
+    try { const r = await town.media.upload(f, altOf(f)); $("upMsg").textContent = "Uploaded."; return r; }
+    catch (err) { $("upMsg").textContent = err.message; throw err; }
+  }
+  function insert(text) {
+    const t = $("body"), a = t.selectionStart, b = t.selectionEnd, v = t.value;
+    const before = a > 0 && v[a - 1] !== "\n" ? "\n\n" : "", after = v[b] && v[b] !== "\n" ? "\n\n" : "";
+    t.value = v.slice(0, a) + before + text + after + v.slice(b);
+    t.selectionStart = t.selectionEnd = a + before.length + text.length;
+    t.focus(); if (previewing) renderPreview();
+  }
+  async function insertImages(files) {
+    for (const f of files) if (/^image\//.test(f.type)) { const r = await upload(f).catch(() => null); if (r) insert("![" + altOf(f) + "](" + r.url + ")"); }
+  }
+  function showCover() {
+    const u = $("image").value.trim();
+    $("coverShow").replaceChildren();
+    if (u && SAFE.test(u)) { const i = document.createElement("img"); i.src = u; i.alt = "cover"; $("coverShow").append(i); }
+  }
+  let pick = null;
+  $("file").onchange = async () => { const fs = [...$("file").files]; $("file").value = ""; if (pick) await pick(fs); };
+  $("imgBtn").onclick = () => { pick = insertImages; $("file").multiple = true; $("file").click(); };
+  $("coverBtn").onclick = () => { pick = async (fs) => { const r = fs[0] && await upload(fs[0]).catch(() => null); if (r) { $("image").value = r.url; showCover(); } }; $("file").multiple = false; $("file").click(); };
+  $("image").oninput = showCover;
+  $("body").addEventListener("paste", (e) => {
+    const fs = [...(e.clipboardData ? e.clipboardData.files : [])].filter((f) => /^image\//.test(f.type));
+    if (fs.length) { e.preventDefault(); insertImages(fs); }
+  });
+  $("body").addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); $("body").classList.add("drop"); } });
+  $("body").addEventListener("dragleave", () => $("body").classList.remove("drop"));
+  $("body").addEventListener("drop", (e) => {
+    $("body").classList.remove("drop");
+    const fs = [...e.dataTransfer.files].filter((f) => /^image\//.test(f.type));
+    if (fs.length) { e.preventDefault(); insertImages(fs); }
+  });
+
+  // The preview: a small markdown reader for what a post uses (headings, paragraphs, lists, quotes, code, links,
+  // images, bold, italics). muster.town/blog renders the real thing (blog.ts); raw HTML shows as text in both.
+  let previewing = false;
+  function inline(t) {
+    return esc(t)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, a, u) => SAFE.test(u) ? '<img src="' + u + '" alt="' + a + '">' : a)
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, a, u) => SAFE.test(u) ? '<a href="' + u + '" target="_blank" rel="noopener">' + a + "</a>" : a)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+  }
+  function markdown(src) {
+    const out = [], blocks = src.replace(/\r/g, "").split(/\n```[^\n]*\n([\s\S]*?)\n```(?:\n|$)/);
+    blocks.forEach((chunk, i) => {
+      if (i % 2) { out.push("<pre><code>" + esc(chunk) + "</code></pre>"); return; }
+      for (const b of chunk.split(/\n\s*\n/)) {
+        const lines = b.split("\n").filter((l) => l.trim()); if (!lines.length) continue;
+        const h = /^(#{1,6})\s+(.*)$/.exec(lines[0]);
+        if (h && lines.length === 1) out.push("<h" + h[1].length + ">" + inline(h[2]) + "</h" + h[1].length + ">");
+        else if (lines.every((l) => /^\s*[-*]\s+/.test(l))) out.push("<ul>" + lines.map((l) => "<li>" + inline(l.replace(/^\s*[-*]\s+/, "")) + "</li>").join("") + "</ul>");
+        else if (lines.every((l) => /^\s*\d+\.\s+/.test(l))) out.push("<ol>" + lines.map((l) => "<li>" + inline(l.replace(/^\s*\d+\.\s+/, "")) + "</li>").join("") + "</ol>");
+        else if (lines.every((l) => /^>/.test(l))) out.push("<blockquote>" + inline(lines.map((l) => l.replace(/^>\s?/, "")).join(" ")) + "</blockquote>");
+        else out.push("<p>" + lines.map(inline).join("<br>") + "</p>");
+      }
+    });
+    return out.join("\n");
+  }
+  function renderPreview() {
+    const u = $("image").value.trim();
+    $("preview").innerHTML = "<h1>" + esc($("title").value) + "</h1>" + (u && SAFE.test(u) ? '<img src="' + esc(u) + '" alt="">' : "") + markdown($("body").value);
+  }
+  $("previewBtn").onclick = () => {
+    previewing = !previewing;
+    $("preview").classList.toggle("hidden", !previewing); $("body").classList.toggle("hidden", previewing);
+    $("previewBtn").textContent = previewing ? "Edit" : "Preview";
+    if (previewing) renderPreview();
+  };
+
   $("new").onclick = () => show(null);
   $("draft").onclick = () => save("draft");
   $("publish").onclick = () => save("building");

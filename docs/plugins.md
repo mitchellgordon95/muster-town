@@ -10,7 +10,7 @@ One doc of type `plugin`. Its body is a frontmatter manifest, then a full HTML p
 ---
 name: Notes                       # required, at most 40 chars; the map and the sheet show it
 description: A shared notepad.    # required, one line, at most 300 chars
-scopes: docs.read, docs.write     # optional; none = a page that only draws
+scopes: docs.read, docs.write     # optional: docs.read, docs.write, media.upload; none = a page that only draws
 docType: note                     # optional: note (default) or article, the type of the docs it owns
 tag: notes-widget                 # optional, kebab-case; default: the name in kebab-case
 ---
@@ -38,6 +38,7 @@ The web opens the page in the same sandbox as a page doc (`PageView.tsx` `pageSr
 | `town.docs.list({state?, limit?})` | `docs.list` | `docs.read` | its docs the viewer may see, newest first: `[{id, title, body, state, tags, authorId, createdAt, updatedAt}]`; `state` `"draft"` (the viewer's own drafts) or `"building"` (published) |
 | `town.docs.read(id)` | `docs.read` | `docs.read` | one doc, same shape |
 | `town.docs.write({id?, title, body, state?, tags?})` | `docs.write` | `docs.write` | the doc written. No `id` creates one, with `id` rewrites it. `state` is `"draft"` (default) or `"building"` (published). Type, tag and building are the plugin's. Extra `tags` (kebab-case, at most 10) are kept after its own tag |
+| `town.media.upload(file, alt?)` | `media.upload` | `media.upload` | the image uploaded **as the viewer** through `POST /api/media` ([multimedia.md](multimedia.md)): `{ id, url, mime, bytes, markdown }`, `url` being `/api/media/<id>.<ext>` and `markdown` `![alt](url)`. `file` is a `File` or `Blob` (from an `<input type=file>`, a paste or a drop; postMessage carries it as is). PNG, JPEG, GIF or WebP only, at most 8 MB (`MEDIA_MAX_BYTES`); the viewer's 64 MB a day applies. Needs a signed-in viewer |
 | `town.call(method, params)` | any of the above | | the raw form |
 
 On the wire, the page posts `{ muster: "plugin", id, method, params }` to its parent. The parent answers `{ muster: "plugin", id, ok: true, result }` or `{ muster: "plugin", id, ok: false, error, code }`. The parent answers only its own frame (`event.source`). The shim answers only its parent.
@@ -49,11 +50,13 @@ On the wire, the page posts `{ muster: "plugin", id, method, params }` to its pa
 - `GET /api/plugins/:id/docs?state=&limit=` and `GET /api/plugins/:id/docs/:docId` need `docs.read`. They return only the plugin's own docs: published ones, and the viewer's own drafts.
 - `POST /api/plugins/:id/docs` needs `docs.write` and a signed-in viewer. Anyone signed in may write a draft. Publishing needs what publishing in that building needs with the tools. A rewrite is open to the doc's author, or to whoever holds `doc.write_building` there (a manager, an admin) for a published doc. Every rewrite keeps the old body as a revision.
 
+`media.upload` has no plugin route: the sheet checks the scope, the type and the size, then calls `POST /api/media` with the viewer's sign-in, and the server checks the bytes again (core `media.ts`). The page shows the image with a plain `<img src="/api/media/…">`: the frame's CSP allows images from the town's own origin, `data:` and `blob:`, nothing else.
+
 So a widget can never do more than its viewer could do with the tools. Nothing from the iframe reaches the API directly.
 
 ## The Blog plugin
 
-[plugins/blog.plugin.html](plugins/blog.plugin.html) is the second sample, and the one muster.town runs: docType `article`, tag `blog`, scopes `docs.read, docs.write`, installed in Outreach. It owns the blog's posts, which `/blog` serves ([blog.md](blog.md)). It lists the published posts and the viewer's drafts, opens one into a form (title, slug, date, author, summary, coming-next lines, markdown body), and saves it as a draft or publishes it. The front matter lives in the doc's body, so the page parses and rewrites it; the server reads the same keys (`blog.ts` `postOf`). It hides **Unpublish** from anyone but a post's author, because a draft is private and the post would vanish from everyone else's list.
+[plugins/blog.plugin.html](plugins/blog.plugin.html) is the second sample, and the one muster.town runs: docType `article`, tag `blog`, scopes `docs.read, docs.write`, installed in Outreach, plus `media.upload` for pictures. It owns the blog's posts, which `/blog` serves ([blog.md](blog.md)). It lists the published posts and the viewer's drafts, opens one into a form (title, slug, date, author, summary, coming-next lines, markdown body), and saves it as a draft or publishes it. **Insert image…** (or a paste or drop into the body) uploads a picture and puts `![alt](/api/media/<id>.<ext>)` at the cursor; **Upload cover…** fills the `image:` line; **Preview** renders the body with its images. The front matter lives in the doc's body, so the page parses and rewrites it; the server reads the same keys (`blog.ts` `postOf`). It hides **Unpublish** from anyone but a post's author, because a draft is private and the post would vanish from everyone else's list.
 
 ## Left out of the prototype (deliberately)
 
