@@ -2,7 +2,7 @@
  * The asks routes and the seen table (docs/legible-delegation.md §4-5, build steps 3-4): GET /api/asks and /api/asks/:id,
  * decide and defer, a signed-in human's opens recorded (never an agent's), and stale claim results re-run on open.
  */
-import { buildingRoleId } from "@muster-town/core";
+import { buildingRoleId, townRoleId } from "@muster-town/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -66,5 +66,43 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/defer`, { headers: auth, body: { until: "the rain stops" } })).body.ask).toMatchObject({ status: "deferred", deferredUntil: "the rain stops" });
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/decide`, { headers: auth, body: { decision: "Done" } })).body.ask).toMatchObject({ status: "decided", decision: "Done" });
     expect((await json(app, "GET", "/api/asks/ak_nothere")).status).toBe(404);
+  }, 30_000);
+
+  it("a non-admin captain of a leaf goal decides a click ask from a building under it (200), and is refused one from another building (403) (gr_0vuiuqcw8p)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, seed, by } = s;
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    const mei = by("Mei");
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
+    world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
+    const cap = world.ops.createUser("Cap");
+    world.permissions.grant({ kind: "user", id: cap.user.id }, townRoleId("member"));
+    const capH = { authorization: `Bearer ${cap.token}` };
+    const leaf = world.goalTree.create(admin, { parentId: "gl_trust", text: "The lab's leaf goal" });
+    world.goalTree.attach(admin, LAB, leaf.id);
+    world.goalTree.update(admin, leaf.id, { ownerId: cap.user.id });
+    const click = { type: "click" as const, body: "Mei has waited on this since Nov 6. Open the page once.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Press Done." };
+    await world.verbs.ask(mei, { ...click, title: "Merge the lab docs" });
+    const inside = world.asks.first("buildingId = ? AND status = 'open'", [LAB])!;
+    // another building, attached outside the captain's leaf goal, whose manager files the other ask
+    const other = world.ops.createBuilding(admin, { name: "Other Lab", goalId: "gl_trust" });
+    const noor = by("Noor");
+    world.agents.patch(noor.id, { homeBuildingId: other.id });
+    world.ops.updateBuilding(admin, other.id, { managerAgentId: noor.id });
+    world.permissions.grant(noor, buildingRoleId(other.id, "manager"));
+    await world.verbs.ask(world.agents.require(noor.id), { ...click, title: "Set the mail key" });
+    const outside = world.asks.first("buildingId = ? AND status = 'open'", [other.id])!;
+    const th = world.buildings.first("kind = 'town-hall'")!;
+
+    // the in-tray routes each ask by its own id: Mine and the buttons follow the captain's subtree
+    const tray = await json(app, "GET", `/api/buildings/${th.id}/intray`, { headers: capH });
+    expect(tray.body.routes[inside.id]).toMatchObject({ goalId: leaf.id, mine: true, canDecide: true });
+    expect(tray.body.defaultView).toBe("mine");
+    expect(tray.body.routes[outside.id]).toMatchObject({ mine: false, canDecide: false });
+    expect((await json(app, "POST", `/api/asks/${outside.id}/decide`, { headers: capH, body: { decision: "Done" } })).status).toBe(403);
+    const decided = await json(app, "POST", `/api/asks/${inside.id}/decide`, { headers: capH, body: { decision: "Done" } });
+    expect(decided.status).toBe(200);
+    expect(decided.body.ask).toMatchObject({ status: "decided", decidedBy: cap.user.id });
   }, 30_000);
 });

@@ -14,7 +14,7 @@ import { asks, buildings, grants, notices } from "../src/mock/fixture";
 import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { DecisionQueueView, FOCUS_DEBOUNCE_MS, goToQueue, useSecretaryChat } from "../src/panels/DecisionQueue";
-import { askedIds, cardsBeingWritten, currentItem, focusOf, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
+import { askedIds, askRoute, cardsBeingWritten, currentItem, focusOf, mineAsks, queueItems, stepFrom } from "../src/panels/queueOrder";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { redirectPanel } from "../src/panels/room";
 
@@ -78,6 +78,10 @@ describe("the queue's order (queueOrder.ts)", () => {
     expect(stepFrom(items, "ak_hud", -1)).toBe("ak_hud");
     expect(stepFrom(items, "ak_meet", 1)).toBe("ak_meet");
     expect(mineAsks(asks, { gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);
+    // gr_0vuiuqcw8p: an ask's own route (by ask id) wins over its target's: Mine drops another subtree's ask
+    expect(mineAsks(asks, { ak_hud: { mine: false } as never, gr_hud: { mine: true } as never }, true).some((a) => a.id === "ak_hud")).toBe(false);
+    expect(mineAsks(asks, { ak_hud: { mine: true } as never, gr_hud: { mine: false } as never }, true).some((a) => a.id === "ak_hud")).toBe(true);
+    expect(askRoute(asks.find((a) => a.id === "ak_hud")!, { ak_hud: { canDecide: false } as never, gr_hud: { canDecide: true } as never })?.canDecide).toBe(false);
   });
 });
 
