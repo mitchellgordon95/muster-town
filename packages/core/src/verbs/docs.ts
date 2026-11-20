@@ -7,7 +7,8 @@ import {
 } from "../domain.ts";
 import { AppError, badRequest, forbidden } from "../errors.ts";
 import { docWhere, notifyMentions } from "../mentions.ts";
-import { appendAgentLog, canWriteTopic, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
+import { appendAgentLog, canWriteTopic, lastWriterOf, ownerOf, revisionsOf, writeTopicPage, writeWikiPage } from "../memory.ts";
+import { parsePlugin } from "../plugin-manifest.ts";
 import { checkForkModel } from "../forks.ts";
 import { attachablePages, cancelSchedule, createSchedule, describeRepeat, editSchedule } from "../schedules.ts";
 import { scheduleView } from "../retainers.ts";
@@ -236,6 +237,8 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     return { id: doc.id, state: doc.state, ...timeWarn(input.body), note: me.forkOf ? `Logged in ${world.nameOf(me.forkOf)}'s log.` : "Logged." };
   }
   if (input.files && input.type !== "skill") throw badRequest("`files` are only for skills (type \"skill\").");
+  // a plugin's body is its manifest and its page (plugins.ts): refused here, with what is wrong, before it can reach the map
+  if (input.type === "plugin") parsePlugin(input.body);
   // a skill's title is its SKILL.md name (validated, unique town-wide)
   const title = input.type === "skill" ? world.skills.validate(input.body, holder.id, input.id).name : input.title;
   if (input.state === "building" && input.type === "fyi" && bid === TOWN_HALL_ID) {
@@ -255,6 +258,11 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     const state = cur.state === "library" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
     const doc = world.transaction(() => {
       if (input.files) world.skills.setFiles(cur.id, input.files);
+      // a plugin keeps every version it replaced, like a topic page (docs/plugins.md "Versions")
+      if (cur.type === "plugin" && cur.body !== input.body) {
+        world.db.prepare("INSERT INTO doc_revisions (docId, title, body, authorId, replacedBy, createdAt) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(cur.id, cur.title, cur.body, lastWriterOf(world, cur), holder.id, nowIso());
+      }
       return updateDoc(world, cur.id, {
         type: input.type, title, body: input.body, state,
         provenance: input.provenance ?? cur.provenance, tags: input.tags ?? cur.tags,

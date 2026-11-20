@@ -36,6 +36,14 @@
  * Live also opens the goal tree at its root with #/goals. Its front ask card's title, body and recommendation are the asker's words, like a
  * doc body (decision as_5spvwexh1o on dc_9u3s34jwd3): not counted on the first screen; words total keeps them and the verdict says how many.
  *
+ * Ask-card row (grant gr_x7p580xe1o: kr_2grnxy8ig7, kr_g3qtv4vbsb, kr_6jxbastxzt): when the queue is a target, the census also opens
+ * #/queue (mock: open({kind: "queue"})) at 1366×800 and 390×844 and presses J through every item, one row per ask card: body
+ * font-weight, bold blocks (the lead .ask-delta and any bold paragraph in the body; at most 1), the most characters on one line
+ * (character rects grouped by line, over the lead, recommendation, body and consequences), the top of the recommendation and
+ * of the decision row (.ask-actions: buttons, or Sign in to decide), and stray "If you <branch>:" sentences left in the body or lead
+ * (one whose first word starts a branch's label, from the card's data-branches).
+ * Passes at 1366: weight 400, ≤1 bold block, ≤80 chars/line, no stray; at 390: recommendation and decision row top < 844.
+ *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
@@ -183,6 +191,43 @@ const verdict = (t, m, part) => {
   return (why.length ? `FAIL ${why.join(" ")}` : "pass") + long + ask;
 };
 
+/** The front ask card in the queue (the ask-card row): see the header. */
+const measureAsk = (page) => page.evaluate(() => {
+  const c = document.querySelector(".queue-sheet .ask-card, .ask-card");
+  if (!c) return null;
+  const cs = (e) => getComputedStyle(e);
+  const lines = (e) => {
+    const out = new Map(); const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT); let n;
+    while ((n = w.nextNode())) for (let i = 0; i < n.length; i++) {
+      if (/\s/.test(n.data[i])) continue;
+      const r = document.createRange(); r.setStart(n, i); r.setEnd(n, i + 1); const rc = r.getClientRects()[0]; if (!rc) continue;
+      const k = Math.round(rc.top + rc.height / 2); const o = out.get(k) ?? { l: rc.left, r: rc.right };
+      out.set(k, { l: Math.min(o.l, rc.left), r: Math.max(o.r, rc.right) });
+    }
+    return [...out.values()];
+  };
+  const parts = [...c.querySelectorAll(".ask-delta, .ask-rec, .ask-body, .ask-conseq")];
+  let maxChars = 0;
+  for (const e of parts) {
+    const text = e.textContent ?? ""; if (!text.trim()) continue;
+    const ls = lines(e); if (!ls.length) continue;
+    // characters on a line: its span over the element's average advance (its laid-out width over its characters, spaces included)
+    const span = ls.reduce((a, x) => a + (x.r - x.l), 0); const chars = text.replace(/\s+/g, " ").trim().length;
+    const adv = span / Math.max(1, chars);
+    for (const x of ls) maxChars = Math.max(maxChars, Math.round((x.r - x.l) / adv));
+  }
+  const body = c.querySelector(".ask-body"), lead = c.querySelector(".ask-delta"), rec = c.querySelector(".ask-rec"), row = c.querySelector(".ask-actions");
+  const bodyBlocks = body ? [...body.querySelectorAll("p, li")] : [];
+  const bold = (lead && +cs(lead).fontWeight >= 600 ? 1 : 0) + bodyBlocks.filter((b) => +cs(b).fontWeight >= 600 || (b.textContent.trim() && [...b.querySelectorAll("strong, b")].reduce((a, s) => a + s.textContent.length, 0) >= b.textContent.trim().length * 0.8)).length;
+  // an "If you …:" left in the body or lead whose first word starts a branch's label (data-branches: a guest sees no buttons)
+  const first = (t) => t.toLowerCase().match(/^[a-z0-9']+/)?.[0];
+  const firsts = (c.dataset.branches ?? "").split("|").map(first).filter(Boolean);
+  const stray = [...((body?.textContent ?? "") + " " + (lead?.textContent ?? "")).matchAll(/If you ([^:.\n]{1,40}):/g)].filter((m) => firsts.includes(first(m[1])));
+  return { title: c.querySelector(".ask-title")?.textContent?.trim() ?? "", weight: body ? +cs(body).fontWeight : lead ? 400 : null, bold, maxChars,
+    recTop: rec ? Math.round(rec.getBoundingClientRect().top) : null, rowTop: row ? Math.round(row.getBoundingClientRect().top) : null,
+    conseq: c.querySelectorAll(".ask-conseq").length, stray: stray.length };
+});
+
 // ---- run ----
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? "/usr/bin/chromium" });
 const rows = [];
@@ -225,9 +270,39 @@ for (const size of SIZES) {
   }
   await ctx.close();
 }
+// the ask-card row: every item of the queue, J by J, at 1366×800 and 390×844 (kr_2grnxy8ig7, kr_g3qtv4vbsb, kr_6jxbastxzt)
+const askRows = [];
+if (targets.some((t) => t.kind === "queue")) {
+  for (const size of [{ n: "laptop", w: 1366, h: 800, touch: false }, { n: "phone", w: 390, h: 844, touch: true }].filter((s) => !flags.sizes || list(flags.sizes).includes(s.n))) {
+    const ctx = await browser.newContext({ viewport: { width: size.w, height: size.h }, hasTouch: size.touch, isMobile: size.touch });
+    const page = await ctx.newPage();
+    if (mode === "mock") {
+      await page.goto(url, { waitUntil: "load" }); await page.waitForTimeout(2500);
+      for (const name of ["Explore the town", "Skip"]) { const x = page.getByText(name).first(); if (await x.isVisible().catch(() => false)) { await x.click().catch(() => {}); await page.waitForTimeout(800); } }
+      await page.evaluate(() => window.__muster.open({ kind: "queue" })); await page.waitForTimeout(1200);
+    } else { await page.goto(url + (url.includes("?") ? "&" : "?") + "guest#/queue", { waitUntil: "load" }); await page.waitForTimeout(4500); }
+    const seen = new Set(); let misses = 0;
+    for (let k = 0; k < 60 && misses < 5; k++) {
+      const m = await measureAsk(page);
+      const key = m?.title ?? `(not an ask ${k})`;
+      if (m && seen.has(key)) break;
+      if (!m) misses++;
+      else {
+        misses = 0; seen.add(key);
+        const why = size.n === "laptop"
+          ? [m.weight !== 400 && `weight ${m.weight}`, m.bold > 1 && `bold ${m.bold}`, m.maxChars > 80 && `chars ${m.maxChars}>80`, m.stray && `${m.stray} "If you" left in the body`].filter(Boolean)
+          : [!(m.recTop == null || m.recTop < size.h) && `recommendation at ${m.recTop}`, !(m.rowTop != null && m.rowTop < size.h) && `decision row at ${m.rowTop}`, m.stray && `${m.stray} "If you" left in the body`].filter(Boolean);
+        askRows.push({ size: `${size.w}×${size.h}`, ...m, verdict: why.length ? `FAIL ${why.join(", ")}` : "pass" });
+        if (flags.shots && askRows.filter((r) => r.size === `${size.w}×${size.h}`).length === 1) await page.screenshot({ path: `${flags.shots}/askcard-${size.n}.png` }).catch(() => {});
+      }
+      await page.keyboard.press("j"); await page.waitForTimeout(mode === "live" ? 900 : 400);
+    }
+    await ctx.close();
+  }
+}
 await browser.close();
 
-if (flags.json) console.log(JSON.stringify(rows, null, 1));
+if (flags.json) console.log(JSON.stringify({ rows, askRows }, null, 1));
 else {
   console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words (over ${BAR.screens} screens is noted as long)`);
   console.log("In-trays and filing cabinets are measured as their sidebar list; an item opened from them is a centred doc sheet, a document body (excluded, like the Bank). Grants and agents opened by link or hash are centred link sheets and count.");
@@ -236,4 +311,10 @@ else {
   for (const r of rows) console.log(`| ${r.size} | ${r.panel} | ${r.tab ?? ""} | ${r.ctl ?? ""} | ${r.ctlAll ?? ""} | ${r.words ?? ""} | ${r.total ?? ""} | ${r.screens ?? ""} | ${r.titles ?? ""} | ${r.minPx ?? ""} | ${r.verdict} |`);
   const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
   console.log(`\n${counted.filter((r) => r.verdict.startsWith("pass")).length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
+  if (targets.some((t) => t.kind === "queue")) {
+    console.log("\nAsk-card row: every ask card in #/queue, J by J. Pass at 1366: body weight 400, ≤1 bold block, ≤80 chars/line, no \"If you <branch>:\" left in the body; at 390: recommendation and decision row top < 844.");
+    console.log("| size | ask | body weight | bold blocks | max chars/line | rec top | decision row top | consequences under buttons | stray \"If you\" | verdict |\n|---|---|---|---|---|---|---|---|---|---|");
+    for (const r of askRows) console.log(`| ${r.size} | ${r.title.slice(0, 60)} | ${r.weight ?? ""} | ${r.bold} | ${r.maxChars} | ${r.recTop ?? ""} | ${r.rowTop ?? ""} | ${r.conseq} | ${r.stray} | ${r.verdict} |`);
+    console.log(`\n${askRows.filter((r) => r.verdict === "pass").length} of ${askRows.length} ask-card rows pass${askRows.length ? "" : " (no open ask: the queue is empty)"}.`);
+  }
 }

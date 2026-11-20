@@ -1,0 +1,63 @@
+---
+name: Notes
+description: A shared notepad for this building: list its notes, open one, write or rewrite it, keep it a draft or publish it.
+scopes: docs.read, docs.write
+docType: note
+tag: notes-widget
+---
+<!doctype html>
+<style>
+  body { display: grid; grid-template-columns: 220px 1fr; gap: 16px; height: 100vh; box-sizing: border-box; }
+  ul { list-style: none; margin: 0; padding: 0; overflow: auto; }
+  li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  li:hover, li.on { background: color-mix(in srgb, var(--accent, #7cc4ff) 20%, transparent); }
+  .draft { opacity: .7; font-style: italic; }
+  input, textarea { width: 100%; box-sizing: border-box; font: inherit; color: inherit; background: var(--bg, #111); border: 1px solid #444; border-radius: 6px; padding: 6px; }
+  textarea { height: 55vh; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .muted { opacity: .7; }
+</style>
+<div>
+  <button id="new">New note</button>
+  <p class="muted" id="who"></p>
+  <ul id="list"></ul>
+</div>
+<form id="form">
+  <input id="title" placeholder="Title" required>
+  <textarea id="body" placeholder="Write here"></textarea>
+  <div class="row">
+    <label><input type="checkbox" id="pub" style="width:auto"> Published</label>
+    <button type="submit">Save</button>
+    <span id="msg" class="muted"></span>
+  </div>
+</form>
+<script>
+  let current = null, docs = [];
+  const $ = (id) => document.getElementById(id);
+  function show(d) {
+    current = d;
+    $("title").value = d ? d.title : ""; $("body").value = d ? d.body : ""; $("pub").checked = d ? d.state !== "draft" : false;
+    for (const li of $("list").children) li.classList.toggle("on", !!d && li.dataset.id === d.id);
+  }
+  async function load() {
+    docs = await town.docs.list();
+    $("list").replaceChildren(...docs.map((d) => {
+      const li = document.createElement("li");
+      li.textContent = d.title; li.dataset.id = d.id; if (d.state === "draft") li.className = "draft";
+      li.onclick = () => show(d);
+      return li;
+    }));
+    if (!docs.length) $("list").innerHTML = '<li class="muted">No notes yet.</li>';
+  }
+  $("new").onclick = () => show(null);
+  $("form").onsubmit = async (e) => {
+    e.preventDefault();
+    $("msg").textContent = "Saving…";
+    try {
+      const d = await town.docs.write({ id: current ? current.id : undefined, title: $("title").value, body: $("body").value, state: $("pub").checked ? "building" : "draft" });
+      $("msg").textContent = "Saved."; await load(); show(d);
+    } catch (err) { $("msg").textContent = err.message; }
+  };
+  town.hello().then((h) => { $("who").textContent = h.viewer.signedIn ? "You are " + h.viewer.name + "." : "Sign in to write."; });
+  load().catch((err) => { $("list").innerHTML = ""; $("who").textContent = err.message; });
+</script>

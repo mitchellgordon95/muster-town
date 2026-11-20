@@ -5,16 +5,17 @@
  * to spend (their steps' sizes × the calibrated ratio). The toggle funds nothing: each card decides through its buttons.
  */
 import { useState } from "react";
-import type { GrantView, Notice } from "@muster-town/schema";
+import type { GrantView, IntrayRoute, Notice } from "@muster-town/schema";
 import { grantName, grantPricingOf } from "@muster-town/schema";
 import { api, type AskView } from "../api";
 import { useTown } from "../state";
 import { AskCard } from "./AskCard";
 import { latestSlate, slateAsks, slateLine } from "./asks";
+import { askRoute } from "./queueOrder";
 import { Markdown } from "./Markdown";
 import { ADJ, Empty, fmtTokens, useLoad } from "./ui";
 
-export function FundingView({ asks, grants, notices, onDecided, onOpenRecord }: { asks: AskView[]; grants: GrantView[]; notices?: Notice[]; onDecided: () => void; onOpenRecord?: (id: string) => void }) {
+export function FundingView({ asks, grants, notices, routes, onDecided, onOpenRecord }: { asks: AskView[]; grants: GrantView[]; notices?: Notice[]; /** the in-tray routes: a card shows its buttons only when the viewer may decide it */ routes?: Record<string, IntrayRoute>; onDecided: () => void; onOpenRecord?: (id: string) => void }) {
   const items = slateAsks(asks, grants);
   const town = useTown((s) => s.town);
   const sizes = grantPricingOf(town ?? {}).stepSizes;
@@ -37,7 +38,7 @@ export function FundingView({ asks, grants, notices, onDecided, onOpenRecord }: 
       </div>
       <p className="muted funding-note">The toggle funds nothing. Decide each card with its own buttons. Expected spend is each step's size at what that size really costs.</p>
       {!items.length ? <Empty>No proposal waits for money.</Empty> : items.map(({ ask, grant }) => (
-        <AskCard key={ask.id} ask={ask} grant={grant} onDecided={onDecided} onOpenRecord={onOpenRecord}
+        <AskCard key={ask.id} ask={ask} grant={grant} canDecide={routes ? askRoute(ask, routes)?.canDecide : undefined} onDecided={onDecided} onOpenRecord={onOpenRecord}
           aside={<label className="funding-toggle"><input type="checkbox" aria-label={`Fund ${grantName(grant)}`} checked={funded.has(grant.id)} onChange={() => toggle(grant.id)} /> {funded.has(grant.id) ? "fund" : "hold"}</label>} />
       ))}
     </div>

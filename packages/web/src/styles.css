@@ -878,6 +878,7 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .intray-view { display: inline-flex; gap: 4px; margin-left: 8px; }
 /* the Queue tab (kanban, docs/goals.md build step 6): four columns per building swimlane */
 .queue-board { display: flex; flex-direction: column; gap: 10px; font-size: var(--fs-sm); container-type: inline-size; }
+.queue-explore { font-size: var(--fs-sm); margin: 0 0 6px; }
 .queue-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-items: start; }
 /* a narrow panel (the default side panel is ~428 px) stacks the columns Queued, Held, Running, Done one under another */
 @container (max-width: 700px) { .queue-cols { grid-template-columns: minmax(0, 1fr); } }
@@ -1107,9 +1108,16 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .ask-head .muted { margin-left: auto; }
 .ask-title { margin: 6px 0 4px; font-size: var(--fs-lg); line-height: 1.3; }
 .ask-stamp { display: inline-block; font-size: var(--fs-xs); border: 1px dashed var(--line-2); border-radius: 4px; padding: 1px 6px; margin-bottom: 4px; color: var(--muted); }
+/* gr_x7p580xe1o: one bold lead, the rest regular at a reading measure (WCAG 1.4.8: at most 80 characters a line) */
+.ask-delta, .ask-body, .ask-rec, .ask-conseq { max-width: 56ch; line-height: 1.5; }
 .ask-delta { font-weight: 600; }
-.ask-delta p, .ask-body p { margin: 0 0 4px; }
+.ask-body { font-weight: 400; margin-top: 8px; }
+.ask-delta p, .ask-body p, .ask-conseq p { margin: 0 0 4px; }
 .ask-rec { margin: 6px 0; }
+.ask-branches.with-conseq { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.ask-branch { display: grid; gap: 2px; justify-items: start; }
+.ask-conseq { font-size: var(--fs-sm); padding-left: 2px; }
+.ask-branch-name { font-weight: 600; font-size: var(--fs-sm); }
 .ask-label { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-right: 4px; }
 .ask-claims { list-style: none; padding: 0; margin: 6px 0; font-size: var(--fs-sm); }
 .ask-claim .ask-mark { display: inline-block; width: 1.2em; font-weight: 700; }

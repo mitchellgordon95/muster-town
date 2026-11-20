@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawHydrant, drawBook, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawHydrant, drawBook, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin, drawPluginScreen } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -124,7 +124,7 @@ export class World {
         if (k === TILE.GRASS || k === TILE.SIGNPOST || k === TILE.TREE || k === TILE.PLANT && !b) g.drawImage(tl.grass, px, py);
         else if (k === TILE.PATH) g.drawImage(tl.path, px, py);
         else if (k === TILE.PAVING || k === TILE.FOUNTAIN || !b && !bank && this.outdoors(x, y)) g.drawImage(this.paved(x, y) ? tl.paving : this.nextTo(x, y, TILE.PATH) ? tl.path : tl.grass, px, py);
-        else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.SCHEDULE_BOARD && k !== TILE.GOAL_CHART) g.drawImage(floor, px, py);
+        else if (k !== TILE.WALL && k !== TILE.BOARD && k !== TILE.SCHEDULE_BOARD && k !== TILE.GOAL_CHART && k !== TILE.PLUGIN) g.drawImage(floor, px, py);
         switch (k) {
           case TILE.WALL: {
             const face = this.at(x, y + 1) !== TILE.WALL;
@@ -156,6 +156,7 @@ export class World {
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
           case TILE.GOAL_CHART: g.drawImage(tl.wallFace, px, py); drawGoalChart(g, px, py); break;
+          case TILE.PLUGIN: g.drawImage(tl.wallFace, px, py); drawPluginScreen(g, px, py); break;
           case TILE.STATS: drawStats(g, px, py); break;
           case TILE.HELP: drawHelpSign(g, px, py); break;
           case TILE.HYDRANT: drawHydrant(g, px, py); break;

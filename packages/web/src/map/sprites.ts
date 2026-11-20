@@ -423,6 +423,19 @@ export function drawHelpSign(g: CanvasRenderingContext2D, px: number, py: number
   g.fillStyle = "#3b2f12";
   for (const [x, y] of [[1, 0], [2, 0], [3, 0], [0, 1], [4, 1], [4, 2], [3, 3], [2, 4], [2, 6]]) g.fillRect(px + 6 + x, py + 3 + y, 1, 1);
 }
+/**
+ * A resident-made plugin's screen on its building's back wall (TILE.PLUGIN, place `plugin:<docId>`, docs/plugins.md):
+ * a small dark monitor with a lit window and a plug glyph. Draw the wall face first.
+ */
+export function drawPluginScreen(g: CanvasRenderingContext2D, px: number, py: number) {
+  g.fillStyle = "#2a2d3a"; g.fillRect(px + 2, py + 3, 12, 10);
+  g.fillStyle = "#1b2a3d"; g.fillRect(px + 3, py + 4, 10, 8);
+  g.fillStyle = "#7cc4ff"; g.fillRect(px + 4, py + 5, 8, 1);
+  g.fillStyle = "#e8e9f0"; g.fillRect(px + 4, py + 7, 5, 1); g.fillRect(px + 4, py + 9, 3, 1);
+  // the plug: two prongs and a body, bottom right
+  g.fillStyle = "#e0b04a"; g.fillRect(px + 10, py + 8, 1, 1); g.fillRect(px + 12, py + 8, 1, 1); g.fillRect(px + 10, py + 9, 3, 2);
+  g.fillStyle = "#4b5266"; g.fillRect(px + 7, py + 13, 2, 2);
+}
 /** Filing cabinet stood against a wall face: a grey steel cabinet with three drawers, the top one ajar. Draw the wall first. */
 export function drawCabinet(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "rgba(0,0,0,.25)"; g.fillRect(px + 3, py + 15, 11, 1);

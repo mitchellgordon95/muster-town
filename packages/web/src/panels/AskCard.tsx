@@ -1,9 +1,10 @@
 /**
- * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Its
- * title, the delta line (the body's first paragraph), the body, the branches as the buttons (each does the real action
- * by the ask's target, asks.ts `branchCall`; the server's hooks then retire the ask), the recommendation, the claims
- * with their check, the sources by name, and the record one click down. A grant's card adds its
- * step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
+ * The ask card (docs/legible-delegation.md §5, UI / UX B): one component for every ask in the decision queue. Bottom
+ * line first (gr_x7p580xe1o): its title, the one bold lead (the first paragraph, or the first sentence of a one-paragraph
+ * body), the recommendation, the branches as the buttons with each "If you <branch>:" sentence under its own, then the
+ * rest of the body in regular weight at a reading measure, the claims with their check, and the record one click down.
+ * Each button does the real action by the ask's target (asks.ts `branchCall`; the server's hooks then retire the ask).
+ * A grant's card adds its step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
  * on the filing building's goal with a 1:1 with its manager beside it, about this ask and its job thread.
  */
 import { type ReactNode } from "react";
@@ -15,7 +16,7 @@ import { fromMillions, toMillions } from "../format";
 import { Markdown } from "./Markdown";
 import { StepStrip } from "./StepStrip";
 import { steerAsk, steerTarget } from "./oneOnOne";
-import { branchCall, claimMark, deltaOf, retainerCounter, type BranchCall } from "./asks";
+import { branchCall, claimMark, deltaOf, retainerCounter, splitConsequences, type BranchCall } from "./asks";
 import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
 /** What the building is asking for, after "<Building> is asking": the big line at the top of the card. */
@@ -57,7 +58,9 @@ function doneLine(c: BranchCall, label: string): string {
  * date, a note. `grant` is the ask's target grant, when the in-tray carries it (the fund amount, the ceiling to adjust
  * from); `retainer` its target schedule (the asked per-run amount the field starts from).
  */
-export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number }) {
+export function AskButtons({ ask, grant, retainer, onDecided, deckSlide, consequences }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number;
+  /** each branch's "If you …:" sentence by label (asks.ts `splitConsequences`), drawn under its button */
+  consequences?: Record<string, string> }) {
   // what the human has typed survives the card closing until they decide (drafts, src/draft.ts)
   const dk = `ask:${ask.id}:`;
   const [form, setForm] = useDraft<{ label: string; call: BranchCall } | null>(`${dk}form`, null);
@@ -100,6 +103,8 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   const needsForm = (c: BranchCall) => "form" in c && !!c.form;
   // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
   const plain = branches.some(({ c }) => c.kind === "ask");
+  // with a consequence for any drawn branch, each button stands over its own sentence, one branch per row
+  const conseq = branches.some(({ b }) => !!consequences?.[b.label]);
   // a form whose note may stay empty: a grant's adjust (tokens decide it)
   const noteOptional = (c: BranchCall) => (c.kind === "grant" && c.action === "adjust") || c.kind === "goal";
   return (
@@ -107,10 +112,13 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
       {plain && noting ? (
         <Field label="Note"><textarea className="ask-note" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional: what you did instead, or why" aria-label="Note" autoFocus /></Field>
       ) : null}
-      <div className="actions ask-branches">
-        {branches.map(({ b, c }, i) => needsForm(c)
-          ? <button key={b.label} className={`btn sm${form?.label === b.label ? " on" : ""}`} onClick={() => { setForm(form?.label === b.label ? null : { label: b.label, call: c }); if (grant) setTokens(toMillions(c.kind === "grant" && c.action === "counter" ? grant.askTokens : ceiling)); if (retainer) setPerRun(toMillions(retainer.tokensPerRun)); }}>{b.label}…</button>
-          : <Act key={b.label} small tone={tone(i, c)} run={run(c, b.label)}>{b.label}</Act>)}
+      <div className={`actions ask-branches${conseq ? " with-conseq" : ""}`}>
+        {branches.map(({ b, c }, i) => {
+          const btn = needsForm(c)
+            ? <button key={b.label} className={`btn sm${form?.label === b.label ? " on" : ""}`} onClick={() => { setForm(form?.label === b.label ? null : { label: b.label, call: c }); if (grant) setTokens(toMillions(c.kind === "grant" && c.action === "counter" ? grant.askTokens : ceiling)); if (retainer) setPerRun(toMillions(retainer.tokensPerRun)); }}>{b.label}…</button>
+            : <Act key={b.label} small tone={tone(i, c)} run={run(c, b.label)}>{b.label}</Act>;
+          return conseq ? <div key={b.label} className="ask-branch">{btn}{consequences?.[b.label] ? <Markdown text={consequences[b.label]!} className="ask-conseq" /> : null}</div> : btn;
+        })}
         {plain && !noting && !form ? <button className="link ask-note-toggle" onClick={() => setNoting(true)}>Add a note</button> : null}
       </div>
       {form ? (
@@ -149,9 +157,12 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
   const signedIn = useTown((s) => !!s.me);
   // a string, not the target object: useTown's selector must return a stable value
   const steer = useTown((s) => s.me && ask.buildingId && ask.status !== "decided" ? steerTarget(ask.buildingId)?.id ?? null : null);
-  const { delta, rest } = deltaOf(ask.body);
+  // the "If you <branch>:" sentences go under their buttons, signed in or not; the lead is the one bold part
+  const split = splitConsequences(ask.body, ask.branches.map((b) => b.label));
+  const { delta, rest } = deltaOf(split.body);
+  const deciding = signedIn && canDecide !== false;
   return (
-    <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title}>
+    <article className={`ask-card ask-${ask.type}${ask.status === "deferred" ? " deferred" : ""}`} aria-label={ask.title} data-branches={ask.branches.map((b) => b.label).join("|")}>
       <header className="ask-head">
         <span className="ask-asking">{subjectName(building)} is asking {ASKING[ask.type]}</span>
         {typeof ask.rank === "number" ? <Pill title="The Secretary's rank">#{ask.rank}</Pill> : null}
@@ -160,17 +171,26 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       <h4 className="ask-title" title={ask.targetId ?? undefined}>{ask.title}</h4>
       {ask.status === "deferred" ? <div className="ask-stamp">Deferred until {ask.deferredUntil ?? "an event"}</div> : null}
       {delta ? <Markdown text={delta} className="ask-delta" /> : null}
-      {rest ? <Markdown text={rest} className="ask-body" /> : null}
-      {grant ? <StepStrip grant={grant} /> : null}
       {ask.recommendation ? <div className="ask-rec"><span className="ask-label">Recommends</span> {ask.recommendation}</div> : null}
+      {deciding
+        ? <div className="ask-actions"><AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} consequences={split.byLabel} />{aside}</div>
+        : (
+          <div className="ask-actions">
+            {Object.keys(split.byLabel).length ? (
+              <div className="ask-branches with-conseq ask-branches-static">
+                {ask.branches.filter((b) => split.byLabel[b.label]).map((b) => <div key={b.label} className="ask-branch"><span className="ask-branch-name">{b.label}</span><Markdown text={split.byLabel[b.label]!} className="ask-conseq" /></div>)}
+              </div>
+            ) : null}
+            {aside}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span>
+          </div>
+        )}
+      {rest ? <Markdown text={rest} className="ask-body" breaks /> : null}
+      {grant ? <StepStrip grant={grant} /> : null}
       {ask.claims.length ? (
         <ul className="ask-claims">
           {ask.claims.map((c, i) => { const m = claimMark(c); return <li key={i} className={`ask-claim ${m.tone}`} title={c.check.ref ? `${c.check.kind}: ${c.check.ref}` : c.check.kind}><span className="ask-mark">{m.mark}</span> {c.text} <span className="muted">· {m.line}{c.result?.note ? ` · ${c.result.note}` : ""}</span></li>; })}
         </ul>
       ) : null}
-      {signedIn && canDecide !== false
-        ? <div className="ask-actions"><AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} />{aside}</div>
-        : <div className="ask-actions">{aside}<span className="muted">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span></div>}
       {steer || (ask.sourceDocId && onOpenRecord) ? (
         <div className="ask-foot">
           {steer ? <Act small run={async () => { const t = steerTarget(steer); if (t) await steerAsk(ask.id, t); }} title={`Open ${building}'s goal in the goal tree, with a 1:1 with its manager about this ask beside it`}>Steer</Act> : null}

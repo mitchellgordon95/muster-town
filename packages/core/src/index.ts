@@ -43,7 +43,7 @@ export { cashCheck, financeCash, CASH_FLY_DAYS, CASH_IDENTITY, CASH_WINDOW_DAYS,
 export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_NOT_COUNTED, FLY_PRICES, TOWN_MACHINE, type FinanceFly, type FlyBuilding, type FlyDay, type FlyDayBuilding, type FlyInputs, type FlyOptions, type FlyRate } from "./finance-fly.ts";
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
-export { EXPLORE_CEILING_SHARE, EXPLORE_MIN_GAP_MS, assignmentSpent, exploreBlock, exploreOrder, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
+export { EXPLORE_CEILING_SHARE, EXPLORE_MAX_GAP_MS, EXPLORE_MIN_GAP_MS, assignmentSpent, emptyExplorations, exploreBlock, exploreGapMs, exploreResetAt, exploreOrder, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
 export { SESSION_CIRCUIT_BREAKER, circuitBreakerTick, type CircuitCut } from "./circuit-breaker.ts";
 export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
@@ -55,7 +55,7 @@ export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.t
 export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, describeRepeat, editSchedule, endSchedule, fireSchedules, nextOccurrence, scheduleTaker, townSchedules, DEFAULT_SCHEDULE_DAYS, MAX_SCHEDULE_DAYS } from "./schedules.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
-export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, DOORS, HOME_STEPS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type HomeStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { countBlogRead, countFunnel, countFunnelDecision, countVisitor, countVisitorFrom, funnelSource, isAutomatedClient, MAX_SOURCES_PER_DAY, type BlogReadRow, type FunnelSourceRow, type SourceStep, joinFunnel, sumFunnels, DOORS, HOME_STEPS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type HomeStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
 export { engagement } from "./engagement.ts";
 export { healthOf, healthLine, grantHolds, townHealth, isoWeekStart, PAPERWORK_MAX, HIT_MIN, type TownHealth, type HealthLine, type HealthInputs, type GrantHold } from "./health.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";
@@ -76,6 +76,8 @@ export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, noteOneOn
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";
+export { installedPlugins, listPluginDocs, pluginView, readPluginDoc, requirePlugin, writePluginDoc, type PluginView, type PluginWrite } from "./plugins.ts";
+export { parsePlugin, PLUGIN_SCOPES, type PluginManifest } from "./plugin-manifest.ts";
 export { bulletinNotes, bulletinNotesFor, bulletinUnreadCount, markBulletinRead, postBulletin, takeDownBulletin, type BulletinNote } from "./bulletin.ts";
 export { searchDocs, ftsQuery, boardDocs, boardWithTownDocs, townBoardDocs, canPostTownBoard, unpublishTownFyi, canEditBoardNote, editBoardNote, cabinetDocs, cabinetCounts } from "./verbs/docs.ts";
 export { exportWorld, exportDoneEvent, importExport, docExportPath, maskTokens, type ExportResult, type PublishTarget } from "./export.ts";
@@ -104,7 +106,7 @@ export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
 export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
 export { tickMemo, withTickMemo } from "./tick-memo.ts";
 // legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
-export { decideAsk, deferAsk, openAsks } from "./asks.ts";
+export { canDecideAsk, decideAsk, deferAsk, openAsks } from "./asks.ts";
 export { answerEntry, appendEntry, bookEntryTokens, entryOf, fileDeadSession, jobThread, openManagerEntries, type Entry } from "./jobs.ts";
 export { answer, asksSomething, type Answer, type EntryFacts } from "./answer.ts";
 export { namesLiveCheck, statusAtClose } from "./kr-evidence.ts";

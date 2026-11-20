@@ -14,6 +14,7 @@ import { useMediaPaste } from "./mediaPaste";
 import { MediaThumb } from "./MediaThumb";
 import { requestDecisionLine, requestTone } from "./requests";
 import { PageDoc } from "./PageView";
+import { PluginDoc } from "./PluginSheet";
 import { DeckView } from "./DeckView";
 import { canOneOnOne, openOneOnOne, talkTarget } from "./oneOnOne";
 import { Sheet } from "./Sheet";
@@ -138,7 +139,7 @@ export function DocView({ doc: initial, onBack, backLabel = "Back", review, onDe
         {" · "}<CopyLink id={doc.id} />
       </div>
       {doc.decisionNote && !doc.body.includes("## Reply from") ? <div className="callout"><b>{nameOf(doc.decidedBy)}:</b> {doc.decisionNote}</div> : null}
-      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : doc.type === "page" ? <PageDoc doc={doc} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
+      {doc.type === "deck" ? <DeckView id={doc.id} body={doc.body} /> : doc.type === "page" ? <PageDoc doc={doc} /> : doc.type === "plugin" ? <PluginDoc doc={doc} /> : <Markdown text={doc.type === "skill" ? doc.body.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/, "") : stripLeadingH1(doc.body)} />}
       {doc.type === "skill" ? <SkillDetails doc={doc} /> : null}
       {canReview && doc.type === "flag" ? <FlagDecideBox doc={doc} onDone={onDecided} /> : null}
       {/* the buttons that act on the doc come after reading it, big (Mitchell's flag dc_4uiv48047s) */}

@@ -1,6 +1,6 @@
 import { BANK_FIXTURES, BULLETIN_PLACE, bankPlaces, labSize, MAX_HEADCOUNT, TILE, WALKABLE, type Building, type Lot, type Place, type Tile } from "@muster-town/schema";
 import { piecesFor, resolveFurniture } from "./furniture.ts";
-import { deriveRoads, doorOf, type Side } from "./road.ts";
+import { deriveRoads, doorOf, insideOf, type Side } from "./road.ts";
 import { treeLayout, type Plaza, type TreeGoal } from "./tree.ts";
 import { restTile, type RestSpot } from "./rest-spot.ts";
 import type { MapLayout } from "@muster-town/schema";
@@ -68,7 +68,7 @@ export interface LayoutResult {
  * `spots`: agentId -> where a human dropped it (rest-spot.ts): its `desk:<agentId>` place goes there while the tile can
  * be stood on; its desk slot keeps the default tile.
  */
-export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree", rests: Map<string, string> = new Map(), spots: ReadonlyMap<string, RestSpot> = new Map()): LayoutResult {
+export function computeLayout(buildings: Building[], goals: TreeGoal[], occupancy: Map<string, Map<number, string>>, names: Map<string, string>, shape: MapLayout = "tree", rests: Map<string, string> = new Map(), spots: ReadonlyMap<string, RestSpot> = new Map(), plugins: readonly PluginPin[] = []): LayoutResult {
   const tree = treeLayout(goals, buildings.map((b) => ({ id: b.id, kind: b.kind, goalId: b.goalId, createdAt: b.createdAt, size: sizeFor(b) })), shape);
   const lots = buildings.filter((b) => tree.lots.has(b.id)).map((b) => ({ ...b, lot: tree.lots.get(b.id)! }));
   const { w, h } = tree;
@@ -194,6 +194,17 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     );
     tables.set(`meeting-room:${b.id}`, cells("meeting"));
   }
+  // installed plugins (docs/plugins.md): a screen each on its building's back wall, oldest first, while there is room
+  for (const b of lots) {
+    const mine = plugins.filter((p) => p.buildingId === b.id);
+    if (!mine.length) continue;
+    const taken = new Set(places.filter((p) => p.buildingId === b.id).map((p) => `${p.pos.x},${p.pos.y}`));
+    const screens = pluginScreens({ w, h, tiles }, b.lot, sideOf(b.id), taken, mine.length);
+    screens.forEach((s, i) => {
+      set(s.wall.x, s.wall.y, TILE.PLUGIN);
+      places.push({ id: `plugin:${mine[i].id}`, kind: "plugin", name: `${mine[i].name} (a plugin)`, buildingId: b.id, pos: s.stand });
+    });
+  }
   // the humans' bulletin board in the town square (flag dc_52njv3shp8): where the shape put it, else on the grass nearest the Town Hall's door
   const hallDoor = hall && doors.get(hall.id);
   const board = tree.bulletin ?? (hallDoor ? bulletinSpot(tiles, w, h, hallDoor, places) : null);
@@ -214,6 +225,28 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
     seats.set(id, seatsAround(grid, table, room));
   }
   return { grid, lots: tree.lots, plazas: tree.plazas, bank: tree.bank, places, desks, doors, sides: roads.sides, seats };
+}
+
+/** An installed plugin as the map needs it: its doc id, its building and its name. */
+interface PluginPin { id: string; buildingId: string; name: string }
+
+/**
+ * Where a building's plugin screens hang (docs/plugins.md): plain wall tiles of its back wall, left to right, each with
+ * a plain floor tile in front of it that no place stands on and that is not the door's inside tile; at most `n`. A
+ * screen sits in the wall, so it never blocks a path. Pure: the same grid gives the same spots.
+ */
+export function pluginScreens(grid: Grid, lot: Lot, side: Side, taken: ReadonlySet<string>, n: number): { wall: Tile; stand: Tile }[] {
+  const north = side === "n";
+  const backY = north ? lot.y + lot.h - 1 : lot.y, dy = north ? -1 : 1;
+  const inside = insideOf(lot, side);
+  const out: { wall: Tile; stand: Tile }[] = [];
+  for (let x = lot.x + 1; x <= lot.x + lot.w - 2 && out.length < n; x++) {
+    const stand = { x, y: backY + dy };
+    if (tileAt(grid, x, backY) !== TILE.WALL || tileAt(grid, stand.x, stand.y) !== TILE.FLOOR) continue;
+    if (taken.has(`${stand.x},${stand.y}`) || (stand.x === inside.x && stand.y === inside.y)) continue;
+    out.push({ wall: { x, y: backY }, stand });
+  }
+  return out;
 }
 
 /** The Bank (right below the Town Hall): gold walls are the renderer's job; here the room, its door, the vault and the stations, and their places. */

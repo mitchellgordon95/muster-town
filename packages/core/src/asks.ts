@@ -277,10 +277,25 @@ function reopenDeferred(world: World, ids: (string | null | undefined)[], reason
   return out;
 }
 
-/** Who answers an ask: a human who can fund its building (an admin anywhere). Never an agent. */
+/**
+ * Who may answer an ask (gr_0vuiuqcw8p): a human who can fund its building (an admin anywhere), or who captains the
+ * goal the ask moves or a goal above it (`askGoalId`). Never an agent. A goal proposal's ask: whoever may edit the goal
+ * it lands on (it is decided on the proposal). The in-tray's `canDecide` for an ask is this same rule.
+ */
+export function canDecideAsk(world: World, actor: Agent | null | undefined, a: Pick<Ask, "targetKind" | "targetId" | "buildingId">): boolean {
+  if (!actor || holderOf(actor).kind !== "user") return false;
+  if (a.targetKind === "goalProposal") {
+    const p = a.targetId ? world.goalProposals.get(a.targetId) : undefined;
+    const node = p ? world.goalTree.nodeOfProposal(p) : null;
+    return !node || world.goalTree.canEdit(actor, node);
+  }
+  return world.permissions.can(actor, "building.fund", a.buildingId) || world.goalTree.owns(actor, askGoalId(world, a));
+}
+
+/** Who answers an ask: `canDecideAsk`, else 403. Returns the deciding human's user id. */
 function requireDecider(world: World, actor: Agent | null, a: Ask): string {
   if (!actor || holderOf(actor).kind !== "user") throw forbidden("building.fund", "Only a human decides an ask.");
-  if (!world.permissions.can(actor, "building.fund", a.buildingId)) throw forbidden("building.fund");
+  if (!canDecideAsk(world, actor, a)) throw forbidden("building.fund", "Only an admin, a funder of its building or the captain of its goal (or a goal above it) decides this ask.");
   return holderOf(actor).id;
 }
 

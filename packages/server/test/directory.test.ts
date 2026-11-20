@@ -84,6 +84,38 @@ describe("Directory", () => {
     expect(() => d2.register("same.example.org", "7.7.7.7")).toThrow(/Too many/);
   });
 
+  // gr_1s31xz74bv (kr_96fgbdh4c7, kr_45czzistqt): each listed town is a self-hosted tile on the homepage; an empty list leaves it as it was
+  it("the homepage shows each listed town as a self-hosted tile linking out, escaped; none while the list is empty", async () => {
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const add = (host: string, name: string, goal: string, verifiedAt: string | null) => world.db.prepare(`INSERT INTO directory_towns
+      (host, token, createdAt, nextCheckAt, verifiedAt, lastSeenAt, name, goal) VALUES (?, 'mtd_x', ?, ?, ?, ?, ?, ?)`).run(host, iso(t), iso(t), verifiedAt, iso(t - 60_000), name, goal);
+    const app = await buildApp({ world, webDist: false, directory: new Directory({ world, now: () => t }) });
+    const home = async () => (await app.inject("/")).body;
+    const before = await home();
+    expect(before).not.toContain("Self-hosted");
+    add("garden.example.org", "Garden <Town>", "Grow \"things\"", iso(t - 3600_000));
+    add("noname.example.org", "", "no name yet", iso(t - 3600_000));
+    add("pending.example.org", "Pending", "not verified", null);
+    t += 61_000; // past the list's 60 s memo
+    const body = await home();
+    const tiles = body.split('<li class="tile-item">').slice(1);
+    const ext = tiles.filter((x) => x.includes("tile-ext"));
+    expect(ext).toHaveLength(1);
+    expect(ext[0]).toContain('<a class="tile tile-ext" href="https://garden.example.org/" rel="noopener" title="garden.example.org"><span class="tile-self">Self-hosted</span><span class="tile-name">Garden &lt;Town&gt;</span></a>');
+    expect(ext[0]).toContain('<p class="tile-tag">Grow &quot;things&quot;</p>');
+    expect(ext[0]).not.toContain("data-preview");
+    // after the hosted collectives (here the Workshop and the placeholder), and not in /api/collectives
+    expect(tiles.at(-1)).toBe(ext[0]);
+    expect(body).not.toContain("noname.example.org");
+    expect(body).not.toContain("pending.example.org");
+    expect(JSON.stringify((await app.inject("/api/collectives")).json())).not.toContain("garden");
+    // delisted (here: blocked), the tile goes and the homepage is as it was before
+    world.db.prepare("INSERT INTO directory_blocked (host, reason, at) VALUES ('garden.example.org', 'x', ?)").run(iso(t));
+    t += 61_000;
+    expect(await home()).toBe(before);
+    await app.close();
+  });
+
   it("lists verified towns seen within 24 h only, memoized 60 s", () => {
     const iso = (ms: number) => new Date(ms).toISOString();
     const add = (host: string, verifiedAt: string | null, lastSeenAt: string | null) => world.db.prepare(`INSERT INTO directory_towns

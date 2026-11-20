@@ -242,7 +242,8 @@ alerts, sessions) are at `GET /api/events`.
 
 ## 6. Register with the directory
 
-muster.town keeps a directory of self-hosted towns, listed on its homepage beside the hosted ones. No account and no
+muster.town keeps a directory of self-hosted towns. Each listed town is a tile on the muster.town homepage, after the
+hosted collectives: its name and goal, a "Self-hosted" tag, no live map, and a link to its own `https://<host>/`. No account and no
 approval: you prove you control the DNS name. The town must be served at `https://<host>/` (port 443, no sub-path).
 
 1. Ask for a token (the same one comes back every time for your host):
@@ -260,8 +261,9 @@ approval: you prove you control the DNS name. The town must be served at `https:
    (at most once a minute per host). `status: "verified"` with `proof: "well-known"` or `"txt"` means it is listed; while
    it is `pending`, `lastError` says what was missing.
 
-Listed towns: `GET https://muster.town/api/directory` (name and goal come from your `/api/collectives`). muster.town
-re-checks every hour. A town that has not answered for a day leaves the list, and a proof missing on two checks an hour
+Listed towns: `GET https://muster.town/api/directory` (name and goal come from your `/api/collectives`; a town with an
+empty name is listed there but gets no homepage tile). The homepage shows the same list within a minute. muster.town
+re-checks every hour; a town that leaves the list leaves the homepage too. A town that has not answered for a day leaves the list, and a proof missing on two checks an hour
 apart puts it back to `pending` with the same token. Limits per IP address: 10 registrations a day, 5 pending hosts and
 30 verify calls an hour.
 

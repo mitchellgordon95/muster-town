@@ -2,7 +2,7 @@
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
@@ -321,7 +321,7 @@ export class MockApi implements Api {
   async buildingQueue(id: string): Promise<QueueBoard> {
     await wait();
     const b = this.sim.buildings.find((x) => x.id === id);
-    return { lanes: b ? [{ buildingId: b.id, buildingName: b.name, desks: b.headcount, queued: [], held: [], running: [], done: [] }] : [], at: new Date().toISOString() };
+    return { lanes: b ? [{ buildingId: b.id, buildingName: b.name, desks: b.headcount, exploreBlock: "the last 3 explorers found nothing; next may start at 2026-11-20 05:30 UTC", queued: [], held: [], running: [], done: [] }] : [], at: new Date().toISOString() };
   }
   async goalProposals() { await wait(); return []; }
   async createGoal(): Promise<never> { throw new ApiError("Editing the goal tree needs the real server.", "unsupported", 501); }
@@ -478,12 +478,14 @@ export class MockApi implements Api {
       { ...zero, day: day(0), homeViews: 3, guestCardViews: this.guestCardViews - 23, guestVisitors: 2, asked: 1 },
     ];
     const hosted = [{ ...zero, day: day(2), guestCardViews: 4, guestVisitors: 2, signInStarted: 1, signIns: 1, asked: 1, declined: 1 }];
+    const sources = [{ day: day(0), step: "homeViews" as const, source: "news.ycombinator.com", count: 2 }, { day: day(0), step: "homeViews" as const, source: "direct", count: 1 }];
+    const blogReads = [{ day: day(0), slug: "engineering-human-oversight-with-decision-queues", source: "ref:hn", count: 3 }];
     const sum = (rows: typeof workshop) => Object.fromEntries((Object.keys(zero) as (keyof typeof zero)[]).map((k) => [k, rows.reduce((n, r) => n + r[k], 0)])) as typeof zero;
     const collectives = [
-      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000 },
-      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000 },
+      { slug: "workshop", days: 30, from, to, daily: workshop, totals: sum(workshop), decisions: 1, medianDecisionMs: 3 * 3_600_000, sources, blogReads },
+      { slug: "hollyville", days: 30, from, to, daily: hosted, totals: sum(hosted), decisions: 1, medianDecisionMs: 15_000, sources: [], blogReads: [] },
     ];
-    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives };
+    return { days: 30, from, to, decisions: 2, medianDecisionMs: Math.round((3 * 3_600_000 + 15_000) / 2), totals: sum([...workshop, ...hosted]), collectives, sources, blogReads };
   }
   async countGuestCardView() { this.guestCardViews++; }
   async countDoor(_door: "fund" | "captain" | "agent") { /* the mock keeps no door counts */ }
@@ -1272,6 +1274,10 @@ export class MockApi implements Api {
   private live: RedeployLive = { running: false, phase: "idle", waitingFor: [], since: null };
   async redeployLive() { await wait(60); return { ...this.live }; }
   async health() { return { ok: true, commit: "mock", stepCalibration: clone(stepCalibration), legible: clone(legible) }; }
+  async plugin(): Promise<PluginWithPage> { throw new Error("Plugins need a live town; the mock has none."); }
+  async pluginDocs(): Promise<Doc[]> { throw new Error("Plugins need a live town; the mock has none."); }
+  async pluginDoc(): Promise<Doc> { throw new Error("Plugins need a live town; the mock has none."); }
+  async writePluginDoc(): Promise<Doc> { throw new Error("Plugins need a live town; the mock has none."); }
   async retireCollective(): Promise<{ retired: boolean; url: string }> { throw new Error("The mock server hosts no collectives."); }
   async renameCollective(_name: string): Promise<{ collective: { name: string; slug: string; url: string } }> { throw new Error("The mock server hosts no collectives."); }
   async collectives() { return []; }

@@ -12,7 +12,7 @@ import type {
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
-import { visitorId } from "./visitor";
+import { arrivalSource, visitorId } from "./visitor";
 import { knownNames } from "./names";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -520,12 +520,17 @@ export interface EngagementView { days: number; from: string; to: string; daily:
 interface JoinFunnelCollective {
   slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   daily: ({ day: string } & JoinFunnelCounts)[]; totals: JoinFunnelCounts;
+  sources: JoinFunnelView["sources"]; blogReads: JoinFunnelView["blogReads"];
 }
 /** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective on this server (a hosted one: itself), counts only, then each collective. */
 export interface JoinFunnelView {
   days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   totals: JoinFunnelCounts;
   collectives: JoinFunnelCollective[];
+  /** gr_ox3fmliv9n: per day, homepage and guest-card visitors by source (a ref: tag, a referrer host, or direct); they add up to that day's homeViews / guestVisitors */
+  sources: { day: string; step: "homeViews" | "guestVisitors"; source: string; count: number }[];
+  /** gr_ox3fmliv9n: per day, each blog post's reads (GETs by browsers, bots left out) by source */
+  blogReads: { day: string; slug: string; source: string; count: number }[];
   /** the root's only (gr_ngg1z160a8 step 2): each hosted collective's founder road, dates null until they happen */
   founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
@@ -734,6 +739,14 @@ export interface Api {
   promote(docId: string, state: DocState): Promise<Doc>;
   /** POST /api/docs/:id/unpublish — take a town-wide FYI off the Town Hall board (back to its author's drafts; author or admin) */
   unpublish(docId: string): Promise<Doc>;
+  /** GET /api/plugins/:id — an installed plugin (docs/plugins.md): its manifest and its page */
+  plugin(id: string): Promise<PluginWithPage>;
+  /** GET /api/plugins/:id/docs — bridge docs.list: the plugin's docs the viewer may see, newest first */
+  pluginDocs(id: string, q?: { state?: "draft" | "building"; limit?: number }): Promise<Doc[]>;
+  /** GET /api/plugins/:id/docs/:docId — bridge docs.read */
+  pluginDoc(id: string, docId: string): Promise<Doc>;
+  /** POST /api/plugins/:id/docs — bridge docs.write: create (no id) or rewrite one, as the signed-in viewer */
+  writePluginDoc(id: string, input: PluginDocWrite): Promise<Doc>;
   /** GET /api/bulletin — the bulletin board in the town square: humans' notes, newest first (anyone reads) */
   bulletin(limit?: number): Promise<Doc[]>;
   /** GET /api/bulletin with read state (flag dc_04q4h8s229): for a signed-in human each note carries `unread` and the board an `unread` count; guests get neither */
@@ -867,6 +880,10 @@ export const tokenStore = {
 };
 
 /** Single-object endpoints aren't pinned down in the contract: accept `{doc}` or the bare object. */
+/** An installed plugin as GET /api/plugins/:id returns it (= core's PluginView, plus its page). */
+export interface PluginInfo { id: string; name: string; description: string; scopes: string[]; docType: string; tag: string; buildingId: string | null; state: Doc["state"]; authorId: string; author: string; updatedAt: string }
+export interface PluginWithPage { plugin: PluginInfo; html: string }
+export interface PluginDocWrite { id?: string; title: string; body: string; state: "draft" | "building"; tags?: string[] }
 /** A bulletin board note with its read state for the signed-in human (= core's BulletinNote; absent for guests). */
 export type BulletinNote = Doc & { unread?: boolean };
 /** GET /api/bulletin: the notes, plus `unread` (how many the signed-in human hasn't opened) when signed in. */
@@ -986,7 +1003,7 @@ class HttpApi implements Api {
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   engagement() { return this.get<EngagementView>("/api/engagement"); }
   healthStats() { return this.get<TownHealthView>("/api/health-stats"); }
-  async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
+  async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined, ...arrivalSource() }); }
   async countDoor(door: "fund" | "captain" | "agent") { await this.post("/api/join-funnel/door", { visitor: visitorId() ?? undefined, door }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
@@ -1029,6 +1046,10 @@ class HttpApi implements Api {
   }
   async writeDoc(i: WriteDocInput) { return unwrap<Doc>(await this.post("/api/docs", i), "doc"); }
   async unpublish(id: string) { return unwrap<Doc>(await this.post(`/api/docs/${id}/unpublish`, {}), "doc"); }
+  plugin(id: string) { return this.get<PluginWithPage>(`/api/plugins/${encodeURIComponent(id)}`); }
+  async pluginDocs(id: string, q: { state?: "draft" | "building"; limit?: number } = {}) { return unwrap<Doc[]>(await this.get(`/api/plugins/${encodeURIComponent(id)}/docs${qs(q)}`), "docs"); }
+  async pluginDoc(id: string, docId: string) { return unwrap<Doc>(await this.get(`/api/plugins/${encodeURIComponent(id)}/docs/${encodeURIComponent(docId)}`), "doc"); }
+  async writePluginDoc(id: string, input: PluginDocWrite) { return unwrap<Doc>(await this.post(`/api/plugins/${encodeURIComponent(id)}/docs`, input), "doc"); }
   async bulletin(limit = 50) { return (await this.bulletinBoard(limit)).docs; }
   async bulletinBoard(limit = 50) { return await this.get<BulletinBoard>(`/api/bulletin${qs({ limit })}`); }
   async readBulletin(id: string) { return (await this.post<{ unread: number }>(`/api/bulletin/${id}/read`, {})).unread; }
