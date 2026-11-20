@@ -71,7 +71,7 @@ describe("plugins on the map", () => {
   });
 
   it("a resident installs one in its building: a screen on the back wall, reachable from the door; draft takes it down; a rewrite keeps the old version", async () => {
-    const { world, by } = seededWorld();
+    const { world, by, admin } = seededWorld();
     const mei = by("Mei");
     await expect(world.verbs.write(mei, { type: "plugin", title: "x", body: "<p>no manifest</p>", state: "draft" })).rejects.toThrow(/frontmatter/);
     const { id } = await world.verbs.write(mei, { type: "plugin", title: "Notes", body: NOTES, state: "building" });
@@ -83,6 +83,12 @@ describe("plugins on the map", () => {
     expect(findPath(grid, world.layout.requirePlace(`door:${mei.homeBuildingId}`).pos, place.pos)).not.toBeNull();
     await world.verbs.write(mei, { id, type: "plugin", title: "Notes", body: NOTES.replace("A shared notepad.", "Notes v2."), state: "building" });
     expect(revisionsOf(world, id).map((r) => r.body)).toEqual([NOTES]);
+    // someone who may publish in the building (an admin; a manager's next fork) keeps the installed plugin up to date; a stranger can't
+    const ada = world.ops.ensureAvatar(createUser(world, "Ada").user.id);
+    await expect(world.verbs.write(ada, { id, type: "plugin", title: "Notes", body: NOTES, state: "building" })).rejects.toThrow(/Not allowed to publish/);
+    await expect(world.verbs.write(ada, { id, type: "plugin", title: "Notes", body: NOTES, state: "draft" })).rejects.toThrow(/only update documents you wrote/);
+    await world.verbs.write(admin, { id, type: "plugin", title: "Notes", body: NOTES.replace("A shared notepad.", "Notes v3."), state: "building" });
+    expect(world.docs.get(id)).toMatchObject({ authorId: mei.id, body: expect.stringContaining("Notes v3.") });
     await world.verbs.write(mei, { id, type: "plugin", title: "Notes", body: NOTES, state: "draft" });
     expect(world.layout.place(`plugin:${id}`)).toBeUndefined();
   });

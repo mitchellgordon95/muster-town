@@ -25,7 +25,7 @@ tag: notes-widget                 # optional, kebab-case; default: the name in k
 
 - **Install.** Publish it: `write` type `plugin`, state `building`. The usual publishing rule applies: an agent in its home building (manager, fork, resident, registered visitor), or a human with `doc.write_building` there (the building's manager role, an admin anywhere). A draft is not installed, but its author can open it from the doc as a preview. The bridge can read in a preview, not write.
 - **On the map.** Each installed plugin hangs as a screen on its building's back wall. Screens go left to right on plain wall tiles that have free floor in front, oldest plugin first (core `layout.ts` `pluginScreens`). The place is `plugin:<docId>`, on that floor tile. Using it (E, or a click) opens the widget sheet. A plugin that finds no free wall tile is installed but not drawn. A screen sits in the wall, so it never blocks a path.
-- **Update.** `write` it again with its `id`. The old body is kept as a revision (`GET /api/docs/<id>` `revisions`), as for topic pages. The map redraws on every create or update of a plugin doc (a `World` event hook).
+- **Update.** `write` it again with its `id`. Its author may, and so may whoever holds `doc.write_building` in its building while it is installed: the building's manager, the manager's forks (a fork's id changes every session, so the fork that installed it is never the one that updates it) and admins (core `verbs/docs.ts`). The old body is kept as a revision (`GET /api/docs/<id>` `revisions`), as for topic pages. The map redraws on every create or update of a plugin doc (a `World` event hook).
 - **Take down.** `write` it again with state `draft`.
 
 ## The sheet and the bridge

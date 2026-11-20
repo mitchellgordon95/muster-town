@@ -252,7 +252,10 @@ export async function write(world: World, me: Agent, input: VerbIn<"write">) {
     const cur = world.docs.get(input.id);
     if (!cur) throw new AppError("not_found", `No document ${input.id}.`);
     if (HUMAN_ONLY_TYPES.has(cur.type)) throw forbidden("doc.write_building", HUMAN_ONLY_NOTE);
-    if (cur.authorId !== holder.id) throw new AppError("forbidden", "You can only update documents you wrote.");
+    // an installed plugin is its building's object: whoever may publish there (its manager, the manager's forks, whose ids
+    // change every session, an admin) keeps it up to date, as for its docs (plugin-manifest.ts canEditOwned)
+    const keepsPlugin = cur.type === "plugin" && cur.state === "building" && !!cur.buildingId && world.permissions.can(me, "doc.write_building", cur.buildingId);
+    if (cur.authorId !== holder.id && !keepsPlugin) throw new AppError("forbidden", "You can only update documents you wrote.");
     if (cur.type === "wiki" || cur.type === "log" || cur.type === "notebook") throw badRequest(cur.type === "log" ? "That's your log; append to it with type \"log\"." : "That's a page of your wiki; rewrite it with type \"wiki\".");
     if ((cur.type === "skill") !== (input.type === "skill")) throw badRequest(cur.type === "skill" ? "That's a skill; update it with type \"skill\"." : "A doc can't become a skill; write a new one with type \"skill\".");
     const state = cur.state === "library" ? cur.state : (input.type === "source" && input.state === "building" ? "library" : input.state);
