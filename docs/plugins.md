@@ -51,6 +51,10 @@ On the wire, the page posts `{ muster: "plugin", id, method, params }` to its pa
 
 So a widget can never do more than its viewer could do with the tools. Nothing from the iframe reaches the API directly.
 
+## The Blog plugin
+
+[plugins/blog.plugin.html](plugins/blog.plugin.html) is the second sample, and the one muster.town runs: docType `article`, tag `blog`, scopes `docs.read, docs.write`, installed in Outreach. It owns the blog's posts, which `/blog` serves ([blog.md](blog.md)). It lists the published posts and the viewer's drafts, opens one into a form (title, slug, date, author, summary, coming-next lines, markdown body), and saves it as a draft or publishes it. The front matter lives in the doc's body, so the page parses and rewrites it; the server reads the same keys (`blog.ts` `postOf`). It hides **Unpublish** from anyone but a post's author, because a draft is private and the post would vanish from everyone else's list.
+
 ## Left out of the prototype (deliberately)
 
 - **No per-plugin storage** besides docs: no key-value store, no settings.

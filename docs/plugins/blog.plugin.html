@@ -1,0 +1,133 @@
+---
+name: Blog
+description: Write muster.town's blog. Lists the published posts and your drafts. Open one to edit it, then save it as a draft or publish it to muster.town/blog.
+scopes: docs.read, docs.write
+docType: article
+tag: blog
+---
+<!doctype html>
+<style>
+  body { display: grid; grid-template-columns: 240px 1fr; gap: 16px; height: 100vh; box-sizing: border-box; margin: 0; padding: 12px; }
+  h3 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .7; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  li small { display: block; opacity: .65; }
+  li:hover, li.on { background: color-mix(in srgb, var(--accent, #7cc4ff) 20%, transparent); }
+  aside { overflow: auto; }
+  form { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  label { font-size: 12px; opacity: .8; }
+  input, textarea { width: 100%; box-sizing: border-box; font: inherit; color: inherit; background: var(--bg, #111); border: 1px solid #555; border-radius: 6px; padding: 6px; }
+  textarea { font-family: ui-monospace, monospace; font-size: 13px; }
+  #body { flex: 1; min-height: 12rem; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .muted { opacity: .7; }
+  .hidden { display: none; }
+</style>
+<aside>
+  <button id="new">New post</button>
+  <p class="muted" id="who"></p>
+  <h3>Published</h3>
+  <ul id="pub"></ul>
+  <h3>Your drafts</h3>
+  <ul id="drafts"></ul>
+</aside>
+<form id="form">
+  <label>Title <input id="title" required maxlength="200"></label>
+  <div class="grid">
+    <label>Slug (the address /blog/slug) <input id="slug" placeholder="from the title" pattern="[a-z0-9]([a-z0-9-]{0,78}[a-z0-9])?"></label>
+    <label>Date <input id="date" type="date"></label>
+    <label>Author (the byline) <input id="author"></label>
+  </div>
+  <label>Summary (the index, the feed and link previews show it) <input id="summary"></label>
+  <label>Coming next (one per line; shown above the email signup) <textarea id="upcoming" rows="2"></textarea></label>
+  <label>Post, in markdown <textarea id="body"></textarea></label>
+  <div class="row">
+    <span id="state" class="muted"></span>
+    <button type="button" id="draft">Save as draft</button>
+    <button type="button" id="publish">Publish</button>
+    <span id="msg" class="muted"></span>
+  </div>
+</form>
+<script>
+  // A post is an article tagged blog in this building. Its body is front matter (slug, date, author, summary, upcoming)
+  // then markdown; muster.town/blog serves every published one (packages/server/src/blog.ts postOf).
+  let current = null, viewer = {};
+  const $ = (id) => document.getElementById(id);
+  const KEYS = ["slug", "date", "author", "summary"];
+  const slugify = (t) => t.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80).replace(/-+$/, "");
+
+  function parse(text) {
+    const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text || "");
+    const meta = { upcoming: [] }; let list = null;
+    if (!m) return { meta, body: text || "" };
+    for (const line of m[1].split(/\r?\n/)) {
+      const item = /^\s+-\s+(.*)$/.exec(line);
+      if (item && list === "upcoming") { meta.upcoming.push(item[1].trim()); continue; }
+      const kv = /^([A-Za-z]+):\s*(.*)$/.exec(line);
+      if (!kv) continue;
+      list = kv[1].toLowerCase();
+      if (list !== "upcoming") meta[list] = kv[2].trim().replace(/^(["'])(.*)\1$/, "$2");
+    }
+    return { meta, body: m[2].replace(/^\r?\n/, "") };
+  }
+  function assemble() {
+    const one = (v) => v.replace(/\s*\n\s*/g, " ").trim();
+    const lines = [];
+    for (const k of KEYS) { const v = one($(k).value); if (v) lines.push(k + ": " + v); }
+    const up = $("upcoming").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (up.length) lines.push("upcoming:", ...up.map((u) => "  - " + u));
+    return (lines.length ? "---\n" + lines.join("\n") + "\n---\n\n" : "") + $("body").value;
+  }
+  function show(d) {
+    current = d;
+    const { meta, body } = parse(d ? d.body : "");
+    $("title").value = d ? (meta.title || d.title) : "";
+    $("slug").value = meta.slug || ""; $("date").value = meta.date || (d ? d.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    $("author").value = meta.author || (d ? "" : viewer.name || ""); $("summary").value = meta.summary || "";
+    $("upcoming").value = meta.upcoming.join("\n"); $("body").value = body;
+    const published = d && d.state !== "draft";
+    const slug = meta.slug || slugify($("title").value);
+    $("state").textContent = !d ? "New post." : published ? "Published at muster.town/blog/" + slug + "." : "Draft: only you see it.";
+    $("draft").textContent = published ? "Unpublish" : "Save as draft";
+    // a published post goes back to draft only by its author: a draft is private, so anyone else would lose sight of it
+    $("draft").classList.toggle("hidden", !!published && d.authorId !== viewer.id);
+    $("publish").textContent = published ? "Save" : "Publish";
+    $("msg").textContent = "";
+    for (const li of document.querySelectorAll("li[data-id]")) li.classList.toggle("on", !!d && li.dataset.id === d.id);
+  }
+  function item(d) {
+    const li = document.createElement("li"); li.dataset.id = d.id;
+    const { meta } = parse(d.body);
+    li.textContent = meta.title || d.title;
+    const s = document.createElement("small"); s.textContent = (meta.date || d.createdAt.slice(0, 10)) + (meta.author ? " · " + meta.author : "");
+    li.append(s); li.onclick = () => show(d);
+    return li;
+  }
+  function fill(ul, docs, empty) {
+    ul.replaceChildren(...docs.map(item));
+    if (!docs.length) { const li = document.createElement("li"); li.className = "muted"; li.textContent = empty; ul.append(li); }
+  }
+  async function load() {
+    const docs = await town.docs.list({ limit: 200 });
+    fill($("pub"), docs.filter((d) => d.state !== "draft"), "No posts yet.");
+    fill($("drafts"), docs.filter((d) => d.state === "draft"), viewer.signedIn ? "No drafts." : "Sign in to write.");
+    return docs;
+  }
+  async function save(state) {
+    if (!$("form").reportValidity()) return;
+    $("msg").textContent = "Saving…";
+    try {
+      const d = await town.docs.write({ id: current ? current.id : undefined, title: $("title").value, body: assemble(), state });
+      await load(); show(d); $("msg").textContent = state === "draft" ? "Saved as a draft." : "Published.";
+    } catch (err) { $("msg").textContent = err.message; }
+  }
+  $("new").onclick = () => show(null);
+  $("draft").onclick = () => save("draft");
+  $("publish").onclick = () => save("building");
+  town.hello().then((h) => {
+    viewer = h.viewer;
+    $("who").textContent = h.viewer.signedIn ? "You are " + h.viewer.name + "." : "Sign in to write.";
+    return load();
+  }).then(() => show(null)).catch((err) => { $("who").textContent = err.message; });
+</script>
