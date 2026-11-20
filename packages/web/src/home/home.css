@@ -21,6 +21,9 @@ a.tile:hover, a.tile:focus-visible { transform: translateY(-2px); box-shadow: 0 
 .tile-live:empty { display: none; }
 .tile-live { position: absolute; left: 6px; top: 6px; padding: 1px 8px; border-radius: 999px; background: var(--paper); border: 2px solid var(--ink); font-size: var(--fs-xs); font-weight: 600; }
 .tile-live.on::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--green); vertical-align: 0; }
+/* a self-hosted town from the directory: no preview, a plain tile with its pill; it opens the town's own site */
+.tile.tile-ext { background: color-mix(in srgb, var(--blue) 55%, var(--paper)); }
+.tile-self { position: absolute; left: 6px; top: 6px; padding: 1px 8px; border-radius: 999px; background: var(--paper); border: 2px solid var(--ink); font-size: var(--fs-xs); font-weight: 600; }
 .tile.placeholder { background: transparent; border: 3px dashed var(--ink-3); box-shadow: none; display: grid; place-items: center; }
 .tile.placeholder .tile-name { background: transparent; border-top: none; color: var(--ink-2); }
 .tile-soon { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--ink-3); color: var(--ink-2); font-size: var(--fs-xs); font-weight: 600; }
