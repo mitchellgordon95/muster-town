@@ -27,47 +27,6 @@ export function deltaOf(body: string): { delta: string; rest: string } {
   return { delta, rest: text.slice(m?.[0].length ?? text.length).trim() };
 }
 
-/** An "If you <words>:" sentence start, at a line start or after a sentence's end. */
-const IF_YOU = /(^|[.!?]\s+)If you ([^:\n]{1,80}):/gi;
-
-/**
- * The card contract's "If you <branch>: …" sentences (docs/legible-delegation.md §5), split out of the body so each
- * shows in the card's consequence list, after the body. A sentence runs from its "If you" to the next "If you …:" or the line's end. It goes
- * to the branch whose label starts its words, case-insensitively and on a word boundary ("If you counter at 50k:"
- * is Counter's, "If you add it:" is Add's), else to the one branch whose label shares its first word ("If you cap:" is
- * "Cap at 0.1 million a day"'s). One that names no branch stays in the body, as does a branch's second one.
- */
-export function splitConsequences(body: string, labels: string[]): { body: string; byLabel: Record<string, string> } {
-  const byLabel: Record<string, string> = {};
-  const norm = (t: string) => t.toLowerCase().replace(/\s+/g, " ").trim();
-  const labelOf = (words: string) => {
-    const w = norm(words);
-    const full = labels.filter((l) => { const n = norm(l).replace(/[.…]+$/, ""); return !!n && (w === n || (w.startsWith(n) && /^[^a-z0-9]/.test(w.slice(n.length)))); })
-      .sort((a, b) => b.length - a.length)[0];
-    if (full) return full;
-    // else the one label that shares its first word ("If you cap:" is "Cap at 0.1 million a day"'s, "If you leave it:" is
-    // "Leave uncapped"'s); two labels on the same first word name none
-    const first = (t: string) => norm(t).match(/^[a-z0-9']+/)?.[0];
-    const one = labels.filter((l) => !!first(w) && first(l) === first(w));
-    return one.length === 1 ? one[0] : undefined;
-  };
-  const lines = body.split("\n").map((line) => {
-    const hits = [...line.matchAll(IF_YOU)].map((m) => ({ start: m.index! + m[1]!.length, words: m[2]! }));
-    if (!hits.length) return line;
-    let kept = line.slice(0, hits[0]!.start);
-    hits.forEach((h, i) => {
-      const seg = line.slice(h.start, hits[i + 1]?.start ?? line.length);
-      const label = labelOf(h.words);
-      if (label && !(label in byLabel)) byLabel[label] = seg.trim();
-      else kept += seg;
-    });
-    return kept.trimEnd();
-  });
-  // a line emptied by the split goes; a blank line (a paragraph break) stays, collapsed to one
-  const out = lines.filter((l, i) => l.trim() !== "" || (body.split("\n")[i]!.trim() === "")).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return { body: out, byLabel };
-}
-
 /**
  * What a branch button does, by the ask's target (§11 B): a grant decides through POST /api/grants/:id/decide, a retainer
  * through its retainer decide, a captain or access request through its own decide, a request through done or

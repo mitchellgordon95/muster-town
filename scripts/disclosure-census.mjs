@@ -39,11 +39,10 @@
  * Ask-card row (grant gr_x7p580xe1o: kr_2grnxy8ig7, kr_g3qtv4vbsb, kr_6jxbastxzt): when the queue is a target, the census also opens
  * #/queue (mock: open({kind: "queue"})) at 1366×800 and 390×844 and presses J through every item, one row per ask card: body
  * font-weight, bold blocks (the lead .ask-delta and any bold paragraph in the body; at most 1), the most characters on one line
- * (character rects grouped by line, over the lead, recommendation, body and consequences), the top of the recommendation and
- * of the decision row (.ask-actions: buttons, or Sign in to decide), and stray "If you <branch>:" sentences left in the body or lead
- * (one whose first word starts a branch's label, from the card's data-branches).
- * Passes at 1366: weight 400, ≤1 bold block, ≤80 chars/line, no stray; at 390: recommendation top < 844. The decision row's top is
- * printed, not judged: every button sits together at the bottom, below the text (Mitchell, 2026-11-20), so a long card scrolls to it.
+ * (character rects grouped by line, over the lead, recommendation and body), the top of the recommendation, and the decision row
+ * (.ask-actions: buttons, or Sign in to decide): it must be the card's last block, the only one, and hold every button on the card
+ * (Mitchell, 1:1 mt_gf4un6ct4p: the buttons go in one row at the bottom, below all text; "If you <branch>:" stays in the body).
+ * Passes at 1366: weight 400, ≤1 bold block, ≤80 chars/line, row at the bottom; at 390: recommendation top < 844, row at the bottom.
  *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
@@ -207,7 +206,7 @@ const measureAsk = (page) => page.evaluate(() => {
     }
     return [...out.values()];
   };
-  const parts = [...c.querySelectorAll(".ask-delta, .ask-rec, .ask-body, .ask-conseq")];
+  const parts = [...c.querySelectorAll(".ask-delta, .ask-rec, .ask-body")];
   let maxChars = 0;
   for (const e of parts) {
     const text = e.textContent ?? ""; if (!text.trim()) continue;
@@ -220,13 +219,14 @@ const measureAsk = (page) => page.evaluate(() => {
   const body = c.querySelector(".ask-body"), lead = c.querySelector(".ask-delta"), rec = c.querySelector(".ask-rec"), row = c.querySelector(".ask-actions");
   const bodyBlocks = body ? [...body.querySelectorAll("p, li")] : [];
   const bold = (lead && +cs(lead).fontWeight >= 600 ? 1 : 0) + bodyBlocks.filter((b) => +cs(b).fontWeight >= 600 || (b.textContent.trim() && [...b.querySelectorAll("strong, b")].reduce((a, s) => a + s.textContent.length, 0) >= b.textContent.trim().length * 0.8)).length;
-  // an "If you …:" left in the body or lead whose first word starts a branch's label (data-branches: a guest sees no buttons)
-  const first = (t) => t.toLowerCase().match(/^[a-z0-9']+/)?.[0];
-  const firsts = (c.dataset.branches ?? "").split("|").map(first).filter(Boolean);
-  const stray = [...((body?.textContent ?? "") + " " + (lead?.textContent ?? "")).matchAll(/If you ([^:.\n]{1,40}):/g)].filter((m) => firsts.includes(first(m[1])));
+  // the decision row is the card's one row of buttons, last on the card: every button inside it, nothing laid out below it
+  const rows = c.querySelectorAll(".ask-actions");
+  const rowBottom = row ? row.getBoundingClientRect().top : 0;
+  const below = row ? [...c.children].filter((e) => e !== row && e.getBoundingClientRect().height > 0 && e.getBoundingClientRect().top >= rowBottom).length : 0;
+  const loose = row ? [...c.querySelectorAll("button")].filter((b) => !row.contains(b)).length : c.querySelectorAll("button").length;
   return { title: c.querySelector(".ask-title")?.textContent?.trim() ?? "", weight: body ? +cs(body).fontWeight : lead ? 400 : null, bold, maxChars,
     recTop: rec ? Math.round(rec.getBoundingClientRect().top) : null, rowTop: row ? Math.round(row.getBoundingClientRect().top) : null,
-    conseq: c.querySelectorAll(".ask-conseq").length, stray: stray.length };
+    rowLast: rows.length === 1 && c.lastElementChild === row && below === 0, loose };
 });
 
 // ---- run ----
@@ -291,8 +291,8 @@ if (targets.some((t) => t.kind === "queue")) {
       else {
         misses = 0; seen.add(key);
         const why = size.n === "laptop"
-          ? [m.weight !== 400 && `weight ${m.weight}`, m.bold > 1 && `bold ${m.bold}`, m.maxChars > 80 && `chars ${m.maxChars}>80`, m.stray && `${m.stray} "If you" left in the body`].filter(Boolean)
-          : [!(m.recTop == null || m.recTop < size.h) && `recommendation at ${m.recTop}`, m.stray && `${m.stray} "If you" left in the body`].filter(Boolean);
+          ? [m.weight !== 400 && `weight ${m.weight}`, m.bold > 1 && `bold ${m.bold}`, m.maxChars > 80 && `chars ${m.maxChars}>80`, !m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean)
+          : [!(m.recTop == null || m.recTop < size.h) && `recommendation at ${m.recTop}`, !m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean);
         askRows.push({ size: `${size.w}×${size.h}`, ...m, verdict: why.length ? `FAIL ${why.join(", ")}` : "pass" });
         if (flags.shots && askRows.filter((r) => r.size === `${size.w}×${size.h}`).length === 1) await page.screenshot({ path: `${flags.shots}/askcard-${size.n}.png` }).catch(() => {});
       }
@@ -313,9 +313,9 @@ else {
   const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
   console.log(`\n${counted.filter((r) => r.verdict.startsWith("pass")).length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
   if (targets.some((t) => t.kind === "queue")) {
-    console.log("\nAsk-card row: every ask card in #/queue, J by J. Pass at 1366: body weight 400, ≤1 bold block, ≤80 chars/line, no \"If you <branch>:\" left in the body; at 390: recommendation top < 844 (the decision row sits at the bottom; its top is shown, not judged).");
-    console.log("| size | ask | body weight | bold blocks | max chars/line | rec top | decision row top | consequences | stray \"If you\" | verdict |\n|---|---|---|---|---|---|---|---|---|---|");
-    for (const r of askRows) console.log(`| ${r.size} | ${r.title.slice(0, 60)} | ${r.weight ?? ""} | ${r.bold} | ${r.maxChars} | ${r.recTop ?? ""} | ${r.rowTop ?? ""} | ${r.conseq} | ${r.stray} | ${r.verdict} |`);
+    console.log("\nAsk-card row: every ask card in #/queue, J by J. Pass at 1366: body weight 400, ≤1 bold block, ≤80 chars/line, decision row last with every button in it; at 390: recommendation top < 844, decision row last with every button in it.");
+    console.log("| size | ask | body weight | bold blocks | max chars/line | rec top | decision row top | row last | buttons outside row | verdict |\n|---|---|---|---|---|---|---|---|---|---|");
+    for (const r of askRows) console.log(`| ${r.size} | ${r.title.slice(0, 60)} | ${r.weight ?? ""} | ${r.bold} | ${r.maxChars} | ${r.recTop ?? ""} | ${r.rowTop ?? ""} | ${r.rowLast ? "yes" : "no"} | ${r.loose} | ${r.verdict} |`);
     console.log(`\n${askRows.filter((r) => r.verdict === "pass").length} of ${askRows.length} ask-card rows pass${askRows.length ? "" : " (no open ask: the queue is empty)"}.`);
   }
 }
