@@ -254,13 +254,13 @@ describe("the ask card", () => {
   });
 });
 
-describe("the card's order: every button in one row at the bottom (Mitchell, 1:1 mt_gf4un6ct4p)", () => {
-  it("puts lead, recommendation, the whole body with its 'If you' sentences, then the buttons, Steer and the record last", async () => {
+describe("the card's order: the old card, every button in one row at the bottom (Mitchell, 1:1 mt_gf4un6ct4p, mt_eq521xwgth)", () => {
+  it("puts lead, the body with its 'If you' sentences, the recommendation, then the buttons, Steer and the record last", async () => {
     signIn();
     const el = await mount(<AskCard ask={ask("ak_ocean")} grant={grant("gr_ocean")} onDecided={() => undefined} onOpenRecord={() => undefined} />);
     const t = el.textContent!;
     const at = (w: string) => { const i = t.indexOf(w); expect(i, w).toBeGreaterThan(-1); return i; };
-    const order = [at("This is a new proposal."), at("Moss recommends fund"), at("If you fund:"), at("If you reject:")];
+    const order = [at("This is a new proposal."), at("If you fund:"), at("If you reject:"), at("Moss recommends fund")];
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     const card = el.querySelector("article")!;
     const row = card.querySelector(".ask-actions")!;

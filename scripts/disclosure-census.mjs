@@ -42,7 +42,8 @@
  * (character rects grouped by line, over the lead, recommendation and body), the top of the recommendation, and the decision row
  * (.ask-actions: buttons, or Sign in to decide): it must be the card's last block, the only one, and hold every button on the card
  * (Mitchell, 1:1 mt_gf4un6ct4p: the buttons go in one row at the bottom, below all text; "If you <branch>:" stays in the body).
- * Passes at 1366: weight 400, ≤1 bold block, ≤80 chars/line, row at the bottom; at 390: recommendation top < 844, row at the bottom.
+ * Passes at 1366: weight 400, ≤1 bold block, row at the bottom; at 390: row at the bottom. Chars/line and the recommendation's top are
+ * informational: the card keeps its old width and order, the recommendation after the body (Mitchell, 1:1 mt_eq521xwgth: only the bold went).
  *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
@@ -291,8 +292,8 @@ if (targets.some((t) => t.kind === "queue")) {
       else {
         misses = 0; seen.add(key);
         const why = size.n === "laptop"
-          ? [m.weight !== 400 && `weight ${m.weight}`, m.bold > 1 && `bold ${m.bold}`, m.maxChars > 80 && `chars ${m.maxChars}>80`, !m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean)
-          : [!(m.recTop == null || m.recTop < size.h) && `recommendation at ${m.recTop}`, !m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean);
+          ? [m.weight !== 400 && `weight ${m.weight}`, m.bold > 1 && `bold ${m.bold}`, !m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean)
+          : [!m.rowLast && "decision row not last", m.loose && `${m.loose} button(s) outside the row`].filter(Boolean);
         askRows.push({ size: `${size.w}×${size.h}`, ...m, verdict: why.length ? `FAIL ${why.join(", ")}` : "pass" });
         if (flags.shots && askRows.filter((r) => r.size === `${size.w}×${size.h}`).length === 1) await page.screenshot({ path: `${flags.shots}/askcard-${size.n}.png` }).catch(() => {});
       }
@@ -313,7 +314,7 @@ else {
   const counted = rows.filter((r) => r.verdict.startsWith("pass") || r.verdict.startsWith("FAIL"));
   console.log(`\n${counted.filter((r) => r.verdict.startsWith("pass")).length} of ${counted.length} rows pass; ${rows.length - counted.length} excluded or not opened.`);
   if (targets.some((t) => t.kind === "queue")) {
-    console.log("\nAsk-card row: every ask card in #/queue, J by J. Pass at 1366: body weight 400, ≤1 bold block, ≤80 chars/line, decision row last with every button in it; at 390: recommendation top < 844, decision row last with every button in it.");
+    console.log("\nAsk-card row: every ask card in #/queue, J by J. Pass at 1366: body weight 400, ≤1 bold block, decision row last with every button in it; at 390: decision row last with every button in it. Chars/line and rec top are informational.");
     console.log("| size | ask | body weight | bold blocks | max chars/line | rec top | decision row top | row last | buttons outside row | verdict |\n|---|---|---|---|---|---|---|---|---|---|");
     for (const r of askRows) console.log(`| ${r.size} | ${r.title.slice(0, 60)} | ${r.weight ?? ""} | ${r.bold} | ${r.maxChars} | ${r.recTop ?? ""} | ${r.rowTop ?? ""} | ${r.rowLast ? "yes" : "no"} | ${r.loose} | ${r.verdict} |`);
     console.log(`\n${askRows.filter((r) => r.verdict === "pass").length} of ${askRows.length} ask-card rows pass${askRows.length ? "" : " (no open ask: the queue is empty)"}.`);
