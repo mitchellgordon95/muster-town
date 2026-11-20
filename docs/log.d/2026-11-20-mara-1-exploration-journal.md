@@ -1,0 +1,1 @@
+- 2026-11-20 Mara 1: every goal-directed building has a town-kept "Exploration journal" topic page: one line per closed exploration (date, direction, outcome, tokens), newest first, last 60 kept, seeded from the last 7 days; each new explorer gets it attached and is told to read it first and cite the lines it built on (gr_6id9g7u9cj step 2).

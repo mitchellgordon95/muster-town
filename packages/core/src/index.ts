@@ -43,6 +43,7 @@ export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
 export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
 export { EXPLORE_CEILING_SHARE, EXPLORE_MAX_GAP_MS, EXPLORE_MIN_GAP_MS, assignmentSpent, emptyExplorations, exploreBlock, exploreGapMs, exploreResetAt, exploreOrder, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
+export { JOURNAL_MAX_LINES, JOURNAL_SEED_DAYS, JOURNAL_TITLE, appendJournal, ensureJournal, ensureJournals, journalLine, reportReason } from "./exploration-journal.ts";
 export { SESSION_CIRCUIT_BREAKER, circuitBreakerTick, type CircuitCut } from "./circuit-breaker.ts";
 export { Ops, type Actor, type ThreadMessage } from "./ops.ts";
 export { createBuilding, STARTER_MANAGER_MODEL, updateBuilding, syncManagerRoles, createResident, registerVisitor, ensureAvatar, createUser, updateFurniture, followRelayout } from "./entities.ts";
