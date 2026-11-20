@@ -103,7 +103,7 @@ export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
 export { BUST_TURN_RATE, CACHE_MISS_SHARE, cacheMissCheck, checkCacheMiss, MIN_SESSIONS, MIN_TURNS, sessionBust, storedTurns, turnUsage, type Turn } from "./cache-miss.ts";
 export { tickMemo, withTickMemo } from "./tick-memo.ts";
 // legible delegation steps 3-4: asks, what each human has seen, claim checks, the shared SSRF guard
-export { decideAsk, deferAsk, openAsks } from "./asks.ts";
+export { canDecideAsk, decideAsk, deferAsk, openAsks } from "./asks.ts";
 export { answerEntry, appendEntry, bookEntryTokens, entryOf, fileDeadSession, jobThread, openManagerEntries, type Entry } from "./jobs.ts";
 export { answer, asksSomething, type Answer, type EntryFacts } from "./answer.ts";
 export { namesLiveCheck, statusAtClose } from "./kr-evidence.ts";

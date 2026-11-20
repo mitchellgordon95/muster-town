@@ -1,0 +1,1 @@
+- 2026-11-20 Captains decide every ask in their subtree (gr_0vuiuqcw8p step 1): `canDecideAsk` (building.fund or captain of the ask's goal), every live ask routed by its own id in the in-tray, web reads ask routes by ask id (Mine, buttons).

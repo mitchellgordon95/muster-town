@@ -19,7 +19,7 @@ import { api, type Intray } from "../api";
 import { store, useTown } from "../state";
 import { AskCard } from "./AskCard";
 import { slateAsks } from "./asks";
-import { buildingOf, cardsBeingWritten, currentItem, focusOf, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
+import { askRoute, buildingOf, cardsBeingWritten, currentItem, focusOf, kindWord, mineAsks, queueItems, stepFrom, waitingSince, type QueueItem } from "./queueOrder";
 import { DocView } from "./DocView";
 import { FundingView } from "./FundingView";
 import { isFunder, type IntrayView } from "./funderFilter";
@@ -234,7 +234,7 @@ export function DecisionQueueView({ data, error = null, loading = false, funder 
       </div>
       {sheet === "funding" ? (
         <Sheet label="Funding" title="Funding" sub="The slate: toggle, then decide each card" onClose={() => setSheet(null)} escFirst maxWidth={860}>
-          <FundingView asks={data?.asks ?? []} grants={allGrants} notices={data?.notices} onDecided={onReload} onOpenRecord={(id) => { setSheet(null); openRecord(id, data, setRecord); }} />
+          <FundingView asks={data?.asks ?? []} grants={allGrants} notices={data?.notices} routes={routes} onDecided={onReload} onOpenRecord={(id) => { setSheet(null); openRecord(id, data, setRecord); }} />
         </Sheet>
       ) : sheet === "feed" ? (
         <Sheet label="What shipped" title="What shipped" sub="What shipped, closed and was verified" onClose={() => setSheet(null)} escFirst maxWidth={760}>
@@ -279,7 +279,7 @@ function openRecord(id: string, data: Intray | null, set: (id: string | null) =>
 function ItemView({ item: x, grants, retainers = [], routes, onDecided, onReload, onOpenRecord }: { item: QueueItem; grants: GrantView[]; retainers?: ScheduleView[]; routes: Record<string, IntrayRoute>; onDecided: () => void; onReload: () => void; onOpenRecord: (id: string) => void }) {
   if (x.kind === "ask") {
     const a = x.ask;
-    return <AskCard key={a.id} ask={a} grant={a.targetKind === "grant" ? grants.find((g) => g.id === a.targetId) : undefined} retainer={a.targetKind === "retainer" ? retainers.find((r) => r.id === a.targetId) : undefined} canDecide={routes[a.targetId ?? ""]?.canDecide} onDecided={onDecided} onOpenRecord={onOpenRecord} />;
+    return <AskCard key={a.id} ask={a} grant={a.targetKind === "grant" ? grants.find((g) => g.id === a.targetId) : undefined} retainer={a.targetKind === "retainer" ? retainers.find((r) => r.id === a.targetId) : undefined} canDecide={askRoute(a, routes)?.canDecide} onDecided={onDecided} onOpenRecord={onOpenRecord} />;
   }
   return (
     <div className="queue-item" key={x.id}>

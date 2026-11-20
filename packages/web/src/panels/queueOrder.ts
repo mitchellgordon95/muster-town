@@ -42,10 +42,18 @@ export function askedIds(asks: Pick<AskView, "targetId" | "sourceDocId">[]): Set
   return ids;
 }
 
-/** Under "Mine", the asks whose item is routed to the viewer, and every ask with no route (a policy, a meeting). */
+/**
+ * An ask's route: its own (the server routes every live ask by its goal, gr_0vuiuqcw8p), else its item's (an older
+ * server), else none.
+ */
+export function askRoute(a: Pick<AskView, "id" | "targetId" | "sourceDocId">, routes: Record<string, IntrayRoute>): IntrayRoute | undefined {
+  return routes[a.id] ?? routes[a.targetId ?? ""] ?? routes[a.sourceDocId ?? ""];
+}
+
+/** Under "Mine", the asks routed to the viewer, and every ask with no route at all. */
 export function mineAsks(asks: AskView[], routes: Record<string, IntrayRoute>, mine: boolean): AskView[] {
   if (!mine) return asks;
-  return asks.filter((a) => { const r = routes[a.targetId ?? ""] ?? routes[a.sourceDocId ?? ""]; return !r || r.mine; });
+  return asks.filter((a) => { const r = askRoute(a, routes); return !r || r.mine; });
 }
 
 /** When an item started waiting (its line's "how long it has waited"). */
