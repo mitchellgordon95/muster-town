@@ -12,6 +12,9 @@
  * `homePage2`, `homePage3`, `homeSkip`, `homeOpen` and `homeTile` (gr_ptle4vvujl) follow a homepage browser past the page
  * load: it reached the pitch card's page 2 or 3, pressed Skip or closed the card, pressed Open, or clicked a collective tile,
  * each once per UTC day.
+ * `sources` and `blogReads` (gr_ox3fmliv9n) say which channel brought them: a homepage or guest-card visitor's first ping of
+ * the day carries a source (`funnelSource`: a ?ref= tag, else the external referrer's host, else "direct"), and each GET of a
+ * blog post counts with its Referer's host, in join_funnel_sources. Counts only, never a path, IP or id.
  */
 import { createHash } from "node:crypto";
 import type { World } from "./world.ts";
@@ -28,7 +31,11 @@ export const HOME_STEPS = { page2: "homePage2", page3: "homePage3", skip: "homeS
 export type HomeStep = (typeof HOME_STEPS)[keyof typeof HOME_STEPS];
 export type FunnelCounts = Record<FunnelStep, number>;
 export interface FunnelDay extends FunnelCounts { day: string }
-export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null }
+/** One day's count of a step from one source (gr_ox3fmliv9n): homeViews or guestVisitors, browsers once per day. */
+export interface FunnelSourceRow { day: string; step: SourceStep; source: string; count: number }
+/** One day's reads of a blog post from one source (gr_ox3fmliv9n): each GET of /blog/<slug>, bots left out. */
+export interface BlogReadRow { day: string; slug: string; source: string; count: number }
+export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null; sources: FunnelSourceRow[]; blogReads: BlogReadRow[] }
 
 export const FUNNEL_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -63,6 +70,82 @@ export function countVisitor(world: World, step: VisitorStep, visitorId: string,
   return true;
 }
 
+/** The steps a visitor's source is counted on (gr_ox3fmliv9n). */
+export type SourceStep = "homeViews" | "guestVisitors";
+const REF_TAG = /^[a-z0-9-]{1,24}$/;
+const HOST = /^[a-z0-9](?:[a-z0-9.-]{0,62}[a-z0-9])?$/;
+/** A day keeps at most this many distinct sources; past it a new one counts as "other" (a flood of made-up referrers can't grow the table). */
+export const MAX_SOURCES_PER_DAY = 200;
+
+/**
+ * Where a visitor came from, as one short label: a `?ref=` tag (a-z0-9-, at most 24 chars, lowercased) when the link had
+ * one, else the referrer's host (no path, no port, a leading "www." dropped) when it is another site, else "direct" (no
+ * referrer, our own host, or a referrer that isn't an http(s) URL).
+ */
+export function funnelSource(o: { ref?: unknown; referrer?: unknown; ownHost?: string | null }): string {
+  const ref = typeof o.ref === "string" ? o.ref.trim().toLowerCase() : "";
+  if (REF_TAG.test(ref)) return `ref:${ref}`;
+  if (typeof o.referrer !== "string" || !o.referrer) return "direct";
+  let host: string;
+  try {
+    const u = new URL(o.referrer);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "direct";
+    host = u.hostname.toLowerCase().replace(/^www\./, "");
+  } catch { return "direct"; }
+  const own = (o.ownHost ?? "").toLowerCase().replace(/:\d+$/, "").replace(/^www\./, "");
+  if (!host || host === own || !HOST.test(host)) return "direct";
+  return host;
+}
+
+/** Add one to (today, source, step) in join_funnel_sources; a day past MAX_SOURCES_PER_DAY sources folds new ones into "other". */
+function countSource(world: World, step: string, source: string, now: number): void {
+  const day = utcDay(now);
+  const known = world.db.prepare("SELECT 1 FROM join_funnel_sources WHERE day = ? AND source = ? LIMIT 1").get(day, source);
+  if (!known && source !== "direct" && source !== "other") {
+    const { n } = world.db.prepare("SELECT COUNT(DISTINCT source) AS n FROM join_funnel_sources WHERE day = ?").get(day) as { n: number };
+    if (n >= MAX_SOURCES_PER_DAY) source = "other";
+  }
+  world.db.prepare("INSERT INTO join_funnel_sources (day, source, step, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, source, step) DO UPDATE SET n = n + 1").run(day, source, step);
+  world.db.prepare("DELETE FROM join_funnel_sources WHERE day < ?").run(utcDay(now - FUNNEL_DAYS * DAY_MS));
+}
+
+/**
+ * A homepage or guest-card visitor (gr_ox3fmliv9n): `countVisitor`, and when it is this browser's first time today on that
+ * step, one more for its source. So each day's sources add up to that day's homeViews (or guestVisitors); a browser that
+ * comes back the same day by another channel keeps its first source.
+ */
+export function countVisitorFrom(world: World, step: SourceStep, visitorId: string, source: string, now = Date.now()): boolean {
+  if (!countVisitor(world, step, visitorId, now)) return false;
+  countSource(world, step, source, now);
+  return true;
+}
+
+/** One read of a blog post (gr_ox3fmliv9n): the caller has left bots out and checked the slug is a public post. */
+export function countBlogRead(world: World, slug: string, source: string, now = Date.now()): void {
+  countSource(world, `blog:${slug}`, source, now);
+}
+
+function sourceRows(world: World, from: string, to: string): { sources: FunnelSourceRow[]; blogReads: BlogReadRow[] } {
+  const rows = world.db.prepare("SELECT day, source, step, n FROM join_funnel_sources WHERE day >= ? AND day <= ? ORDER BY day, n DESC, source").all(from, to) as { day: string; source: string; step: string; n: number }[];
+  const sources: FunnelSourceRow[] = [], blogReads: BlogReadRow[] = [];
+  for (const r of rows) {
+    if (r.step.startsWith("blog:")) blogReads.push({ day: r.day, slug: r.step.slice(5), source: r.source, count: r.n });
+    else sources.push({ day: r.day, step: r.step as SourceStep, source: r.source, count: r.n });
+  }
+  return { sources, blogReads };
+}
+
+/** Rows from several collectives as one: the same (day, key, source) summed, ordered by day then count. */
+function sumRows<T extends { day: string; source: string; count: number }>(parts: T[][], key: (r: T) => string): T[] {
+  const by = new Map<string, T>();
+  for (const r of parts.flat()) {
+    const k = `${r.day}\u0000${key(r)}\u0000${r.source}`;
+    const had = by.get(k);
+    by.set(k, had ? { ...had, count: had.count + r.count } : { ...r });
+  }
+  return [...by.values()].sort((a, b) => a.day.localeCompare(b.day) || b.count - a.count || a.source.localeCompare(b.source));
+}
+
 /** A request was decided after waiting `waitMs`: count it and keep the wait (no id) for the median. */
 export function countFunnelDecision(world: World, granted: boolean, waitMs: number, now = Date.now()): void {
   countFunnel(world, granted ? "letIn" : "declined", now);
@@ -75,7 +158,7 @@ export function joinFunnel(world: World, days = FUNNEL_DAYS, now = Date.now()): 
   const daily = world.db.prepare(`SELECT day, ${FUNNEL_STEPS.join(", ")} FROM join_funnel WHERE day >= ? AND day <= ? ORDER BY day`).all(from, to) as FunnelDay[];
   const totals = Object.fromEntries(FUNNEL_STEPS.map((s) => [s, daily.reduce((n, d) => n + d[s], 0)])) as FunnelCounts;
   const waits = (world.db.prepare("SELECT waitMs FROM join_funnel_waits WHERE day >= ? AND day <= ? ORDER BY waitMs").all(from, to) as { waitMs: number }[]).map((w) => w.waitMs);
-  return { days, from, to, daily, totals, decisions: waits.length, medianDecisionMs: median(waits) };
+  return { days, from, to, daily, totals, decisions: waits.length, medianDecisionMs: median(waits), ...sourceRows(world, from, to) };
 }
 
 /** Several collectives' funnels as one: summed totals and the median over every wait. */
@@ -84,7 +167,9 @@ export function sumFunnels(worlds: World[], days = FUNNEL_DAYS, now = Date.now()
   const totals = Object.fromEntries(FUNNEL_STEPS.map((s) => [s, parts.reduce((n, p) => n + p.totals[s], 0)])) as FunnelCounts;
   const to = utcDay(now), from = utcDay(now - (days - 1) * DAY_MS);
   const waits = worlds.flatMap((w) => (w.db.prepare("SELECT waitMs FROM join_funnel_waits WHERE day >= ? AND day <= ?").all(from, to) as { waitMs: number }[]).map((r) => r.waitMs)).sort((a, b) => a - b);
-  return { days, from, to, totals, decisions: waits.length, medianDecisionMs: median(waits) };
+  const sources = sumRows(parts.map((p) => p.sources), (r) => r.step);
+  const blogReads = sumRows(parts.map((p) => p.blogReads), (r) => r.slug);
+  return { days, from, to, totals, decisions: waits.length, medianDecisionMs: median(waits), sources, blogReads };
 }
 
 function median(sorted: number[]): number | null {

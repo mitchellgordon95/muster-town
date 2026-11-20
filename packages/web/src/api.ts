@@ -12,7 +12,7 @@ import type {
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
-import { visitorId } from "./visitor";
+import { arrivalSource, visitorId } from "./visitor";
 import { knownNames } from "./names";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
@@ -500,12 +500,17 @@ export interface EngagementView { days: number; from: string; to: string; daily:
 interface JoinFunnelCollective {
   slug: string; days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   daily: ({ day: string } & JoinFunnelCounts)[]; totals: JoinFunnelCounts;
+  sources: JoinFunnelView["sources"]; blogReads: JoinFunnelView["blogReads"];
 }
 /** GET /api/join-funnel (gr_fibsfwr4tz step 3): the last 30 days summed over every collective on this server (a hosted one: itself), counts only, then each collective. */
 export interface JoinFunnelView {
   days: number; from: string; to: string; decisions: number; medianDecisionMs: number | null;
   totals: JoinFunnelCounts;
   collectives: JoinFunnelCollective[];
+  /** gr_ox3fmliv9n: per day, homepage and guest-card visitors by source (a ref: tag, a referrer host, or direct); they add up to that day's homeViews / guestVisitors */
+  sources: { day: string; step: "homeViews" | "guestVisitors"; source: string; count: number }[];
+  /** gr_ox3fmliv9n: per day, each blog post's reads (GETs by browsers, bots left out) by source */
+  blogReads: { day: string; slug: string; source: string; count: number }[];
   /** the root's only (gr_ngg1z160a8 step 2): each hosted collective's founder road, dates null until they happen */
   founders?: { slug: string; state: "active" | "retired"; createdAt: string; keyAdded: boolean; firstSessionAt: string | null; firstProposalAt: string | null; firstGrantFundedAt: string | null }[];
 }
@@ -966,7 +971,7 @@ class HttpApi implements Api {
   joinFunnel() { return this.get<JoinFunnelView>("/api/join-funnel"); }
   engagement() { return this.get<EngagementView>("/api/engagement"); }
   healthStats() { return this.get<TownHealthView>("/api/health-stats"); }
-  async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined }); }
+  async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined, ...arrivalSource() }); }
   async countDoor(door: "fund" | "captain" | "agent") { await this.post("/api/join-funnel/door", { visitor: visitorId() ?? undefined, door }); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }

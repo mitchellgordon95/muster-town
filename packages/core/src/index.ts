@@ -54,7 +54,7 @@ export { blockedBy, buildingStats, waitsOnTime, townBlocked } from "./blockers.t
 export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, describeRepeat, editSchedule, endSchedule, fireSchedules, nextOccurrence, scheduleTaker, townSchedules, DEFAULT_SCHEDULE_DAYS, MAX_SCHEDULE_DAYS } from "./schedules.ts";
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
-export { countFunnel, countFunnelDecision, countVisitor, isAutomatedClient, joinFunnel, sumFunnels, DOORS, HOME_STEPS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type HomeStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { countBlogRead, countFunnel, countFunnelDecision, countVisitor, countVisitorFrom, funnelSource, isAutomatedClient, MAX_SOURCES_PER_DAY, type BlogReadRow, type FunnelSourceRow, type SourceStep, joinFunnel, sumFunnels, DOORS, HOME_STEPS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type HomeStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
 export { engagement } from "./engagement.ts";
 export { healthOf, healthLine, grantHolds, townHealth, isoWeekStart, PAPERWORK_MAX, HIT_MIN, type TownHealth, type HealthLine, type HealthInputs, type GrantHold } from "./health.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";

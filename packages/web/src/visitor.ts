@@ -14,3 +14,15 @@ export function visitorId(): string | null {
     return id;
   } catch { return null; }
 }
+
+/**
+ * Where this page load came from (gr_ox3fmliv9n): the link's ?ref= tag and document.referrer, sent with the first ping of
+ * the day. The server keeps only a short label (the tag, or the referrer's host with no path), never the URL.
+ */
+export function arrivalSource(): { ref?: string; referrer?: string } {
+  try {
+    const ref = new URLSearchParams(location.search).get("ref") ?? undefined;
+    const referrer = document.referrer || undefined;
+    return { ...(ref ? { ref } : {}), ...(referrer ? { referrer } : {}) };
+  } catch { return {}; }
+}
