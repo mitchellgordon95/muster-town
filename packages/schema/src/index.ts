@@ -2147,7 +2147,7 @@ export const EventType = z.enum([
   "doc.created", "doc.updated", "doc.state", "doc.decision",
   "entry.created", // an entry with no doc landed on a job's thread (core jobs.ts appendEntry): a dead session, a human's decision or words
   "assignment.created", "assignment.status", "assignment.delegated", "schedule.created", "schedule.fired", "schedule.skipped", "schedule.edited", "schedule.ended", "retainer.asked", "retainer.decided", "retainer.released",
-  "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed",
+  "exploration.reserved", "exploration.started", "exploration.proposed", "exploration.closed", "exploration.journaled",
   "meeting.created", "meeting.phase", "meeting.utterance", "meeting.decisions", "meeting.slide",
   "session.started", "session.ended",
   "pr.merged", // merge when green (core waits.ts closeMerged, gr_rlt0ctnhqk)

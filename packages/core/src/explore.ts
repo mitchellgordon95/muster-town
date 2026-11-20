@@ -14,6 +14,7 @@ import { jobOf, refreshJob } from "./jobs.ts";
 import { sessionView } from "./bank.ts";
 import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
 import { freeDesks } from "./forks.ts";
+import { ensureJournal, ensureJournals, JOURNAL_TITLE } from "./exploration-journal.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
 import { stamp } from "./time.ts";
@@ -127,10 +128,13 @@ function startExplorer(world: World, b: Building, now: Date): Assignment {
     const a = createAssignment(world, {
       agentId: manager.id, buildingId: b.id, createdBy: { kind: "system", id: r.id },
       title: `Explore under "${truncate(goal?.text ?? b.name, 70)}"`,
-      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, title (3-8 words), objective, approach, stopCondition, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, each sized S, M or L, funding queues step 1; the ask is the sum of the sizes), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your plan to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.`,
+      description: `The town's explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens (${r.id}) for this session because ${b.name} had a free desk and free tokens under its goal ${goalId}. Pick ONE direction under the goal, investigate it this session (the live town, the code, the web), and end with ONE grant proposal (\`propose_grant\`: goalId in your subtree, title (3-8 words), objective, approach, stopCondition, 2-4 keyResults with howToCheck and due, 1-5 steps: one session each, each sized S, M or L, funding queues step 1; the ask is the sum of the sizes), or, if nothing is worth a grant, a short report on why. Before you propose anything, read docs/how-work-gets-done.md §7 (the Bank: one balance, earmarks, free tokens: what your ask is paid from) and §8 (exploration caps: they combine as the smallest on the path to the root); size your plan to the free tokens under the goal. Stay within the chunk: you are asked to wrap up at ${Math.round(EXPLORE_CEILING_SHARE * 100)}% of it.\n\nFirst read the building's "${JOURNAL_TITLE}" (a topic page, in full in your first message): one line per earlier exploration here, newest first, with the direction it took and what came of it. Read the latest lines first. Do not re-explore a direction the journal rules out unless what it waited on has moved (say what moved). In your report, name the journal lines you built on (their date and report id), or say that none applied.`,
       lane: { lane: "exploration", gap: `Explore under: ${goalText}`.slice(0, 300) }, reservationId: r.id,
     });
     world.bankReservations.upsert({ ...r, assignmentId: a.id });
+    // gr_6id9g7u9cj step 2: the building's exploration journal opens in full in the explorer's first message
+    const journal = ensureJournal(world, b, now);
+    if (journal) world.assignments.patch(a.id, { pages: [journal.id] });
     world.events.append({
       type: "exploration.reserved", agentId: manager.id, buildingId: b.id,
       text: `${b.name}: the explore tick reserved ${rule.chunkTokens.toLocaleString("en-US")} tokens and queued an explorer under "${truncate(goal?.text ?? goalId, 80)}"`,
@@ -213,6 +217,7 @@ export function exploreOrder(world: World): Building[] {
 /** The runtime tick's explore step: close finished reservations, watch running explorers, then start at most one explorer per building, least recently explored first. */
 export function exploreTick(world: World, now = new Date(), time: SubTimer = untimed): { started: Assignment[]; closed: BankReservation[] } {
   const closed = time("explore.close", () => closeReservations(world, now));
+  time("explore.journal", () => ensureJournals(world, now));
   time("explore.watch", () => watchExplorers(world));
   const started: Assignment[] = [];
   let free = time("explore.freeTokensAll", () => freeTokensAll(world, now));

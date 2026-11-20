@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildingBoard, buildingRoleId, createAssignment, createBuilding, emptyExplorations, exploreBlock, exploreGapMs, plantFlag, stamp, EXPLORE_MAX_GAP_MS, exploreOrder, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS } from "../src/index.ts";
+import { buildingBoard, buildingRoleId, createAssignment, createBuilding, emptyExplorations, exploreBlock, exploreGapMs, plantFlag, stamp, EXPLORE_MAX_GAP_MS, exploreOrder, exploreRuleAt, exploreTick, freeTokens, keyResultsBlock, newId, nowIso, EXPLORE_MIN_GAP_MS, JOURNAL_MAX_LINES, JOURNAL_TITLE, pagesForAssignment, reportReason, revisionsOf, topicPage, writeTopicPage } from "../src/index.ts";
 import { ruleBlock } from "../src/lanes.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
@@ -280,5 +280,134 @@ describe("the explore backoff after empty explorations (gr_6id9g7u9cj step 1)", 
       });
       expect(emptyExplorations(world, LAB)).toBe(0);
     });
+  });
+});
+
+describe("the exploration journal (gr_6id9g7u9cj step 2)", () => {
+  const MIN = 60_000;
+  afterEach(() => vi.useRealTimers());
+  const report = (world: ReturnType<typeof setup>["world"], mei: { id: string }, assignmentId: string, title: string, body: string) =>
+    world.docs.upsert({ ...world.docs.all()[0]!, id: newId("dc"), type: "report", state: "building", title, body, authorId: mei.id, authorKind: "agent", buildingId: LAB, assignmentId, topicOf: undefined, tags: [], createdAt: nowIso(), updatedAt: nowIso() } as never);
+  const spend = (world: ReturnType<typeof setup>["world"], mei: { id: string }, assignmentId: string, output: number) => world.sessions.upsert({
+    id: newId("se"), agentId: mei.id, assignmentId, meetingId: null, purpose: "work", backend: "host", status: "done", model: "m",
+    sdkSessionId: null, output, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "exploration", grantId: null,
+  });
+
+  it("every goal-directed building with a manager gets the page; each explorer gets it attached and is told to read it first", () => {
+    const { world, explorers } = setup();
+    const a = exploreTick(world).started[0]!;
+    const page = topicPage(world, LAB, JOURNAL_TITLE)!;
+    expect(page).toMatchObject({ type: "wiki", topicOf: LAB, state: "building" });
+    expect(page.body).toContain("(no explorations yet)");
+    expect(topicPage(world, "town-hall", JOURNAL_TITLE)).toBeUndefined();
+    expect(explorers()[0]!.pages).toEqual([page.id]);
+    expect(a.description).toMatch(/First read the building's "Exploration journal"/);
+    expect(a.description).toMatch(/Do not re-explore a direction the journal rules out unless what it waited on has moved/);
+    expect(a.description).toMatch(/name the journal lines you built on/);
+    // the fork's first message opens it in full
+    const asg = world.assignments.require(a.id);
+    expect(pagesForAssignment(world, LAB, asg).map((d) => d.id)).toEqual([page.id]);
+  });
+
+  it("each closed exploration adds one line on top: date, direction, outcome (nothing: the reason / proposed gr_x), tokens", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T = Date.parse("2026-11-19T10:00:00Z");
+    vi.setSystemTime(T);
+    const { world, mei, by } = setup();
+    const a = exploreTick(world, new Date(T)).started[0]!;
+    spend(world, mei, a.id, 20_000);
+    report(world, mei, a.id, "Nothing to propose: CI is already fast", "## What I did\nLooked.\n## Findings\n- **CI takes 4 min.** Under the 5-min goal, so no grant. More text.\n## What I need from you\nNothing needed.");
+    world.assignments.patch(a.id, { status: "done" });
+    vi.setSystemTime(T + MIN);
+    exploreTick(world, new Date(T + MIN));
+    let body = topicPage(world, LAB, JOURNAL_TITLE)!.body;
+    const first = body.split("\n").find((l) => l.startsWith("- 2026"))!;
+    expect(first).toMatch(/^- 2026-11-19 10:01 UTC \| "Nothing to propose: CI is already fast" \(dc_\w+\) \| nothing: CI takes 4 min\. \| [\d,]+ tokens$/);
+    // a second exploration that proposes a grant goes on top; the page keeps a revision
+    const t2 = T + exploreGapMs(1) + MIN;
+    vi.setSystemTime(t2);
+    const b = exploreTick(world, new Date(t2)).started[0]!;
+    const fork = world.agents.upsert({ ...by("Noor"), id: newId("ag"), name: "Mei 1", forkOf: mei.id, forkN: 1, homeBuildingId: LAB, currentAssignmentId: b.id });
+    await world.verbs.propose_grant(fork, { title: "Cache the typecheck", keyResults: [{ text: "Typecheck under 30 s", howToCheck: "Run it" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do it" }], stopCondition: "s", askTokens: 200_000 });
+    report(world, mei, b.id, "Proposed: cache the typecheck", "## Findings\nIt is slow.");
+    world.assignments.patch(b.id, { status: "done" });
+    vi.setSystemTime(t2 + MIN);
+    exploreTick(world, new Date(t2 + MIN));
+    const page = topicPage(world, LAB, JOURNAL_TITLE)!;
+    body = page.body;
+    const lines = body.split("\n").filter((l) => l.startsWith("- 2026"));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/\| "Proposed: cache the typecheck" \(dc_\w+\) \| proposed gr_\w+ "Cache the typecheck" \|/);
+    expect(lines[1]).toBe(first);
+    expect(revisionsOf(world, page.id).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("waits for the explorer's desk session to end, so the line carries its booked tokens (at close they are often 0)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T = Date.parse("2026-11-19T10:00:00Z");
+    vi.setSystemTime(T);
+    const { world, mei } = setup();
+    const a = exploreTick(world, new Date(T)).started[0]!;
+    const se = spend(world, mei, a.id, 0);
+    world.sessions.upsert({ ...se, status: "running", endedAt: null });
+    world.assignments.patch(a.id, { status: "done" });
+    vi.setSystemTime(T + MIN);
+    expect(exploreTick(world, new Date(T + MIN)).closed).toHaveLength(1);
+    const line = () => topicPage(world, LAB, JOURNAL_TITLE)!.body.split("\n").filter((l) => l.startsWith("- 2026"));
+    expect(line()).toHaveLength(0);
+    world.sessions.upsert({ ...se, status: "done", output: 12_000, endedAt: nowIso() });
+    vi.setSystemTime(T + 2 * MIN);
+    exploreTick(world, new Date(T + 2 * MIN));
+    exploreTick(world, new Date(T + 3 * MIN));
+    expect(line()).toHaveLength(1);
+    expect(line()[0]).not.toMatch(/\| 0 tokens$/);
+  });
+
+  it("keeps the last 60 lines and any text a manager wrote above them", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    let t = Date.parse("2026-11-19T00:00:00Z");
+    vi.setSystemTime(t);
+    const { world, mei } = setup();
+    exploreTick(world, new Date(t));
+    const old = Array.from({ length: 60 }, (_, i) => `- 2026-11-0${1 + (i % 9)} 00:00 UTC | "old ${i}" (dc_x) | nothing: x | 1 tokens`);
+    writeTopicPage(world, mei as never, LAB, JOURNAL_TITLE, `Manager's note: CI speed is ruled out until 12-01.\n\n${old.join("\n")}`);
+    const a = world.assignments.where("buildingId = ? AND reservationId IS NOT NULL", [LAB])[0]!;
+    world.assignments.patch(a.id, { status: "done" });
+    t += MIN; vi.setSystemTime(t);
+    exploreTick(world, new Date(t));
+    const body = topicPage(world, LAB, JOURNAL_TITLE)!.body;
+    const lines = body.split("\n").filter((l) => /^- 20\d\d/.test(l));
+    expect(lines).toHaveLength(JOURNAL_MAX_LINES);
+    expect(lines[0]).toMatch(/\| no report \| nothing: the session ended without a report \|/);
+    expect(lines.at(-1)).toBe(old[58]);
+    expect(body.startsWith("Manager's note: CI speed is ruled out until 12-01.")).toBe(true);
+  });
+
+  it("a new page is seeded from the explorations that closed in the last 7 days", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const T = Date.parse("2026-11-10T00:00:00Z");
+    vi.setSystemTime(T);
+    const { world, mei } = setup();
+    const a = exploreTick(world, new Date(T)).started[0]!;
+    report(world, mei, a.id, "Old direction", "## Findings\nOld.");
+    world.assignments.patch(a.id, { status: "done" });
+    exploreTick(world, new Date(T + MIN));
+    const t2 = T + 8 * 24 * 60 * MIN;
+    vi.setSystemTime(t2);
+    const b = exploreTick(world, new Date(t2)).started[0]!;
+    report(world, mei, b.id, "Recent direction", "## Findings\nRecent.");
+    world.assignments.patch(b.id, { status: "done" });
+    exploreTick(world, new Date(t2 + MIN));
+    // drop the page, as if it predates the change: the seed holds only the last 7 days
+    world.docs.delete(topicPage(world, LAB, JOURNAL_TITLE)!.id);
+    exploreTick(world, new Date(t2 + 2 * MIN));
+    const body = topicPage(world, LAB, JOURNAL_TITLE)!.body;
+    expect(body).toContain('"Recent direction"');
+    expect(body).not.toContain('"Old direction"');
+  });
+
+  it("reportReason takes the first sentence of Findings", () => {
+    expect(reportReason("## What I did\nx\n## Findings\n\n1. **The loop stopped.** It hit the cap.\n## What I need from you\nNothing.")).toBe("The loop stopped.");
+    expect(reportReason("No sections here. Second.")).toBe("No sections here.");
   });
 });
