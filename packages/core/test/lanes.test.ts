@@ -425,7 +425,7 @@ describe("goal-directed budgets: the Key results block", () => {
     const a = world.ops.createWork(admin, noor.id, { title: "kr", lane: "grant", grantId: g.id });
     const block = keyResultsBlock(world, world.buildings.require(LAB), a);
     expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [open] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
-    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the Town Hall in-tray; asks 150,000 tokens). Its key results:\n      - ${p.keyResults[0]!.id} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
+    expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the decision queue; asks 150,000 tokens). Its key results:\n      - ${p.keyResults[0]!.id} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
     expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id}.`);
     expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });

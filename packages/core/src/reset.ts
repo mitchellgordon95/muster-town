@@ -65,7 +65,7 @@ export function resetOwnAccount(world: World, userId: string): ResetResult {
   }
   const who = user.githubLogin ? `@${user.githubLogin}` : user.name;
   world.events.append({ type: "system", text: `${who} reset their account to a visitor`, payload: { userId, ...out } });
-  // pending rows may have left the Town Hall in-tray: resend the building with its count
+  // pending rows may have left the decision queue: resend the building with its count
   const th = world.buildings.first("kind = 'town-hall'");
   if (th) world.changes.emit({ type: "building", building: { ...th, intray: world.ops.intrayCount(th.id) } });
   return out;

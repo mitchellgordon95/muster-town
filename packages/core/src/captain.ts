@@ -1,7 +1,7 @@
 /**
  * "Ask to captain this goal" (grant gr_bwm0iz7rwl, kr_j1w17nw178). A goal's captain is its `ownerId` (docs/goals.md
  * "Captains on nodes"; "captain" is the word humans see). A member (`town.interact`) asks to captain a goal; the request
- * waits in the Town Hall in-tray, routed to the goal's current captain (its own, else inherited from the nearest
+ * waits in the decision queue, routed to the goal's current captain (its own, else inherited from the nearest
  * captained ancestor; the root always has one, so a request about the root itself goes to the root's captain). That captain, an admin, or a captain higher up (`goals.edit` at the
  * goal) accepts, which sets `ownerId` through `Goals.setOwner` (the same path as the Captain tool), or declines.
  * Any signed-in user may ask (gr_y9bpvx197c: captaining is one of the three doors, open before being let in); accepting
@@ -74,7 +74,7 @@ export function decideCaptain(world: World, actor: Agent, id: string, accept: bo
   return out;
 }
 
-/** Pending requests, oldest first, with who asked, the goal's words and its current captain: Town Hall in-tray rows. */
+/** Pending requests, oldest first, with who asked, the goal's words and its current captain: decision queue rows. */
 export function pendingCaptainRequests(world: World): CaptainRequestView[] {
   return world.captainRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid").map((r) => {
     const u = world.users.get(r.userId);

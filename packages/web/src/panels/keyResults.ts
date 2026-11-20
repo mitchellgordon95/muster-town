@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the building panel's Goals and Grants tabs (the Goals tab reads the building's subtree of the one goal tree) and the Town Hall in-tray (goal-directed buildings): the
+ * Pure helpers for the building panel's Goals and Grants tabs (the Goals tab reads the building's subtree of the one goal tree) and the decision queue (goal-directed buildings): the
  * same numbers and statuses as core's `keyResultsBlock` in the desk brief, so the web and the prompt agree.
  */
 import { krStatusWords, type GrantView, type KeyResult, type KeyResultStatus } from "@muster-town/schema";
@@ -32,7 +32,7 @@ export function settableStatuses(canFund: boolean): KeyResultStatus[] {
   return canFund ? KR_STATUSES : KR_STATUSES.filter((s) => s !== "met" && s !== "missed");
 }
 
-/** The short blocked label for a building's panel, map sign and the Town Hall in-tray. */
+/** The short blocked label for a building's panel, map sign and the decision queue. */
 export const BLOCKED_LABEL = "Blocked: no key results";
 /** Who unblocks a blocked building, and how. */
 export const UNBLOCK_LINE = "Key results belong to grants now: the building's manager proposes a grant with its own key results, and a human funds it.";

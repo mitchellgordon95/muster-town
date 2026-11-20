@@ -1,5 +1,5 @@
 /**
- * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): the Town Hall in-tray as slides, assembled in code
+ * The review deck (design dc_y7a8g257of §2, gr_jh0lu0w6yj step 4): the decision queue as slides, assembled in code
  * on every GET /api/review-deck (zero tokens, always current). Slide 1 is the state of the town; then one slide per
  * pending decision, blocking-most first:
  *   1. checkpoint grants held · 2. blocked buildings · 3. items work is parked on (most waiters first) ·

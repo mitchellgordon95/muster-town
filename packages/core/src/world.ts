@@ -257,7 +257,7 @@ export class World {
     });
     // in-tray badge: a report arrived or was decided, or a grant moved → resend the building with its count;
     // a manager's report and every grant change also resend the Town Hall, whose in-tray they land in; so does a key result
-    // marked met or missed (or deleted), which takes a closed-as-done grant out of the Town Hall in-tray without a grant event;
+    // marked met or missed (or deleted), which takes a closed-as-done grant out of the decision queue without a grant event;
     // and so does a goal proposal, made or decided
     this.events.addHook((e) => {
       const p = e.payload as Record<string, unknown>;

@@ -83,7 +83,7 @@ export class Sim {
 
   /**
    * Pending reports for a building, oldest first (GET /api/buildings/:id/intray). As in core, a report by its
-   * building's manager agent is a Town Hall item; the Town Hall's in-tray also has the grants awaiting a human.
+   * building's manager agent is a Town Hall item; the decision queue also has the grants awaiting a human.
    */
   intray(buildingId: string): { reports: Doc[]; chains: Record<string, ReportChain>; grants: GrantView[]; blocked: { buildingId: string; name: string; reason: string; since: string | null }[] } {
     const hall = this.buildings.find((b) => b.id === buildingId)?.kind === "town-hall";

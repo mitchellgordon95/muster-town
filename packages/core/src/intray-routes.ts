@@ -6,7 +6,7 @@ import { holderOf } from "./permissions.ts";
 import type { World } from "./world.ts";
 
 /**
- * The Town Hall in-tray's routing for one viewer (docs/goals.md "Captains on nodes", build step 4). Every item routes to
+ * The decision queue's routing for one viewer (docs/goals.md "Captains on nodes", build step 4). Every item routes to
  * the owner of the goal it belongs to (`Goals.route`): grants by their key result's goal, goal proposals by their target
  * or parent, rollups by the building's attachment. "Mine" = routed to the viewer, nothing else: the root always has a
  * captain, so an admin who captains nothing has an empty Mine. `canDecide`: grants by `Grants.canFund` (building.fund, or the goal's owner); goal

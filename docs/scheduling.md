@@ -22,7 +22,7 @@ Status is `active` or `ended` with `endedReason` (`ran`, `past its end`, `ran N 
 `runs`, `lastRunAt`, `lastAssignmentId`.
 
 **Retainers** (1:1 mt_cyd2t5ioob decision 2): a repeating schedule is never lane grant (a one-shot may be). A recurring job runs on a retainer: `tokensPerRun`
-(Bank tokens) asks for tokensPerRun × runs left in the Town Hall in-tray; each fire's assignment runs in lane `retainer`
+(Bank tokens) asks for tokensPerRun × runs left in the decision queue; each fire's assignment runs in lane `retainer`
 with `sourceId` = the schedule and is held until a human approves. Full rules: docs/how-work-gets-done.md §7a.
 
 ## How it fires (`packages/core/src/schedules.ts`)

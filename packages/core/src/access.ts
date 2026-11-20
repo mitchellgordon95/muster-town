@@ -1,7 +1,7 @@
 /**
  * Who may interact (Mitchell's flag dc_hsdvn0h5ho, design dc_f0cumcfubk). Signing in with GitHub makes a user a
  * `visitor`: read-only, like a guest but named. They ask to join once from the guest card; the request waits in the
- * Town Hall in-tray until someone with `town.manage_roles` (an admin) lets them in as `member` (`town.interact`) or
+ * decision queue until someone with `town.manage_roles` (an admin) lets them in as `member` (`town.interact`) or
  * declines. A declined user may ask again after `ASK_AGAIN_MS`.
  */
 import type { AccessRequest, AccessRequestView } from "@muster-town/schema";
@@ -95,7 +95,7 @@ export function decideAccess(world: World, actor: Holder | Agent, id: string, gr
   return out;
 }
 
-/** Pending requests, oldest first, with who asked: Town Hall in-tray rows. */
+/** Pending requests, oldest first, with who asked: decision queue rows. */
 export function pendingAccessRequests(world: World): AccessRequestView[] {
   return world.accessRequests.where("status = 'pending'", [], "ORDER BY createdAt, rowid").map((r) => {
     const u = world.users.get(r.userId);

@@ -257,7 +257,7 @@ describe("visitor reports reach a human (dc_04i3sll7q5)", () => {
       expect(doc).toMatchObject({ buildingId: "town-hall", tags: ["visitor"] });
       expect(doc.body).toContain(`Visitor report from V ${where}`);
       expect(res).toMatchObject({ intray: "town-hall", workedBy: "human" });
-      expect(res.note).toContain("the Town Hall in-tray as a visitor report (a human works it)");
+      expect(res.note).toContain("the decision queue as a visitor report (a human works it)");
       expect(hallIds(world)).toContain(res.id);
       expect(world.ops.intray(lab).map((d) => d.id)).not.toContain(res.id);
     }

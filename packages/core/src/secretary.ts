@@ -60,7 +60,7 @@ const PATTERN_SCHEDULE_TITLE = "Weekly pattern note";
 const PATTERN_DAYS = 84;
 const WEEK_MS = 7 * 24 * 3_600_000;
 
-const DIRECTION = "Keep the humans' Town Hall in-tray in order: rank the open asks daily with a money slate (fund, hold, skip), note the week's patterns, propose rules for the policy ledger, and in a 1:1 act only on what the human said.";
+const DIRECTION = "Keep the humans' decision queue in order: rank the open asks daily with a money slate (fund, hold, skip), note the week's patterns, propose rules for the policy ledger, and in a 1:1 act only on what the human said.";
 
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 const oneLine = (s: string, max = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
@@ -118,7 +118,7 @@ const PATTERN_RUN_PROMPT = `Write this week's pattern note for the humans (you a
 4. submit_report (verdict stop): the notice id. Nothing else.`;
 
 /** The Secretary's 1:1 prompt (it answers 1:1s like the Planner; manage.ts appends it to the brief). */
-const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's Town Hall in-tray in order: you rank the open asks, write the money slate and propose rules for the policy ledger. You rank by ${RANK_RULE} In this 1:1, answer from the asks as they are now (the \`rank\` tool with no arguments lists them, ranked, with the humans' recent money decisions). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the Town Hall in-tray does it. You never fund, stop or approve anything yourself. The item open on the human's screen is shown with each of their lines; 'this', 'it' or 'this one' means that item; act_in_1on1 on it only with their words.`;
+const ONE_ON_ONE = `You are the Secretary, a resident of the Town Hall beside the Planner (the Town Hall's manager). Your job is to keep the human's decision queue in order: you rank the open asks, write the money slate and propose rules for the policy ledger. You rank by ${RANK_RULE} In this 1:1, answer from the asks as they are now (the \`rank\` tool with no arguments lists them, ranked, with the humans' recent money decisions). Act only on what the human said in this 1:1, never on your own judgment: use \`act_in_1on1\` if available, citing their words; without it, say which button in the decision queue does it. You never fund, stop or approve anything yourself. The item open on the human's screen is shown with each of their lines; 'this', 'it' or 'this one' means that item; act_in_1on1 on it only with their words.`;
 
 export class Secretary {
   constructor(private world: World) {}
@@ -179,7 +179,7 @@ export class Secretary {
 
   /**
    * The daily ranking schedule, made once: on the Town Hall, taken by the Secretary, on a retainer of RANK_TOKENS_PER_RUN
-   * per run (asked in the Town Hall in-tray: its runs start once a human approves), on SECRETARY_MODEL. It is the
+   * per run (asked in the decision queue: its runs start once a human approves), on SECRETARY_MODEL. It is the
    * Secretary's first schedule: never made again once any exists (ended or rejected included). The live one (the old
    * "Daily in-tray digest") is kept in step with the code at boot: its title, its description (RANK_RUN_PROMPT) and its
    * model; a per-run amount below RANK_TOKENS_PER_RUN is raised to it through `raiseRetainerPerRun`, which asks the

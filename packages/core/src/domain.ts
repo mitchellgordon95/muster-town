@@ -329,7 +329,7 @@ function decideFlag(world: World, flag: Doc, decision: ReviewDecision, note: str
  * The building's manager agent, if it can work: the resident set as `managerAgentId` unless it is stopped, banned or
  * retired. A building with one has its in-tray worked by the manager; otherwise humans holding `building.review` do
  * (town hall 2026-10-24, decision 1a: no review-policy setting). Never the Town Hall's: its manager (the Secretary,
- * `Secretary.ensure`; the Planner where no Secretary lives) has no forks and works no in-tray: the Town Hall in-tray is
+ * `Secretary.ensure`; the Planner where no Secretary lives) has no forks and works no in-tray: the decision queue is
  * the humans'. The Secretary's assign names itself (its own queue) and its schedules name it as takerId.
  */
 export function managerAgentOf(world: World, building: Building | undefined): Agent | undefined {
@@ -407,7 +407,7 @@ export function intrayWorker(world: World, building: Building | undefined): "man
 /**
  * Rollups are retired (plan dc_uwx045472m step 7): an old one still pending is closed at boot (`retireRollups`), so what
  * follows about them is history. A team-lead report was for the humans: a rollup (tagged `rollup` by `submit_report`)
- * lands in the Town Hall in-tray. Routed by what the report is, not by who wrote it (town hall 2026-10-25, decision 6):
+ * lands in the decision queue. Routed by what the report is, not by who wrote it (town hall 2026-10-25, decision 6):
  * a manager's own work report, from an assignment it gave itself or got from a meeting, is an ordinary report in its
  * building's in-tray, which the manager decides in its next team-lead session and folds into its rollup. An unhomed
  * visitor's report (tagged `visitor`, filed under the Town Hall) is one too: the humans work it.
@@ -466,7 +466,7 @@ export function managerQueue(world: World, buildingId: string): QueueItem[] {
 }
 
 /**
- * Grants a human must decide on, every building, oldest first: Town Hall in-tray rows. Proposed, countered and checkpoint
+ * Grants a human must decide on, every building, oldest first: decision queue rows. Proposed, countered and checkpoint
  * grants. A grant closed as done is not one: its key results are met on close (town hall mt_v09cn7a8yr decision 2).
  */
 export function grantsAwaitingDecision(world: World): GrantView[] {
@@ -476,7 +476,7 @@ export function grantsAwaitingDecision(world: World): GrantView[] {
   ).map((g) => world.grantDesk.withEstimate(world.grantDesk.view(g)));
 }
 
-/** How long a stopped grant stays on the Town Hall in-tray and review deck after it closes (gr_8i952perny): 3 days. */
+/** How long a stopped grant stays on the decision queue and review deck after it closes (gr_8i952perny): 3 days. */
 const STOPPED_SHOWN_MS = 3 * 24 * 3_600_000;
 
 /**
@@ -491,7 +491,7 @@ function stoppedGrants(world: World, now = Date.now()): GrantView[] {
     .map((g) => world.grantDesk.view(g));
 }
 
-/** The Town Hall in-tray: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
+/** The decision queue: managers' rollups and checkpoint reports, grants awaiting a human's decision, people asking to join or to captain a goal, blocked buildings (not counted in the badge), and the open asks in the Secretary's rank order (unranked last, oldest first). */
 export function townHallIntray(world: World): { reports: Doc[]; grants: GrantView[]; access: AccessRequestView[]; captains: CaptainRequestView[]; retainers: ScheduleView[]; blocked: BlockedBuilding[]; stopped: GrantView[]; asks: Ask[] } {
   const th = world.buildings.first("kind = 'town-hall'");
   // `asks` beside them: every open or deferred ask, oldest first, with its sources (docs/legible-delegation.md §4, asks.ts)

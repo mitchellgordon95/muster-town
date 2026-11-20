@@ -39,7 +39,11 @@ const SEED_AVOID: readonly DictionaryPair[] = [
   { avoid: "approve the grant", use: "fund" },
   { avoid: "kill the grant", use: "cut" },
   { avoid: "decision card", use: "ask" },
+  { avoid: "Town Hall in-tray", use: "decision queue" },
 ];
+
+/** A pair added after the seed (Mitchell, 1:1 mt_gf4un6ct4p, 2026-11-20): the boot repair appends it to a live dictionary once. */
+const IN_TRAY_PAIR = SEED_AVOID[SEED_AVOID.length - 1]!;
 
 const SEED_BODY = [
   "# Town dictionary",
@@ -66,7 +70,7 @@ function dictionaryDoc(world: World): Doc | undefined {
 /** The dictionary, created once (server boot): a Town Hall doc of type `dictionary`, seeded. Null before the Town Hall exists. */
 export function ensureDictionary(world: World): Doc | null {
   const have = dictionaryDoc(world);
-  if (have) return addNeed(world, have);
+  if (have) return addInTrayPair(world, addNeed(world, have));
   const th = world.buildings.get(TOWN_HALL_ID);
   if (!th) return null;
   const by = world.reorgs.planner();
@@ -88,6 +92,24 @@ function addNeed(world: World, d: Doc): Doc {
   if (at >= 0 && lines[at] === OLD_ASK_LINE) lines[at] = entry("ask");
   if (at >= 0) lines.splice(at + 1, 0, entry("need"));
   else { const w = lines.indexOf("## Words"); lines.splice(w >= 0 ? w + 2 : lines.length, 0, entry("need")); }
+  return world.docs.patch(d.id, { body: lines.join("\n") });
+}
+
+/**
+ * Boot repair (1:1 mt_gf4un6ct4p): the humans' Town Hall in-tray became the decision queue (2026-11-09), so a dictionary
+ * seeded before that gets "Town Hall in-tray → decision queue" at the end of its Avoid → use list. Idempotent: a body
+ * that already avoids the phrase (any casing) is left as it is.
+ */
+function addInTrayPair(world: World, d: Doc): Doc {
+  if (pairsOf(d.body).some((p) => p.avoid.toLowerCase() === IN_TRAY_PAIR.avoid.toLowerCase())) return d;
+  const line = `- ${IN_TRAY_PAIR.avoid} → ${IN_TRAY_PAIR.use}`;
+  const lines = d.body.split("\n");
+  const at = lines.indexOf(AVOID_HEADING);
+  if (at < 0) return world.docs.patch(d.id, { body: `${d.body.trimEnd()}\n\n${AVOID_HEADING}\n\n${line}\n` });
+  let end = at + 1;
+  for (let i = at + 1; i < lines.length && !/^## /.test(lines[i]!); i++) if (/^\s*-\s/.test(lines[i]!)) end = i + 1;
+  if (end === at + 1) end = at + 2 <= lines.length ? at + 2 : lines.length;
+  lines.splice(end, 0, line);
   return world.docs.patch(d.id, { body: lines.join("\n") });
 }
 
