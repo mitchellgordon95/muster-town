@@ -1,4 +1,5 @@
-import type { Agent, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes, ScheduleView } from "@muster-town/schema";
+import type { Agent, Ask, CaptainRequestView, Doc, GrantView, IntrayRoute, IntrayRoutes, ScheduleView } from "@muster-town/schema";
+import { askGoalId, canDecideAsk } from "./asks.ts";
 import { canDecideCaptain } from "./captain.ts";
 import { canDecideRetainer } from "./retainers.ts";
 import { holderOf } from "./permissions.ts";
@@ -12,9 +13,11 @@ import type { World } from "./world.ts";
  * proposals by `goals.edit` at their node (a human only); captain requests to the goal asked about, decided by `goals.edit`
  * there (its current captain, a captain above, or an admin; captain.ts); reports by `building.review` on the Town Hall, or by
  * the captain of the report's building's goal or a goal above it (`Goals.captainsBuilding`, gr_zsm1piyqyx).
+ * Every live ask routes by its own id (gr_0vuiuqcw8p): to the owner of the goal it moves (`askGoalId`), decided by
+ * `canDecideAsk` (building.fund, or the captain of that goal or one above it), the rule `decideAsk` enforces.
  * Anonymous viewers get routes with nothing theirs and nothing decidable.
  */
-export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; stopped?: GrantView[] }): IntrayRoutes {
+export function intrayRoutes(world: World, viewer: Agent | undefined, items: { grants: GrantView[]; reports: Doc[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; stopped?: GrantView[]; asks?: Ask[] }): IntrayRoutes {
   const human = viewer?.kind === "human" ? viewer : undefined;
   const user = human ? holderOf(human) : null;
   const userId = user?.kind === "user" ? user.id : null;
@@ -42,6 +45,8 @@ export function intrayRoutes(world: World, viewer: Agent | undefined, items: { g
   // a retainer routes like its building's rollups (its attachment); decided by building.fund there or the goal's captain
   for (const r of items.retainers ?? []) add(r.id, { buildingId: r.buildingId }, r.retainer === "asked" && canDecideRetainer(world, human, r));
   for (const d of items.reports) add(d.id, { buildingId: d.buildingId ?? undefined }, !!human && ((!!th && world.permissions.can(human, "building.review", th.id)) || world.goalTree.captainsBuilding(human, d.buildingId)));
+  // every live ask by its own id: the web looks an ask's route up by ask id first (Mine, and buttons only when decidable)
+  for (const a of items.asks ?? []) add(a.id, { goalId: askGoalId(world, a) }, canDecideAsk(world, human, a));
   // an owner who is not an admin starts on Mine; everyone else on All
   const ownsNode = !!userId && world.goals.count("ownerId = ? AND status = 'active'", [userId]) > 0;
   return { routes, defaultView: ownsNode && !admin ? "mine" : "all" };
