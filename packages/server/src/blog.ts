@@ -11,10 +11,12 @@ import { funnelSource, isAutomatedClient, type World } from "@muster-town/core";
 /** The building whose published `blog` articles are muster.town's blog: Outreach. */
 export const BLOG_BUILDING = "bl_6ifesdbah3";
 const BLOG_TAG = "blog";
+/** A cover image's URL: http(s), or a path on this site. */
+const IMAGE_URL = /^(https?:\/\/|\/(?!\/))[^\s"<>]+$/i;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-interface Post { slug: string; title: string; date: string; author: string; summary: string; upcoming: string[]; body: string }
+interface Post { slug: string; title: string; date: string; author: string; summary: string; upcoming: string[]; body: string; /** the cover: an http(s) URL or a site path, or "" */ image: string }
 /** Where the posts come from: the public posts, newest first. */
 type PostSource = () => Post[];
 
@@ -29,7 +31,9 @@ const slugify = (t: string) => t.toLowerCase().normalize("NFKD").replace(/[^a-z0
  * A post doc's body: optional `key: value` front matter between `---` lines (quotes around a value dropped; `upcoming:`
  * takes the `- item` lines under it as a list, the posts to come shown above the signup), then markdown. Keys: slug
  * (default: the title as a slug), date YYYY-MM-DD (default: the day it was first written), author, summary, upcoming,
- * title (default: the doc's title). Null when the slug is not a valid one.
+ * title (default: the doc's title), image (the cover: an http(s) URL or a site path such as /api/media/<id>.png; shown
+ * above the post and used as its link-preview image and feed enclosure; anything else is dropped). Null when the slug is
+ * not a valid one.
  */
 export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt">): Post | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(doc.body);
@@ -50,7 +54,8 @@ export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt">): Post | n
   const slug = meta.slug || slugify(title);
   if (!SLUG.test(slug)) return null;
   const date = meta.date && DATE.test(meta.date) ? meta.date : doc.createdAt.slice(0, 10);
-  return { slug, title, date, author: meta.author ?? "", summary: meta.summary ?? "", upcoming, body: m ? m[2]! : doc.body };
+  const image = meta.image && IMAGE_URL.test(meta.image) ? meta.image : "";
+  return { slug, title, date, author: meta.author ?? "", summary: meta.summary ?? "", upcoming, body: m ? m[2]! : doc.body, image };
 }
 
 /**
@@ -92,7 +97,7 @@ nav{font:14px/1.4 system-ui,sans-serif;margin-bottom:2rem}nav a{color:#4a5a8a;ma
 h1{font-size:2rem;line-height:1.2;margin:.2em 0}h2,h3{line-height:1.3;margin-top:1.8em}
 a{color:#2f56b0}.meta{font:14px/1.4 system-ui,sans-serif;color:#6b6b75}
 pre{background:#f0ede4;padding:.8rem;overflow-x:auto;font-size:14px}code{font-size:.9em}
-blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #d6d1c3;color:#4a4a52}img{max-width:100%}
+blockquote{margin:1em 0;padding-left:1em;border-left:3px solid #d6d1c3;color:#4a4a52}img{max-width:100%}img.cover{display:block;width:100%;height:auto;margin:1rem 0 1.5rem;border-radius:4px}
 ul.posts{list-style:none;padding:0}ul.posts li{margin:1.6rem 0}ul.posts h2{margin:0;font-size:1.3rem}
 footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2ddd0}
 .signup{margin:0 0 1.5rem}.signup p{margin:0 0 .5rem}.signup .row{display:flex;gap:.5rem;flex-wrap:wrap}
@@ -100,8 +105,13 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2ddd0}
 .signup button{font:15px/1.4 system-ui,sans-serif;padding:.45rem 1rem;border:0;border-radius:4px;background:#2f56b0;color:#fff;cursor:pointer}
 .signup .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.signup .err{color:#a33;font:14px/1.4 system-ui,sans-serif}`;
 
-function page(o: { origin: string; path: string; title: string; description: string; article?: boolean; body: string }): string {
+/** A cover's absolute URL (link previews and feeds need one): a site path gets the origin in front. */
+const absolute = (origin: string, u: string) => u.startsWith("/") ? origin + u : u;
+const IMAGE_MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+
+function page(o: { origin: string; path: string; title: string; description: string; article?: boolean; image?: string; body: string }): string {
   const url = o.origin + o.path;
+  const image = o.image ? absolute(o.origin, o.image) : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -115,7 +125,7 @@ function page(o: { origin: string; path: string; title: string; description: str
 <meta property="og:type" content="${o.article ? "article" : "website"}">
 <meta property="og:url" content="${esc(url)}">
 <meta property="og:site_name" content="Muster Town">
-<meta name="twitter:card" content="summary">
+${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitter:image" content="${esc(image)}">\n` : ""}<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
 <link rel="alternate" type="application/atom+xml" title="Muster Town blog" href="${esc(o.origin)}/blog/feed.xml">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314151c'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%237cc4ff'/%3E%3C/svg%3E">
 <style>${CSS}</style>
@@ -156,10 +166,11 @@ const byline = (p: Post) => `<p class="meta"><time datetime="${esc(p.date)}">${e
 
 function renderPost(origin: string, p: Post): string {
   const html = md.parse(p.body, { async: false });
-  return page({ origin, path: `/blog/${p.slug}`, title: p.title, description: p.summary || p.title, article: true, body: `<article>
+  const cover = p.image ? `<img class="cover" src="${esc(p.image)}" alt="">\n` : "";
+  return page({ origin, path: `/blog/${p.slug}`, title: p.title, description: p.summary || p.title, article: true, image: p.image || undefined, body: `<article>
 <h1>${esc(p.title)}</h1>
 ${byline(p)}
-${html}
+${cover}${html}
 </article>
 <footer>
 ${signup(p.slug, p.upcoming)}
@@ -174,6 +185,12 @@ function renderIndex(origin: string, posts: Post[]): string {
   return page({ origin, path: "/blog", title: "Muster Town blog", description: "Notes from Muster Town: AI agents working in public, collectively funded.", body: `<h1>Muster Town blog</h1>\n${list}\n<footer>\n${signup("index", posts[0]?.upcoming)}\n</footer>` });
 }
 
+/** A cover as an Atom enclosure link, with its type when its extension names one. */
+function enclosure(origin: string, image: string): string {
+  const mime = IMAGE_MIME[/\.([a-z0-9]+)(?:[?#]|$)/i.exec(image)?.[1]?.toLowerCase() ?? ""];
+  return `<link rel="enclosure" href="${esc(absolute(origin, image))}"${mime ? ` type="${mime}"` : ""}/>`;
+}
+
 function renderFeed(origin: string, posts: Post[]): string {
   const updated = posts[0] ? `${posts[0].date}T00:00:00Z` : "2026-11-12T00:00:00Z";
   const entries = posts.map((p) => `  <entry>
@@ -182,7 +199,7 @@ function renderFeed(origin: string, posts: Post[]): string {
     <id>${esc(`${origin}/blog/${p.slug}`)}</id>
     <updated>${p.date}T00:00:00Z</updated>
     <author><name>${esc(p.author || "Muster Town")}</name></author>
-    <summary>${esc(p.summary || p.title)}</summary>
+    <summary>${esc(p.summary || p.title)}</summary>${p.image ? `\n    ${enclosure(origin, p.image)}` : ""}
   </entry>`).join("\n");
   return `<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">

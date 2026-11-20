@@ -111,6 +111,26 @@ describe("blog", () => {
     }
   });
 
+  it("shows a cover image from image: at the top, in the link preview and as the feed's enclosure", async () => {
+    const app = await blogApp({
+      "pic": post("title: Pic\ndate: 2026-11-04\nimage: /api/media/mf_abcdefghij.png", "Body ![chart](/api/media/mf_0123456789.jpg)"),
+      "bad": post("title: Bad\ndate: 2026-11-03\nimage: javascript:alert(1)"),
+    });
+    const html = (await app.inject("/blog/pic")).body;
+    expect(html).toContain('<img class="cover" src="/api/media/mf_abcdefghij.png" alt="">');
+    expect(html).toContain(`<meta property="og:image" content="${ORIGIN}/api/media/mf_abcdefghij.png">`);
+    expect(html).toContain(`<meta name="twitter:image" content="${ORIGIN}/api/media/mf_abcdefghij.png">`);
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
+    expect(html).toContain('<img src="/api/media/mf_0123456789.jpg" alt="chart">');
+    const bad = (await app.inject("/blog/bad")).body;
+    expect(bad).not.toContain("og:image");
+    expect(bad).not.toContain("javascript:");
+    expect(bad).toContain('<meta name="twitter:card" content="summary">');
+    const feed = (await app.inject("/blog/feed.xml")).body;
+    expect(feed).toContain(`<link rel="enclosure" href="${ORIGIN}/api/media/mf_abcdefghij.png" type="image/png"/>`);
+    expect(feed.match(/enclosure/g)).toHaveLength(1);
+  });
+
   it("serves a well-formed Atom feed", async () => {
     const app = await blogApp({ "a": post("title: A & B\ndate: 2026-11-03\nauthor: Juno\nsummary: <x>") });
     const res = await app.inject("/blog/feed.xml");
@@ -204,7 +224,7 @@ describe("blog", () => {
 
   it("takes the slug from the title and the date from the doc when the front matter leaves them out", () => {
     expect(postOf({ title: "Why We Built It!", body: "Plain **markdown**.", createdAt: "2026-11-20T02:00:00.000Z" }))
-      .toEqual({ slug: "why-we-built-it", title: "Why We Built It!", date: "2026-11-20", author: "", summary: "", upcoming: [], body: "Plain **markdown**." });
+      .toEqual({ slug: "why-we-built-it", title: "Why We Built It!", date: "2026-11-20", author: "", summary: "", upcoming: [], body: "Plain **markdown**.", image: "" });
     expect(postOf({ title: "x", body: post("slug: Bad Slug"), createdAt: "2026-11-20T02:00:00.000Z" })).toBeNull();
   });
 

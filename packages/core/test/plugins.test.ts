@@ -16,6 +16,7 @@ describe("plugin manifests (docs/plugins.md)", () => {
     expect(parsePlugin(plugin("name: \"Blog Desk!\"\ndescription: Posts.")).manifest).toEqual({ name: "Blog Desk!", description: "Posts.", scopes: [], docType: "note", tag: "blog-desk" });
     // write implies read
     expect(parsePlugin(plugin("name: W\ndescription: d\nscopes: [docs.write]\ndocType: article")).manifest).toMatchObject({ scopes: ["docs.read", "docs.write"], docType: "article" });
+    expect(parsePlugin(plugin("name: W\ndescription: d\nscopes: docs.write, media.upload")).manifest.scopes).toEqual(["docs.read", "docs.write", "media.upload"]);
   });
 
   it("refuses what is wrong, saying what", () => {

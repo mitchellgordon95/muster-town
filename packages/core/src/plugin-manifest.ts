@@ -6,8 +6,11 @@ import { badRequest } from "./errors.ts";
  * no World, no DB, no clock. The map (world/map.ts) reads the manifest's name through here too.
  */
 
-/** What a plugin may ask for. `docs.read`: list and read its docs. `docs.write`: create and rewrite them. */
-export const PLUGIN_SCOPES = ["docs.read", "docs.write"] as const;
+/**
+ * What a plugin may ask for. `docs.read`: list and read its docs. `docs.write`: create and rewrite them.
+ * `media.upload`: upload an image as the viewer (POST /api/media), for a picture in a doc.
+ */
+export const PLUGIN_SCOPES = ["docs.read", "docs.write", "media.upload"] as const;
 export type PluginScope = (typeof PLUGIN_SCOPES)[number];
 /** The doc types a plugin may own: plain written docs only (never reports, asks, wiki pages or skills). */
 export const PLUGIN_DOC_TYPES = ["note", "article"] as const satisfies readonly DocType[];
@@ -27,7 +30,7 @@ interface ParsedPlugin { manifest: PluginManifest; html: string }
 export const TAG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const slug = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, PLUGIN_LIMITS.tagChars).replace(/-+$/, "");
 
-const HELP = "A plugin's body starts with a frontmatter block: ---, then name:, description: and optional scopes: (docs.read, docs.write), docType: (note or article) and tag: lines, then ---, then the HTML page (skill make-a-town-plugin).";
+const HELP = "A plugin's body starts with a frontmatter block: ---, then name:, description: and optional scopes: (docs.read, docs.write, media.upload), docType: (note or article) and tag: lines, then ---, then the HTML page (skill make-a-town-plugin).";
 
 /** Read a plugin doc's body: its manifest and its page. Throws bad_request naming what is wrong. Pure. */
 export function parsePlugin(body: string): ParsedPlugin {
