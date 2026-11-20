@@ -1,0 +1,1 @@
+- Disclosure census gets an ask-card row (gr_x7p580xe1o step 2): with the queue a target it presses J through every ask card in #/queue at 1366×800 and 390×844 and prints body weight, bold blocks, max chars/line, recommendation and decision-row top, and stray "If you <branch>:" sentences left in the body. `node scripts/disclosure-census.mjs live --only=queue`.
