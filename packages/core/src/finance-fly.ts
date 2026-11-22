@@ -269,7 +269,7 @@ export function townFly(repos: Repos, desks: FlyInputs["desks"], townOnFly: bool
   return financeFly({
     sessions: repos.sessions.all(),
     assignments: repos.assignments.all(),
-    agents: repos.agents.all(),
+    agents: repos.agents.columns<Pick<Agent, "id" | "buildingId">>(["id", "buildingId"]),
     buildings: repos.buildings.all(),
     desks, townOnFly, ...o,
   }, now);
