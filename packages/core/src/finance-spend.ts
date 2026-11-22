@@ -719,6 +719,26 @@ export function directedBySource(rows: SpendNode[], laneTokens: number, titles?:
   return { rows: out, byAsker, untraced, total, check: { ok: diff === 0, diff, identity: DIRECTED_SOURCE_IDENTITY } };
 }
 
+/** GET /api/meetings/:id/cost (gr_k71b7b6px7, kr_ig4qu7vil3): what the directed work a meeting started cost. */
+export interface SourceCost {
+  /** the ids it sums: the meeting and, when it has one, its notes doc (work can name either) */
+  ids: string[];
+  tokens: number; usd: number; sessions: number; assignments: number;
+  /** the matching `directedBySource.rows`, most tokens first */
+  rows: DirectedSourceRow[];
+}
+
+/** Sum the `directedBySource` rows whose id is one of `ids` (a meeting and its notes doc). Assignments rarely name both; when one does it counts twice. */
+export function sourceCost(d: DirectedBySource, ids: string[]): SourceCost {
+  const want = new Set(ids);
+  const rows = d.rows.filter((r) => want.has(r.id));
+  return {
+    ids, rows,
+    tokens: rows.reduce((t, r) => t + r.tokens, 0), usd: cents(rows.reduce((t, r) => t + r.usd, 0)),
+    sessions: rows.reduce((t, r) => t + r.sessions, 0), assignments: rows.reduce((t, r) => t + r.assignments, 0),
+  };
+}
+
 export const GRANTS_IDENTITY = "done + cut + still open = Σ grant rows' tokens (every building)";
 
 /**

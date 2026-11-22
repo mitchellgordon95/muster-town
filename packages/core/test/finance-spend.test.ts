@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, OFF_STEP, STEPS_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
+import { countersSince, GRANTS_IDENTITY, spendOutcome, createBuilding, createResident, financeSpend, grantTitle, sourceCost, ledgerBookedBeforeConversion, NO_ASSIGNMENT, notFundedUsage, NOT_FUNDED_SPLIT_REASON, NO_BUILDING, NO_GRANT, OFF_STEP, STEPS_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type SpendInputs, type SpendNode } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 const T0 = new Date("2026-10-28T12:00:00.000Z");
@@ -164,6 +164,10 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(db.byAsker.map((a) => [a.askedBy, a.tokens, a.assignments, a.requests])).toEqual([["Mitchell", 480, 4, 2], ["Ann", 40, 1, 1], [null, 5, 1, 0]]);
     expect(db.total).toMatchObject({ tokens: 525, sessions: 7, assignments: 6, requests: 3 });
     expect(db.check).toEqual({ ok: true, diff: 0, identity: "Σ requests + untraced = the directed lane (every building)" });
+    // a meeting's cost (kr_ig4qu7vil3): its row, plus its notes doc's when work names that instead; nothing named → zero
+    expect(sourceCost(db, ["mt_one"])).toMatchObject({ tokens: 450, sessions: 3, assignments: 2, usd: db.rows[0].usd });
+    expect(sourceCost(db, ["mt_one", "dc_flag"])).toMatchObject({ tokens: 490, assignments: 3 });
+    expect(sourceCost(db, ["mt_none"])).toEqual({ ids: ["mt_none"], rows: [], tokens: 0, usd: 0, sessions: 0, assignments: 0 });
   });
 
   it("session spend beyond used gets a negative 'not funded' row, so the rows still sum to used", () => {

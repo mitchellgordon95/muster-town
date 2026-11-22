@@ -877,6 +877,17 @@ export class MockApi implements Api {
     }, 2500 * (i + 1)));
   }
   async meeting(id: string) { await wait(60); return clone(this.need(this.sim.meetings.get(id), "meeting")); }
+  /** the toy's directed rows by id; a finished toy 1:1 that no row names borrows the costliest toy request, so the panel's cost line shows in the mock */
+  async meetingCost(id: string) {
+    await wait(60);
+    const m = this.need(this.sim.meetings.get(id), "meeting");
+    const ids = m.notesDocId ? [m.id, m.notesDocId] : [m.id];
+    const all = toyDirectedBySource().rows;
+    let rows = all.filter((r) => ids.includes(r.id));
+    if (!rows.length && m.kind === "one-on-one" && m.phase === "done") rows = [{ ...all[0]!, id: m.id, title: m.title }];
+    const sum = (k: "tokens" | "usd" | "sessions" | "assignments") => rows.reduce((t, r) => t + r[k], 0);
+    return { ids, rows, tokens: sum("tokens"), usd: Math.round(sum("usd") * 100) / 100, sessions: sum("sessions"), assignments: sum("assignments") };
+  }
   async startMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");
