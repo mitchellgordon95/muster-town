@@ -28,6 +28,12 @@ export const realCommandRunner: CommandRunner = (cmd, args, opts) =>
     });
   });
 
+/**
+ * A repo lock (`.muster-town-redeploy.lock`) older than this is stale: its run died without unlinking it (the server was
+ * killed mid-run, e.g. 2026-11-22 18:25Z during build web). withRepoLock takes it over; the prod watch stops waiting on it.
+ */
+export const REPO_LOCK_STALE_MS = 20 * 60_000;
+
 /** Exit code that asks scripts/serve.sh to restart the server. */
 export const RESTART_EXIT_CODE = 75;
 
@@ -527,7 +533,7 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   async function withRepoLock<T>(fn: () => Promise<T>): Promise<T> {
     const started = Date.now();
     let locked = false;
-    const isStale = (p: string) => { try { return Date.now() - statSync(p).mtimeMs > (deps.lockStaleMs ?? 20 * 60_000); } catch { return true; } };
+    const isStale = (p: string) => { try { return Date.now() - statSync(p).mtimeMs > (deps.lockStaleMs ?? REPO_LOCK_STALE_MS); } catch { return true; } };
     for (;;) {
       if (!existsSync(oldLockPath) || isStale(oldLockPath)) {
         try { closeSync(openSync(lockPath, "wx")); locked = true; break; } catch (e) {

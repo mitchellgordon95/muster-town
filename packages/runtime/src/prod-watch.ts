@@ -8,13 +8,15 @@
  *    (docs/ but docs/manual.md, .github/, top-level *.md); the monitor's `deploy` key (server deploy-watch.ts) uses the same filter.
  *  - spacing: no restart within PULL_SPACING_MS of the server's start or of the last one this watcher asked for; a tick while a
  *    redeploy runs (or another collective's holds the repo lock) is skipped. The same tip after a failed run waits PULL_RETRY_MS.
+ *  - a stale repo lock (older than REPO_LOCK_STALE_MS: its run was killed, so nothing will unlink it) is not waited on: one
+ *    event says so and the redeploy takes the lock over. Before this, one killed run stopped every deploy until a human acted.
  * Nothing is ahead: nothing is called (the redeploy's own no-op guard is not relied on). A fetch failure is one system event,
  * then quiet until a fetch works again (one more event). On only where MUSTER_TOWN_DEPLOY_BRANCH is set (runtime index.ts).
  */
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { deployable } from "@muster-town/schema";
-import { realCommandRunner, type CommandRunner, type Redeployer } from "./redeploy.ts";
+import { realCommandRunner, REPO_LOCK_STALE_MS, type CommandRunner, type Redeployer } from "./redeploy.ts";
 
 /** least time between a server start (or a pull this watcher asked for) and the next restart it asks for; CI's promote used 15 min */
 export const PULL_SPACING_MS = 10 * 60_000;
@@ -59,11 +61,19 @@ export function makeProdWatch(d: ProdWatchDeps): ProdWatch {
   const pairs = new Map<string, boolean>();
   let lastTry: { tip: string; at: number } | null = null;
   const say = (text: string, payload: Record<string, unknown>) => { if (!stopped) d.event(text, { prodWatch: true, branch: d.branch, ...payload }); };
+  /** the mtime of the stale lock already told about (one event per left-over lock) */
+  let staleTold: number | null = null;
+  /** the repo lock's age in ms, or null when there is none */
+  const lockAge = (): number | null => {
+    try { return now() - statSync(join(cwd, ".muster-town-redeploy.lock")).mtimeMs; } catch { return null; }
+  };
   const git = (args: string[], timeoutMs = 30_000) => run("git", args, { cwd, timeoutMs, env: d.gitEnv?.() ?? {} });
 
   async function once(): Promise<ProdWatchResult> {
     // a redeploy (this server's, or another collective's on the same checkout) owns the repo's git now
-    if (d.redeployer.running() || existsSync(join(cwd, ".muster-town-redeploy.lock"))) return "busy";
+    if (d.redeployer.running()) return "busy";
+    const age = lockAge();
+    if (age !== null && age < REPO_LOCK_STALE_MS) return "busy";
     const live = d.live();
     if (!live) return "no-live";
     // --no-write-fetch-head: the redeploy's `git pull` reads FETCH_HEAD (code.ts has the story)
@@ -93,6 +103,10 @@ export function makeProdWatch(d: ProdWatchDeps): ProdWatch {
     if (Number.isFinite(started) && t - started < PULL_SPACING_MS) return "spacing";
     if (lastTry && t - lastTry.at < (lastTry.tip === tip ? PULL_RETRY_MS : PULL_SPACING_MS)) return "spacing";
     if (stopped) return "busy";
+    if (age !== null && staleTold !== t - age) {
+      staleTold = t - age;
+      say(`Prod watch: the redeploy lock is ${Math.round(age / 60_000)} min old (a run was cut before it could remove it); redeploying anyway`, { staleLockMs: Math.round(age) });
+    }
     lastTry = { tip, at: t };
     d.redeployer.redeploy({ image: false, requestedBy: `${d.branch} branch` });
     return "redeploy";
