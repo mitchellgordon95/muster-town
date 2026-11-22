@@ -81,6 +81,14 @@ describe("waits follow the repo mode", () => {
     expect(JSON.stringify((own.input.shape.waitFor as { description?: string }).description)).not.toMatch(/deploy/);
     expect(own.input.safeParse({ title: "t", description: "d", waitFor: { pr: 3 } }).success).toBe(true);
     expect(verbToolFor("meeting", "none").description).not.toMatch(/deploy/);
+    // live checks on a deploy wait (gr_qg42b4guky step 2): taught in muster's texts, gone where there is no deploy wait
+    expect(verbToolFor("submit_report", "muster").description).toMatch(/check live \(\{deploy: sha, checks\}/);
+    expect(JSON.stringify((verbToolFor("submit_report", "muster").input.shape.resumeWhen as { description?: string }).description)).toMatch(/verifies/);
+    expect(JSON.stringify((verbToolFor("assign", "muster").input.shape.waitFor as { description?: string }).description)).toMatch(/with checks and verifies/);
+    for (const v of ["submit_report", "assign"] as const) {
+      const t = verbToolFor(v, "own");
+      expect(t.description + JSON.stringify((t.input.shape[v === "assign" ? "waitFor" : "resumeWhen"] as { description?: string }).description)).not.toMatch(/checks\b.*live|verifies/);
+    }
   });
 });
 
@@ -118,6 +126,11 @@ describe("prompts follow the repo mode", () => {
     expect(work).toMatch(/\{pr: <number>, merge: true\}` once your pull request is done/);
     expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/waitFor: \{pr: N, merge: true\}/);
     expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/A merge to main ships itself/);
+    // live checks (gr_qg42b4guky step 2): forks park an HTTP/API read of the live town, managers assign it as a wait
+    expect(work).toMatch(/\{deploy: "<sha>", checks: \[\.\.\.\], verifies: \[kr ids\]\}` when all that is left is to check the live town/);
+    expect(workshopPrompt({ dir: "/w", base: "main" }, "agent-town")).toMatch(/resumeWhen: \{deploy: <sha>, checks, verifies\}/);
+    expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "muster" })).toMatch(/never queue a session that only reads the live town/);
+    expect(managerSystemPrompt(pix, b, world.town.get(), { repo: "own" })).not.toMatch(/only reads the live town/);
   });
 });
 
