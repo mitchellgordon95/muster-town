@@ -271,6 +271,8 @@ export interface DirectedBySource {
   total: { tokens: number; usd: number; sessions: number; assignments: number; requests: number };
   check: { ok: boolean; diff: number; identity: string };
 }
+/** `GET /api/meetings/:id/cost` (gr_k71b7b6px7): the directed work that names the meeting or its notes doc, from `directedBySource`. */
+export interface SourceCost { ids: string[]; tokens: number; usd: number; sessions: number; assignments: number; rows: DirectedSourceRow[] }
 /** The token kinds of a lane × kind table, in column order. */
 export type TokenKind = "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h";
 /** One row of `byLaneKind`: a lane (manager = purpose manage, other = every other purpose and lane-less work) or the total. */
@@ -797,6 +799,7 @@ export interface Api {
   openOneOnOne(buildingId: string, opts?: { agentId?: string; docId?: string; grantId?: string; askId?: string }): Promise<Meeting>;
   createMeeting(input: In<typeof CreateMeetingInput>): Promise<Meeting>;
   meeting(id: string): Promise<Meeting>;
+  meetingCost(id: string): Promise<SourceCost>;
   startMeeting(id: string): Promise<Meeting>;
   sayMeeting(id: string, text: string, attach?: string): Promise<Meeting>;
   /** the item open in the human's decision queue, for their 1:1's agent (null: the queue closed); only that 1:1's human */
@@ -1110,6 +1113,7 @@ class HttpApi implements Api {
   async meetings(q: { buildingId?: string; phase?: string }) { return unwrap<Meeting[]>(await this.get(`/api/meetings${qs(q)}`), "meetings"); }
   async createMeeting(i: In<typeof CreateMeetingInput>) { return unwrap<Meeting>(await this.post("/api/meetings", i), "meeting"); }
   async meeting(id: string) { return unwrap<Meeting>(await this.get(`/api/meetings/${id}`), "meeting"); }
+  async meetingCost(id: string) { return unwrap<SourceCost>(await this.get(`/api/meetings/${id}/cost`), "cost"); }
   async openOneOnOne(buildingId: string, opts: { agentId?: string; docId?: string; grantId?: string; askId?: string } = {}) { return unwrap<Meeting>(await this.post(`/api/buildings/${buildingId}/one-on-one`, opts), "meeting"); }
   async startMeeting(id: string) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/start`), "meeting"); }
   async presentMeeting(id: string, docId: string | null, slide?: number) { return unwrap<Meeting>(await this.post(`/api/meetings/${id}/present`, { docId, ...(slide ? { slide } : {}) }), "meeting"); }

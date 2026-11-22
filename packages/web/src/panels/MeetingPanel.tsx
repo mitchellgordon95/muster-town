@@ -2,10 +2,11 @@
 import { useDraft } from "../draft";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Meeting, MeetingAttachment, MeetingToolCall, SnapshotBuilding } from "@muster-town/schema";
-import { api } from "../api";
+import { api, type SourceCost } from "../api";
 import { store, useTown, roleOf } from "../state";
 import { Glyph, PanelShell } from "./PanelShell";
-import { Act, Empty, Pill, Section, clock, nameOf, timeAgo, useLoad } from "./ui";
+import { ADJ, Act, Empty, Pill, Section, clock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
+import { dollars } from "./BankFinance";
 import { portraitUrl } from "../map/sprites";
 import { buildingMeetings, phaseTone, roomMeetings } from "./room";
 import { CallMeetingForm } from "./CallMeetingForm";
@@ -191,10 +192,27 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
           </ol>
         )}
       </Section>
+      {m.phase === "done" ? <WorkCost id={m.id} /> : null}
       <div className="foot-note">Scheduled {timeAgo(m.scheduledAt)}{m.startedAt ? ` · started ${timeAgo(m.startedAt)}` : ""}{m.endedAt ? ` · ended ${timeAgo(m.endedAt)}` : ""}</div>
       {roomPanel ? <details className="attendees"><summary>Other meetings in this room</summary><RoomMeetings building={roomPanel} skip={m.id} /></details> : null}
     </PanelShell>
   );
+}
+
+/**
+ * "Work asked for here: N assignments, X adj. tokens, $Y" (gr_k71b7b6px7, kr_ig4qu7vil3): the directed work that names this
+ * ended meeting (or its notes), from the same rows as the Spending tab's "Asked for by humans". Nothing when no work names it.
+ */
+export function WorkCost({ id }: { id: string }) {
+  const c = useLoad(() => api().meetingCost(id), [id]);
+  const line = c.data ? workCostLine(c.data) : null;
+  return line ? <div className="muted small-line meeting-cost" title="Directed work that names this meeting, as the Bank's Spending tab counts it">{line}</div> : null;
+}
+
+/** The cost line's words; null when no assignment names the meeting. */
+export function workCostLine(c: Pick<SourceCost, "assignments" | "tokens" | "usd">): string | null {
+  if (!c.assignments) return null;
+  return `Work asked for here: ${c.assignments} assignment${c.assignments === 1 ? "" : "s"}, ${fmtTokens(c.tokens)} ${ADJ}, ${dollars(c.usd)}`;
 }
 
 /** under the server's 5 min drafting window; a poll only while the meeting is live */
