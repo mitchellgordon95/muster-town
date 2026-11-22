@@ -1764,8 +1764,11 @@ export interface FunderWeek {
   everything: boolean;
 }
 
-/** One row of a goal's Spend tab: adjusted output tokens and session count, split by lane ("none" = no lane recorded). */
-export interface SpendByLane { grant: number; exploration: number; directed: number; none: number }
+/**
+ * One row of a goal's Spend tab: adjusted output tokens, split by lane. A manager's own session has no lane: `managing`
+ * (a manage session) or `oneOnOnes` (a manage session in a 1:1 with a human), gr_064fmkq31s; "none" = any other session with no lane recorded.
+ */
+export interface SpendByLane { grant: number; exploration: number; directed: number; retainer: number; managing: number; oneOnOnes: number; none: number }
 /**
  * GET /api/goals/:id/spend (docs/goals.md "Spend tab", build step 4): the subtree's spend over a window, read from
  * session rows only (no Bank read or write). A session belongs to a goal by its grant: grant → the grant's goal;

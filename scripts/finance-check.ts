@@ -71,6 +71,26 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     // how much incoming credit was used (gr_z13gmx54su): expired per day, and the 7 d / 30 d used share per credit
     ...expiredChecks(f, src),
     ...utilizationChecks(f, src),
+    // what managing each job cost (gr_064fmkq31s): the manage sessions' shares close on the manager wakes' total
+    ...managingChecks(s),
+  ];
+}
+
+/**
+ * GET /api/finance/spend `managerShares` (kr_xvnxm4kqwy): job shares + upkeep + 1:1s = managerWakes.manageTokens, within
+ * a token per session (both read the same window's manage sessions), and each part's lines sum to its total.
+ */
+function managingChecks(s: Json): Check[] {
+  const m = s.managerShares, w = s.managerWakes;
+  if (!m) return [flag("managing shares add up", false, "GET /api/finance/spend has no `managerShares` (server older than gr_064fmkq31s step 1)")];
+  const jobs = sum(Object.values(m.jobs ?? {}).map((j: any) => Number(j.tokens)));
+  const upkeep = sum(Object.values(m.upkeep ?? {}).map((u: any) => Number(u.tokens)));
+  const parts = jobs + upkeep + Number(m.oneOnOnes?.tokens);
+  const diff = parts - Number(w?.manageTokens);
+  const tol = Math.max(1, Number(m.sessions));
+  return [
+    flag("managing shares add up", m.check?.ok === true && Math.abs(diff) <= tol,
+      `job shares ${fmt(jobs)} + upkeep ${fmt(upkeep)} + 1:1s ${fmt(m.oneOnOnes?.tokens)} = managerWakes.manageTokens ${fmt(w?.manageTokens)} (diff ${fmt(diff)}, ±${fmt(tol)} over ${fmt(m.sessions)} sessions; ${(Number(m.tiedShare) * 100).toFixed(1)}% tied to a job)`),
   ];
 }
 
