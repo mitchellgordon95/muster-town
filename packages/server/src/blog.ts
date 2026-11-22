@@ -113,7 +113,7 @@ const absolute = (origin: string, u: string) => u.startsWith("/") ? origin + u :
 const IMAGE_MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 
 /** The repo the About box links (the homepage's README link, home.ts). */
-export const REPO_URL = "https://github.com/mitchellgordon95/muster-town";
+const REPO_URL = "https://github.com/mitchellgordon95/muster-town";
 
 /**
  * The About Muster Town box above every post's signup (gr_y8buqgpata, findings dc_dl4tn9u7p1: blog readers didn't reach
