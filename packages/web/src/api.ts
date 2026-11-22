@@ -516,6 +516,13 @@ export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
  */
 export interface ThreadEntry { id: string; jobId: string; authorKind: string; authorId: string; level: string; note: string; body: string; moved: Record<string, unknown>; assignmentId: string | null; createdAt: string }
 /** GET /api/buildings/:id/intray: `grants` (proposed, countered, checkpoint) only for the Town Hall; `asks` and `notices` only for the Town Hall; `entries` only for a building */
+/**
+ * What managing a job cost (gr_064fmkq31s): its share of each manager wake that worked it (reviewed its reports, acted on
+ * its asks, wrote on its thread), all time. Never part of the grant's spend against its ceiling or its gate's numbers.
+ */
+export interface Managing { tokens: number; wakes: number; decisions: number }
+/** A grant as its own page reads it: GET /api/grants/:id's `grant` with the sibling `managing` (absent on an older server). */
+export type GrantPage = GrantView & { managing?: Managing };
 export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notices?: Notice[]; entries?: ThreadEntry[]; reports: Doc[]; chains?: Record<string, ReportChain>; grants: GrantView[]; access?: AccessRequestView[]; captains?: CaptainRequestView[]; retainers?: ScheduleView[]; blocked?: { buildingId: string; name: string; reason: string; since: string | null }[]; stopped?: GrantView[]; digest?: DigestCard | null; digestRun?: DigestRunView | null }
 /** A goal key result with the live (funded or checkpoint) grant working on it, if any, and who wrote / last edited it (core's GoalKeyResult). */
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
@@ -662,8 +669,8 @@ export interface Api {
   setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }): Promise<GrantPricing>;
   /** GET /api/town/pricing: the table, oversell and the cached calibration (admins: the planning desk's Step sizes tab) */
   pricing(): Promise<PricingRead>;
-  /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders) */
-  grant(id: string): Promise<GrantView>;
+  /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders), with `managing`: what its manager's wakes cost (gr_064fmkq31s) */
+  grant(id: string): Promise<GrantPage>;
   /** GET /api/buildings/:id/grants: every grant and proposal of the building (drafts only for its managers and funders) */
   grants(buildingId: string): Promise<GrantView[]>;
   /** GET /api/buildings/:id/grants?subtree=1: every grant filed on a goal in the building's subtree, any building's (the Goals tab) */
@@ -1012,7 +1019,11 @@ class HttpApi implements Api {
     const r = await this.call<Partial<GrantPricing>>("PUT", "/api/town/defaults", patch);
     return { stepSizes: r.stepSizes ?? patch.stepSizes ?? grantPricingOf({}).stepSizes, oversell: r.oversell ?? patch.oversell ?? 0 };
   }
-  async grant(id: string) { return unwrap<GrantView>(await this.get(`/api/grants/${id}`), "grant"); }
+  async grant(id: string): Promise<GrantPage> {
+    const r = await this.get<{ grant?: GrantView; managing?: Managing }>(`/api/grants/${id}`);
+    const g = unwrap<GrantView>(r, "grant");
+    return r.managing ? { ...g, managing: r.managing } : g;
+  }
   async grants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants`)).grants ?? []; }
   async subtreeGrants(buildingId: string) { return (await this.get<{ grants?: GrantView[] }>(`/api/buildings/${buildingId}/grants?subtree=1`)).grants ?? []; }
   async decideGrant(id: string, i: In<typeof DecideGrantInput>) { return unwrap<GrantView>(await this.post(`/api/grants/${id}/decide`, i), "grant"); }

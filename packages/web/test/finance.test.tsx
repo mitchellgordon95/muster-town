@@ -126,7 +126,7 @@ const sp: FinanceSpend = {
         { kind: "assignment", id: "as_a", name: "Step 1: the ledger", tokens: 500, share: 0.4545, sessions: 4 }] },
       { kind: "no-grant", id: null, name: "Not under a grant: work a human asked for, work a building took up on its own, and sessions from before grants existed", tokens: 300, share: 0.2727, sessions: 3, children: [
         { kind: "assignment", id: "as_b", name: "Explore the map", tokens: 300, share: 0.2727, sessions: 3 }] },
-      { kind: "no-assignment", id: null, name: "The manager's own sessions: reading reports, running meetings and replying (no assignment)", tokens: 100, share: 0.0909, sessions: 2 },
+      { kind: "no-assignment", id: null, name: "Managing and 1:1s: the manager reading reports, deciding and talking with humans (no assignment)", tokens: 100, share: 0.0909, sessions: 2 },
     ] },
     { kind: "building", id: "bl_b", name: "Bank Transparency", tokens: 250, share: 0.2273, sessions: 2 },
     { kind: "weight-mismatch", id: null, name: "Priced differently before the switch to adjusted tokens (nothing went unpaid)", tokens: -30, share: -0.0273, sessions: 12 },
@@ -163,10 +163,10 @@ describe("finance page: spending", () => {
     expect(centreOf(spendAt("spend:workshop", { ...sp, byLaneKind: lk }))).toContain("cache writes 75.0% of cost");
     // open: lanes, kinds, the share (no red line: the cache-miss alert is about prefix busting, 1:1 mt_pr3347g2w2), the not-counted line and the check
     const open = renderToStaticMarkup(<LaneKind today={lk} initialOpen />);
-    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Manager wakes", "25.0%", "75.0%", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
+    for (const s of [">Write 1 h</th>", "lane-kind-scroll", "Grant", "Managing and 1:1s", "25.0%", "75.0%", "Total", "Not counted: 1 back-filled session", "✓ Σ lane × kind rows"]) expect(open).toContain(s);
     expect(open).not.toContain("color:#c0392b");
     const one = renderToStaticMarkup(<LaneKind today={lk} buildingId="workshop" name="Town Workshop" initialOpen />);
-    expect(one).toContain("Manager wakes");
+    expect(one).toContain("Managing and 1:1s");
     expect(one).not.toContain(">Grant<");
     expect(renderToStaticMarkup(<LaneKind today={lk} buildingId="bl_none" initialOpen />)).toContain("No sessions in this window.");
     expect(renderToStaticMarkup(<LaneKind />)).toBe("");
@@ -207,7 +207,7 @@ describe("finance page: spending", () => {
     expect(top.match(/<tbody>.*?<\/tbody>/s)![0].match(/<tr /g)).toHaveLength(4);
     // level 2: a building's grants (and its no-grant and manager rows) with the breadcrumb back
     const lvl2 = centreOf(spendAt("spend:workshop", sp));
-    for (const s of ["All buildings</button>", "<b>Town Workshop</b>", "<th>Grant</th>", "Refactor the Bank…", "Not under a grant", "The manager&#x27;s own sessions", "Total"]) expect(lvl2).toContain(s);
+    for (const s of ["All buildings</button>", "<b>Town Workshop</b>", "<th>Grant</th>", "Refactor the Bank…", "Not under a grant", "Managing and 1:1s", "Total"]) expect(lvl2).toContain(s);
     for (const s of ["Bank Transparency", "Step 1: the ledger", "Explore the map"]) expect(lvl2).not.toContain(s);
     // level 3: a grant's assignments; the crumbs lead back to the building and the top
     const lvl3 = centreOf(spendAt("spend:workshop/gr_a", sp));

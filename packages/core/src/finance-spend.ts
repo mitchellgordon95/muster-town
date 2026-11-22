@@ -282,7 +282,7 @@ export interface SpendInputs {
 
 export const NO_BUILDING = "No building (town-wide sessions)";
 export const NO_GRANT = "Not under a grant: work a human asked for, work a building took up on its own, and sessions from before grants existed";
-export const NO_ASSIGNMENT = "The manager's own sessions: reading reports, running meetings and replying (no assignment)";
+export const NO_ASSIGNMENT = "Managing and 1:1s: the manager reading reports, deciding and talking with humans (no assignment)";
 export const UNATTRIBUTED = "Usage from before sessions carried counters (before 2026-10-26 20:29)";
 export const WEIGHT_MISMATCH = "Priced differently before the switch to adjusted tokens (nothing went unpaid)";
 export const NOT_FUNDED = "Not funded: work sessions the Bank never charged";

@@ -374,7 +374,13 @@ export class MockApi implements Api {
     slides.push(town, ...asked, ...rest);
     return clone({ title: "Review deck", generatedAt: new Date().toISOString(), slides });
   }
-  async grant(id: string) { await wait(60); return clone(this.need(this.sim.grants.get(id), "grant")); }
+  async grant(id: string) {
+    await wait(60);
+    const g = clone(this.need(this.sim.grants.get(id), "grant"));
+    // what managing it cost (gr_064fmkq31s): a grant that has spent was reviewed; one wake per ~60k spent, a tenth of its spend
+    const wakes = Math.ceil(g.spentTokens / 60_000);
+    return wakes ? { ...g, managing: { tokens: Math.round(g.spentTokens / 10), wakes, decisions: wakes + 1 } } : g;
+  }
   async grants(buildingId: string) { await wait(60); return clone([...this.sim.grants.values()].filter((g) => g.buildingId === buildingId && g.status !== "draft")); }
   /** as core's Grants.list subtree: grants filed on a goal under the building's attachment (the mock's tree) */
   async subtreeGrants(buildingId: string) {
