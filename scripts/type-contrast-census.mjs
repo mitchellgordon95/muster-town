@@ -14,7 +14,7 @@
  *   MOCK=http://localhost:5199/workshop/ node scripts/type-contrast-census.mjs laptop,phone      (ONLY=grant,bank to pick kinds)
  */
 import fs from "node:fs";
-const { chromium } = await import("/tmp/pw/node_modules/playwright-core/index.mjs");
+const { chromium } = await import(process.env.PLAYWRIGHT ?? "/tmp/pw/node_modules/playwright-core/index.mjs");
 const origin = (process.env.ORIGIN ?? "https://muster.town").replace(/\/$/, "");
 const HOME = process.env.HOME_ORIGIN ?? origin; // the home page "/" is rendered by the server
 const base = origin + "/workshop/";
