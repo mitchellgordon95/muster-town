@@ -1,0 +1,1 @@
+- 2026-11-22: The midnight daily reset reads and writes only agents with spend today or out-of-budget (partial index `agents_daily_reset`, migration 128, one transaction): 1,346 ms → 0.10 ms at 30,000 retired forks on the desk bench; `RETIRED=<n>` option in scripts/stress/tick-bench.mts; docs/scaling.md "Retired forks" (gr_ouc0w8us88 step 1).

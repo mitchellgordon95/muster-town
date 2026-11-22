@@ -702,7 +702,7 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       };
       if (localDate(d) !== lastDate) {
         lastDate = localDate(d);
-        timed("dailyReset", () => world.budget.resetDaily(), "daily reset");
+        timed("dailyReset", () => world.transaction(() => world.budget.resetDaily()), "daily reset");
       }
       // the hourly export runs in a worker (503 post-mortem suggestion 2: ~2-3 s of reads, file writes and git at the live size);
       // one at a time, and its one export.done is appended here when the worker answers
