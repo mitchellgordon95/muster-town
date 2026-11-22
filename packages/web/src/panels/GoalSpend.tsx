@@ -13,7 +13,8 @@ import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, Section, fmtTokens, use
 
 const SPEND_WINDOWS = [7, 30, 90] as const;
 const LANES: { id: keyof SpendByLane; label: string }[] = [
-  { id: "grant", label: "grant" }, { id: "exploration", label: "exploration" }, { id: "directed", label: "directed" }, { id: "none", label: "no lane" },
+  { id: "grant", label: "grant" }, { id: "exploration", label: "exploration" }, { id: "directed", label: "directed" }, { id: "retainer", label: "retainer" },
+  { id: "managing", label: "managing" }, { id: "oneOnOnes", label: "1:1s" }, { id: "none", label: "no lane" },
 ];
 
 /** "grant 1.2M · directed 300k": the non-zero lanes, biggest first. */

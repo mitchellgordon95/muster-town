@@ -450,6 +450,8 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(spendToday.body.managerWakes).toMatchObject({ windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
     expect(spend7d.body.managerWakes.total).toEqual(spendToday.body.managerWakes.total);
     expect(typeof spendToday.body.managerWakes.total.askActions).toBe("number");
+    // gr_064fmkq31s step 1: the same window's manage sessions split onto jobs + upkeep + 1:1s, closing on manageTokens
+    expect(spendToday.body.managerShares).toMatchObject({ manageTokens: spendToday.body.managerWakes.manageTokens, check: { ok: true } });
     expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);

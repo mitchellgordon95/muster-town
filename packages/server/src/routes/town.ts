@@ -1,4 +1,4 @@
-import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures, operatingManualDoc } from "@muster-town/core";
+import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, townManagerShares, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures, operatingManualDoc } from "@muster-town/core";
 import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
@@ -578,7 +578,10 @@ export async function townRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { window?: string } }>("/api/finance/spend", async (req) => {
     const window = req.query.window ?? "today";
     if (!(LANE_KIND_WINDOWS as readonly string[]).includes(window)) throw badRequest(`window must be one of ${LANE_KIND_WINDOWS.join(", ")}`);
-    return world.bank.spend(new Date(), window as LaneKindWindow);
+    const now = new Date();
+    const spend = world.bank.spend(now, window as LaneKindWindow);
+    // `managerShares` (gr_064fmkq31s step 1): the same window's manage sessions split onto the jobs they worked + upkeep + 1:1s
+    return { ...spend, managerShares: townManagerShares(world, spend.managerWakes.from, now) };
   });
   app.get("/api/finance/sources", async () => world.bank.sources());
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;

@@ -1,4 +1,4 @@
-import { AppError, jobThread, markSeen } from "@muster-town/core";
+import { AppError, jobManaging, jobThread, markSeen } from "@muster-town/core";
 import { CloseGrantInput, StopGrantInput, CreateGrantRequest, DecideGrantInput, GrantsQuery, UpdateGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -26,13 +26,14 @@ export async function grantRoutes(app: FastifyInstance) {
   /**
    * One job and its thread of entries (plan dc_uwx045472m step 3, read only): a job id (jb_…) or what it tracks (a grant,
    * a retainer's schedule, a building, an assignment). `from`: entries from that seq on; else the last `limit` (≤ 200).
-   * → { job, entries, total }
+   * → { job, entries, total, managing }: `managing` = what the manager wakes that worked this job cost, its share of each
+   * (gr_064fmkq31s step 1: core finance-manager-shares.ts), apart from the job's own spend.
    */
   app.get<{ Params: Params }>("/api/jobs/:id", async (req) => {
     const { from, limit } = parse(JobsQuery, req.query);
     const thread = jobThread(world, req.params.id, { from, limit });
     if (!thread) throw new AppError("not_found", `job not found: ${req.params.id}`);
-    return thread;
+    return { ...thread, managing: jobManaging(world, thread.job.id) };
   });
 
   app.get<{ Params: Params }>("/api/grants/:id", async (req) => {
@@ -43,7 +44,8 @@ export async function grantRoutes(app: FastifyInstance) {
     // what this human has seen (legible delegation step 3): an ask on the grant is written as a diff against it
     if (req.auth?.kind === "user") markSeen(world, req.auth.user.id, "grant", grant.id);
     // an open or live grant carries what it is likely to cost (core grant-estimate.ts), signed out too
-    return { grant: desk.withEstimate(grant) };
+    // what managing it cost (gr_064fmkq31s): the manager wakes' shares on its job, not counted against its ceiling
+    return { grant: desk.withEstimate(grant), managing: jobManaging(world, `jb_${grant.id}`) };
   });
 
   app.post<{ Params: Params }>("/api/buildings/:id/grants", async (req, reply) => {

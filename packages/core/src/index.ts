@@ -36,6 +36,7 @@ export { bankConvertedAt, countersSince, financeSpend, grantTitle, spendGrants, 
 export { financeDaily, FINANCE_DAILY_DAYS, type FinanceDaily, type FinanceDailyCheck, type FinanceDailyInputs, type FinanceDailyRow } from "./finance-daily.ts";
 export { spendByLaneKind, laneKindRow, LANE_KIND_WINDOWS, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 export { managerWakes } from "./finance-manager-wakes.ts";
+export { managerShares, managerActs, townManagerShares, jobManaging, type ManagerShares, type ManagingLine } from "./finance-manager-shares.ts";
 export { financeSplit, SPLIT_GROUPS, SPLIT_LANES, type FinanceSplit, type SplitLane, type SplitWindow } from "./finance-split.ts";
 export { financeUtilization, utilizationAgainstDaily, UTILIZATION_IDENTITY, type FinanceUtilization, type UtilizationWindow } from "./finance-utilization.ts";
 export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type FinanceSources, type SourceCredit, type SourceDonation, type SourceInput, type SourcesInputs } from "./finance-sources.ts";

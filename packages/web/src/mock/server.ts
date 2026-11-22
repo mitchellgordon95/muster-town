@@ -295,7 +295,7 @@ export class MockApi implements Api {
   async goalTreeWithRetired() { return this.goalTree(); }
   async goalSpend(id: string, days = 7): Promise<GoalSpend> {
     await wait();
-    const z = { grant: 0, exploration: 0, directed: 0, none: 0 };
+    const z = { grant: 0, exploration: 0, directed: 0, retainer: 0, managing: 0, oneOnOnes: 0, none: 0 };
     const now = Date.now();
     return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byGrant: [], results: [], visitors: 0 };
   }
