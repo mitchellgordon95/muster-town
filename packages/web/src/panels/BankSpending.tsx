@@ -10,7 +10,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { ROOT_GOAL_ID } from "@muster-town/schema";
-import { api, type Bank, type FinanceSpend, type LaneKindRow, type LaneKindTable, type ManagerWakeLine, type ManagerWakes, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
+import { api, type Bank, type DirectedBySource, type DirectedSourceRow, type FinanceSpend, type LaneKindRow, type LaneKindTable, type ManagerWakeLine, type ManagerWakes, type SpendByLaneKind, type SpendNode, type TokenKind } from "../api";
 import { useTown } from "../state";
 import { BuildingFunding, pickRow } from "./BankFunding";
 import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, noGrantCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine, stepLine, stepsCheckLine } from "./BankFinance";
@@ -155,9 +155,61 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
       </> : null}
       {(top || inSteps) && stepsCheck ? <div className={stepsCheck.ok ? "finance-check ok spend-steps-check" : "error-line"} role="status">{stepsCheck.ok ? "✓ " : "✗ "}{stepsCheck.text}</div> : null}
       {(top || inNoGrant) && laneCheck ? <div className={laneCheck.ok ? "finance-check ok spend-lane-check" : "error-line"} role="status">{laneCheck.ok ? "✓ " : "✗ "}{laneCheck.text}</div> : null}
+      {top && sp.directedBySource ? <DirectedRequests d={sp.directedBySource} /> : null}
       {crumbs.length === 1 && crumbs[0].kind === "building" ? <ManagerWakesLines mw={sp.managerWakes} buildingId={crumbs[0].id ?? "none"} /> : null}
       {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
     </Section>
+  );
+}
+
+const REQUEST_FOLD = 10;
+const SOURCE_NAME = { meeting: "Meeting", doc: "Doc", tell: "A tell" } as const;
+/** A request's name: the meeting's or doc's title; a tell's text is private. */
+const requestName = (r: DirectedSourceRow) => r.title ?? (r.kind === "tell" ? "A tell (private message)" : `${SOURCE_NAME[r.kind ?? "doc"]} not found`);
+const who = (x: { askedBy: string | null; askedById: string | null }) => x.askedBy ?? x.askedById ?? "not recorded";
+
+/**
+ * "Asked for by humans" at the top of the Spending tab (gr_k71b7b6px7, kr_8hg2tg1cvc): GET /api/finance/spend's
+ * `directedBySource`, the directed lane grouped by the 1:1, meeting, flag or tell each assignment traces to. The
+ * costliest 10 first (a toggle shows all), then the untraced row, a total, the per-human totals and the ✓ line against
+ * the directed lane.
+ */
+export function DirectedRequests({ d, initialOpen = false }: { d: DirectedBySource; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const rows = open ? d.rows : d.rows.slice(0, REQUEST_FOLD);
+  const more = d.rows.length - REQUEST_FOLD;
+  return (
+    <section className="directed-requests" aria-label="Asked for by humans">
+      <b>Asked for by humans</b> <span className="muted">· what each request cost: every assignment a 1:1, meeting, flag or tell started, with no grant and no ceiling; all time</span>
+      <table className="table spend-table directed-requests-table">
+        <thead><tr><th>Request</th><th>Asked by</th><th>Assignments</th><th>{ADJ}</th><th title="At API list price">$</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="directed-request">
+              <td className="spend-name">{requestName(r)}<span className="spend-grant-line muted">{r.at ? `${r.at.slice(0, 10)} · ` : ""}<IdLink id={r.id} />{r.buildings.length ? ` · ${r.buildings.map((b) => b.name).join(", ")}` : ""}</span></td>
+              <td>{who(r)}</td>
+              <td>{n(r.assignments)}</td>
+              <td className="spend-tokens">{n(r.tokens)}</td>
+              <td className="spend-usd muted">{dollars(r.usd)}</td>
+            </tr>
+          ))}
+          {more > 0 ? <tr><td colSpan={5}><button type="button" className="link" aria-expanded={open} onClick={() => setOpen((x) => !x)}>{open ? `Show the costliest ${REQUEST_FOLD}` : `Show all ${n(d.rows.length)} requests`}</button></td></tr> : null}
+          {d.untraced.assignments ? (
+            <tr className="directed-untraced">
+              <td className="spend-name">No request recorded<span className="spend-grant-line muted">a human made the work directly, or no source was saved</span></td>
+              <td>–</td><td>{n(d.untraced.assignments)}</td><td className="spend-tokens">{n(d.untraced.tokens)}</td><td className="spend-usd muted">{dollars(d.untraced.usd)}</td>
+            </tr>
+          ) : null}
+        </tbody>
+        <tfoot><tr><td>Total, {n(d.total.requests)} request{d.total.requests === 1 ? "" : "s"}</td><td /><td>{n(d.total.assignments)}</td><td className="spend-tokens"><b>{n(d.total.tokens)}</b></td><td className="spend-usd muted">{dollars(d.total.usd)}</td></tr></tfoot>
+      </table>
+      {d.byAsker.length ? (
+        <p className="directed-askers"><span className="muted">By human:</span> {d.byAsker.map((a) => `${who(a)} ${fmtTokens(a.tokens)} ${ADJ} · ${dollars(a.usd)} · ${n(a.requests)} request${a.requests === 1 ? "" : "s"}`).join("; ")}</p>
+      ) : null}
+      <div className={d.check.ok ? "finance-check ok directed-check" : "error-line"} role="status">
+        {d.check.ok ? "✓ " : "✗ "}Requests {n(d.total.tokens - d.untraced.tokens)} + no request recorded {n(d.untraced.tokens)} = {n(d.total.tokens)}{d.check.ok ? ", the directed lane" : `, the directed lane differs by ${n(d.check.diff)}`} ({d.check.identity})
+      </div>
+    </section>
   );
 }
 

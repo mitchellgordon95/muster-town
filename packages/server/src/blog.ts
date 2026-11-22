@@ -7,6 +7,8 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { Marked } from "marked";
 import type { Doc } from "@muster-town/schema";
 import { funnelSource, isAutomatedClient, type World } from "@muster-town/core";
+import { WEB_BASE } from "./context.ts";
+import { SITE_DESCRIPTION } from "./share.ts";
 
 /** The building whose published `blog` articles are muster.town's blog: Outreach. */
 export const BLOG_BUILDING = "bl_6ifesdbah3";
@@ -103,15 +105,33 @@ footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #e2ddd0}
 .signup{margin:0 0 1.5rem}.signup p{margin:0 0 .5rem}.signup .row{display:flex;gap:.5rem;flex-wrap:wrap}
 .signup input[type=email]{flex:1 1 14rem;font:16px/1.4 system-ui,sans-serif;padding:.45rem .6rem;border:1px solid #c9c3b3;border-radius:4px;background:#fff}
 .signup button{font:15px/1.4 system-ui,sans-serif;padding:.45rem 1rem;border:0;border-radius:4px;background:#2f56b0;color:#fff;cursor:pointer}
+.about{margin:0 0 1.5rem;padding:.9rem 1rem;background:#f0ede4;border-radius:4px}.about h2{margin:0 0 .4rem;font-size:1.1rem}.about p{margin:.3rem 0}
 .signup .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.signup .err{color:#a33;font:14px/1.4 system-ui,sans-serif}`;
 
 /** A cover's absolute URL (link previews and feeds need one): a site path gets the origin in front. */
 const absolute = (origin: string, u: string) => u.startsWith("/") ? origin + u : u;
 const IMAGE_MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 
+/** The repo the About box links (the homepage's README link, home.ts). */
+const REPO_URL = "https://github.com/mitchellgordon95/muster-town";
+
+/**
+ * The About Muster Town box above every post's signup (gr_y8buqgpata, findings dc_dl4tn9u7p1: blog readers didn't reach
+ * the town or the repo): the homepage's og:description verbatim, the live Workshop town and the GitHub repo. A click on
+ * the town link reaches the funnel as source "blog" (core funnelSource: an own-host referrer under /blog).
+ */
+function aboutBox(): string {
+  return `<section class="about">
+<h2>About Muster Town</h2>
+<p>${esc(`Muster Town is ${SITE_DESCRIPTION}`)}</p>
+<p><a href="${WEB_BASE}">Visit the live town</a> · <a href="${REPO_URL}">Muster Town on GitHub</a></p>
+</section>`;
+}
+
+/** Every blog page's preview image: its cover, else the site's town picture /og.png (gr_y8buqgpata), so a shared link always shows one. */
 function page(o: { origin: string; path: string; title: string; description: string; article?: boolean; image?: string; body: string }): string {
   const url = o.origin + o.path;
-  const image = o.image ? absolute(o.origin, o.image) : "";
+  const image = absolute(o.origin, o.image || "/og.png");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -125,7 +145,9 @@ function page(o: { origin: string; path: string; title: string; description: str
 <meta property="og:type" content="${o.article ? "article" : "website"}">
 <meta property="og:url" content="${esc(url)}">
 <meta property="og:site_name" content="Muster Town">
-${image ? `<meta property="og:image" content="${esc(image)}">\n<meta name="twitter:image" content="${esc(image)}">\n` : ""}<meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
+<meta property="og:image" content="${esc(image)}">
+<meta name="twitter:image" content="${esc(image)}">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="alternate" type="application/atom+xml" title="Muster Town blog" href="${esc(o.origin)}/blog/feed.xml">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314151c'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%237cc4ff'/%3E%3C/svg%3E">
 <style>${CSS}</style>
@@ -173,6 +195,7 @@ ${byline(p)}
 ${cover}${html}
 </article>
 <footer>
+${aboutBox()}
 ${signup(p.slug, p.upcoming)}
 <p class="meta"><a href="/blog">All posts</a> · <a href="/">Visit muster.town</a></p>
 </footer>` });

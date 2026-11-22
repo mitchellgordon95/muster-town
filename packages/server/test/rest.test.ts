@@ -452,7 +452,19 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(typeof spendToday.body.managerWakes.total.askActions).toBe("number");
     // gr_064fmkq31s step 1: the same window's manage sessions split onto jobs + upkeep + 1:1s, closing on manageTokens
     expect(spendToday.body.managerShares).toMatchObject({ manageTokens: spendToday.body.managerWakes.manageTokens, check: { ok: true } });
+    // the directed lane by human request (gr_k71b7b6px7): it closes on the directed lane row
+    expect(spendToday.body.directedBySource).toMatchObject({ rows: expect.any(Array), byAsker: expect.any(Array), check: { ok: true, diff: 0 } });
+    expect(spendToday.body.directedBySource.total.tokens).toBe(spendToday.body.noGrant.byLane.directed.tokens);
     expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
+    // a meeting's cost line (kr_ig4qu7vil3): read from the same rows; an unknown meeting is a 404
+    const anyMeeting = world.meetings.all()[0];
+    if (anyMeeting) {
+      const cost = await json(app, "GET", `/api/meetings/${anyMeeting.id}/cost`);
+      expect(cost.status).toBe(200);
+      const want = spendToday.body.directedBySource.rows.filter((r: any) => cost.body.cost.ids.includes(r.id));
+      expect(cost.body.cost.tokens).toBe(want.reduce((t: number, r: any) => t + r.tokens, 0));
+    }
+    expect((await json(app, "GET", "/api/meetings/mt_nope/cost")).status).toBe(404);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);
     const fly = await json(app, "GET", "/api/finance/fly?days=7");

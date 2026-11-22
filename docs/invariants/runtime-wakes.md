@@ -47,6 +47,11 @@ Citation format: the same as in [grants.md](grants.md): a `- Test:` line with th
    - Test: `packages/core/test/main-fix.test.ts` › `routes to the red commit author's building, else to the fallback; lane grant there`
    - Test: `packages/core/test/main-fix.test.ts` › `the brief and look name the fixer only while main is red`
    - Test: `packages/runtime/test/pr-checks.test.ts` › `a red main queues one fix to the author's building: the author is read once per red sha, a restart doesn't re-queue (step 2)`
+12. **A deploy wait's live checks run once the deploy is live, and settle the parked work without a session (gr_qg42b4guky).** `{deploy, checks, verifies}`: core `checkWaits` (`packages/core/src/waits.ts`) runs nothing until the deploy is live, then runs each check once (one run per assignment at a time) with the ask-check runners (`runLiveCheck` in `packages/core/src/ask-checks.ts`: `url` with an expected status and a `contains` text, `api` in-process). All pass: the work closes as done with a "live checks passed" `code` entry naming each check and its value, each `verifies` key result turns met, and a grant step queues its next step. Any fails: the wait clears and the continuation's description lists each check, what it expected and what the live town returned. `verifies` names only key results of the parking work's own grant (`validateWait` refuses others). A deploy that never goes live runs no check and expires after 24 h like any wait.
+   - Test: `packages/core/test/live-checks.test.ts` › `checks that pass close the parked step as done with no session: a 'live checks passed' entry with each check, its own key result verified, the next step queued`
+   - Test: `packages/core/test/live-checks.test.ts` › `a failing check wakes the parked step with the check, what it expected and what the live town returned; no key result moves`
+   - Test: `packages/core/test/live-checks.test.ts` › `verifies refuses a key result of another grant, and verifies without checks`
+   - Test: `packages/core/test/live-checks.test.ts` › `a deploy that never goes live runs no check and expires into the in-tray after 24 h`
 
 ## How it connects
 

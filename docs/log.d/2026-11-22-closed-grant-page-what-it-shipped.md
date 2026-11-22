@@ -1,0 +1,1 @@
+- 2026-11-22 [Teo 1, UI / UX, gr_hwxc1lwi2e step 1] A closed grant's page lists what it shipped (GrantView.shipped from its `shipped` notices; title, where to look, picture) above the key results, or one muted line pointing at its close report when none were filed; the step strip on a closed grant reads its booked spend and drops "projected" (its last forecast was stale).

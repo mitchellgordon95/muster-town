@@ -85,10 +85,15 @@ describe("no more rollups", () => {
     expect(loop!.body).toContain("Here is what it bought:");
     expect(loop!.body).toContain("- A banner on every lab: Open any lab: the banner shows today's spend.");
     expect(loop!.picture).toBe("mf_abc123");
+    // the grant's page reads them off its view, oldest first (gr_hwxc1lwi2e, kr_nidvt8pxfr)
+    const view = one.world.grantDesk.view(one.world.grants.require(one.g.id, "grant"));
+    expect(view.shipped!.map((it) => it.title)).toEqual(["A banner on every lab", "A spend line"]);
+    expect(view.shipped![0]).toMatchObject({ body: "Open any lab: the banner shows today's spend.", picture: "mf_abc123" });
 
     const two = lab();
     await two.world.verbs.close_grant(two.pix, { grantId: two.g.id, note: "Merged." });
     expect(listNotices(two.world, { kind: "shipped", building: two.b.id })).toEqual([]);
+    expect(two.world.grantDesk.view(two.world.grants.require(two.g.id, "grant")).shipped).toEqual([]);
     expect(listNotices(two.world, { kind: "closed-loop", building: two.b.id })[0]!.body).toContain("Its manager named nothing shipped at the close");
   });
 

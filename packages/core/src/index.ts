@@ -32,7 +32,7 @@ export { buildingBoard, goalBoard, queueLane, QUEUE_DONE_MS } from "./kanban.ts"
 export { queueMainFix, type RedCommit } from "./main-fix.ts";
 export { linkPostmortem, postmortemBuilding, postmortemNote, postmortemTag, queuePostmortem } from "./postmortems.ts";
 export { intrayRoutes } from "./intray-routes.ts";
-export { bankConvertedAt, countersSince, financeSpend, grantTitle, spendGrants, spendOutcome, GRANTS_IDENTITY, ledgerBookedBeforeConversion, notFundedUsage, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, OFF_STEP, STEPS_IDENTITY, stepPriced, type SpendStep, NOT_FUNDED_MATCH_MS, NOT_FUNDED_SPLIT_REASON, NOT_FUNDED_UNATTRIBUTED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type NotFundedBuilding, type SpendInputs, type SpendKind, type SpendNode, type SpendGrants, type SpendOutcome, type KrCounts } from "./finance-spend.ts";
+export { bankConvertedAt, countersSince, directedBySource, sourceCost, type SourceCost, DIRECTED_SOURCE_IDENTITY, type DirectedBySource, type DirectedSourceRow, type DirectedAsker, financeSpend, grantTitle, spendGrants, spendOutcome, GRANTS_IDENTITY, ledgerBookedBeforeConversion, notFundedUsage, townSpend, NO_ASSIGNMENT, NO_BUILDING, NO_GRANT, NOT_FUNDED, OFF_STEP, STEPS_IDENTITY, stepPriced, type SpendStep, NOT_FUNDED_MATCH_MS, NOT_FUNDED_SPLIT_REASON, NOT_FUNDED_UNATTRIBUTED, SPEND_IDENTITY, UNATTRIBUTED, WEIGHT_MISMATCH, type FinanceSpend, type NotFundedBuilding, type SpendInputs, type SpendKind, type SpendNode, type SpendGrants, type SpendOutcome, type KrCounts } from "./finance-spend.ts";
 export { financeDaily, FINANCE_DAILY_DAYS, type FinanceDaily, type FinanceDailyCheck, type FinanceDailyInputs, type FinanceDailyRow } from "./finance-daily.ts";
 export { spendByLaneKind, laneKindRow, LANE_KIND_WINDOWS, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 export { managerWakes } from "./finance-manager-wakes.ts";
@@ -74,7 +74,7 @@ export { archiveReport, type ArchiveResult } from "./archive.ts";
 export { extractMentions, notifyMentions, type MentionContext } from "./mentions.ts";
 export { canDirect, canGrantDirect, defaultDirectGoal, directGrantsOf, grantDirect, revokeDirect, membersView, type DirectGrant, type MemberView } from "./direct.ts";
 export { focusBlock, focusTarget, setMeetingFocus } from "./meeting-focus.ts";
-export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, noteOneOnOneWorking, clearOneOnOneWorking, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, decisionTarget, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
+export { createMeeting, createOneOnOne, setMeetingPhase, meetingSpeak, noteOneOnOneWorking, clearOneOnOneWorking, meetingNotice, SYSTEM_SPEAKER, meetingDecide, endMeeting, type MeetingBy, humanTyping, agentsDrafting, defaultAttendees, defaultFacilitator, previousMeeting, agendaText, bringsLine, decisionOutcomes, decisionTarget, type DecisionOutcome, presentSlide, currentSlide, deckSlides, slideLine, recordSlideDecision, type CurrentSlide } from "./meetings.ts";
 export { makeVerbs, verbImpls, type Verbs, type VerbResult } from "./verbs/index.ts";
 export type { VerbIn, VerbRawIn } from "./verbs/types.ts";
 export { HEARING_RANGE, nearbyAgents } from "./verbs/social.ts";

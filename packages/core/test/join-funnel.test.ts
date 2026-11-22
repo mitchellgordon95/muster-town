@@ -86,7 +86,11 @@ describe("join funnel", () => {
     expect(funnelSource({ ref: "HN-launch", referrer: "https://news.ycombinator.com/item?id=1" })).toBe("ref:hn-launch");
     expect(funnelSource({ ref: "x".repeat(25), referrer: "https://news.ycombinator.com/item?id=1" })).toBe("news.ycombinator.com");
     expect(funnelSource({ ref: "bad tag!", referrer: "https://www.Reddit.com:443/r/x?y=1" })).toBe("reddit.com");
-    expect(funnelSource({ referrer: "https://muster.town/blog/x", ownHost: "muster.town" })).toBe("direct");
+    expect(funnelSource({ referrer: "https://muster.town/blog/x", ownHost: "muster.town" })).toBe("blog"); // clicked through from a post (gr_y8buqgpata)
+    expect(funnelSource({ referrer: "https://www.muster.town/blog", ownHost: "muster.town" })).toBe("blog");
+    expect(funnelSource({ referrer: "https://muster.town/blogroll", ownHost: "muster.town" })).toBe("direct");
+    expect(funnelSource({ referrer: "https://muster.town/workshop/", ownHost: "muster.town" })).toBe("direct");
+    expect(funnelSource({ referrer: "https://other.site/blog/x", ownHost: "muster.town" })).toBe("other.site");
     expect(funnelSource({ referrer: "https://www.muster.town/", ownHost: "muster.town:443" })).toBe("direct");
     expect(funnelSource({ referrer: "android-app://com.slack/" })).toBe("direct");
     expect(funnelSource({ referrer: "not a url" })).toBe("direct");

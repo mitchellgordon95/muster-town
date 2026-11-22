@@ -95,6 +95,21 @@ The same bench (`scripts/stress/tick-bench.mts k n`, fresh `/tmp` db each, 1 vCP
   on 0af48747 (work 79, explore 32, streams 1.3), climbing to 200–270 ms with ~10 desk sessions running at 19:02–19:04Z
   (work 120–280). The after reading goes into the grant's report once the PR is live.
 
+### Retired forks (gr_ouc0w8us88 step 1, 11-22)
+
+Live muster.town had about 30,000 agent rows on 11-21, almost all retired forks, and the midnight tick spent 2,257 ms in
+`dailyReset` (findings dc_alr9ln0d42). `Budget.resetDaily` read and rewrote every agent row. It now reads only the rows it
+changes (spend today, or out-of-budget) through the partial index `agents_daily_reset` (migration 128), in one
+transaction. Desk bench, 1× world, 30 ticks, `RETIRED=<n> scripts/stress/tick-bench.mts 1 30`; resetDaily over 20 calls:
+
+| retired forks | resetDaily p50 before → after (ms) | tick p50 (ms) | tick p95 (ms) | phases that grow (p50 ms, 0 → 30,000) |
+|---|---|---|---|---|
+| 0 | 0.1 → 0.08 | 34 | 71 | — |
+| 30,000 | 1,346 → 0.10 | 163 (170 before) | 200 | explore 5.9 → 46, work 15 → 71, needsBackstop 0 → 17, walkHome 0 → 8.5 |
+
+- The reset no longer grows with retired forks (0.08 vs 0.10 ms, both under 1 ms).
+- The normal tick still does: about 5× at 30,000 retired forks. Those phases scan all agents; step 2 of the grant narrows them.
+
 ## Scale-out options (written only, not built)
 
 Nothing here is built in grant gr_n0p3ast5pp. Prices: Fly.io `iad`, per Machine-hour, as given in the grant plan

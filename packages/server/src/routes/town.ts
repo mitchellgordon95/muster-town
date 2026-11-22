@@ -583,6 +583,12 @@ export async function townRoutes(app: FastifyInstance) {
     // `managerShares` (gr_064fmkq31s step 1): the same window's manage sessions split onto the jobs they worked + upkeep + 1:1s
     return { ...spend, managerShares: townManagerShares(world, spend.managerWakes.from, now) };
   });
+  // public, read-only: what the directed work a meeting started cost (gr_k71b7b6px7, kr_ig4qu7vil3): its rows of /api/finance/spend directedBySource,
+  // the meeting's id and its notes doc's summed; the meeting panel's "Work asked for here" line
+  app.get<{ Params: Params }>("/api/meetings/:id/cost", async (req) => {
+    const m = world.meetings.require(req.params.id, "meeting");
+    return { cost: world.bank.sourceCost(m.notesDocId ? [m.id, m.notesDocId] : [m.id]) };
+  });
   app.get("/api/finance/sources", async () => world.bank.sources());
   // the Fly.io hosting estimate (Bank Transparency, 1:1 mt_s6f8mvjw9h): desks priced only on the fly backend, the town Machine only when the server runs on one;
   // the daily desk bill cap is Prod's desk-perf step 3 (gr_uhh6u39vv9): desks.billCapUsd, as health `desks` shows it

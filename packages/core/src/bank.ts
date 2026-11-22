@@ -6,7 +6,7 @@ import { AppError, badRequest, forbidden } from "./errors.ts";
 import { tickMemo } from "./tick-memo.ts";
 import { dailyInflowOf, townFinance, type FinanceSummary } from "./finance.ts";
 import { FINANCE_DAILY_DAYS, financeDaily, type FinanceDaily, type FinanceDailyCheck } from "./finance-daily.ts";
-import { townSpend, type FinanceSpend } from "./finance-spend.ts";
+import { sourceCost, townSpend, type FinanceSpend, type SourceCost } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
 import { townFinanceSplit, type FinanceSplit } from "./finance-split.ts";
@@ -991,6 +991,11 @@ export class Bank {
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
   spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes; cutoff: LedgerCutoff | null } {
     return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, this.events, now), cutoff: this.repos.town.ledgerCutoff() };
+  }
+
+  /** GET /api/meetings/:id/cost: the directed work that names these source ids (a meeting, its notes doc), from the same tree as /api/finance/spend. */
+  sourceCost(ids: string[], now = new Date()): SourceCost {
+    return sourceCost(townSpend(this.repos, this.events, now).directedBySource, ids);
   }
 
   /** GET /api/finance/sources: what was received, per Bank input (with its dated credits) and per direct donation (finance-sources.ts). */

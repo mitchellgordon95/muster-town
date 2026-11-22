@@ -877,6 +877,17 @@ export class MockApi implements Api {
     }, 2500 * (i + 1)));
   }
   async meeting(id: string) { await wait(60); return clone(this.need(this.sim.meetings.get(id), "meeting")); }
+  /** the toy's directed rows by id; a finished toy 1:1 that no row names borrows the costliest toy request, so the panel's cost line shows in the mock */
+  async meetingCost(id: string) {
+    await wait(60);
+    const m = this.need(this.sim.meetings.get(id), "meeting");
+    const ids = m.notesDocId ? [m.id, m.notesDocId] : [m.id];
+    const all = toyDirectedBySource().rows;
+    let rows = all.filter((r) => ids.includes(r.id));
+    if (!rows.length && m.kind === "one-on-one" && m.phase === "done") rows = [{ ...all[0]!, id: m.id, title: m.title }];
+    const sum = (k: "tokens" | "usd" | "sessions" | "assignments") => rows.reduce((t, r) => t + r[k], 0);
+    return { ids, rows, tokens: sum("tokens"), usd: Math.round(sum("usd") * 100) / 100, sessions: sum("sessions"), assignments: sum("assignments") };
+  }
   async startMeeting(id: string) {
     await wait();
     const m = this.need(this.sim.meetings.get(id), "meeting");
@@ -1147,7 +1158,7 @@ export class MockApi implements Api {
     ] : [];
     const usd = { used: toyUsd(used), sessionsTotal: toyUsd(used + notFunded), unattributed: 0, weightMismatch: 0, notFunded: toyUsd(notFunded) };
     const usdDiff = Math.round((rows.reduce((s, r) => s + (r.usd ?? 0), 0) - usd.used) * 100) / 100;
-    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), noGrant: toyNoGrant(), noGrantCheck: { ok: true, diff: 0, identity: "Σ lane rows = Σ \"Not under a grant\" rows (every building)" }, steps: clone(stepCalibration), stepPrices: { ...TOY_STEP_PRICES }, stepsCheck: toyStepsCheck, at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes() };
+    return { used, sessionsTotal: used + notFunded, unattributed: 0, weightMismatch: 0, weightMismatchNote: "The toy Bank was born adjusted: no pre-conversion sessions.", convertedAt: null, notFunded, notFundedSplit, notFundedLastAt: notFunded ? "2026-10-26T22:52:13.738Z" : null, notFundedAllocationPaid: notFunded ? 300 : 0, notFundedSplitCheck: { sum: notFunded, notFunded, ok: true }, rows, check: { ok: true, diff: 0, identity: "buildings + unattributed − weight mismatch − not funded = used" }, usd, usdSumCheck: { ok: Math.abs(usdDiff) < 0.01, diff: usdDiff, identity: "buildings + unattributed − weight mismatch − not funded = used, in dollars at API list price" }, ...(grants ? { grants, grantsCheck: { ok: true, diff: 0, identity: "done + cut + still open = Σ grant rows' tokens (every building)" } } : {}), noGrant: toyNoGrant(), noGrantCheck: { ok: true, diff: 0, identity: "Σ lane rows = Σ \"Not under a grant\" rows (every building)" }, steps: clone(stepCalibration), stepPrices: { ...TOY_STEP_PRICES }, stepsCheck: toyStepsCheck, at: now(), byLaneKind: toyLaneKind(window), managerWakes: toyManagerWakes(), directedBySource: toyDirectedBySource() };
   }
   // the toy's sources, counted like its finance(): each live input credited once at creation, each donation at its size
   async financeSources(): Promise<FinanceSources> {
@@ -1447,6 +1458,41 @@ function toyNoGrant(): NonNullable<FinanceSpend["noGrant"]> {
     byLane: { directed: { ...zero }, exploration: { ...zero }, retainer: { ...zero }, manager: { ...zero }, before: { ...zero } },
     exploration: { assignments: 0, proposals: 0, funded: 0, rejected: 0, withdrawn: 0, open: 0 },
     directed: { assignments: 0, withSource: 0, withAsker: 0 },
+  };
+}
+
+/**
+ * The toy's directed lane by request (gr_k71b7b6px7): 12 requests (so the section folds to 10), most from Mitchell's 1:1s,
+ * one flag from Ada, one tell, and an untraced remainder. A fixture of its own: the toy tree has no directed rows.
+ */
+function toyDirectedBySource(): NonNullable<FinanceSpend["directedBySource"]> {
+  const ws = { id: "workshop", name: "Town Workshop" }, bt = { id: "bl_vef3v0oux0", name: "Bank Transparency" };
+  const req = (i: number, tokens: number, assignments: number, extra: Partial<NonNullable<FinanceSpend["directedBySource"]>["rows"][number]> = {}) => ({
+    id: `mt_toy${String(i).padStart(2, "0")}`, kind: "meeting" as const, title: `1:1 with Mitchell #${i}`, at: new Date(Date.now() - i * 86_400_000).toISOString(),
+    askedById: "us_mitchell", askedBy: "Mitchell", tokens, usd: toyUsd(tokens), sessions: assignments + 1, assignments, buildings: i % 2 ? [ws, bt] : [ws], ...extra,
+  });
+  const rows = [
+    req(1, 3_510_000, 32), req(2, 2_470_000, 25), req(3, 2_310_000, 24),
+    req(4, 1_200_000, 9, { id: "dc_toyflag", kind: "doc", title: "Flag: the Bank chest is hard to find", askedById: "us_ada", askedBy: "Ada" }),
+    req(5, 900_000, 7), req(6, 640_000, 5),
+    req(7, 410_000, 3, { id: "ms_toytell", kind: "tell", title: null }),
+    req(8, 300_000, 3), req(9, 220_000, 2), req(10, 150_000, 2), req(11, 90_000, 1), req(12, 40_000, 1),
+  ];
+  const untraced = { tokens: 760_000, usd: toyUsd(760_000), sessions: 9, assignments: 8 };
+  const total = (xs: { tokens: number; usd: number; sessions: number; assignments: number }[]) => ({
+    tokens: xs.reduce((t, r) => t + r.tokens, 0), usd: Math.round(xs.reduce((t, r) => t + r.usd, 0) * 100) / 100,
+    sessions: xs.reduce((t, r) => t + r.sessions, 0), assignments: xs.reduce((t, r) => t + r.assignments, 0),
+  });
+  const ada = rows.filter((r) => r.askedById === "us_ada"), mitchell = rows.filter((r) => r.askedById === "us_mitchell");
+  return {
+    rows,
+    byAsker: [
+      { askedById: "us_mitchell", askedBy: "Mitchell", ...total([...mitchell, untraced]), requests: mitchell.length },
+      { askedById: "us_ada", askedBy: "Ada", ...total(ada), requests: ada.length },
+    ],
+    untraced,
+    total: { ...total([...rows, untraced]), requests: rows.length },
+    check: { ok: true, diff: 0, identity: "Σ requests + untraced = the directed lane (every building)" },
   };
 }
 
