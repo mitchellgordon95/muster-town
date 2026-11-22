@@ -1,6 +1,8 @@
 // Runtime tick ms at k x the live world size (gr_n0p3ast5pp step 1, dc_er6dxw6kil; gr_db6ofyd0yf). Desk only; never touches muster.town.
 // Run from the repo root: rm -f /tmp/bench1.db*; DB=/tmp/bench1.db node_modules/.bin/tsx scripts/stress/tick-bench.mts <k> [ticks=30] 2>/dev/null | grep '^{'
 // Prints one JSON line: tick p50/p95/max and each phase's p50/p95/max over the measured ticks (after 5 warm-up ticks).
+// RETIRED=<n> adds n retired forks (no spend today; live had ~30,000 on 2026-11-21, gr_ouc0w8us88) and times
+// budget.resetDaily (in one transaction, as the runtime runs it) 20 times after the ticks: out.resetDaily p50/p95/max.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { World } from "@muster-town/core";
@@ -64,6 +66,11 @@ const asIds = (world.db.prepare("SELECT id FROM assignments WHERE id LIKE 'as_b_
 // a session template exists only once a session ran: make one via ops
 try { const a0 = world.ops.createWork(null, ag[0], { title: "tpl" }); const se = world.ops.startSession(ag[0], { purpose: "work", model: "claude-opus-5-5", assignmentId: a0.id }); world.db.prepare("UPDATE sessions SET status='done', input=?, output=? WHERE id=?").run(60_000, 55_000, se.id); } catch (e) { console.error("tpl session:", String(e).slice(0, 120)); }
 clone("sessions", L.sessions * k, (r, i) => { r.id = `se_b_${i}`; r.agentId = ag[i % ag.length]; if ("assignmentId" in r) r.assignmentId = asIds[i % asIds.length]; r.status = "done"; r.output = 20_000 + (i % 200) * 500; for (const c of ["startedAt", "endedAt", "createdAt"]) if (c in r) r[c] = iso(i * 250_000 / k); });
+const RETIRED = Number(process.env.RETIRED ?? 0);
+if (RETIRED) {
+  const forkOf = ag[0];
+  clone("agents", RETIRED, (r, i) => { r.id = `ag_ret_${i}`; r.name = `Retired ${i}`; r.forkOf = forkOf; r.status = "retired"; r.spentTokensToday = 0; r.familySpentToday = 0; });
+}
 const count = (t: string, w = "") => (world.db.prepare(`SELECT COUNT(*) n FROM ${t} ${w}`).get() as any).n;
 const sizes = { buildings: count("buildings"), agents: count("agents"), residents: residents.length, openAssignments: count("assignments", "WHERE status NOT IN ('done','cancelled')"), assignments: count("assignments"), docs: count("docs"), events: count("events"), sessions: count("sessions"), bankDebits: count("bank_debits"), bankInputs: count("bank_inputs"), grants: count("grants", "WHERE status = 'funded'"), meetings: count("meetings") };
 console.error(`[bench k=${k}] built in ${Math.round(performance.now() - t0)} ms`, JSON.stringify(sizes));
@@ -78,10 +85,14 @@ for (let i = 0; i < WARM + TICKS; i++) {
   const w0 = performance.now(); await runtime.tickOnce(); const wall = performance.now() - w0;
   if (i >= WARM) rows.push({ wall, ...runtime.tickStats().last! });
 }
+const resets: number[] = [];
+for (let i = 0; i < 20; i++) { const s0 = performance.now(); world.transaction(() => world.budget.resetDaily()); resets.push(performance.now() - s0); }
 console.warn = warn; console.log = log;
 const q = (xs: number[], p: number) => { const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; };
 const out: any = { k, sizes, running: count("sessions", "WHERE status = 'running'"), tick: { p50: q(rows.map((r) => r.ms), .5), p95: q(rows.map((r) => r.ms), .95), max: Math.max(...rows.map((r) => r.ms)) }, wall: { p50: q(rows.map((r) => r.wall), .5), p95: q(rows.map((r) => r.wall), .95) }, phases: {} };
 for (const ph of Object.keys(rows[0].phases)) { const xs = rows.map((r) => r.phases[ph] ?? 0); out.phases[ph] = { p50: q(xs, .5), p95: q(xs, .95), max: Math.max(...xs) }; }
+out.retired = RETIRED;
+out.resetDaily = { p50: q(resets, .5), p95: q(resets, .95), max: Math.max(...resets) };
 out.sub = {};
 for (const ph of Object.keys(rows[0].sub ?? {})) { const xs = rows.map((r) => r.sub?.[ph] ?? 0); out.sub[ph] = { p50: q(xs, .5), p95: q(xs, .95) }; }
 console.log(JSON.stringify(out));

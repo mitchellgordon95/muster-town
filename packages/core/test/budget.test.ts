@@ -41,6 +41,29 @@ describe("budgets", () => {
     expect(world.agents.require(a.id)).toMatchObject({ spentTokensToday: 0 });
   });
 
+  it("resetDaily writes only agents with spend today or out-of-budget: retired forks are untouched, the resumed count is unchanged (gr_ouc0w8us88)", () => {
+    const { world, seed } = seededWorld();
+    const b = createBuilding(world, { name: "Reset" }, seed.admin.id);
+    const spender = createResident(world, { buildingId: b.id, name: "Spender", title: "t", direction: "d" });
+    const stuck = createResident(world, { buildingId: b.id, name: "Stuck", title: "t", direction: "d" });
+    world.budget.donate(seed.admin.id, { tokens: 10_000, buildingId: b.id });
+    world.budget.charge(spender.id, 150, 0.01);
+    world.db.prepare("UPDATE agents SET status = 'out-of-budget' WHERE id = ?").run(stuck.id);
+    // 200 retired forks of Spender with no spend today (live has ~30,000)
+    const cols = (world.db.prepare("PRAGMA table_xinfo(agents)").all() as { name: string; hidden: number }[]).filter((c) => c.hidden === 0).map((c) => c.name);
+    const tpl = world.db.prepare("SELECT * FROM agents WHERE id = ?").get(spender.id) as Record<string, unknown>;
+    const ins = world.db.prepare(`INSERT INTO agents (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`);
+    for (let i = 0; i < 200; i++) ins.run(...cols.map((c) => ({ ...tpl, id: `ag_ret${i}`, name: `Spender ${i}`, forkOf: spender.id, status: "retired", spentTokensToday: 0, familySpentToday: 0 } as Record<string, unknown>)[c]));
+    const touched: string[] = [];
+    world.changes.subscribe((m) => { if (m.type === "agent") touched.push(m.agent.id); });
+    expect(world.budget.resetDaily()).toBe(1);
+    expect(touched.sort()).toEqual([spender.id, stuck.id].sort());
+    expect(world.agents.require(spender.id)).toMatchObject({ spentTokensToday: 0, familySpentToday: 0 });
+    expect(world.agents.require(stuck.id).status).toBe("idle");
+    expect(world.agents.require("ag_ret0").status).toBe("retired");
+    expect(world.events.list({ types: ["system"] }).find((e) => e.text === "Daily token allowances reset")?.payload).toEqual({ resumed: 1 });
+  });
+
   it("naming a building's manager grants the manager role (so they can assign)", () => {
     const { world, seed } = seededWorld();
     const b = createBuilding(world, { name: "Mgd" }, seed.admin.id);
