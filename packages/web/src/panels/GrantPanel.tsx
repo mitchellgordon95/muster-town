@@ -6,7 +6,7 @@
  * the plan, the sessions and the history are each one folded line, one click away.
  */
 import { grantName, historyActor, historyNote, type GrantView } from "@muster-town/schema";
-import { api, type GrantSessions } from "../api";
+import { api, type GrantSessions, type Managing } from "../api";
 import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
 import { pictureSrc } from "./NoticesPanel";
@@ -31,7 +31,7 @@ export function GrantPanel({ id }: { id: string }) {
           <>
             <p className="grant-objective">{g.objective}</p>
             <Shipped grant={g} />
-            <GrantRow grant={g} onPage onDecided={r.reload} onOpenDoc={(docId) => store.open({ kind: "library", docId })} />
+            <GrantRow grant={g} onPage onDecided={r.reload} onOpenDoc={(docId) => store.open({ kind: "library", docId })} below={<ManagingLine m={g.managing} />} />
             <Plan grant={g} />
             <Sessions grant={g} />
             <History grant={g} />
@@ -80,6 +80,22 @@ export function Shipped({ grant: g }: { grant: Pick<GrantView, "status" | "shipp
       </ul>
     </section>
   );
+}
+
+/**
+ * "Managing it: N tokens over M decisions" (gr_064fmkq31s, kr_rh6jwxae9r): the manager wakes' share on this grant's job,
+ * one muted line under its spend. It is its own number: never added to the spend against the ceiling or to the gate's
+ * figures (the manager's own sessions are not paid from the grant). Null at 0 or from an older server.
+ */
+export function managingLine(m: Managing | undefined): string | null {
+  if (!m || m.tokens <= 0) return null;
+  const d = m.decisions || m.wakes;
+  return `Managing it: ${fmtTokens(m.tokens)} ${ADJ} over ${d} decision${d === 1 ? "" : "s"}`;
+}
+export function ManagingLine({ m }: { m: Managing | undefined }) {
+  const text = managingLine(m);
+  if (!text) return null;
+  return <div className="muted grant-managing" title={`The manager's reviews, decisions and thread entries on this grant, ${m!.wakes} wake${m!.wakes === 1 ? "" : "s"}. Not paid from the grant: not part of its spend against the ceiling.`}>{text}</div>;
 }
 
 /** A findings doc by title once the store has it, else by id; opens it in the library. */

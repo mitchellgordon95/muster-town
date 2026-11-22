@@ -370,10 +370,10 @@ export function SpendingHealth({ bank, wakes }: { bank: Bank | null; wakes?: Man
 }
 
 const LANE_LABEL: Record<LaneKindRow["lane"], string> = {
-  grant: "Grant", exploration: "Exploration", directed: "Directed", retainer: "Retainer", manager: "Manager wakes", other: "Other", total: "Total",
+  grant: "Grant", exploration: "Exploration", directed: "Directed", retainer: "Retainer", manager: "Managing and 1:1s", other: "Other", total: "Total",
 };
 const LANE_HINT: Partial<Record<LaneKindRow["lane"], string>> = {
-  manager: "A manager's team-lead sessions (purpose manage)",
+  manager: "A manager reading reports, deciding, writing asks and talking with humans in 1:1s",
   other: "Reviews, meetings, summaries, naming, estimates, and work with no lane recorded",
 };
 const KIND_COLS: [TokenKind, string, string][] = [["input", "Input", "Input"], ["output", "Output", "Output"], ["cacheRead", "Cache read", "Cache read"], ["cacheWrite5m", "Write 5 min", "Cache write 5 min"], ["cacheWrite1h", "Write 1 h", "Cache write 1 h"]];

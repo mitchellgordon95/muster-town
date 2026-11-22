@@ -12,10 +12,21 @@ import { GoalPicker } from "./GoalPicker";
 import { ADJ, ADJ_HINT, Empty, ErrorLine, Loading, Pill, Section, fmtTokens, useLoad } from "./ui";
 
 const SPEND_WINDOWS = [7, 30, 90] as const;
-const LANES: { id: keyof SpendByLane; label: string }[] = [
-  { id: "grant", label: "grant" }, { id: "exploration", label: "exploration" }, { id: "directed", label: "directed" }, { id: "retainer", label: "retainer" },
-  { id: "managing", label: "managing" }, { id: "oneOnOnes", label: "1:1s" }, { id: "none", label: "no lane" },
+/** Each lane's word and its one plain help line (gr_064fmkq31s: a manager's own sessions are "managing" and "1:1s", not "no lane"). */
+export const LANES: { id: keyof SpendByLane; label: string; help: string }[] = [
+  { id: "grant", label: "grant", help: "Work on a grant a human funded." },
+  { id: "exploration", label: "exploration", help: "A building looking for the next gap under its goal." },
+  { id: "directed", label: "directed", help: "Work a human asked for." },
+  { id: "retainer", label: "retainer", help: "The runs of a schedule a human approved." },
+  { id: "managing", label: "managing", help: "A manager reading reports, deciding and writing asks." },
+  { id: "oneOnOnes", label: "1:1s", help: "A manager talking with a human in a 1:1." },
+  { id: "none", label: "no lane", help: "Other sessions with no lane recorded." },
 ];
+
+/** The help lines of the lanes that spent anything, in the lane line's order. */
+export function laneHelp(l: SpendByLane): { label: string; help: string }[] {
+  return LANES.filter((x) => l[x.id] > 0).sort((a, b) => l[b.id] - l[a.id]);
+}
 
 /** "grant 1.2M · directed 300k": the non-zero lanes, biggest first. */
 export function laneLine(l: SpendByLane): string {
@@ -63,6 +74,9 @@ function GoalSpendView({ goalId }: { goalId: string }) {
       {d && visitorsLine(d.visitors) ? <div className="muted goal-spend-visitors">{visitorsLine(d.visitors)}</div> : null}
       {!d ? (r.loading ? <Loading /> : null) : !d.sessions ? <Empty>{mine ? `None of your money paid for work on this goal or anything under it in the last ${d.days} days.` : `No sessions worked on this goal or anything under it in the last ${d.days} days.`}</Empty> : <>
         <div className="goal-spend-total"><b>{fmtTokens(d.total)}</b> {ADJ} over {d.sessions} session{d.sessions === 1 ? "" : "s"} <span className="muted">· {laneLine(d.byLane)}</span></div>
+        <details className="goal-spend-lanes"><summary className="muted">What the lanes mean</summary>
+          <ul>{laneHelp(d.byLane).map((x) => <li key={x.label}><b>{x.label}</b>: {x.help}</li>)}</ul>
+        </details>
         <div className="goal-spend-bars" aria-label={`Spend by ${d.seriesUnit}`}>
           {seriesBars(d.series).map((b) => (
             <div key={b.start} className="goal-spend-bar" title={`${d.seriesUnit === "day" ? "Day" : "Week"} from ${b.start.slice(0, 10)}: ${fmtTokens(b.tokens)}`}>
