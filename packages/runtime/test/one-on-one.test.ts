@@ -2,6 +2,8 @@ import { describe, expect, test, vi } from "vitest";
 import { intrayOf } from "@muster-town/core";
 import { HostBackend, startRuntime, type CmdResult, type CommandRunner, type RuntimeOptions } from "../src/index.ts";
 import { drainNudgeOneOnOne } from "../src/redeploy.ts";
+import { oneOnOneQuietSince, oneOnOneWaiting } from "../src/manage.ts";
+import type { Meeting } from "@muster-town/core";
 import { callVerb, deferred, fakeSdk, init, result, setup, text, toolUse, type Script } from "./helpers.ts";
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5)); expect(ok()).toBe(true); };
@@ -335,7 +337,7 @@ describe("the manager's 1:1", () => {
     await expect(env.world.verbs.tell(noor.id, { to: noor.id, text: "hi" })).rejects.toThrow(/can't tell yourself/);
   });
 
-  test("a redeploy doesn't silence the 1:1: the manager keeps answering, the restart posts a notice, and a new session answers what it missed", async () => {
+  test("a redeploy doesn't silence the 1:1: the manager keeps answering, no notice when it had the last word, and a new session answers what it missed", async () => {
     const ok = (stdout = ""): CmdResult => ({ code: 0, stdout, stderr: "" });
     const run: CommandRunner = async (cmd, args) => ok([cmd, ...args].join(" ").startsWith("git rev-parse HEAD") ? "abc1234def\n" : args[0] === "rev-list" ? "0\n" : "");
     const exit = vi.fn();
@@ -361,8 +363,9 @@ describe("the manager's 1:1", () => {
     world.ops.meetingSay(admin, m.id, "Still there?"); // during the drain: still answered
     await until(() => world.meetings.require(m.id).transcript.some((u) => u.text === "Yes, still here."));
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(75), { timeout: 3000 }); // the drain didn't wait for the 1:1 to end
-    const notice = world.meetings.require(m.id).transcript.at(-1)!;
-    expect(notice).toMatchObject({ speakerId: "system", speakerKind: "system", text: "Mei's reply is waiting on a redeploy (commit abc1234); the server is restarting and the meeting resumes after the restart." });
+    // Mei had the last word: no reply is owed, so the restart posts no notice into this 1:1 (gr_xoso5f3oot)
+    expect(world.meetings.require(m.id).transcript.at(-1)!.text).toBe("Yes, still here.");
+    expect(world.meetings.require(m.id).transcript.some((u) => u.speakerKind === "system")).toBe(false);
     world.ops.meetingSay(admin, m.id, "Also, can Noor pull SOCAT?"); // spoken while the server restarts
     await runtime.stop();
 
@@ -384,5 +387,76 @@ describe("the manager's 1:1", () => {
     expect(prompt.split("still unanswered")[1]).not.toContain("Still there?"); // only lines after its last reply count as missed
     expect(world.sessions.first("agentId = ? AND status = 'running'", [mei.id])).toMatchObject({ purpose: "manage", meetingId: m.id });
     await runtime2.stop();
+  });
+
+  test("after a restart an idle 1:1 (the agent had the last word) starts no session; the human's next line wakes it", async () => {
+    const env = await managed(async function* (s) {
+      yield init();
+      const mid = s.received[0].match(/(mt_[a-z0-9]+)/)![1];
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Hi." });
+      yield result(100, 0.01);
+      expect(await s.next()).toContain("thanks, that's all");
+      yield* callVerb(s, "meeting", { meetingId: mid, action: "speak", text: "Bye." });
+      yield result(120, 0.01);
+      await s.next(); // the restart cuts the session here
+    });
+    const { world, runtime, by, lab, admin } = env;
+    const mei = by("Mei");
+    const m = world.ops.openOneOnOne(admin, lab.id);
+    await until(() => world.meetings.require(m.id).transcript.length === 1);
+    world.ops.meetingSay(admin, m.id, "thanks, that's all");
+    await until(() => world.meetings.require(m.id).transcript.at(-1)!.text === "Bye.");
+    await runtime.stop();
+    world.ops.reconcile([]);
+
+    // the restarted server: Mei had the last word, so nothing starts and nothing is posted
+    let started = 0;
+    const sdk2 = fakeSdk(world, async function* (s) {
+      started++;
+      yield init();
+      expect(s.received[0]).toContain("one more thing");
+      yield* callVerb(s, "meeting", { meetingId: m.id, action: "speak", text: "Sure." });
+      yield result(100, 0.01);
+      await s.next();
+    });
+    const runtime2 = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk: sdk2, intervalMs: 0, exportDir: false, deskBackend: new HostBackend() });
+    const before = world.meetings.require(m.id).transcript.length;
+    await runtime2.tickOnce();
+    await runtime2.tickOnce();
+    expect(started).toBe(0);
+    expect(world.sessions.first("agentId = ? AND status = 'running'", [mei.id])).toBeUndefined();
+    expect(world.meetings.require(m.id).transcript).toHaveLength(before);
+    // the human speaks again: that wakes it
+    world.ops.meetingSay(admin, m.id, "one more thing");
+    await runtime2.tickOnce();
+    await until(() => world.meetings.require(m.id).transcript.at(-1)!.text === "Sure.");
+    expect(started).toBe(1);
+    await runtime2.stop();
+  });
+});
+
+describe("the 1:1 quiet clock counts only the human (gr_xoso5f3oot)", () => {
+  const at = (min: number) => new Date(Date.UTC(2026, 10, 22, 12, min)).toISOString();
+  const line = (speakerId: string, speakerKind: string, min: number, text = "x") => ({ speakerId, speakerKind, text, at: at(min) });
+  const meeting = (transcript: ReturnType<typeof line>[]) => ({ id: "mt_x", kind: "one-on-one", facilitatorId: "ag_mgr", phase: "discussing", startedAt: at(0), createdAt: at(0), transcript }) as unknown as Meeting;
+
+  test("runs from the agent's first reply to the human's last line; Town notices and later agent lines don't reset it", () => {
+    const m = meeting([line("ag_mgr", "agent", 1), line("us_h", "user", 5), line("ag_mgr", "agent", 6), line("system", "system", 20, "reply waits on a redeploy"), line("ag_mgr", "agent", 21, "Back again")]);
+    expect(oneOnOneQuietSince(m, Date.parse(at(21)))).toBe(Date.parse(at(6))); // a restart's new session doesn't count either
+    expect(oneOnOneWaiting(m)).toBe(false);
+  });
+
+  test("an unanswered human line runs it from that line, or from the answering session's start when woken late", () => {
+    const m = meeting([line("ag_mgr", "agent", 1), line("us_h", "user", 5), line("system", "system", 6)]);
+    expect(oneOnOneQuietSince(m)).toBe(Date.parse(at(5)));
+    expect(oneOnOneQuietSince(m, Date.parse(at(40)))).toBe(Date.parse(at(40)));
+    expect(oneOnOneWaiting(m)).toBe(true);
+  });
+
+  test("with no human line yet it runs from the agent's greeting; a 1:1 the agent hasn't spoken in yet waits for it", () => {
+    expect(oneOnOneQuietSince(meeting([line("ag_mgr", "agent", 2), line("system", "system", 15), line("ag_mgr", "agent", 16)]), Date.parse(at(16)))).toBe(Date.parse(at(2)));
+    expect(oneOnOneWaiting(meeting([line("ag_mgr", "agent", 2)]))).toBe(false);
+    expect(oneOnOneWaiting(meeting([]))).toBe(true);
+    expect(oneOnOneQuietSince(meeting([]))).toBe(Date.parse(at(0)));
   });
 });

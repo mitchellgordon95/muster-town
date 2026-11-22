@@ -13,7 +13,7 @@ import { FlyApi } from "./desk/fly.ts";
 import { SandboxBackend } from "./desk/sandbox.ts";
 import { drainNudgeFacilitator, drainNudgeOneOnOne, gitHead, isAncestor, makeRedeployer, takeAdoptable, type RedeployDeps, type RedeployRequest } from "./redeploy.ts";
 import { gitAuthEnv, noRepoTokenReason, onDeskActivity, repoToken, runDeskSession, type DeskSessionOptions } from "./desk/session.ts";
-import { closeQuietOneOnOnes, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
+import { closeQuietOneOnOnes, humanUnanswered, newManageState, openOneOnOnes, wakeManager } from "./manage.ts";
 import { advanceCollecting, facilitate, newMeetingState, onMeetingMention, onMeetingStart } from "./meetings.ts";
 import { estimateGrantWithModel, estimateOpenProposals } from "./estimate.ts";
 import { nameBuilding } from "./naming.ts";
@@ -795,10 +795,11 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     if (l) return l.purpose === "manage" && openOneOnOnes(world, agentId).length > 0;
     return ctx.facilitating.has(agentId) && !starting.has(agentId);
   }
-  /** Just before a redeploy's restart: tell every live meeting its host's reply waits on it (docs/meetings.md §6). */
+  /** Just before a redeploy's restart: tell every live meeting its host's reply waits on it (docs/meetings.md §6); a 1:1 only when a human line is unanswered. */
   function postRestartNotices(head: string | null): void {
     const commit = head ? ` (commit ${head.slice(0, 7)})` : "";
     for (const m of world.meetings.where("phase = 'discussing'")) {
+      if (m.kind === "one-on-one" && !humanUnanswered(m)) continue;
       const host = m.facilitatorId ? world.nameOf(m.facilitatorId) : "The facilitator";
       try { meetingNotice(world, m.id, `${host}'s reply is waiting on a redeploy${commit}; the server is restarting and the meeting resumes after the restart.`); } catch (e) { log("restart notice")(e); }
     }
