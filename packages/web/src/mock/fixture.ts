@@ -230,6 +230,13 @@ export const grants: GrantView[] = [
     fundedBy: "us_mitchell", fundedAt: ago(500), closedAt: ago(15), checkpointDocId: "dc_keel_cp",
     title: "Session runner at ten desks",
     objective: "Stress-test the lab's session runner at 10 parallel desks", steps: [{ title: "Step 1", description: "Do the work" }], stopCondition: "Stop when 10 desks finish one session each, or at 1M tokens.",
+    // its last forecast, filed at the step report before the close, is stale: the page reads spentTokens (gr_hwxc1lwi2e)
+    forecast: { at: ago(30), stepsDone: 1, stepsLeft: { S: 0, M: 0, L: 0 }, spent: 300_000, ceiling: 1_000_000, spentOverSize: 0.3, projected: 300_000, overCeiling: false, shortfall: 0 },
+    // what it shipped, named at close_grant (gr_hwxc1lwi2e, kr_nidvt8pxfr)
+    shipped: [
+      { title: "Ten desks run sessions in parallel", body: "The lab's cabinet: the stress report lists 10 sessions, 0 lost reports.", picture: deckShot, at: ago(15) },
+      { title: "A stuck desk restarts by itself", body: "The lab's restart log: a stuck desk came back in 90 s.", picture: null, at: ago(15) },
+    ],
     ...plan(kr("bl_carbon", 3, "10 desks finish a session in parallel with no lost reports", "Read the stress report in the lab cabinet", "met"), kr("bl_carbon", 4, "The runner restarts a stuck desk within 2 minutes", "Read the restart log in the lab cabinet", "met")),
     history: [
       { at: ago(500), byId: "us_mitchell", byKind: "user", action: "fund", tokens: 1_000_000, note: "" },
