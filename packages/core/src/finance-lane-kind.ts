@@ -168,11 +168,11 @@ export function spendByLaneKind(inp: LaneKindInputs, window: LaneKindWindow, now
 }
 
 /** spendByLaneKind over the world's tables (read-only): only the sessions that could fall in the window are loaded. */
-export function townSpendByLaneKind(repos: Repos, window: LaneKindWindow, now = new Date()): SpendByLaneKind {
+export function townSpendByLaneKind(repos: Repos, window: LaneKindWindow, now = new Date(), assignments = repos.assignments.all()): SpendByLaneKind {
   const { from } = laneKindWindow(window, now);
   return spendByLaneKind({
     sessions: repos.sessions.where("COALESCE(endedAt, startedAt) >= ?", [from]),
-    assignments: repos.assignments.all(),
-    agents: repos.agents.all(),
+    assignments,
+    agents: repos.agents.columns<Pick<Agent, "id" | "buildingId">>(["id", "buildingId"]),
   }, window, now);
 }

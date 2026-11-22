@@ -104,7 +104,7 @@ export function worldGoalSpend(world: World, goalId: string, days = 7, now = new
     subtree: world.goalTree.subtreeIds(goalId),
     sessions: world.sessions.where("COALESCE(endedAt, startedAt) > ?", [since]),
     assignments: world.assignments.all(),
-    agents: world.agents.all(),
+    agents: world.agents.columns<GoalSpendInputs["agents"][number]>(["id", "buildingId", "homeBuildingId", "kind", "status"]),
     buildings: world.buildings.all(),
     grants: world.grants.all(),
     keyResults: world.keyResults.all(),

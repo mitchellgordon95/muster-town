@@ -812,12 +812,17 @@ function directedTitles(repos: Repos): Map<string, { title: string | null; at: s
   return out;
 }
 
-/** financeSpend over the world's ledgers (Bank.spend). */
-export function townSpend(repos: Repos, events: EventLog, now = new Date()): FinanceSpend {
+/**
+ * financeSpend over the world's ledgers (Bank.spend). Each table is read once per call (townFinance gets the same rows),
+ * and agents as two columns: parsing every agent row cost ~390 ms at 15,000 retired forks (gr_ouc0w8us88).
+ * `assignments`: the rows when the caller already read them.
+ */
+export function townSpend(repos: Repos, events: EventLog, now = new Date(), assignments = repos.assignments.all()): FinanceSpend {
+  const sessions = repos.sessions.all(), usage = repos.usage.all(), debits = repos.bankDebits.all(), allocations = repos.allocations.all();
   return financeSpend({
-    sessions: repos.sessions.all(),
-    assignments: repos.assignments.all(),
-    agents: repos.agents.all(),
+    sessions,
+    assignments,
+    agents: repos.agents.columns<Pick<Agent, "id" | "buildingId">>(["id", "buildingId"]),
     buildings: repos.buildings.all(),
     grants: repos.grants.all(),
     keyResults: repos.keyResults.all(),
@@ -825,10 +830,10 @@ export function townSpend(repos: Repos, events: EventLog, now = new Date()): Fin
     sourceAskers: directedAskers(repos),
     sourceTitles: directedTitles(repos),
     convertedAt: bankConvertedAt(events),
-    usage: repos.usage.all(),
-    debits: repos.bankDebits.all(),
-    allocations: repos.allocations.all(),
+    usage,
+    debits,
+    allocations,
     stepPrices: grantPricingOf(repos.town.get()).stepSizes,
     steps: stepCalibration(repos, now),
-  }, townFinance(repos, now).used, now);
+  }, townFinance(repos, now, { sessions, usage, debits, allocations }).used, now);
 }

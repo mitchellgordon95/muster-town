@@ -205,14 +205,14 @@ export function financeSummary(inp: FinanceInputs, now = new Date()): FinanceSum
   };
 }
 
-/** financeSummary over the world's ledgers (World.finance). */
-export function townFinance(repos: Repos, now = new Date()): FinanceSummary {
+/** financeSummary over the world's ledgers (World.finance). `loaded`: tables the caller already read in this request (townSpend), not read again. */
+export function townFinance(repos: Repos, now = new Date(), loaded: Pick<Partial<FinanceInputs>, "debits" | "allocations" | "usage" | "sessions"> = {}): FinanceSummary {
   return financeSummary({
     credits: repos.bankCredits.all(),
-    debits: repos.bankDebits.all(),
-    allocations: repos.allocations.all(),
-    usage: repos.usage.all(),
+    debits: loaded.debits ?? repos.bankDebits.all(),
+    allocations: loaded.allocations ?? repos.allocations.all(),
+    usage: loaded.usage ?? repos.usage.all(),
     bankInputs: repos.bankInputs.all(),
-    sessions: repos.sessions.all(),
+    sessions: loaded.sessions ?? repos.sessions.all(),
   }, now);
 }

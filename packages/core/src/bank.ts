@@ -990,7 +990,8 @@ export class Bank {
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
   spend(now = new Date(), window: LaneKindWindow = "today"): FinanceSpend & { byLaneKind: SpendByLaneKind; managerWakes: ManagerWakes; cutoff: LedgerCutoff | null } {
-    return { ...townSpend(this.repos, this.events, now), byLaneKind: townSpendByLaneKind(this.repos, window, now), managerWakes: townManagerWakes(this.repos, this.events, now), cutoff: this.repos.town.ledgerCutoff() };
+    const assignments = this.repos.assignments.all(); // read once for both
+    return { ...townSpend(this.repos, this.events, now, assignments), byLaneKind: townSpendByLaneKind(this.repos, window, now, assignments), managerWakes: townManagerWakes(this.repos, this.events, now), cutoff: this.repos.town.ledgerCutoff() };
   }
 
   /** GET /api/meetings/:id/cost: the directed work that names these source ids (a meeting, its notes doc), from the same tree as /api/finance/spend. */
