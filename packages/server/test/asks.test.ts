@@ -3,6 +3,7 @@
  * decide and defer, a signed-in human's opens recorded (never an agent's), and stale claim results re-run on open.
  */
 import { buildingRoleId, townRoleId } from "@muster-town/core";
+import { Ask, deadBranches } from "@muster-town/schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { json, seededApp } from "./helpers.ts";
 
@@ -64,7 +65,11 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     const reqAsk = world.asks.first("targetKind = 'request' AND targetId = ?", [req.id])!;
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/defer`, { headers: agent, body: { until: "the rain stops" } })).status).toBe(403);
     expect((await json(app, "POST", `/api/asks/${reqAsk.id}/defer`, { headers: auth, body: { until: "the rain stops" } })).body.ask).toMatchObject({ status: "deferred", deferredUntil: "the rain stops" });
-    expect((await json(app, "POST", `/api/asks/${reqAsk.id}/decide`, { headers: auth, body: { decision: "Done" } })).body.ask).toMatchObject({ status: "decided", decision: "Done" });
+    // Done is the request's own verb, done by the server (1:1 mt_m6qjva55rh): it takes the report back, and the request's hook retires the ask
+    expect((await json(app, "POST", `/api/asks/${reqAsk.id}/decide`, { headers: auth, body: { decision: "Done" } })).status).toBe(400);
+    const done = await json(app, "POST", `/api/asks/${reqAsk.id}/decide`, { headers: auth, body: { decision: "Done", note: "Photographed from the north side." } });
+    expect(done.body).toMatchObject({ act: "request", ask: { status: "retired" } });
+    expect(world.docs.require(req.id).requestStatus).not.toBe("open");
     expect((await json(app, "GET", "/api/asks/ak_nothere")).status).toBe(404);
   }, 30_000);
 
@@ -82,8 +87,9 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     const leaf = world.goalTree.create(admin, { parentId: "gl_trust", text: "The lab's leaf goal" });
     world.goalTree.attach(admin, LAB, leaf.id);
     world.goalTree.update(admin, leaf.id, { ownerId: cap.user.id });
-    const click = { type: "click" as const, body: "Mei has waited on this since Nov 6. Open the page once.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Press Done." };
-    await world.verbs.ask(mei, { ...click, title: "Merge the lab docs" });
+    // a click ask's buttons act on its target (1:1 mt_m6qjva55rh): here a goal's exploration cap
+    const click = { type: "click" as const, body: "Mei has waited on this since Nov 6. Press the button once.", branches: [{ label: "Set the cap", action: "cap:100000" }, { label: "Leave it", action: "keep" }], recommendation: "Press Set the cap." };
+    await world.verbs.ask(mei, { ...click, title: "Cap the lab's exploration", targetId: leaf.id });
     const inside = world.asks.first("buildingId = ? AND status = 'open'", [LAB])!;
     // another building, attached outside the captain's leaf goal, whose manager files the other ask
     const other = world.ops.createBuilding(admin, { name: "Other Lab", goalId: "gl_trust" });
@@ -91,7 +97,7 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     world.agents.patch(noor.id, { homeBuildingId: other.id });
     world.ops.updateBuilding(admin, other.id, { managerAgentId: noor.id });
     world.permissions.grant(noor, buildingRoleId(other.id, "manager"));
-    await world.verbs.ask(world.agents.require(noor.id), { ...click, title: "Set the mail key" });
+    await world.verbs.ask(world.agents.require(noor.id), { ...click, title: "Cap the other lab's exploration", targetId: "gl_trust" });
     const outside = world.asks.first("buildingId = ? AND status = 'open'", [other.id])!;
     const th = world.buildings.first("kind = 'town-hall'")!;
 
@@ -100,9 +106,45 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     expect(tray.body.routes[inside.id]).toMatchObject({ goalId: leaf.id, mine: true, canDecide: true });
     expect(tray.body.defaultView).toBe("mine");
     expect(tray.body.routes[outside.id]).toMatchObject({ mine: false, canDecide: false });
-    expect((await json(app, "POST", `/api/asks/${outside.id}/decide`, { headers: capH, body: { decision: "Done" } })).status).toBe(403);
-    const decided = await json(app, "POST", `/api/asks/${inside.id}/decide`, { headers: capH, body: { decision: "Done" } });
+    expect((await json(app, "POST", `/api/asks/${outside.id}/decide`, { headers: capH, body: { decision: "Set the cap" } })).status).toBe(403);
+    expect(world.goalTree.get("gl_trust")!.exploreCapTokensPerDay).toBeNull();
+    const decided = await json(app, "POST", `/api/asks/${inside.id}/decide`, { headers: capH, body: { decision: "Set the cap" } });
     expect(decided.status).toBe(200);
-    expect(decided.body.ask).toMatchObject({ status: "decided", decidedBy: cap.user.id });
+    expect(decided.body).toMatchObject({ act: "goalSetting", ask: { status: "decided", decidedBy: cap.user.id, decision: "Set the cap" } });
+    expect(world.goalTree.get(leaf.id)!.exploreCapTokensPerDay).toBe(100_000);
+  }, 30_000);
+
+  it("refuses a click ask whose buttons cannot act, and a captain card's Accept accepts the request (1:1 mt_m6qjva55rh)", async () => {
+    const s = await seededApp();
+    cleanups.push(s.close);
+    const { world, app, auth, seed, by } = s;
+    const admin = world.ops.ensureAvatar(seed.admin.id);
+    const mei = by("Mei");
+    world.ops.updateBuilding(admin, LAB, { managerAgentId: mei.id });
+    world.permissions.grant(mei, buildingRoleId(LAB, "manager"));
+    const body = "Mei has waited on this since Nov 6. Press the button once.";
+    // no target, words only: the dead button of ak_3l51us2os7
+    await expect(world.verbs.ask(mei, { type: "click", title: "Accept the captain", body, branches: [{ label: "Accept" }, { label: "Decline" }], recommendation: "Accept." }))
+      .rejects.toThrow(/structure act: the button "Accept" does nothing on an ask with no target.*do ask/s);
+    // a label the target's verbs do not parse: ak_b0ijg20yed's Confirm on a captain request
+    const cap = world.ops.createUser("Cap");
+    world.permissions.grant({ kind: "user", id: cap.user.id }, townRoleId("member"));
+    const leaf = world.goalTree.create(admin, { parentId: "gl_trust", text: "A leaf goal" });
+    const req = await json(app, "POST", `/api/goals/${leaf.id}/captain-requests`, { headers: { authorization: `Bearer ${cap.token}` }, body: { note: "I know this area." } });
+    expect(req.status).toBeLessThan(300);
+    const crId = (req.body.captainRequest ?? req.body.request).id as string;
+    // a captain card is the Town Hall's to render, so its dead label is checked at the door's pure rule
+    expect(deadBranches("click", { targetKind: "captain", branches: [{ label: "Confirm" }, { label: "Dismiss" }] })[0]).toMatch(/the captain target can do \(accept, decline\)/);
+    // every button keeps things as they are: refused too
+    await expect(world.verbs.ask(mei, { type: "click", title: "Nothing to press", body, targetId: leaf.id, branches: [{ label: "Fine", action: "keep" }, { label: "Also fine", action: "keep" }], recommendation: "Fine." }))
+      .rejects.toThrow(/at least one branch an action that acts/);
+    // Accept on the card aimed at the request accepts it: the server does the request's verb
+    const now = new Date().toISOString();
+    const a = world.asks.upsert(Ask.parse({ id: "ak_testcaptain", type: "click", targetKind: "captain", targetId: crId, buildingId: "town-hall", title: "Accept the captain", body, branches: [{ label: "Accept", action: "accept" }, { label: "Decline", action: "decline" }], recommendation: "Accept.", createdAt: now, updatedAt: now }));
+    const decided = await json(app, "POST", `/api/asks/${a.id}/decide`, { headers: auth, body: { decision: "Accept" } });
+    expect(decided.status).toBe(200);
+    expect(decided.body.act).toBe("captain");
+    expect(world.captainRequests.require(crId).status).toBe("accepted");
+    expect(world.goalTree.get(leaf.id)!.ownerId).toBe(cap.user.id);
   }, 30_000);
 });

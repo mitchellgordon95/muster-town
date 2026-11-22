@@ -8,13 +8,14 @@
  * Both are data (`ASK_CONTRACTS`, `ASK_LINT_RULES`), so the town dictionary step (§11 step 10) can extend them.
  */
 import type { AskType } from "./index.ts";
+import { deadBranches } from "./ask-acts.ts";
 
 /** What a contract or a lint rule reads: the card's body and its structured fields. */
 export interface AskCard {
   body: string;
   /** the ask's one line (the linter reads it for an ellipsis only) */
   title?: string;
-  branches?: readonly { label: string }[];
+  branches?: readonly { label: string; action?: string }[];
   recommendation?: string;
   claims?: readonly unknown[];
   /** what the ask is about: a money ask on a retainer carries no steps */
@@ -256,7 +257,8 @@ const STRUCTURE_LINT = new Set(["recommendation", "branches"]);
 /**
  * What a card must carry or be refused (1:1 mt_ewxnhs90cq decision 5, Mitchell 2026-11-10: "i don't think we need the
  * linter for text"): at least two branches as buttons, a recommendation in its field, and its type's hard contract
- * fields. A card with no buttons cannot be clicked, so these stay refusals. [] = it may be filed.
+ * fields. A card with no buttons cannot be clicked, so these stay refusals; so does a click card with a button that does
+ * nothing (`deadBranches`). [] = it may be filed.
  */
 export function askStructure(type: AskType, card: AskCard): string[] {
   const sentences = askSentences(card.body);
@@ -265,6 +267,8 @@ export function askStructure(type: AskType, card: AskCard): string[] {
   if (!card.recommendation?.trim()) out.push("structure recommendation: the recommendation field, naming the branch you recommend and why");
   const seen = new Set(["branches", "recommendation", "recommended-answer"]);
   for (const f of ASK_CONTRACTS[type]) if (f.hard && !seen.has(f.name) && !f.has(card, sentences)) out.push(`contract ${f.name}: a ${type} card needs ${f.needs}`);
+  // a click ask is "press this": a button that cannot act is missing structure (1:1 mt_m6qjva55rh)
+  out.push(...deadBranches(type, card));
   return out;
 }
 

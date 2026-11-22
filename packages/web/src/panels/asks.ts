@@ -1,8 +1,8 @@
 /**
  * The ask card's pure parts (docs/legible-delegation.md §4-6, UI / UX B-C): the decision queue's ask order, the card's delta line,
- * what each branch button does, a claim's check line, and the funding slate's arithmetic. Hook-free so tests call them.
+ * a claim's check line (what each branch does is schema `branchAct`, executed by the server), and the funding slate's arithmetic. Hook-free so tests call them.
  */
-import { grantPricingOf, type AskBranch, type AskClaim, type GrantView, type Notice, type StepCalibration, type StepSize, type StepSizeTable } from "@muster-town/schema";
+import { grantPricingOf, type AskClaim, type GrantView, type Notice, type StepCalibration, type StepSize, type StepSizeTable } from "@muster-town/schema";
 import type { AskView } from "../api";
 
 /** Open asks first, by rank (unranked after ranked), then oldest; deferred ones after every open one. */
@@ -18,76 +18,6 @@ export const openAskCount = (asks: Pick<AskView, "status">[]) => asks.filter((a)
 export function deltaOf(body: string): { delta: string; rest: string } {
   const parts = body.trim().split(/\n\s*\n/);
   return { delta: (parts[0] ?? "").trim(), rest: parts.slice(1).join("\n\n").trim() };
-}
-
-/**
- * What a branch button does, by the ask's target (§11 B): a grant decides through POST /api/grants/:id/decide, a retainer
- * through its retainer decide, a captain or access request through its own decide, a request through done or
- * decline; anything else (policy, meeting, a question in words) records the label through POST /api/asks/:id/decide.
- * `form`: the button opens a field first (tokens for adjust, tokens and a note for a grant's counter, tokens per run, an end
- * date and a note for a retainer's counter, a note for a request).
- */
-export type BranchCall =
-  | { kind: "grant"; action: "fund" | "counter" | "reject" | "adjust" | "cut"; form?: "tokens" | "counter" }
-  /** a retainer's Counter opens the grant counter's shape: tokens per run, an optional end date, a note (any one of them) */
-  | { kind: "retainer"; action: "approve" | "counter" | "reject"; form?: "retainer" }
-  | { kind: "captain"; action: "accept" | "decline" }
-  | { kind: "access"; grant: boolean }
-  /** a request for a human to act (a do ask; no Claim, 1:1 mt_msnjkpgwdb decision 17): Done takes the report back, Decline the reason; both are required */
-  | { kind: "request"; action: "done" | "decline"; form: "note" }
-  /** a goal proposal (1:1 mt_dwsxo7oms8 decision 4): Accept, Edit and accept (new words first), Cut (an optional note back to the proposer) */
-  | { kind: "goal"; action: "accept" | "edit" | "cut"; form?: "words" | "note" }
-  | { kind: "ask"; decision: string }
-  /** a branch the server refuses (continue at the ceiling): not drawn */
-  | { kind: "none" };
-
-const verbOf = (b: AskBranch) => (b.action ?? b.label).trim().toLowerCase().split(/\s+/)[0] ?? "";
-
-export function branchCall(ask: Pick<AskView, "targetKind"> & { type?: AskView["type"] }, b: AskBranch, grant?: Pick<GrantView, "status">): BranchCall {
-  const v = verbOf(b);
-  switch (ask.targetKind) {
-    case "grant":
-      if (v === "fund") return { kind: "grant", action: "fund" };
-      if (v === "counter") return { kind: "grant", action: "counter", form: "counter" };
-      if (v === "reject") return { kind: "grant", action: "reject" };
-      if (v === "cut") return { kind: "grant", action: "cut" };
-      if (v === "adjust" || v === "raise" || v === "top") return { kind: "grant", action: "adjust", form: "tokens" };
-      // continue is refused at the ceiling: a held grant is adjusted (a new ceiling) or cut
-      if (v === "continue") return { kind: "none" };
-      // a money ask on a grant never records a bare label (a "Yes" would decide the ask and leave the grant as it was):
-      // Yes / No act on the grant by its status, and anything else isn't drawn
-      if (ask.type === "money") {
-        const yes = v === "yes" || v === "approve", no = v === "no";
-        if (grant?.status === "proposed" && (yes || no)) return yes ? { kind: "grant", action: "fund" } : { kind: "grant", action: "reject" };
-        if ((grant?.status === "funded" || grant?.status === "checkpoint") && (yes || no)) return yes ? { kind: "grant", action: "adjust", form: "tokens" } : { kind: "grant", action: "cut" };
-        return { kind: "none" };
-      }
-      break;
-    case "retainer":
-      if (v === "approve" || v === "fund") return { kind: "retainer", action: "approve" };
-      if (v === "counter") return { kind: "retainer", action: "counter", form: "retainer" };
-      if (v === "reject") return { kind: "retainer", action: "reject" };
-      break;
-    case "captain":
-      if (v === "accept") return { kind: "captain", action: "accept" };
-      if (v === "decline") return { kind: "captain", action: "decline" };
-      break;
-    case "access":
-      if (v === "grant" || v === "let") return { kind: "access", grant: true };
-      if (v === "decline") return { kind: "access", grant: false };
-      break;
-    case "request":
-      if (v === "done") return { kind: "request", action: "done", form: "note" };
-      if (v === "decline") return { kind: "request", action: "decline", form: "note" };
-      break;
-    case "goalProposal":
-      if (v === "accept") return { kind: "goal", action: "accept" };
-      if (v === "edit") return { kind: "goal", action: "edit", form: "words" };
-      if (v === "cut") return { kind: "goal", action: "cut", form: "note" };
-      // the server refuses any other decision on a goal proposal's ask: not drawn
-      return { kind: "none" };
-  }
-  return { kind: "ask", decision: b.label };
 }
 
 /** A claim's check as one line: "✓ checked 4 min ago", "✗ …", or "pending" before the server ran it (manual claims: "check by hand"). */

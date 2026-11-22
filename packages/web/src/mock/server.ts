@@ -5,11 +5,11 @@ import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
-import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
+import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { asks as fixtureAsks, explorationSpentToday, legible, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
 import type { Ask, Notice, NoticeKind, StepSizeTable } from "@muster-town/schema";
-import { grantPricingOf } from "@muster-town/schema";
+import { branchAct, grantPricingOf } from "@muster-town/schema";
 import manualMd from "../../../../docs/manual.md?raw";
 
 const wait = (ms = 120) => new Promise((r) => setTimeout(r, ms));
@@ -403,11 +403,23 @@ export class MockApi implements Api {
     for (const a of this.askRows) if (a.targetId === targetId && (a.status === "open" || a.status === "deferred")) Object.assign(a, { status: "retired", retiredBy: reason, updatedAt: now(), history: [...a.history, { at: now(), action: "retire", by: "system", note: reason }] });
   }
   async getAsk(id: string) { await wait(40); return clone(this.need(this.askRows.find((a) => a.id === id), "ask")); }
-  async decideAsk(id: string, label: string, note?: string) {
+  /** like core actOnAsk: the pressed branch's act is done on the target, then the ask is decided if its hook left it live */
+  async decideAsk(id: string, label: string, fields: Omit<In<typeof DecideAskInput>, "decision"> = {}) {
     await wait(60);
+    const note = fields.note;
     const decision = note?.trim() ? `${label}. ${note.trim()}` : label;
     const a = this.need(this.askRows.find((x) => x.id === id), "ask");
     if (a.status !== "open" && a.status !== "deferred") throw new ApiError(`This ask is ${a.status}.`, "conflict", 409);
+    const b = a.branches.find((x) => x.label.trim().toLowerCase() === label.trim().toLowerCase());
+    const act = b ? branchAct(a, b) : null;
+    const t = a.targetId ?? "";
+    if (act?.kind === "grant") await this.decideGrant(t, { action: act.action, note: note ?? "", ...(fields.tokens ? { tokens: fields.tokens } : {}) });
+    else if (act?.kind === "retainer") await this.decideRetainer(t, { action: act.action, note });
+    else if (act?.kind === "captain") await this.decideCaptain(t, act.action, note);
+    else if (act?.kind === "access") await this.decideAccess(t, act.grant);
+    else if (act?.kind === "request") await this.request(t, act.action, note);
+    else if (act?.kind === "goal") return this.decideGoalProposal();
+    if (a.status !== "open" && a.status !== "deferred") return clone(a);
     Object.assign(a, { status: "decided", decision, decidedBy: "us_mitchell", decidedAt: now(), updatedAt: now(), history: [...a.history, { at: now(), action: "decide", by: "us_mitchell", note: decision }] });
     return clone(a);
   }
