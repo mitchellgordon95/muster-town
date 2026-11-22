@@ -7,7 +7,7 @@ import type {
   ReviewDeck, DigestCard, DigestRunView, TownPublish, BankStreams, TownHealth, FunderWeek, ReviewSlide,
   AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Allocation, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BuildingStats, ScheduleView, RedeployLive, Building, BuildingDefaults, ClientMessage, MapLayout, DesksConfig, Doc, Event, Lot, Meeting, MeetingFocusKind, Place, Role, Membership, SessionSlots, Tile,
   ServerMessage, SessionView, TokenCounts, TokenMix, LedgerCutoff, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
-  ReviewInput, PinInput, PinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
+  ReviewInput, PinInput, PinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   Ask, AskType, Notice, NoticeKind, StepCalibration, StepSize, StepSizeTable,
   GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
@@ -630,7 +630,8 @@ export interface Api {
   /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
   getAsk(id: string): Promise<AskView>;
   /** POST /api/asks/:id/decide: a human's decision on an ask with no other channel (policy, meeting, a question in words) */
-  decideAsk(id: string, decision: string, note?: string): Promise<AskView>;
+  /** press a branch: the server does its act on the ask's target (core ask-acts.ts) with the form's fields */
+  decideAsk(id: string, decision: string, fields?: Omit<In<typeof DecideAskInput>, "decision">): Promise<AskView>;
   /** POST /api/asks/:id/defer: park an ask behind an event */
   deferAsk(id: string, until: string): Promise<AskView>;
   /** GET /api/notices: the feed, newest first; [] from a server without it */
@@ -977,7 +978,7 @@ class HttpApi implements Api {
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
   async getAsk(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
-  async decideAsk(id: string, decision: string, note?: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision, ...(note?.trim() ? { note: note.trim() } : {}) })).ask; }
+  async decideAsk(id: string, decision: string, fields: Omit<In<typeof DecideAskInput>, "decision"> = {}) { const { note, ...rest } = fields; return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision, ...rest, ...(note?.trim() ? { note: note.trim() } : {}) })).ask; }
   async deferAsk(id: string, until: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/defer`, { until })).ask; }
   async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
     try { return (await this.get<{ notices?: Notice[] }>(`/api/notices${qs({ building: q.building, goal: q.goal, kind: q.kind, limit: q.limit })}`)).notices ?? []; }

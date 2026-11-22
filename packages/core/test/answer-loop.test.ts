@@ -186,10 +186,13 @@ describe("the one loop: passing up, flags, closed grants", () => {
     const g = fund();
     const asks = await report("continue", ASKS);
     const ask = { type: "click" as const, title: "Make the banner blue?", body: "The fork has waited on this since today.\nBlue matches the door.", branches: [{ label: "Blue" }, { label: "Keep grey" }], recommendation: "Blue: it matches the door" };
+    // a click card's buttons must act (1:1 mt_m6qjva55rh): a question in words is refused as a click, and passes up as a meeting ask
+    await expect(world.verbs.review(pix, { docId: asks.doc.id, decision: "approve", note: "", ask })).rejects.toThrow(/structure act/);
+    Object.assign(ask, { type: "meeting", body: `${ask.body}\nShould the banner be blue?` });
     await expect(world.verbs.review(pix, { docId: asks.doc.id, decision: "continue", note: "", ask })).rejects.toThrow(/with decision approve/);
     const up = await world.verbs.review(pix, { docId: asks.doc.id, decision: "approve", note: "only Mitchell knows the colour", ask }) as { decision: string; askId: string };
     expect(up.decision).toBe("pass-up");
-    expect(world.asks.require(up.askId)).toMatchObject({ status: "open", type: "click", buildingId: b.id, sourceDocId: asks.doc.id, title: "Make the banner blue?" });
+    expect(world.asks.require(up.askId)).toMatchObject({ status: "open", type: "meeting", buildingId: b.id, sourceDocId: asks.doc.id, title: "Make the banner blue?" });
     expect(world.docs.require(asks.doc.id).decision).toBe("approve");
     expect(managerQueue(world, b.id)).toEqual([]);
     const entry = () => jobThread(world, g.id)!.entries.find((e) => e.id === `en_${asks.doc.id}`)!;

@@ -3,20 +3,21 @@
  * title, the delta line (the body's first paragraph), the body, the step strip, the recommendation, the claims with
  * their check, then one row of every action at the very bottom: the branch buttons, Steer and the record (Mitchell,
  * 1:1 mt_gf4un6ct4p: no buttons in the middle of the text). All text is regular weight (Mitchell, 1:1 mt_eq521xwgth).
- * Each button does the real action by the ask's target (asks.ts `branchCall`; the server's hooks then retire the ask).
+ * Each button posts its label to POST /api/asks/:id/decide and the server does its act on the target (schema
+ * `branchAct`, core ask-acts.ts; Mitchell, 1:1 mt_m6qjva55rh): the card only draws the buttons and the forms they open.
  * A grant's card adds its step strip. Names, not ids: an id only sits in a tooltip. Steer (Mitchell, 1:1 mt_mjxwzdhhd7) opens the goal editor
  * on the filing building's goal with a 1:1 with its manager beside it, about this ask and its job thread.
  */
 import { type ReactNode } from "react";
 import { clearDraft, useDraft } from "../draft";
-import type { GrantView, ScheduleView } from "@muster-town/schema";
+import { branchAct, type BranchAct, type GrantView, type ScheduleView } from "@muster-town/schema";
 import { api, type AskView } from "../api";
 import { store, useTown } from "../state";
 import { fromMillions, toMillions } from "../format";
 import { Markdown } from "./Markdown";
 import { StepStrip } from "./StepStrip";
 import { steerAsk, steerTarget } from "./oneOnOne";
-import { branchCall, claimMark, deltaOf, retainerCounter, type BranchCall } from "./asks";
+import { claimMark, deltaOf, retainerCounter } from "./asks";
 import { ADJ, Act, Field, MTokensInput, Pill, fmtTokens, timeAgo } from "./ui";
 
 /** What the building is asking for, after "<Building> is asking": the big line at the top of the card. */
@@ -40,7 +41,7 @@ function useBuildingName(id: string | null | undefined): string {
 }
 
 /** Toast line for a decided branch. */
-function doneLine(c: BranchCall, label: string): string {
+function doneLine(c: BranchAct, label: string): string {
   switch (c.kind) {
     case "grant": return c.action === "fund" ? "Funded." : c.action === "counter" ? "Countered: back to the manager." : c.action === "reject" ? "Proposal rejected." : c.action === "adjust" ? "Ceiling raised: the grant runs on." : "Grant cut.";
     case "retainer": return c.action === "approve" ? "Retainer approved." : c.action === "counter" ? "Countered: the manager edits the schedule." : "Retainer rejected.";
@@ -48,6 +49,9 @@ function doneLine(c: BranchCall, label: string): string {
     case "access": return c.grant ? "Let in." : "Declined.";
     case "request": return c.action === "done" ? "Done: your report is in the library and the author hears it." : "Request declined.";
     case "goal": return c.action === "cut" ? "Goal proposal cut: the proposer hears it." : "Accepted: the goal tree is changed.";
+    case "goalSetting": return "Saved on the goal.";
+    case "keyResult": return c.status === "met" ? "Marked met." : "Marked missed.";
+    case "redeploy": return "Redeploy started.";
     default: return `Decided: ${label}.`;
   }
 }
@@ -61,7 +65,7 @@ function doneLine(c: BranchCall, label: string): string {
 export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; onDecided: () => void; deckSlide?: number }) {
   // what the human has typed survives the card closing until they decide (drafts, src/draft.ts)
   const dk = `ask:${ask.id}:`;
-  const [form, setForm] = useDraft<{ label: string; call: BranchCall } | null>(`${dk}form`, null);
+  const [form, setForm] = useDraft<{ label: string; call: BranchAct } | null>(`${dk}form`, null);
   const ceiling = grant ? (grant.grantTokens ?? grant.askTokens) + (grant.forecast?.shortfall ?? 0) : 0;
   const [tokens, setTokens] = useDraft(`${dk}tokens`, () => (grant ? toMillions(form?.call.kind === "grant" && form.call.action === "counter" ? grant.askTokens : ceiling) : ""));
   const [note, setNote] = useDraft(`${dk}note`, "");
@@ -72,37 +76,28 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   const counter = retainerCounter(perRun, until, note, retainer?.tokensPerRun);
   const n = fromMillions(tokens);
   const tokensOk = Number.isFinite(n) && n > 0;
-  const id = ask.targetId ?? "";
-  const run = (c: BranchCall, label: string) => async () => {
-    const slide = deckSlide ? { deckSlide } : {};
-    switch (c.kind) {
-      case "grant":
-        if (c.action === "fund") await api().decideGrant(id, { action: "fund", note, ...(grant ? { tokens: grant.askTokens } : {}), ...slide });
-        else if (c.action === "counter") await api().decideGrant(id, { action: "counter", note, ...(tokensOk && n !== grant?.askTokens ? { tokens: n } : {}), ...slide });
-        else if (c.action === "adjust") await api().decideGrant(id, { action: "adjust", note, tokens: n, ...slide });
-        else await api().decideGrant(id, { action: c.action, note, ...slide });
-        break;
-      case "retainer": await api().decideRetainer(id, { action: c.action, note, ...(c.action === "counter" ? counter ?? {} : {}), ...slide }); break;
-      case "captain": await api().decideCaptain(id, c.action, note || undefined); break;
-      case "access": await api().decideAccess(id, c.grant); break;
-      case "request": await api().request(id, c.action, note.trim() || undefined); break;
-      case "goal": await api().decideGoalProposal(id, { action: c.action === "cut" ? "cut" : "accept", note: note.trim(), ...(c.action === "edit" ? { text: words.trim() } : {}) }); break;
-      case "ask": await api().decideAsk(ask.id, c.decision, note); break;
-      case "none": return;
-    }
+  const run = (c: BranchAct, label: string) => async () => {
+    if (c.kind === "none") return;
+    // every button is one call: the server resolves the branch and does its act on the target (core ask-acts.ts)
+    const fields =
+      c.kind === "grant" ? (c.action === "fund" ? (grant ? { tokens: grant.askTokens } : {}) : c.action === "counter" ? (tokensOk && n !== grant?.askTokens ? { tokens: n } : {}) : c.action === "adjust" ? { tokens: n } : {})
+      : c.kind === "retainer" && c.action === "counter" ? counter ?? {}
+      : c.kind === "goal" && c.action === "edit" ? { words: words.trim() }
+      : {};
+    await api().decideAsk(ask.id, label, { note, ...fields, ...(deckSlide && (c.kind === "grant" || c.kind === "retainer") ? { deckSlide } : {}) });
     store.toast(c.kind === "ask" && note.trim() ? `Decided: ${label}, with your note.` : doneLine(c, label), "ok");
     setForm(null);
     clearDraft(dk);
     onDecided();
   };
-  const branches = ask.branches.map((b) => ({ b, c: branchCall(ask, b, grant) })).filter((x) => x.c.kind !== "none");
+  const branches = ask.branches.map((b) => ({ b, c: branchAct(ask, b, grant) })).filter((x) => x.c.kind !== "none");
   if (!branches.length) return null;
-  const tone = (i: number, c: BranchCall) => (c.kind === "grant" && (c.action === "reject" || c.action === "cut")) || (c.kind === "retainer" && c.action === "reject") ? "bad" : i === 0 ? "primary" : undefined;
-  const needsForm = (c: BranchCall) => "form" in c && !!c.form;
+  const tone = (i: number, c: BranchAct) => (c.kind === "grant" && (c.action === "reject" || c.action === "cut")) || (c.kind === "retainer" && c.action === "reject") ? "bad" : i === 0 ? "primary" : undefined;
+  const needsForm = (c: BranchAct) => "form" in c && !!c.form;
   // a click ask's plain branches (Done, Decline, …) take the human's optional words, sent as the decision's
   const plain = branches.some(({ c }) => c.kind === "ask");
   // a form whose note may stay empty: a grant's adjust (tokens decide it)
-  const noteOptional = (c: BranchCall) => (c.kind === "grant" && c.action === "adjust") || c.kind === "goal";
+  const noteOptional = (c: BranchAct) => (c.kind === "grant" && c.action === "adjust") || c.kind === "goal";
   return (
     <div className="ask-decide">
       {plain && noting ? (

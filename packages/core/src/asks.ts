@@ -490,7 +490,7 @@ export function askForAccess(world: World, r: AccessRequest): void {
 
 // ---- an author's cards ----
 
-const TARGET_PREFIX: Record<string, AskTargetKind> = { gr: "grant", sc: "retainer", dc: "request", cr: "captain", ar: "access", kr: "keyResult", mt: "meeting", gp: "goalProposal" };
+const TARGET_PREFIX: Record<string, AskTargetKind> = { gr: "grant", sc: "retainer", dc: "request", cr: "captain", ar: "access", kr: "keyResult", mt: "meeting", gp: "goalProposal", gl: "goal" };
 
 /** The target kind of an id by its prefix (dc_ is a request only when the doc is one; any other doc reads as a rule's source). */
 function kindOf(world: World, id: string): AskTargetKind | null {
@@ -509,6 +509,7 @@ function targetExists(world: World, kind: AskTargetKind, id: string): boolean {
     case "access": return !!world.accessRequests.get(id);
     case "keyResult": return !!world.keyResults.get(id);
     case "goalProposal": return world.goalProposals.get(id)?.status === "open";
+    case "goal": return !!world.goalTree.get(id);
     default: return true;
   }
 }
@@ -529,7 +530,7 @@ export function checkAskCards(world: World, input: AskCardInput[]): ResolvedAskC
       return a;
     }
     const kind = a.targetKind ?? kindOf(world, a.targetId);
-    if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule, meeting or goalProposal).`);
+    if (!kind) throw badRequest(`${where}: give targetKind for ${a.targetId} (grant, request, captain, access, retainer, keyResult, rule, meeting, goalProposal or goal).`);
     if (a.type === "money" && kind !== "grant" && kind !== "retainer") throw badRequest(`${where} is a money ask: its target is a grant or a retainer, not a ${kind}.`);
     if (!targetExists(world, kind, a.targetId)) throw badRequest(`${where}: ${a.targetId} is not a ${kind} of this town.`);
     // 1:1 mt_msnjkpgwdb decision 9: a key result met on code and tests is shown as "met, unverified"; nobody is asked about it
@@ -810,6 +811,7 @@ export function askGoalId(world: World, a: Pick<Ask, "targetKind" | "targetId" |
     : a.targetKind === "keyResult" ? (() => { const k = world.keyResults.get(id); return ofGrant(k?.grantId) ?? goal(k?.goalId); })()
     : a.targetKind === "retainer" ? ofGrant(world.schedules.get(id)?.grantId)
     : a.targetKind === "captain" ? goal(world.captainRequests.get(id)?.goalId)
+    : a.targetKind === "goal" ? goal(id)
     : a.targetKind === "goalProposal" ? (() => { const p = world.goalProposals.get(id); return goal(p?.targetId) ?? goal(p?.parentId); })()
     : null;
   return own ?? (a.buildingId && world.buildings.get(a.buildingId) ? tree.attachmentOf(a.buildingId) : tree.root().id);
