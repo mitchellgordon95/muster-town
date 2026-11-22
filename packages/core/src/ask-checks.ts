@@ -12,7 +12,7 @@
  * Checks run after an ask is filed (`queueClaimChecks`, never blocking the create) and again when a card is opened with
  * results older than `CLAIM_STALE_MS` (`GET /api/asks/:id`). Each run appends `ask.checked`.
  */
-import type { Ask, AskClaim } from "@muster-town/schema";
+import type { Ask, AskClaim, LiveCheck } from "@muster-town/schema";
 import { safeGet, type Fetcher } from "./net-guard.ts";
 import { verifiedNotice } from "./notices.ts";
 import { REPO_TOKEN_SECRET } from "./secrets.ts";
@@ -30,7 +30,7 @@ function mechanical(world: World, c: AskClaim): boolean {
 type Result = NonNullable<AskClaim["result"]>;
 
 /** What a check reaches the outside with; tests pass fakes. */
-interface CheckDeps {
+export interface CheckDeps {
   /** GitHub's REST API (default: global fetch) */
   fetch?: typeof fetch;
   /** a public https URL's status (default: core net-guard `safeGet`, status only) */
@@ -107,11 +107,12 @@ async function checkClaim(world: World, c: AskClaim, deps: CheckDeps): Promise<O
 
 /**
  * A key result whose check the server ran and passed: a claimed (or "met, unverified") one turns met and archives,
- * with `kr.verified` and a `verified` notice. An open one stays open (nobody claimed it), and met stays met.
+ * with `kr.verified` and a `verified` notice. An open one stays open (nobody claimed it), unless `open`: a live check on a
+ * deploy wait names the key result itself (core waits.ts), which is the claim. Met stays met, missed stays missed.
  */
-function verifyKeyResult(world: World, id: string, note: string): void {
+export function verifyKeyResult(world: World, id: string, note: string, opts: { open?: boolean } = {}): void {
   const kr = world.keyResults.get(id);
-  if (!kr || (kr.status !== "claimed" && kr.status !== "met-unverified")) return;
+  if (!kr || (kr.status !== "claimed" && kr.status !== "met-unverified" && !(opts.open && kr.status === "open"))) return;
   const now = new Date().toISOString();
   const next = world.keyResults.upsert({ ...kr, status: "met", archivedAt: kr.archivedAt ?? now, updatedAt: now });
   world.events.append({ type: "kr.verified", buildingId: world.krBuildingId(kr), text: `Key result verified by a check the server ran: ${kr.text}`, payload: { keyResultId: kr.id, grantId: kr.grantId, from: kr.status, note } });
@@ -131,12 +132,18 @@ export function urlOfHowToCheck(howToCheck: string): string | null {
 /** Hosts that are never fetched whatever they resolve to: Fly's private network and local names. */
 const PRIVATE_NAMES = /(?:^|\.)(?:localhost|internal|local|flycast|lan|home\.arpa)$/i;
 
-async function checkUrl(ref: string, deps: CheckDeps): Promise<Omit<Result, "at">> {
+/** A url check: the status (default any 200-399) and, with `contains`, the body (read up to 256 KB, no redirects) holds the text. */
+async function checkUrl(ref: string, deps: CheckDeps, expect: { status?: number; contains?: string } = {}): Promise<Omit<Result, "at">> {
   let u: URL;
   try { u = new URL(ref); } catch { return { ok: false, note: `not a URL: ${ref.slice(0, 100)}` }; }
   if (PRIVATE_NAMES.test(u.hostname)) return { ok: false, note: `refused: ${u.hostname} is a private host` };
-  const r = await (deps.getUrl ?? safeGet)(u.toString(), { timeoutMs: URL_TIMEOUT_MS, maxBytes: 64 * 1024, statusOnly: true });
-  return { ok: r.status >= 200 && r.status < 400, note: `HTTP ${r.status}` };
+  const withBody = expect.contains !== undefined;
+  const r = await (deps.getUrl ?? safeGet)(u.toString(), { timeoutMs: URL_TIMEOUT_MS, maxBytes: withBody ? 256 * 1024 : 64 * 1024, statusOnly: !withBody });
+  const statusOk = expect.status !== undefined ? r.status === expect.status : r.status >= 200 && r.status < 400;
+  const want = expect.status !== undefined ? `, expected ${expect.status}` : "";
+  if (!withBody) return { ok: statusOk, note: `HTTP ${r.status}${want}` };
+  const has = r.body.includes(expect.contains!);
+  return { ok: statusOk && has, note: `HTTP ${r.status}${want}; the body ${has ? "contains" : "does not contain"} "${expect.contains!.slice(0, 80)}"` };
 }
 
 // ---- pr ----
@@ -196,7 +203,7 @@ export function readsAsks(path: string): boolean {
   return /^\/api\/asks(?:\/|$)/i.test(p.replace(/\/{2,}/g, "/"));
 }
 
-async function checkApi(world: World, ref: string): Promise<Omit<Result, "at">> {
+async function checkApi(world: World, ref: string, contains?: string): Promise<Omit<Result, "at">> {
   const m = /^(?:GET\s+)?(\/\S*)\s+(\/\S*)(?:\s+(.+))?$/.exec(ref);
   if (!m) return { ok: false, note: "ref is not \"GET <path> <json-pointer> [expected]\"" };
   const [, path, pointer, expected] = m as unknown as [string, string, string, string | undefined];
@@ -207,6 +214,27 @@ async function checkApi(world: World, ref: string): Promise<Omit<Result, "at">> 
   if (r.status < 200 || r.status >= 300) return { ok: false, note: `GET ${path}: HTTP ${r.status}` };
   const v = atPointer(r.body, pointer);
   const shown = v === undefined ? "missing" : JSON.stringify(v).slice(0, 120);
+  if (contains !== undefined) {
+    const text = v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
+    const eq = expected === undefined || String(typeof v === "object" ? JSON.stringify(v) : v) === expected.trim();
+    const has = text.includes(contains);
+    return { ok: v !== undefined && eq && has, note: `${pointer} is ${shown}${expected !== undefined ? `, expected ${expected.trim()}` : ""}; it ${has ? "contains" : "does not contain"} "${contains.slice(0, 80)}"` };
+  }
   if (expected !== undefined) return { ok: v !== undefined && String(typeof v === "object" ? JSON.stringify(v) : v) === expected.trim(), note: `${pointer} is ${shown}, expected ${expected.trim()}` };
   return { ok: v !== undefined && v !== null, note: `${pointer} is ${shown}` };
+}
+
+// ---- live checks (a deploy wait's `checks`, core waits.ts) ----
+
+/**
+ * Run one live check of a `{deploy, checks}` wait with the same runners as an ask's claims: never throws (a refused host,
+ * a timeout or no in-process API is a failed result with the reason).
+ */
+export async function runLiveCheck(world: World, c: LiveCheck, deps: CheckDeps = {}): Promise<{ ok: boolean; note: string }> {
+  try {
+    const r = c.kind === "url" ? await checkUrl(c.ref, deps, { status: c.status, contains: c.contains }) : await checkApi(world, c.ref, c.contains);
+    return { ok: r.ok, note: r.note ?? "" };
+  } catch (e) {
+    return { ok: false, note: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
+  }
 }
