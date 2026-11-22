@@ -726,7 +726,8 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
       timed("budgetResume", () => world.budget.resumeEligible(), "budget resume");
       timed("meetings", () => scheduleMeetings(t));
       timed("prChecks", () => void track(prPoller.poll()).catch(log("pr checks")), "pr checks");
-      timed("waits", () => checkWaits(world, d));
+      // live checks on a deploy wait (gr_qg42b4guky) run off the tick; tracked so stop() waits for them
+      timed("waits", () => { for (const p of checkWaits(world, d).checking) void track(p); });
       timed("stopForks", () => stopOverdueForks(world, d), "stop forks");
       // the session circuit breaker (docs/legible-delegation.md §7.3): asked to file at 90%, a work session cut at 100% the way a
       // drain cuts one (its kill grace), only while the flagged session is still its agent's live one

@@ -336,7 +336,7 @@ export async function submit_report(world: World, me: Agent, input: VerbIn<"subm
   }
   const formatNote = formatWarnings.length ? ` Warnings (filed anyway): ${formatWarnings.join("; ")}.` : "";
   // P2: park instead of ending: the continuation waits for `resumeWhen` and then starts by itself (at most MAX_PARKS in a row)
-  const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen) : null;
+  const resumeWhen = input.resumeWhen ? validateWait(world, input.resumeWhen, { grantId: current?.grantId }) : null;
   // plan dc_uwx045472m step 4: a grant step's entry says what is left (`moved.left`), required when the step ends here
   const left = input.left?.trim() || undefined;
   if (!left && !resumeWhen && current?.grantId && current.grantStep != null) {
@@ -553,7 +553,7 @@ export async function assign(world: World, me: Agent, input: VerbIn<"assign">) {
   // one named manager per building, no standing residents (1:1 mt_wngibcr98b decision 1): an agent names only itself
   // (the manager taking the work) or a visitor; everything else is building-queue work
   if (!building && me.kind !== "human" && target.id !== me.id && target.kind !== "visitor") throw badRequest(`Leave agentId out to queue it to the building (a fork of the manager runs it); agentId is only for offering it to a visitor (your own id, ${me.id}, queues it to the building too).`);
-  const waitFor = input.waitFor ? validateWait(world, input.waitFor) : null;
+  const waitFor = input.waitFor ? validateWait(world, input.waitFor, { grantId: input.grantId }) : null;
   const model = building ? checkForkModel(building, input.model) : null;
   const pages = input.pages?.length ? attachablePages(world, bid, input.pages) : undefined;
   // wakes step 1: an agent's assign carries its session's human origin (hops + 1); a human's is stamped by createAssignment

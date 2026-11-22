@@ -871,6 +871,19 @@ export type PinInput = z.infer<typeof PinInput>;
 
 // ---------- assignments ----------
 /**
+ * A live check on a `{deploy}` wait (grant gr_qg42b4guky, core waits.ts): run by the server once the deploy is live, with
+ * the ask-check runners (core ask-checks.ts `runLiveCheck`). `url`: an https URL on the public internet answers `status`
+ * (default any 200-399) and, with `contains`, its body holds that text. `api`: `GET <path> <json-pointer> [expected]`
+ * against the town's own API in-process; with `contains`, the value (as JSON) holds that text.
+ */
+export const LiveCheck = z.object({
+  kind: z.enum(["url", "api"]),
+  ref: z.string().trim().min(1).max(400).describe("url: an https URL; api: \"GET <path> <json-pointer> [expected]\" on the town's own /api/"),
+  status: z.number().int().min(100).max(599).optional().describe("url only: the HTTP status expected (default any 200-399)"),
+  contains: z.string().min(1).max(200).optional().describe("text the body (url) or the value (api) must contain"),
+}).strict();
+export type LiveCheck = z.infer<typeof LiveCheck>;
+/**
  * What a pending assignment waits on before the scheduler may start it (a closed set the runtime evaluates):
  * `deploy` = the live server contains this commit ("next" = the server restarted after the assignment was made);
  * `assignment` = that assignment is done or cancelled; `decision` = that report got a decision; `after` = not before this time;
@@ -878,7 +891,11 @@ export type PinInput = z.infer<typeof PinInput>;
  * Unmet after 24 h, the assignment is cancelled into its building's in-tray.
  */
 export const WaitFor = z.union([
-  z.object({ deploy: z.string().regex(/^([0-9a-f]{7,40}|next)$/, "a commit sha (7-40 hex chars) or \"next\"").describe("live server contains this commit; \"next\" = after the next redeploy") }).strict(),
+  z.object({
+    deploy: z.string().regex(/^([0-9a-f]{7,40}|next)$/, "a commit sha (7-40 hex chars) or \"next\"").describe("live server contains this commit; \"next\" = after the next redeploy"),
+    checks: z.array(LiveCheck).min(1).max(5).optional().describe("live checks (grant gr_qg42b4guky): once the deploy is live the town runs them; all pass = the parked work closes as done with no new session, any fails = it wakes with each check's result"),
+    verifies: z.array(z.string().min(1)).min(1).max(5).optional().describe("with checks: key results of this work's own grant that the passing checks verify (they turn met)"),
+  }).strict(),
   z.object({ assignment: z.string().min(1).describe("that assignment is done or cancelled") }).strict(),
   z.object({ decision: z.string().min(1).describe("that report (doc id) got a decision") }).strict(),
   z.object({ after: Iso.describe("not before this time (ISO, at most 24 h ahead)") }).strict(),
@@ -2155,6 +2172,7 @@ export const EventType = z.enum([
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.reopened", "ask.refused", "ask.checked",
   "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
   "kr.verified", "calibration.adopted", // legible delegation steps 9-10 (core ask-checks.ts, planner.ts)
+  "live.checked", // a deploy wait's live checks passed (core waits.ts, gr_qg42b4guky)
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.forecast", "grant.top-up-needed", "grant.step-held", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
   "skill.used", "skill.pinned", "skill.unpinned",
