@@ -5,7 +5,7 @@
  * only when one is due; otherwise it ends without a report. Reports that land and the human's 1:1 lines are streamed
  * into it, so it keeps the context of what it already decided; while a 1:1 is open it stays open between turns.
  */
-import { alongsideWorkBlock, buildingsLine, endMeeting, noteOneOnOneWorking, focusBlock, inForce, humanDecisionsBlock, humanTyping, managePrompt, managerQueue, type QueueItem, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, pinnedPagesBlock, type World } from "@muster-town/core";
+import { alongsideWorkBlock, buildingsLine, endMeeting, noteOneOnOneWorking, focusBlock, inForce, humanDecisionsBlock, humanTyping, agentsDrafting, managePrompt, managerQueue, type QueueItem, forkableManagerOf, managerAgentOf, managerNewReport, managerStateBlock, managerSystemPrompt, meetingNotice, oneOnOneEnded, oneOnOnePrompt, oneOnOneUtterance, pinnedPagesBlock, type World } from "@muster-town/core";
 import type { Agent, Doc, Meeting, Session } from "@muster-town/schema";
 import { VERB_NAMES, type VerbName } from "@muster-town/schema";
 import { codeBlock } from "./code.ts";
@@ -36,6 +36,39 @@ const ONE_ON_ONE_QUIET_MS = 20 * 60_000;
 /** The manager's open 1:1s. */
 export const openOneOnOnes = (world: World, managerId: string): Meeting[] =>
   world.meetings.where("kind = 'one-on-one' AND facilitatorId = ? AND phase = 'discussing'", [managerId], "ORDER BY createdAt");
+
+/** The index of the last line matching `ok`, or -1. */
+const lastIndex = (lines: Meeting["transcript"], ok: (u: Meeting["transcript"][number]) => boolean): number => {
+  for (let i = lines.length - 1; i >= 0; i--) if (ok(lines[i])) return i;
+  return -1;
+};
+
+/** A 1:1's human line its agent (the facilitator) has not answered yet: a user line after the agent's last line. */
+export const humanUnanswered = (m: Meeting): boolean => {
+  const lastAgent = lastIndex(m.transcript, (u) => u.speakerId === m.facilitatorId);
+  return m.transcript.slice(lastAgent + 1).some((u) => u.speakerKind === "user");
+};
+
+/**
+ * A 1:1 that needs a session to start for it: its agent hasn't spoken yet (just opened), or a human line waits unanswered.
+ * An open 1:1 whose human has left (the agent had the last word; only Town notices since) starts nothing: after a restart
+ * it waits for the human's next line (gr_xoso5f3oot: 11 of 19 resumes in a week posted "back again" to nobody).
+ */
+export const oneOnOneWaiting = (m: Meeting): boolean => !m.transcript.some((u) => u.speakerId === m.facilitatorId) || humanUnanswered(m);
+
+/**
+ * When a 1:1 went quiet, for the quiet close: the agent's first reply to the human's last line; while that line waits
+ * unanswered, the line itself (or the answering session's start, `started`, when it was woken late); with no human line
+ * yet, the agent's first line (or the 1:1's start). Town notices, the agent's later lines and a restart's new session never
+ * reset it, so an abandoned 1:1 closes even through a merge run.
+ */
+export function oneOnOneQuietSince(m: Meeting, started = 0): number {
+  const lines = m.transcript;
+  const lastUser = lastIndex(lines, (u) => u.speakerKind === "user");
+  if (lastUser < 0) return Date.parse(lines.find((u) => u.speakerId === m.facilitatorId)?.at ?? m.startedAt ?? m.createdAt);
+  const reply = lines.slice(lastUser + 1).find((u) => u.speakerId === m.facilitatorId);
+  return reply ? Date.parse(reply.at) : Math.max(Date.parse(lines[lastUser].at), started);
+}
 
 /** A team-lead session cut by a restart this long ago or less is resumed; an older one's in-tray is offered afresh. */
 export const RESUME_WINDOW_MS = 2 * 60 * 60_000;
@@ -117,8 +150,8 @@ export function wakeManager(ctx: Ctx, st: ManageState, gate: ManageGate, buildin
 function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, fresh: QueueItem[]): Promise<Session> | null {
   const { world } = ctx;
   const nameOf = world.nameOf.bind(world);
-  const talks = openOneOnOnes(world, agent.id);
-  noticeHeld(ctx, st, agent, talks);
+  const open = openOneOnOnes(world, agent.id);
+  noticeHeld(ctx, st, agent, open);
   const live = ctx.live.get(agent.id);
   const side = ctx.talking.get(agent.id);
   // the session this agent's conversation goes into: the one alongside its work, else its own manage session
@@ -132,6 +165,8 @@ function wakeTalker(ctx: Ctx, st: ManageState, gate: ManageGate, agent: Agent, f
     st.fed.delete(mid);
     if (m && feedable) talker.input.push(oneOnOneEnded(m));
   }
+  // a live conversation is fed every open 1:1; a new session starts only for 1:1s a human waits on (or just opened)
+  const talks = talker ? open : open.filter(oneOnOneWaiting);
   if (talker) {
     // a conversation that is closing ends first; the next tick starts a fresh one if a 1:1 is still open
     if (!feedable) return null;
@@ -263,19 +298,20 @@ const talkBlocks = (world: World, m: Meeting, agentId?: string, work?: LiveSessi
   [humanDecisionsBlock(world, m), world.reorgs.plannerBrief(m), world.secretary.brief(m), agentId && work ? alongsideWorkBlock(world, m, agentId, world.sessions.get(work.sessionId)) : "", focusBlock(world, m)].filter(Boolean).join("\n\n");
 
 /**
- * Close 1:1s nobody spoke in for ONE_ON_ONE_QUIET_MS (nobody typing either). The phase event wakes the manager to wrap up.
- * A 1:1 whose human line waits on an agent busy in a work session stays open; once the work ends the tick (which runs this
- * after `wakeManager`) starts the answering session, and the quiet clock restarts from that session's start.
+ * Close 1:1s quiet for ONE_ON_ONE_QUIET_MS by `oneOnOneQuietSince` (the human's last line or the agent's first reply to it),
+ * with nobody typing and the agent not mid-answer. The phase event wakes the manager to wrap up. A 1:1 whose human line
+ * waits on an agent busy in a work session stays open; once the work ends the tick (which runs this after `wakeManager`)
+ * starts the answering session, and the clock runs from that session's start until the agent replies.
  */
 export function closeQuietOneOnOnes(ctx: Ctx): void {
   const { world } = ctx;
   const now = ctx.now().getTime();
   for (const m of world.meetings.where("kind = 'one-on-one' AND phase = 'discussing'")) {
-    // quiet since the last line, or since the agent's conversation started (woken late, after a work session ended)
     const live = ctx.talking.get(m.facilitatorId ?? "") ?? ctx.live.get(m.facilitatorId ?? "");
     const started = live?.purpose === "manage" ? Date.parse(world.sessions.get(live.sessionId)?.startedAt ?? "") || 0 : 0;
-    const last = Math.max(Date.parse(m.transcript.at(-1)?.at ?? m.startedAt ?? m.createdAt), started);
-    if (now - last < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now) || awaitingBusyAgent(ctx, m)) continue;
+    if (now - oneOnOneQuietSince(m, started) < ONE_ON_ONE_QUIET_MS || humanTyping(world, m.id, now) || awaitingBusyAgent(ctx, m)) continue;
+    // the agent is mid-answer ("is writing…", refreshed by each of its tool calls): its reply lands first
+    if (m.facilitatorId && agentsDrafting(world, m.id, now).includes(m.facilitatorId)) continue;
     endMeeting(world, null, m.id, `Quiet for ${ONE_ON_ONE_QUIET_MS / 60_000} minutes; closed by the town.`, { kind: "system", id: "quiet-1:1" });
   }
 }
