@@ -1,9 +1,9 @@
-import { mkdtempSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { makeProdWatch, PULL_RETRY_MS, PULL_SPACING_MS } from "../src/prod-watch.ts";
-import type { CmdResult, CommandRunner, RedeployRequest } from "../src/redeploy.ts";
+import { REPO_LOCK_STALE_MS, type CmdResult, type CommandRunner, type RedeployRequest } from "../src/redeploy.ts";
 
 const LIVE = "a".repeat(40), TIP = "b".repeat(40), TIP2 = "c".repeat(40);
 
@@ -29,16 +29,37 @@ function setup(s: Parameters<typeof fakeGit>[0], o: { running?: boolean; started
   const events: { text: string; payload: Record<string, unknown> }[] = [];
   const state = { running: o.running ?? false };
   const startedAt = new Date(t - (o.startedAgoMs ?? 60 * 60_000)).toISOString();
+  const repoRoot = mkdtempSync(join(tmpdir(), "prod-watch-"));
   const w = makeProdWatch({
-    repoRoot: mkdtempSync(join(tmpdir(), "prod-watch-")), branch: "prod", run: g.run, now: () => t,
+    repoRoot, branch: "prod", run: g.run, now: () => t,
     live: () => LIVE, startedAt: () => startedAt,
     redeployer: { running: () => state.running, redeploy: (r) => { requests.push(r); return { started: true }; } },
     event: (text, payload) => events.push({ text, payload }),
   });
-  return { w, g, requests, events, state, advance: (ms: number) => { t += ms; } };
+  /** leaves a repo lock behind, last touched `agoMs` before the fake now */
+  const lock = (agoMs: number) => {
+    const p = join(repoRoot, ".muster-town-redeploy.lock");
+    closeSync(openSync(p, "w"));
+    utimesSync(p, (t - agoMs) / 1000, (t - agoMs) / 1000);
+  };
+  return { w, g, requests, events, state, lock, advance: (ms: number) => { t += ms; } };
 }
 
 describe("prod watch: the server pulls its own deploys", () => {
+  test("a fresh repo lock is waited on; a stale one (its run was killed) is not: one event, then the redeploy", async () => {
+    const { w, g, requests, events, lock, advance } = setup({ tip: TIP, files: ["packages/web/src/x.ts"] });
+    lock(60_000);
+    expect(await w.tick()).toBe("busy");
+    expect(g.calls).toEqual([]);
+    advance(REPO_LOCK_STALE_MS - 60_000);
+    expect(await w.tick()).toBe("redeploy");
+    expect(requests).toHaveLength(1);
+    expect(events.map((e) => e.text)).toEqual(["Prod watch: the redeploy lock is 20 min old (a run was cut before it could remove it); redeploying anyway"]);
+    advance(PULL_RETRY_MS);
+    expect(await w.tick()).toBe("redeploy");
+    expect(events).toHaveLength(1);
+  });
+
   test("prod ahead with a code change: one redeploy, requested by the prod branch; the next ticks wait out the spacing", async () => {
     const { w, g, requests } = setup({ tip: TIP, files: ["docs/log.d/x.md", "packages/server/src/app.ts"] });
     expect(await w.tick()).toBe("redeploy");
