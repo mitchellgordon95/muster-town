@@ -1,0 +1,1 @@
+- 2026-11-22 (Pix 3, gr_064fmkq31s step 1): manage sessions split onto the jobs they worked (core finance-manager-shares.ts): `managerShares` on GET /api/finance/spend, `managing` on GET /api/jobs/:id and GET /api/grants/:id, Spend by goal lanes `managing` / `oneOnOnes` / `retainer` instead of "none", check:finance line "managing shares add up".

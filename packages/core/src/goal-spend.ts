@@ -14,7 +14,7 @@ import type { World } from "./world.ts";
 export interface GoalSpendInputs {
   /** the goal and every goal under it (retired ones too: their past spend stays theirs) */
   subtree: Set<string>;
-  sessions: Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "startedAt" | "endedAt">[];
+  sessions: (Partial<Pick<Session, "purpose" | "meetingId">> & Pick<Session, "id" | "agentId" | "assignmentId" | "grantId" | "lane" | "model" | "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h" | "byModel" | "bankModel" | "startedAt" | "endedAt">)[];
   assignments: Pick<Assignment, "id" | "buildingId" | "grantId" | "lane">[];
   /** `kind` and `status` only count the visitors at desks in the subtree (`visitors`): a visitor's spend is unknown to the town */
   agents: { id: string; buildingId: string | null; homeBuildingId?: string | null; kind?: string; status?: string }[];
@@ -28,7 +28,14 @@ export interface GoalSpendInputs {
 }
 
 const DAY = 86_400_000;
-const lanes = (): SpendByLane => ({ grant: 0, exploration: 0, directed: 0, none: 0 });
+const lanes = (): SpendByLane => ({ grant: 0, exploration: 0, directed: 0, retainer: 0, managing: 0, oneOnOnes: 0, none: 0 });
+
+/** A session's lane on the Spend tab: a manage session is `managing` (`oneOnOnes` in a 1:1), else its own or its assignment's lane, else "none". */
+function spendLane(s: Partial<Pick<Session, "purpose" | "meetingId" | "lane">>, assignmentLane: string | null | undefined): keyof SpendByLane {
+  if (s.purpose === "manage") return s.meetingId ? "oneOnOnes" : "managing";
+  const lane = s.lane ?? assignmentLane;
+  return lane === "grant" || lane === "exploration" || lane === "directed" || lane === "retainer" ? lane : "none";
+}
 
 /** The pure aggregation behind GET /api/goals/:id/spend. `days` counts back from `now`; a session counts by when it ended (or started, while running). */
 export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = new Date()): GoalSpend {
@@ -65,7 +72,7 @@ export function goalSpend(goalId: string, inp: GoalSpendInputs, days = 7, now = 
     const weight = inp.weights ? inp.weights.get(s.id) ?? 0 : 1;
     if (!weight) continue;
     const tokens = Math.round(sessionTokens(s) * weight);
-    const lane = (s.lane ?? a?.lane ?? "none") as keyof SpendByLane;
+    const lane = spendLane(s, a?.lane);
     out.total += tokens; out.sessions++; out.byLane[lane] += tokens;
     const i = Math.min(buckets - 1, Math.max(0, Math.floor((at - (to - buckets * step)) / step)));
     series[i]!.tokens += tokens; series[i]!.byLane[lane] += tokens;
