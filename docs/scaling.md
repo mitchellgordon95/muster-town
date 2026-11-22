@@ -110,6 +110,24 @@ transaction. Desk bench, 1× world, 30 ticks, `RETIRED=<n> scripts/stress/tick-b
 - The reset no longer grows with retired forks (0.08 vs 0.10 ms, both under 1 ms).
 - The normal tick still does: about 5× at 30,000 retired forks. Those phases scan all agents; step 2 of the grant narrows them.
 
+**Step 2 (11-22): the spend reads.** `GET /api/finance/spend` parsed every agent row three times (townSpend, the lane ×
+kind table, manager wakes), about 390 ms each at 15,000 retired forks, and parsed sessions, Bank debits and assignments
+twice. The finance and goal spend reads now take only the agent columns they use (`agents.columns`: id and buildingId;
+goal spend adds homeBuildingId, kind, status), and one spend call reads each table once. Output is byte-identical
+(packages/core/test/agent-scans.test.ts; same sha256 over the 1.85 MB desk output). Desk, 2× world (6,000 sessions,
+10,000 debits, 5,085 assignments), median of 5 `bank.spend(now, "7d")`:
+
+| retired forks | before (ms) | after (ms) |
+|---|---|---|
+| 15,000 | 2,743 | 983 |
+| 0 | 1,487 | 908 |
+
+- The spend read no longer grows with retired forks (908 vs 983 ms, 8 percent).
+- What is left is history, not forks: sessions, debits and assignments parsed through the schema (about 120–150 ms
+  each here) and the response itself (1.85 MB of JSON here; live returned 700 kB on 11-22).
+- The tick phases above (explore, work, needsBackstop, walkHome) are filtered agent queries with no index for retired
+  rows; this step does not change them.
+
 ## Scale-out options (written only, not built)
 
 Nothing here is built in grant gr_n0p3ast5pp. Prices: Fly.io `iad`, per Machine-hour, as given in the grant plan

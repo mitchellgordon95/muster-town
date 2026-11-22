@@ -155,7 +155,7 @@ export function townManagerWakes(repos: Repos, events: EventLog, now = new Date(
     sessions: repos.sessions.where("purpose = 'manage' AND COALESCE(endedAt, startedAt) >= ?", [from]),
     // a wake ending in the window may have started up to a day before it
     docs: repos.docs.where("decidedBy IS NOT NULL AND decidedAt >= ?", [since]),
-    agents: repos.agents.all(),
+    agents: repos.agents.columns<Pick<Agent, "id" | "buildingId">>(["id", "buildingId"]),
     // an ask touched in the window was updated in it (or later)
     asks: repos.asks.where("updatedAt >= ?", [since]),
     rankRuns: events.list({ types: ["ask.ranked"], from: since, limit: 5000 }).map((e) => ({ id: e.id, agentId: e.agentId, ts: e.ts })),
