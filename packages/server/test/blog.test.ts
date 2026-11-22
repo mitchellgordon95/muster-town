@@ -58,7 +58,9 @@ describe("blog", () => {
     expect(html).toContain('<meta property="og:description" content="The first one.">');
     expect(html).toContain('<meta property="og:type" content="article">');
     expect(html).toContain(`<meta property="og:url" content="${ORIGIN}/blog/older">`);
-    expect(html).toContain('<meta name="twitter:card" content="summary">');
+    expect(html).toContain(`<meta property="og:image" content="${ORIGIN}/og.png">`); // no cover: the site's picture (gr_y8buqgpata)
+    expect(html).toContain(`<meta name="twitter:image" content="${ORIGIN}/og.png">`);
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
     expect(html).toContain(`<link rel="alternate" type="application/atom+xml" title="Muster Town blog" href="${ORIGIN}/blog/feed.xml">`);
     expect(html).toContain("Hello <strong>world</strong>.");
     expect(html).toContain(`<form class="signup"`);
@@ -71,6 +73,18 @@ describe("blog", () => {
     expect(html).toContain("New posts by email. Nothing else.");
     expect(html.indexOf('class="signup"')).toBeGreaterThan(html.indexOf("</article>"));
     expect((await app.inject("/blog")).body).toContain('data-source="index"');
+  });
+
+  it("ends each post with an About Muster Town box above the signup: the homepage's line, the live town and the repo (gr_y8buqgpata)", async () => {
+    const app = await blogApp({ "older": post("title: Older post\ndate: 2026-11-01") });
+    const html = (await app.inject("/blog/older")).body;
+    expect(html).toContain('<section class="about">');
+    expect(html).toContain("<p>Muster Town is AI agents working in public, collectively funded. Humans watch, fund and steer.</p>");
+    expect(html).toContain('<a href="/workshop/">Visit the live town</a>');
+    expect(html).toContain('<a href="https://github.com/mitchellgordon95/muster-town">Muster Town on GitHub</a>');
+    expect(html.indexOf('class="about"')).toBeGreaterThan(html.indexOf("</article>"));
+    expect(html.indexOf('class="about"')).toBeLessThan(html.indexOf('class="signup"'));
+    expect((await app.inject("/blog")).body).not.toContain('class="about"');
   });
 
   it("shows a post's upcoming list as the signup hook, on the post and on the index", async () => {
@@ -123,9 +137,8 @@ describe("blog", () => {
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
     expect(html).toContain('<img src="/api/media/mf_0123456789.jpg" alt="chart">');
     const bad = (await app.inject("/blog/bad")).body;
-    expect(bad).not.toContain("og:image");
+    expect(bad).toContain(`<meta property="og:image" content="${ORIGIN}/og.png">`);
     expect(bad).not.toContain("javascript:");
-    expect(bad).toContain('<meta name="twitter:card" content="summary">');
     const feed = (await app.inject("/blog/feed.xml")).body;
     expect(feed).toContain(`<link rel="enclosure" href="${ORIGIN}/api/media/mf_abcdefghij.png" type="image/png"/>`);
     expect(feed.match(/enclosure/g)).toHaveLength(1);
@@ -180,7 +193,7 @@ describe("blog", () => {
     await app.inject({ method: "HEAD", url: "/blog/live", headers: { "user-agent": ua } });
     await app.inject({ url: "/blog/wip", headers: { "user-agent": ua } });
     await app.inject({ url: "/blog/nope", headers: { "user-agent": ua } });
-    expect(reads).toEqual([["live", "news.ycombinator.com"], ["live", "ref:discord"], ["live", "direct"]]);
+    expect(reads).toEqual([["live", "news.ycombinator.com"], ["live", "ref:discord"], ["live", "blog"]]);
   });
 
   it("the root app's blog reads and homepage sources show on GET /api/join-funnel", async () => {
@@ -195,7 +208,8 @@ describe("blog", () => {
     const home = (body: object) => app.inject({ method: "POST", url: "/api/join-funnel/home", headers: { ...ua, host: "muster.town" }, payload: body });
     expect((await home({ visitor: "visitor-from-hn-1", referrer: "https://news.ycombinator.com/item?id=1" })).json()).toEqual({ counted: true });
     expect((await home({ visitor: "visitor-tagged-01", ref: "test", referrer: "https://muster.town/blog" })).json()).toEqual({ counted: true });
-    expect((await home({ visitor: "visitor-internal1", referrer: "https://muster.town/blog" })).json()).toEqual({ counted: true });
+    expect((await home({ visitor: "visitor-internal1", referrer: "https://muster.town/blog/engineering-human-oversight-with-decision-queues" })).json()).toEqual({ counted: true }); // the About box's link (gr_y8buqgpata)
+    expect((await home({ visitor: "visitor-internal2", referrer: "https://muster.town/workshop/" })).json()).toEqual({ counted: true });
     expect((await home({ visitor: "visitor-from-hn-1", step: "page2" })).json()).toEqual({ counted: true }); // a step carries no source
     const f = (await app.inject("/api/join-funnel")).json();
     const today = new Date().toISOString().slice(0, 10);
@@ -203,9 +217,10 @@ describe("blog", () => {
     expect(f.sources).toEqual(expect.arrayContaining([
       { day: today, step: "homeViews", source: "news.ycombinator.com", count: 1 },
       { day: today, step: "homeViews", source: "ref:test", count: 1 },
+      { day: today, step: "homeViews", source: "blog", count: 1 },
       { day: today, step: "homeViews", source: "direct", count: 1 },
     ]));
-    expect(f.sources).toHaveLength(3);
+    expect(f.sources).toHaveLength(4);
     expect(f.collectives[0].blogReads).toEqual(f.blogReads);
     expect(JSON.stringify(world.db.prepare("SELECT * FROM join_funnel_sources").all())).not.toContain("item?id");
     await app.close();

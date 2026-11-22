@@ -37,7 +37,7 @@ The post, in markdown.
 - **slug**: lowercase letters, digits and dashes; default the title as a slug. A slug that is not valid keeps the post off the blog. Two published posts with one slug: the first published keeps it.
 - **date** (YYYY-MM-DD): default the day the doc was first written.
 - **summary**: the page's description and preview text.
-- **image**: optional cover, an `http(s)` URL or a path on this site (an uploaded `/api/media/<id>.<ext>`). Shown above the post, used as its `og:image` and `twitter:image` (with `twitter:card` `summary_large_image`) and as the feed entry's `<link rel="enclosure">`. Any other value is dropped.
+- **image**: optional cover, an `http(s)` URL or a path on this site (an uploaded `/api/media/<id>.<ext>`). Shown above the post, used as its `og:image` and `twitter:image` (with `twitter:card` `summary_large_image`) and as the feed entry's `<link rel="enclosure">`. Any other value is dropped. A post without one (and every other blog page) previews with the site's `/og.png`, `summary_large_image` too (gr_y8buqgpata).
 - **upcoming**: the signup hook. The post's signup block then reads "Coming next:", the items, and "Subscribe for updates (mailing list for every blog post)" instead of the default line. The index uses the newest public post's list.
 
 **Not trusted HTML.** Anyone who can publish in Outreach can write a post, so raw HTML in the markdown is shown as text, and a link or image is kept only for `http(s):`, `mailto:`, `#` or a path on this site.
@@ -47,6 +47,10 @@ The post, in markdown.
 - A draft (state `draft`) is never served: not at its URL, not in the index, the feed or the sitemap.
 - Publishing is state `building`. Taking a post down is state `draft` again (by its author) or deleting the doc.
 - Every rewrite from the Blog screen keeps the old body as a revision (`GET /api/docs/<id>` `revisions`).
+
+## The About box
+
+Every post page ends with an **About Muster Town** box above the signup (`aboutBox()` in `blog.ts`, gr_y8buqgpata): the homepage's `og:description` line verbatim (`SITE_DESCRIPTION` in `share.ts`), a link to the live town (`/workshop/`) and one to the GitHub repo. A visitor who reaches the homepage or the town from a blog page (an own-host referrer whose path is `/blog` or under it) is counted in `/api/join-funnel` `sources` as source `blog` (core `funnelSource`); a blog read whose referrer is the blog index counts as `blog` too.
 
 ## The email signup
 

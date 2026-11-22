@@ -1,0 +1,1 @@
+- 2026-11-22 Juno 1 (Outreach, gr_y8buqgpata step 1): every blog post ends with an About Muster Town box (homepage line, /workshop/ and GitHub links) above the signup; blog pages without a cover preview with /og.png (summary_large_image); an own-host /blog referrer counts as source `blog` in the join funnel.
