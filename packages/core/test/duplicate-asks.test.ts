@@ -34,7 +34,7 @@ const refusedEntries = (world: ReturnType<typeof setup>["world"], jobId: string)
 describe("one need, one ask: the door", () => {
   it("a second ask on the same need entry (no target) returns the first with folded: true, writes one thread entry and leaves the card as it was", () => {
     const { world } = setup();
-    const first = seedAsk(world, { type: "click", buildingId: LAB, sourceDocId: null, by: "system", title: "Set up the mail service", body: "Two buildings wait on mail.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" });
+    const first = seedAsk(world, { type: "click", buildingId: LAB, sourceDocId: null, by: "system", title: "Set up the mail service", body: "Two buildings wait on mail.", branches: [{ label: "Redeploy", action: "redeploy" }, { label: "Decline", action: "keep" }], recommendation: "Done" });
     expect(first.folded).toBe(false);
     const card = world.asks.require(first.ask.id);
     const again = { type: "click" as const, buildingId: LAB, sourceDocId: null, by: "system", sourceEntryId: card.sourceEntryId!, title: "Set up Resend for mail", body: "Outreach also needs it.", branches: [{ label: "Done" }], recommendation: "Done" };

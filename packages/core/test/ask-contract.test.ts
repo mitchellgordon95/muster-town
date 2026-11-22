@@ -48,7 +48,10 @@ describe("the ask contract per type (docs/legible-delegation.md §4)", () => {
     expect(names(askWarnings("money", { body: MONEY, branches: two, recommendation: "Continue" }))).toEqual(["claims"]);
     // a "recommends" sentence no longer stands in for the field
     expect(n(askStructure("money", { body: `${MONEY}\nPix recommends continue.`, branches: two }))).toEqual(["recommendation"]);
-    expect(n(askStructure("click", { body: "Create the repo.", branches: two, recommendation: "Done" }))).toEqual(["parked"]);
+    expect(n(askStructure("click", { body: "Create the repo.", branches: [{ label: "Redeploy", action: "redeploy" }, { label: "Not now", action: "keep" }], recommendation: "Done" }))).toEqual(["parked"]);
+    // a click card whose buttons only record words is refused (1:1 mt_m6qjva55rh): each dead button is named
+    expect(askStructure("click", { body: "Pix has waited on this since Nov 6.\nIf you give the test account admin once, this never comes back.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done" }))
+      .toEqual([expect.stringMatching(/^structure act: the button "Done" does nothing on an ask with no target/), expect.stringMatching(/^structure act: the button "Decline"/)]);
     expect(n(askStructure("credential", { body: "Reissue the token.", branches: two, recommendation: "Do it" }))).toEqual(["scope", "fallback"]);
     expect(n(askStructure("meeting", { body: "Let's talk about the deck.", branches: two, recommendation: "Yes" }))).toEqual(["question"]);
     expect(n(askStructure("policy", { body: "Forks redeploy now.", branches: two, recommendation: "Keep" }))).toEqual(["rule"]);

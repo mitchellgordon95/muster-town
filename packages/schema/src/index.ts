@@ -1964,11 +1964,28 @@ export type AskType = z.infer<typeof AskType>;
 export const AskStatus = z.enum(["open", "decided", "retired", "folded", "deferred"]);
 export type AskStatus = z.infer<typeof AskStatus>;
 /** What an ask is about: dedupe and retire key on (targetKind, targetId). */
-export const AskTargetKind = z.enum(["grant", "request", "captain", "access", "retainer", "keyResult", "rule", "meeting", "goalProposal"]);
+export const AskTargetKind = z.enum(["grant", "request", "captain", "access", "retainer", "keyResult", "rule", "meeting", "goalProposal", "goal"]);
 export type AskTargetKind = z.infer<typeof AskTargetKind>;
 /** One branch of the decision, as a button label; `action` names the verb it maps to (fund, cut, approve…), when one does. */
 export const AskBranch = z.object({ label: z.string().trim().min(1).max(80), action: z.string().max(40).optional() });
 export type AskBranch = z.infer<typeof AskBranch>;
+/**
+ * POST /api/asks/:id/decide: a human presses a branch (`decision`: its label, or their own words). The server resolves
+ * the branch's act (ask-acts.ts `branchAct`) and does it on the target, with the fields its form asked for: `tokens` (a
+ * grant's fund, counter or new ceiling), `tokensPerRun` and `until` (a retainer's counter), `words` (a goal proposal's
+ * new words), `note` (their words beside the label; required for a request's Done or Decline).
+ */
+export const DecideAskInput = z.object({
+  decision: z.string().trim().min(1).max(2000),
+  note: z.string().trim().max(2000).optional(),
+  tokens: z.number().int().positive().optional(),
+  tokensPerRun: z.number().int().positive().optional(),
+  until: Iso.optional(),
+  words: z.string().trim().min(1).max(300).optional(),
+  deckSlide: z.number().int().positive().optional(),
+  meetingId: Id.optional(),
+});
+export type DecideAskInput = z.input<typeof DecideAskInput>;
 /** A load-bearing claim and how to check it (§5); `result` is the last check's outcome (step 4 runs the mechanical ones). */
 export const AskClaim = z.object({
   text: z.string().trim().min(1).max(400),
@@ -2034,11 +2051,11 @@ export type Ask = z.infer<typeof Ask>;
  */
 export const AskCardInput = z.object({
   type: AskType,
-  targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting, gp_ goalProposal)"),
+  targetKind: AskTargetKind.optional().describe("what targetId is; inferred from its prefix when left out (gr_ grant, sc_ retainer, dc_ request, cr_ captain, ar_ access, kr_ keyResult, mt_ meeting, gp_ goalProposal, gl_ goal)"),
   targetId: z.string().trim().min(1).optional().describe("the grant, retainer, request, key result, rule or meeting it is about; required for money"),
   title: z.string().trim().min(1).max(160).describe("the ask in one line"),
   body: z.string().max(4000).default("").describe("the context the human needs to decide, in plain sentences"),
-  branches: z.array(AskBranch).min(1).max(5).describe("the choices, as button labels (e.g. Continue, Cut)"),
+  branches: z.array(AskBranch).min(1).max(5).describe("the choices, as button labels (e.g. Continue, Cut); each branch's action is what its button does on the target, done by the server: grant fund/counter/reject/adjust/cut, retainer approve/counter/reject, captain accept/decline, access grant/decline, request done/decline, goal (gl_) cap:<tokens per day>/cap:none/explore:on/explore:off, keyResult met/missed, no target redeploy; keep = changes nothing. A click ask whose buttons cannot act is refused: file it as a do ask (request_human)"),
   recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
   claims: z.array(AskClaim.omit({ result: true })).max(3).optional().describe("the 1-2 load-bearing claims, each with how to check it"),
 });
@@ -3222,6 +3239,7 @@ export type DeskSessionEndInput = z.infer<typeof DeskSessionEndInput>;
 export { toJsonSchema } from "./json-schema.ts";
 export * from "./tokens.ts";
 export * from "./ask.ts";
+export * from "./ask-acts.ts";
 export * from "./grant-title.ts";
 export * from "./deck.ts";
 export * from "./notices.ts";

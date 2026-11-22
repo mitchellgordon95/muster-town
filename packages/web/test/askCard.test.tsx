@@ -16,7 +16,8 @@ import { MockApi } from "../src/mock/server";
 import { store } from "../src/state";
 import { AskCard } from "../src/panels/AskCard";
 import { askedIds, mineAsks } from "../src/panels/queueOrder";
-import { branchCall, claimMark, deltaOf, expectedSpend, openAskCount, retainerCounter, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
+import { branchAct as branchCall } from "@muster-town/schema";
+import { claimMark, deltaOf, expectedSpend, openAskCount, retainerCounter, slateAsks, slateLine, sortAsks } from "../src/panels/asks";
 import { FundingView } from "../src/panels/FundingView";
 import { GrantPanel } from "../src/panels/GrantPanel";
 import { NoticesFeed, pictureSrc } from "../src/panels/NoticesPanel";
@@ -134,9 +135,9 @@ describe("the ask card", () => {
     expect(branchCall(money, { label: "Cut" })).toEqual({ kind: "grant", action: "cut" });
   });
 
-  it("a held grant's Adjust asks for the new ceiling and sends it to decideGrant", async () => {
+  it("a held grant's Adjust asks for the new ceiling and sends it with the branch to the ask's decide", async () => {
     signIn();
-    const decide = vi.spyOn(api(), "decideGrant").mockResolvedValue(grant("gr_hud"));
+    const decide = vi.spyOn(api(), "decideAsk").mockResolvedValue(ask("ak_hud"));
     const onDecided = vi.fn();
     const el = await mount(<AskCard ask={ask("ak_hud")} grant={grant("gr_hud")} onDecided={onDecided} />);
     await act(async () => button(el, "Adjust…").click());
@@ -146,7 +147,7 @@ describe("the ask card", () => {
     await act(async () => typeInto(field, "2.25"));
     await act(async () => button(el, "Adjust").click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("gr_hud", expect.objectContaining({ action: "adjust", tokens: 2_250_000 }));
+    expect(decide).toHaveBeenCalledWith("ak_hud", "Adjust", expect.objectContaining({ tokens: 2_250_000 }));
     expect(onDecided).toHaveBeenCalled();
   });
 
@@ -156,7 +157,7 @@ describe("the ask card", () => {
     const el = await mount(<AskCard ask={ask("ak_policy")} onDecided={() => undefined} />);
     await act(async () => button(el, "Add").click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "");
+    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", { note: "" });
   });
 
   it("a click ask's Add a note sends the human's words with the branch", async () => {
@@ -169,12 +170,12 @@ describe("the ask card", () => {
     await act(async () => typeInto(field, "I edited the token instead."));
     await act(async () => button(el, "Add").click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", "I edited the token instead.");
+    expect(decide).toHaveBeenCalledWith("ak_policy", "Add", { note: "I edited the token instead." });
   });
 
   it("a request (a do ask) has no Claim: Done waits for the report back and sends it; Decline waits for a note", async () => {
     signIn();
-    const req = vi.spyOn(api(), "request").mockResolvedValue(null);
+    const req = vi.spyOn(api(), "decideAsk").mockResolvedValue(ask("ak_req"));
     const el = await mount(<AskCard ask={ask("ak_req")} onDecided={() => undefined} />);
     // Decline opens its note and stays disabled until the human says why (the server refuses a bare decline)
     await act(async () => button(el, "Decline…").click());
@@ -192,7 +193,7 @@ describe("the ask card", () => {
     await act(async () => typeInto(field, "Signed up; the monitor is live."));
     await act(async () => doneAct().click());
     await flush();
-    expect(req).toHaveBeenCalledWith("dc_req_ml", "done", "Signed up; the monitor is live.");
+    expect(req).toHaveBeenCalledWith("ak_req", "Done", { note: "Signed up; the monitor is live." });
   });
 
   it("a goal proposal's card (1:1 mt_dwsxo7oms8 decision 4): Accept, Edit and accept with new words, Cut with an optional note, all on the proposal", async () => {
@@ -202,8 +203,7 @@ describe("the ask card", () => {
     expect(branchCall({ targetKind: "goalProposal" }, { label: "Later" })).toEqual({ kind: "none" });
     signIn();
     const goal = { ...ask("ak_policy"), id: "ak_goal", targetKind: "goalProposal" as const, targetId: "gp_1", branches: [{ label: "Accept", action: "accept" }, { label: "Edit and accept", action: "edit" }, { label: "Cut", action: "cut" }] };
-    const decide = vi.spyOn(api(), "decideGoalProposal").mockResolvedValue({} as never);
-    const decideAsk = vi.spyOn(api(), "decideAsk");
+    const decide = vi.spyOn(api(), "decideAsk").mockResolvedValue(goal as never);
     const el = await mount(<AskCard ask={goal} onDecided={() => undefined} />);
     await act(async () => button(el, "Edit and accept…").click());
     const editAct = () => [...el.querySelectorAll(".ask-form button")].find((b) => b.textContent?.trim() === "Edit and accept") as HTMLButtonElement;
@@ -211,13 +211,12 @@ describe("the ask card", () => {
     await act(async () => typeInto(el.querySelector("textarea[aria-label='New words']") as HTMLTextAreaElement, "48 h, not 24 h"));
     await act(async () => editAct().click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("gp_1", { action: "accept", note: "", text: "48 h, not 24 h" });
-    expect(decideAsk).not.toHaveBeenCalled();
+    expect(decide).toHaveBeenCalledWith("ak_goal", "Edit and accept", { note: "", words: "48 h, not 24 h" });
   });
 
   it("a retainer's Counter takes tokens per run, an end date and a note, like a grant's counter", async () => {
     signIn();
-    const decide = vi.spyOn(api(), "decideRetainer").mockResolvedValue(null as never);
+    const decide = vi.spyOn(api(), "decideAsk").mockResolvedValue(ask("ak_weekly"));
     const el = await mount(<AskCard ask={ask("ak_weekly")} retainer={{ tokensPerRun: 40_000, endsAt: "2026-12-01T00:00:00.000Z" }} onDecided={() => undefined} />);
     await act(async () => button(el, "Counter…").click());
     const perRun = el.querySelector("input[aria-label='Tokens per run']") as HTMLInputElement;
@@ -231,7 +230,7 @@ describe("the ask card", () => {
     expect(counterAct().disabled).toBe(false);
     await act(async () => counterAct().click());
     await flush();
-    expect(decide).toHaveBeenCalledWith("sc_weekly", expect.objectContaining({ action: "counter", note: "half the runs", tokensPerRun: 25_000, until: "2026-11-20T23:59:59.000Z" }));
+    expect(decide).toHaveBeenCalledWith("ak_weekly", "Counter", expect.objectContaining({ note: "half the runs", tokensPerRun: 25_000, until: "2026-11-20T23:59:59.000Z" }));
   });
 
   it("a retainer counter's body: only what changes", () => {

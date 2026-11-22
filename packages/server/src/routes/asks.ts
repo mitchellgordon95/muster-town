@@ -1,15 +1,16 @@
-import { AppError, claimsStale, decideAsk, deferAsk, markSeen, openAsks, runClaimChecks } from "@muster-town/core";
+import { actOf, actOnAsk, AppError, claimsStale, deferAsk, markSeen, openAsks, runClaimChecks } from "@muster-town/core";
+import { DecideAskInput } from "@muster-town/schema";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { actorOf, parse, type Params } from "../context.ts";
 
-const DecideBody = z.object({ decision: z.string().trim().min(1).max(2000), note: z.string().trim().max(2000).optional() });
 const DeferBody = z.object({ until: z.string().trim().min(1).max(400) });
 
 /**
  * Asks (docs/legible-delegation.md §4-5, build steps 3-4): the open asks for the Town Hall, one ask (recording that a
  * signed-in human opened it, and re-running its claim checks when their results are older than 5 minutes), and a
- * human's decide and defer (core asks.ts: only a human who can fund the ask's building). Reads are public, like the
+ * human's decide (core ask-acts.ts: the pressed branch's act, done on its target) and defer (core asks.ts: only a
+ * human who can decide the ask). Reads are public, like the
  * in-tray.
  */
 export async function askRoutes(app: FastifyInstance) {
@@ -26,22 +27,22 @@ export async function askRoutes(app: FastifyInstance) {
     return { ask };
   });
 
+  // a human presses a branch: the server does its act on the target (core ask-acts.ts; 1:1 mt_m6qjva55rh), the card only
+  // draws it. A branch whose act is "redeploy" redeploys (operating manual: an ask does the small tasks itself; until
+  // 2026-11-17 it only recorded its label, dc_4yrb3979ty): checked before deciding, so a decider who cannot redeploy,
+  // or a server with no runtime, is refused and the ask stays open.
   app.post<{ Params: Params }>("/api/asks/:id/decide", async (req) => {
-    const body = parse(DecideBody, req.body);
+    const body = parse(DecideAskInput, req.body);
     const actor = actorOf(world, req);
-    // a branch whose action is "redeploy" does what it says (operating manual: an ask does the small tasks itself). Until
-    // 2026-11-17 it only recorded its label, so Mitchell's "Press redeploy" on ak_nugzl9rheu started nothing (dc_4yrb3979ty).
-    // Checked before deciding: a decider who cannot redeploy, or a server with no runtime, is refused and the ask stays open.
     const ask = world.asks.get(req.params.id);
-    const branch = ask?.branches.find((b) => b.label.trim().toLowerCase() === body.decision.toLowerCase());
-    const redeploy = branch?.action?.trim().toLowerCase() === "redeploy" && !ask?.targetKind;
+    const redeploy = !!ask && actOf(world, ask, body.decision).kind === "redeploy";
     if (redeploy) {
       world.permissions.require(actor, "town.redeploy");
       if (!app.runtime?.redeploy) throw new AppError("internal", "This server has no runtime to redeploy: the ask stays open.", 503);
     }
-    const decided = decideAsk(world, actor, req.params.id, body.decision, body.note);
-    if (!redeploy) return { ask: decided };
-    return { ask: decided, redeploy: await app.runtime!.redeploy!({ image: false, requestedBy: actor.name }) };
+    const { ask: decided, act } = actOnAsk(world, actor, req.params.id, body);
+    if (!redeploy) return { ask: decided, act: act.kind };
+    return { ask: decided, act: act.kind, redeploy: await app.runtime!.redeploy!({ image: false, requestedBy: actor.name }) };
   });
 
   app.post<{ Params: Params }>("/api/asks/:id/defer", async (req) => ({
