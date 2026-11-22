@@ -1,0 +1,1 @@
+- 2026-11-22 scripts/disclosure-census.mjs: closed-grant row (gr_hwxc1lwi2e step 2): --closed=gr_a,gr_b checks objective, shipped block and key result 1 on the first screen, ≤12 controls / ≤200 words without the shipped items' words, one spend number, no "projected" (Teo 1).
