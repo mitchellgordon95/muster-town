@@ -326,6 +326,15 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .grant-panel .grant-row { cursor: default; }
 /* the grant page: the short name is the header, the objective (the record's full sentence) sits beneath it */
 .grant-objective { margin: 0; color: var(--muted); font-size: var(--fs-md); }
+/* a closed grant's "What it shipped" (gr_hwxc1lwi2e): its items above the key results; pictures stay small so the key results keep the first screen */
+.grant-shipped { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--ok, var(--accent)); border-radius: 6px; }
+.grant-shipped-head { margin: 0 0 4px; font-size: var(--fs-md); }
+.grant-shipped ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.grant-shipped-title { font-weight: 600; }
+.grant-shipped-body { color: var(--muted); }
+.grant-shipped-body p { margin: 0; }
+.grant-shipped-picture { display: block; max-width: 100%; max-height: 140px; margin-top: 4px; border-radius: 4px; border: 1px solid var(--line); }
+.grant-shipped-none { margin: 0; }
 .grant-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: var(--fs-md); }
 .grant-history li { display: grid; grid-template-columns: 9ch 1fr; gap: 8px; align-items: baseline; }
 .grant-history time { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -1083,6 +1092,11 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .lane-kind-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lane-kind-table td, .lane-kind-table th { white-space: nowrap; }
 .lane-kind-scroll { overflow-x: auto; max-width: 100%; }
+.directed-requests { margin-top: 12px; } /* "Asked for by humans" on the Spending tab (gr_k71b7b6px7) */
+.directed-requests-table { margin-top: 4px; }
+.directed-requests-table td:not(.spend-name), .directed-requests-table th { white-space: nowrap; }
+.directed-untraced .spend-name { font-style: italic; }
+.directed-askers { margin: 6px 0 4px; font-size: var(--fs-sm); }
 
 /* ---------- asks, the funding slate, the feed (docs/legible-delegation.md §5-8; AskCard.tsx, FundingView.tsx, NoticesPanel.tsx) ---------- */
 /* the decision queue at the hydrant (DecisionQueue.tsx): one item at a time, light links under it */

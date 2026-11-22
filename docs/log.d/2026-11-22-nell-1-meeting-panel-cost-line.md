@@ -1,0 +1,1 @@
+- 2026-11-22 Nell 1 (Bank Transparency, gr_k71b7b6px7 step 2): `GET /api/meetings/:id/cost` sums the meeting's (and its notes doc's) `directedBySource` rows; an ended meeting's panel shows "Work asked for here: N assignments, X adj. tokens, $Y".

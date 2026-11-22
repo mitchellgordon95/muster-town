@@ -359,10 +359,15 @@ export class Budget {
     return { agent: this.repos.agents.require(agent.id), allocation, exhausted };
   }
 
-  /** Midnight: zero everyone's daily spend; out-of-budget residents whose building has budget go idle. */
+  /**
+   * Midnight: zero everyone's daily spend; out-of-budget residents whose building has budget go idle.
+   * Only the rows that change are read and written (spend today, or out-of-budget): retired forks, tens of thousands
+   * of them live, are never touched, so the reset costs the same however many forks have ever run (gr_ouc0w8us88).
+   * A partial index (migration 128) holds exactly these rows; keep this WHERE the same text as its. The runtime runs it in one transaction.
+   */
   resetDaily(): number {
     let n = 0;
-    for (const a of this.repos.agents.all()) {
+    for (const a of this.repos.agents.where("spentTokensToday != 0 OR familySpentToday != 0 OR status = 'out-of-budget'")) {
       const reset = { ...a, spentTokensToday: 0, familySpentToday: 0 };
       if (a.status === "out-of-budget") {
         const bid = a.homeBuildingId ?? a.buildingId;

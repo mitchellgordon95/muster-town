@@ -80,19 +80,22 @@ export const MAX_SOURCES_PER_DAY = 200;
 /**
  * Where a visitor came from, as one short label: a `?ref=` tag (a-z0-9-, at most 24 chars, lowercased) when the link had
  * one, else the referrer's host (no path, no port, a leading "www." dropped) when it is another site, else "direct" (no
- * referrer, our own host, or a referrer that isn't an http(s) URL).
+ * referrer, our own host, or a referrer that isn't an http(s) URL). Our own host under /blog is "blog" (gr_y8buqgpata): a
+ * reader who clicked through from a post or the blog index.
  */
 export function funnelSource(o: { ref?: unknown; referrer?: unknown; ownHost?: string | null }): string {
   const ref = typeof o.ref === "string" ? o.ref.trim().toLowerCase() : "";
   if (REF_TAG.test(ref)) return `ref:${ref}`;
   if (typeof o.referrer !== "string" || !o.referrer) return "direct";
-  let host: string;
+  let host: string, path: string;
   try {
     const u = new URL(o.referrer);
     if (u.protocol !== "http:" && u.protocol !== "https:") return "direct";
     host = u.hostname.toLowerCase().replace(/^www\./, "");
+    path = u.pathname;
   } catch { return "direct"; }
   const own = (o.ownHost ?? "").toLowerCase().replace(/:\d+$/, "").replace(/^www\./, "");
+  if (host && host === own && (path === "/blog" || path.startsWith("/blog/"))) return "blog";
   if (!host || host === own || !HOST.test(host)) return "direct";
   return host;
 }

@@ -45,6 +45,12 @@
  * Passes at both sizes: weight 400, no bold block, row at the bottom (Mitchell, 1:1 mt_eq521xwgth: no bold; the 80-character measure and the
  * recommendation-first order were undone, so chars/line and rec top are measured but not judged).
  *
+ * Closed-grant row (grant gr_hwxc1lwi2e: kr_nidvt8pxfr, kr_5epkmylb7c, kr_7149nmpdfj): each --closed=gr_a,gr_b grant (live; mock: gr_stress) is opened
+ * again and its first screen checked: the objective (.grant-objective), the shipped block (.grant-shipped, or its one muted line
+ * .grant-shipped-none) and the first key result (.grant-krs > li) all start on the first screen, and the first screen holds ≤12 controls
+ * and ≤200 words with the shipped items' own words (.grant-shipped li: their title, where to look, picture) not counted, like a doc
+ * body. Its spend: every "spent N" on the page names one number, and no "projected" shows. Pass needs all of it.
+ *
  * Options: --sizes=laptop,phone (default both), --only=goals,kr (just those panel kinds), --json (rows as JSON), --shots=<dir> (a screenshot of each panel's first tab).
  *
  * One row per panel/tab per size: ctl (controls on the first screen: buttons, links, inputs, selects, textareas, tabs,
@@ -273,6 +279,46 @@ for (const size of SIZES) {
   await ctx.close();
 }
 // the ask-card row: every item of the queue, J by J, at 1366×800 and 390×844 (kr_2grnxy8ig7, kr_g3qtv4vbsb, kr_6jxbastxzt)
+// the closed-grant row (gr_hwxc1lwi2e): see the header
+const closedIds = mode === "mock" ? ["gr_stress"] : list(flags.closed);
+const measureClosed = (page) => page.evaluate(() => {
+  const panel = document.querySelector(".sheet.link-sheet") ?? document.querySelector("aside.panel");
+  if (!panel) return null;
+  const pr = panel.getBoundingClientRect(); const bottom = Math.min(innerHeight, pr.bottom), top = Math.max(0, pr.top);
+  const onFirst = (sel) => { const e = panel.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return r.height > 0 && r.top < bottom && r.bottom > top; };
+  const folded = (el) => !!el.closest("details:not([open])") && !(el.closest("summary") && el.closest("summary").parentElement === el.closest("details:not([open])"));
+  const shown = (el) => { if (folded(el)) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden" && r.bottom > top && r.top < bottom; };
+  const notice = (el) => !!el.closest(".grant-shipped li");
+  const ctl = [...panel.querySelectorAll("button,input,select,textarea,a[href],[role=tab],summary")].filter((el) => shown(el) && !notice(el)).length;
+  let words = 0, noticeWords = 0; const tw = document.createTreeWalker(panel, NodeFilter.SHOW_TEXT);
+  while (tw.nextNode()) { const n = tw.currentNode; const k = (n.textContent.match(/\S+/g) ?? []).length; if (!k || !n.parentElement || !shown(n.parentElement)) continue; if (notice(n.parentElement)) noticeWords += k; else words += k; }
+  const text = panel.innerText;
+  const spends = [...new Set([...text.matchAll(/spent\s+([\d.,]+\s?[kM]?)/gi)].map((m) => m[1].replace(/\s/g, "")))];
+  const items = panel.querySelectorAll(".grant-shipped li").length;
+  return { status: (text.match(/\b(closed|funded|proposed|countered|rejected|stopped|checkpoint)\b/i) ?? [""])[0], objective: onFirst(".grant-objective"), shipped: onFirst(".grant-shipped, .grant-shipped-none"),
+    items, none: !!panel.querySelector(".grant-shipped-none"), kr1: onFirst(".grant-krs > li"), ctl, words, noticeWords, spends, projected: /\bprojected\b/i.test(text) };
+});
+const closedRows = [];
+if (closedIds.length) {
+  for (const size of SIZES) {
+    const ctx = await browser.newContext({ viewport: { width: size.w, height: size.h }, hasTouch: size.touch, isMobile: size.touch });
+    const page = await ctx.newPage();
+    if (mode === "mock") {
+      await page.goto(url, { waitUntil: "load" }); await page.waitForTimeout(2500);
+      for (const name of ["Explore the town", "Skip"]) { const x = page.getByText(name).first(); if (await x.isVisible().catch(() => false)) { await x.click().catch(() => {}); await page.waitForTimeout(800); } }
+    }
+    for (const id of closedIds) {
+      if (mode === "mock") { await page.evaluate((x) => window.__muster.open(x), { kind: "grant", id }); await page.waitForTimeout(1200); }
+      else { await page.goto("about:blank"); await page.goto(url + (url.includes("?") ? "&" : "?") + "guest#/grant/" + id, { waitUntil: "load" }); await page.waitForTimeout(4500); }
+      const m = await measureClosed(page);
+      const why = !m ? ["no panel"] : [!m.objective && "objective off", !m.shipped && "shipped block off", !m.kr1 && "key result 1 off", m.ctl > BAR.ctl && `ctl>${BAR.ctl}`, m.words > BAR.words && `words>${BAR.words}`, m.spends.length > 1 && `spend ${m.spends.join("≠")}`, m.projected && "projected shown"].filter(Boolean);
+      closedRows.push({ size: `${size.w}×${size.h}`, id, ...(m ?? {}), verdict: why.length ? `FAIL ${why.join(", ")}` : "pass" });
+      if (flags.shots) await page.screenshot({ path: `${flags.shots}/closed-${size.n}-${id}.png` }).catch(() => {});
+      if (mode === "mock") await page.evaluate(() => { window.__muster.open(null); window.__muster.openSheet?.(null); });
+    }
+    await ctx.close();
+  }
+}
 const askRows = [];
 if (targets.some((t) => t.kind === "queue")) {
   for (const size of [{ n: "laptop", w: 1366, h: 800, touch: false }, { n: "phone", w: 390, h: 844, touch: true }].filter((s) => !flags.sizes || list(flags.sizes).includes(s.n))) {
@@ -302,7 +348,7 @@ if (targets.some((t) => t.kind === "queue")) {
 }
 await browser.close();
 
-if (flags.json) console.log(JSON.stringify({ rows, askRows }, null, 1));
+if (flags.json) console.log(JSON.stringify({ rows, askRows, closedRows }, null, 1));
 else {
   console.log(`Disclosure census, ${mode} ${url}; bar: first screen ≤${BAR.ctl} controls and ≤${BAR.words} words (over ${BAR.screens} screens is noted as long)`);
   console.log("In-trays and filing cabinets are measured as their sidebar list; an item opened from them is a centred doc sheet, a document body (excluded, like the Bank). Grants and agents opened by link or hash are centred link sheets and count.");
@@ -316,5 +362,12 @@ else {
     console.log("| size | ask | body weight | bold blocks | max chars/line | rec top | decision row top | row last | buttons outside row | verdict |\n|---|---|---|---|---|---|---|---|---|---|");
     for (const r of askRows) console.log(`| ${r.size} | ${r.title.slice(0, 60)} | ${r.weight ?? ""} | ${r.bold} | ${r.maxChars} | ${r.recTop ?? ""} | ${r.rowTop ?? ""} | ${r.rowLast ? "yes" : "no"} | ${r.loose} | ${r.verdict} |`);
     console.log(`\n${askRows.filter((r) => r.verdict === "pass").length} of ${askRows.length} ask-card rows pass${askRows.length ? "" : " (no open ask: the queue is empty)"}.`);
+  }
+  if (closedRows.length) {
+    console.log(`\nClosed-grant row: objective, shipped block and key result 1 on the first screen; ≤${BAR.ctl} controls and ≤${BAR.words} words not counting the shipped items' own words; one spend number, no "projected".`);
+    console.log("| size | grant | objective | shipped | items | key result 1 | ctl | words | notice words | spent | projected | verdict |\n|---|---|---|---|---|---|---|---|---|---|---|---|");
+    const yn = (b) => b == null ? "" : b ? "yes" : "no";
+    for (const r of closedRows) console.log(`| ${r.size} | ${r.id} | ${yn(r.objective)} | ${r.none ? "none line" : yn(r.shipped)} | ${r.items ?? ""} | ${yn(r.kr1)} | ${r.ctl ?? ""} | ${r.words ?? ""} | ${r.noticeWords ?? ""} | ${(r.spends ?? []).join(", ")} | ${yn(r.projected)} | ${r.verdict} |`);
+    console.log(`\n${closedRows.filter((r) => r.verdict === "pass").length} of ${closedRows.length} closed-grant rows pass.`);
   }
 }

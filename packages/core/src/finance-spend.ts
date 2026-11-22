@@ -110,6 +110,44 @@ export interface SpendNoGrant {
   directed: { assignments: number; withSource: number; withAsker: number };
 }
 
+/**
+ * One human request's directed spend (gr_k71b7b6px7, kr_u5lpmhirum): every directed assignment row that names this
+ * source (a meeting, a doc such as a flag, or a tell), summed across buildings.
+ */
+export interface DirectedSourceRow {
+  /** the source id (mt_, dc_ or ms_) */
+  id: string;
+  kind: "meeting" | "doc" | "tell" | null;
+  /** the meeting's or doc's title; a tell's text is private, so null; null too when the source is gone or a draft */
+  title: string | null;
+  /** when the meeting or doc was created; null when not known */
+  at: string | null;
+  askedById: string | null;
+  askedBy: string | null;
+  tokens: number;
+  usd: number;
+  sessions: number;
+  /** distinct assignments that name it */
+  assignments: number;
+  /** the buildings its work ran in, most tokens first */
+  buildings: { id: string | null; name: string }[];
+}
+/** One human's directed spend (per-human total): their traced requests plus their untraced assignments. */
+export interface DirectedAsker { askedById: string | null; askedBy: string | null; tokens: number; usd: number; sessions: number; assignments: number; requests: number }
+/** FinanceSpend.directedBySource: the directed lane grouped by the human request it traces to. */
+export interface DirectedBySource {
+  /** one row per source id, most tokens first */
+  rows: DirectedSourceRow[];
+  /** per human, most tokens first; askedById null = who asked is not recorded */
+  byAsker: DirectedAsker[];
+  /** directed assignment rows that name no source (a human made the work directly, or nothing was recorded) */
+  untraced: { tokens: number; usd: number; sessions: number; assignments: number };
+  total: { tokens: number; usd: number; sessions: number; assignments: number; requests: number };
+  /** Σ rows + untraced vs the directed lane row's total (noGrant.byLane.directed); ok when equal */
+  check: { ok: boolean; diff: number; identity: string };
+}
+export const DIRECTED_SOURCE_IDENTITY = "Σ requests + untraced = the directed lane (every building)";
+
 /** The three groups the Spending tab totals grants by: closed with the work done, closed without it, still open. */
 export type SpendOutcome = "done" | "cut" | "open";
 /** `unverified`: met on code and tests, no live check named (status met-unverified); counted apart from `met`. */
@@ -198,6 +236,8 @@ export interface FinanceSpend {
   noGrant: SpendNoGrant;
   /** every lane row's tokens vs its "Not under a grant" row's, summed over buildings; ok when equal */
   noGrantCheck: { ok: boolean; diff: number; identity: string };
+  /** the directed lane by human request (gr_k71b7b6px7): per source, per human, untraced, and its sum check */
+  directedBySource: DirectedBySource;
   /**
    * How steps ran against their price across the collective (gr_3na7vdmd52, kr_5j25451emh): core grant-estimate.ts
    * `stepCalibration`, the same figures GET /api/town shows admins: per size the median spent ÷ table price over the
@@ -228,6 +268,8 @@ export interface SpendInputs {
   users?: { id: string; name: string }[];
   /** a directed source's human (core origin.ts `sourceOrigin`), keyed by source id; left out = none known */
   sourceAskers?: Map<string, string | null>;
+  /** a directed source's title and date (meeting or published doc), keyed by source id; left out = none known */
+  sourceTitles?: Map<string, { title: string | null; at: string | null }>;
   /** the grants' key results, for each grant row's `krCounts` (left out = none) */
   keyResults?: Pick<KeyResult, "grantId" | "status">[];
   /** when the Bank converted to adjusted tokens (the `bank.converted` event's ts); null = never, so no weight mismatch */
@@ -481,6 +523,7 @@ export function financeSpend(inp: SpendInputs, used: number, now = new Date()): 
     grantsCheck: { ok: grantsDiff === 0 && gs.grants.spent === gs.rowsSum, diff: grantsDiff, identity: GRANTS_IDENTITY },
     noGrant: ng.noGrant,
     noGrantCheck: { ok: ng.diff === 0, diff: ng.diff, identity: NO_GRANT_IDENTITY },
+    directedBySource: directedBySource(rows, ng.noGrant.byLane.directed.tokens, inp.sourceTitles),
     steps: inp.steps ?? null,
     stepPrices: prices,
     stepsCheck: { ok: stepsSum.diff === 0, diff: stepsSum.diff, grants: stepsSum.grants, identity: STEPS_IDENTITY },
@@ -617,6 +660,85 @@ function spendNoGrant(rows: SpendNode[]): { noGrant: SpendNoGrant; diff: number 
   return { noGrant: out, diff: laneSum - out.tokens };
 }
 
+/**
+ * The directed lane by human request (gr_k71b7b6px7): each directed assignment row (under a building's "Not under a
+ * grant" › directed row) goes to its `source.id`, or to `untraced` when it names none; per human the same rows by
+ * `source.askedById`. `check` holds Σ rows + untraced against the directed lane's total.
+ */
+export function directedBySource(rows: SpendNode[], laneTokens: number, titles?: SpendInputs["sourceTitles"]): DirectedBySource {
+  type G = DirectedSourceRow & { ids: Set<string>; bs: Map<string, { id: string | null; name: string; tokens: number }> };
+  const groups = new Map<string, G>();
+  const askers = new Map<string, DirectedAsker & { ids: Set<string>; reqs: Set<string> }>();
+  const untraced = { tokens: 0, usd: 0, sessions: 0, assignments: 0 };
+  const untracedIds = new Set<string>();
+  for (const b of rows) {
+    for (const ng of b.children ?? []) {
+      if (ng.kind !== "no-grant") continue;
+      for (const l of ng.children ?? []) {
+        if (l.kind !== "lane" || l.lane !== "directed") continue;
+        for (const r of l.children ?? []) {
+          const src = r.source;
+          const aid = r.id ?? `${b.id}:${r.name}`;
+          const askKey = src?.askedById ?? "";
+          let k = askers.get(askKey);
+          if (!k) askers.set(askKey, k = { askedById: src?.askedById ?? null, askedBy: src?.askedBy ?? null, tokens: 0, usd: 0, sessions: 0, assignments: 0, requests: 0, ids: new Set(), reqs: new Set() });
+          k.tokens += r.tokens; k.usd += r.usd; k.sessions += r.sessions; k.ids.add(aid);
+          if (!src?.id) {
+            untraced.tokens += r.tokens; untraced.usd += r.usd; untraced.sessions += r.sessions; untracedIds.add(aid);
+            continue;
+          }
+          k.reqs.add(src.id);
+          let g = groups.get(src.id);
+          if (!g) {
+            const t = titles?.get(src.id);
+            groups.set(src.id, g = { id: src.id, kind: src.kind, title: t?.title ?? null, at: t?.at ?? null, askedById: src.askedById, askedBy: src.askedBy, tokens: 0, usd: 0, sessions: 0, assignments: 0, buildings: [], ids: new Set(), bs: new Map() });
+          }
+          if (!g.askedById && src.askedById) { g.askedById = src.askedById; g.askedBy = src.askedBy; }
+          g.tokens += r.tokens; g.usd += r.usd; g.sessions += r.sessions; g.ids.add(aid);
+          const bk = b.id ?? "";
+          let bb = g.bs.get(bk);
+          if (!bb) g.bs.set(bk, bb = { id: b.id, name: b.name, tokens: 0 });
+          bb.tokens += r.tokens;
+        }
+      }
+    }
+  }
+  const byTokens = (x: { tokens: number }, y: { tokens: number }) => y.tokens - x.tokens;
+  const out: DirectedSourceRow[] = [...groups.values()].sort(byTokens).map(({ ids, bs, ...g }) => ({
+    ...g, usd: cents(g.usd), assignments: ids.size, buildings: [...bs.values()].sort(byTokens).map(({ id, name }) => ({ id, name })),
+  }));
+  const byAsker: DirectedAsker[] = [...askers.values()].sort(byTokens).map(({ ids, reqs, ...k }) => ({ ...k, usd: cents(k.usd), assignments: ids.size, requests: reqs.size }));
+  untraced.assignments = untracedIds.size;
+  untraced.usd = cents(untraced.usd);
+  const tokens = out.reduce((t, r) => t + r.tokens, 0) + untraced.tokens;
+  const total = {
+    tokens, usd: cents(out.reduce((t, r) => t + r.usd, 0) + untraced.usd), sessions: out.reduce((t, r) => t + r.sessions, 0) + untraced.sessions,
+    assignments: out.reduce((t, r) => t + r.assignments, 0) + untraced.assignments, requests: out.length,
+  };
+  const diff = tokens - laneTokens;
+  return { rows: out, byAsker, untraced, total, check: { ok: diff === 0, diff, identity: DIRECTED_SOURCE_IDENTITY } };
+}
+
+/** GET /api/meetings/:id/cost (gr_k71b7b6px7, kr_ig4qu7vil3): what the directed work a meeting started cost. */
+export interface SourceCost {
+  /** the ids it sums: the meeting and, when it has one, its notes doc (work can name either) */
+  ids: string[];
+  tokens: number; usd: number; sessions: number; assignments: number;
+  /** the matching `directedBySource.rows`, most tokens first */
+  rows: DirectedSourceRow[];
+}
+
+/** Sum the `directedBySource` rows whose id is one of `ids` (a meeting and its notes doc). Assignments rarely name both; when one does it counts twice. */
+export function sourceCost(d: DirectedBySource, ids: string[]): SourceCost {
+  const want = new Set(ids);
+  const rows = d.rows.filter((r) => want.has(r.id));
+  return {
+    ids, rows,
+    tokens: rows.reduce((t, r) => t + r.tokens, 0), usd: cents(rows.reduce((t, r) => t + r.usd, 0)),
+    sessions: rows.reduce((t, r) => t + r.sessions, 0), assignments: rows.reduce((t, r) => t + r.assignments, 0),
+  };
+}
+
 export const GRANTS_IDENTITY = "done + cut + still open = Σ grant rows' tokens (every building)";
 
 /**
@@ -671,6 +793,25 @@ function directedAskers(repos: Repos): Map<string, string | null> {
   return out;
 }
 
+/**
+ * Each directed source's title and date: a meeting's title, a published doc's title; a tell (private) and a draft doc
+ * get no title. Once per distinct source.
+ */
+function directedTitles(repos: Repos): Map<string, { title: string | null; at: string | null }> {
+  const out = new Map<string, { title: string | null; at: string | null }>();
+  for (const a of repos.assignments.where("lane = 'directed' AND sourceId IS NOT NULL")) {
+    const sid = a.sourceId;
+    if (!sid || out.has(sid)) continue;
+    const m = sid.startsWith("mt_") ? repos.meetings.get(sid) : undefined;
+    if (m) { out.set(sid, { title: m.title, at: m.startedAt ?? m.createdAt }); continue; }
+    const d = sid.startsWith("dc_") ? repos.docs.get(sid) : undefined;
+    if (d) { out.set(sid, { title: d.state === "draft" ? null : d.title, at: d.createdAt }); continue; }
+    const msg = sid.startsWith("ms_") ? repos.messages.get(sid) : undefined;
+    out.set(sid, { title: null, at: msg?.createdAt ?? null });
+  }
+  return out;
+}
+
 /** financeSpend over the world's ledgers (Bank.spend). */
 export function townSpend(repos: Repos, events: EventLog, now = new Date()): FinanceSpend {
   return financeSpend({
@@ -682,6 +823,7 @@ export function townSpend(repos: Repos, events: EventLog, now = new Date()): Fin
     keyResults: repos.keyResults.all(),
     users: repos.users.all().map((u) => ({ id: u.id, name: u.name })),
     sourceAskers: directedAskers(repos),
+    sourceTitles: directedTitles(repos),
     convertedAt: bankConvertedAt(events),
     usage: repos.usage.all(),
     debits: repos.bankDebits.all(),

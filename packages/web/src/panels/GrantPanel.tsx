@@ -9,6 +9,7 @@ import { grantName, historyActor, historyNote, type GrantView } from "@muster-to
 import { api, type GrantSessions } from "../api";
 import { store, useTown } from "../state";
 import { DocText } from "./Markdown";
+import { pictureSrc } from "./NoticesPanel";
 import { GrantRow } from "./Places";
 import { Glyph, PanelShell } from "./PanelShell";
 import { ADJ, Empty, ErrorLine, Loading, clock, dayClock, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
@@ -29,6 +30,7 @@ export function GrantPanel({ id }: { id: string }) {
         {r.loading && !g ? <Loading /> : !g ? (r.error ? null : <Empty>No grant with id {id}.</Empty>) : (
           <>
             <p className="grant-objective">{g.objective}</p>
+            <Shipped grant={g} />
             <GrantRow grant={g} onPage onDecided={r.reload} onOpenDoc={(docId) => store.open({ kind: "library", docId })} />
             <Plan grant={g} />
             <Sessions grant={g} />
@@ -41,6 +43,42 @@ export function GrantPanel({ id }: { id: string }) {
         )}
       </div>
     </PanelShell>
+  );
+}
+
+/**
+ * What a closed grant shipped (gr_hwxc1lwi2e, kr_nidvt8pxfr): one item per `shipped` notice its manager filed at the
+ * close, its title, where to look and its picture, above the key results. A closed grant with none says so in one muted
+ * line pointing at its close report (kr_7149nmpdfj). Nothing on a grant that is not closed, or from an older server.
+ */
+export function Shipped({ grant: g }: { grant: Pick<GrantView, "status" | "shipped" | "checkpointDocId"> }) {
+  if (g.status !== "closed" || !g.shipped) return null;
+  const report = g.checkpointDocId;
+  const openReport = report ? () => store.open({ kind: "library", docId: report }) : null;
+  if (!g.shipped.length) {
+    return (
+      <p className="grant-shipped-none muted">
+        No shipped notes were filed when it closed.{" "}
+        {openReport ? <>Its <button className="link" onClick={openReport}>close report</button> says what it did.</> : "Its steps' reports, under Sessions, say what it did."}
+      </p>
+    );
+  }
+  return (
+    <section className="grant-shipped" aria-label="What it shipped">
+      <h3 className="grant-shipped-head">What it shipped</h3>
+      <ul>
+        {g.shipped.map((it, i) => {
+          const src = pictureSrc(it.picture);
+          return (
+            <li key={i}>
+              <div className="grant-shipped-title">{it.title}</div>
+              {it.body ? <div className="grant-shipped-body"><DocText text={it.body} /></div> : null}
+              {src ? <a href={src} target="_blank" rel="noreferrer"><img className="grant-shipped-picture" src={src} alt={it.title} loading="lazy" /></a> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
