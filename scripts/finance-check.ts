@@ -58,6 +58,8 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     ...grantChecks(s),
     // what the non-grant half bought (gr_utygatbi85): the lane rows close on each building's "Not under a grant" row
     ...noGrantChecks(s),
+    // what each human request cost (gr_k71b7b6px7): the requests + untraced close on the directed lane
+    ...directedSourceChecks(s),
     // what every step bought (gr_3na7vdmd52): each step-priced grant's step + off-step rows close on the grant row
     ...stepChecks(s),
     // paid in cash, last 30 days (gr_qggxximtru step 2): the parts add up, the ratio is list value / cash
@@ -215,6 +217,20 @@ function noGrantChecks(s: Json): Check[] {
     flag("lanes by lane", laneNames.every((l) => Number(ng.byLane?.[l]?.tokens) === byLane(l)), laneNames.map((l) => `${l} ${fmt(ng.byLane?.[l]?.tokens)} = rows ${fmt(byLane(l))}`).join(", ")),
     flag("directed sources", dir.every((r: Json) => r.source && "askedBy" in r.source), `${dir.length} directed rows carry source (${dir.filter((r: Json) => r.source?.id).length} with a source id, ${dir.filter((r: Json) => r.source?.askedById).length} with who asked)`),
     flag("exploration proposals", exp.every((r: Json) => r.proposal !== undefined) && exp.filter((r: Json) => r.proposal).length === ng.exploration?.proposals, `${exp.length} exploration rows carry proposal (${exp.filter((r: Json) => r.proposal).length} with one = noGrant.exploration.proposals ${ng.exploration?.proposals})`),
+  ];
+}
+
+/** directedBySource (gr_k71b7b6px7): its check, Σ requests + untraced = noGrant.byLane.directed, per human = the same total, one row per source id. */
+function directedSourceChecks(s: Json): Check[] {
+  const d = s.directedBySource;
+  if (!d) return [flag("requests present", false, "GET /api/finance/spend has no directedBySource block (server older than gr_k71b7b6px7)")];
+  const rows = d.rows ?? [];
+  const lane = Number(s.noGrant?.byLane?.directed?.tokens);
+  return [
+    flag("requests check", d.check?.ok, `ok ${d.check?.ok}, diff ${fmt(d.check?.diff)} (${d.check?.identity})`),
+    eq("requests sum to the directed lane", "Σ directedBySource.rows + untraced", sum(rows.map((r: Json) => r.tokens)) + Number(d.untraced?.tokens), "noGrant.byLane.directed.tokens", lane),
+    eq("requests per human", "Σ directedBySource.byAsker", sum((d.byAsker ?? []).map((r: Json) => r.tokens)), "noGrant.byLane.directed.tokens", lane),
+    flag("requests distinct", new Set(rows.map((r: Json) => r.id)).size === rows.length && rows.length === d.total?.requests, `${rows.length} requests, one row per source id; ${fmt(d.untraced?.tokens)} untraced over ${d.untraced?.assignments} assignments`),
   ];
 }
 

@@ -253,6 +253,24 @@ export interface SpendNoGrant {
   exploration: { assignments: number; proposals: number; funded: number; rejected: number; withdrawn: number; open: number };
   directed: { assignments: number; withSource: number; withAsker: number };
 }
+/** One human request's directed spend (`directedBySource.rows`): a meeting, doc or tell, summed across buildings. */
+export interface DirectedSourceRow {
+  id: string; kind: "meeting" | "doc" | "tell" | null;
+  /** the meeting's or published doc's title; null for a tell (private) or a source not found */
+  title: string | null; at: string | null;
+  askedById: string | null; askedBy: string | null;
+  tokens: number; usd: number; sessions: number; assignments: number;
+  buildings: { id: string | null; name: string }[];
+}
+/** One human's directed spend (`directedBySource.byAsker`); askedById null = not recorded. */
+export interface DirectedAsker { askedById: string | null; askedBy: string | null; tokens: number; usd: number; sessions: number; assignments: number; requests: number }
+/** `directedBySource` of `GET /api/finance/spend` (gr_k71b7b6px7): Σ rows + untraced = the directed lane (`check`). */
+export interface DirectedBySource {
+  rows: DirectedSourceRow[]; byAsker: DirectedAsker[];
+  untraced: { tokens: number; usd: number; sessions: number; assignments: number };
+  total: { tokens: number; usd: number; sessions: number; assignments: number; requests: number };
+  check: { ok: boolean; diff: number; identity: string };
+}
 /** The token kinds of a lane × kind table, in column order. */
 export type TokenKind = "input" | "output" | "cacheRead" | "cacheWrite5m" | "cacheWrite1h";
 /** One row of `byLaneKind`: a lane (manager = purpose manage, other = every other purpose and lane-less work) or the total. */
@@ -323,6 +341,8 @@ export interface FinanceSpend {
   noGrant?: SpendNoGrant;
   /** Σ lane rows vs Σ "Not under a grant" rows */
   noGrantCheck?: { ok: boolean; diff: number; identity: string };
+  /** the directed lane by human request (gr_k71b7b6px7); absent from an older server */
+  directedBySource?: DirectedBySource;
   /** how steps ran against their price across the collective (core `stepCalibration`, gr_3na7vdmd52); null/absent on an older server */
   steps?: StepCalibration | null;
   /** the size table the step rows are priced at */

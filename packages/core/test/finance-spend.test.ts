@@ -123,6 +123,49 @@ describe("financeSpend (GET /api/finance/spend)", () => {
     expect(f.noGrantCheck).toMatchObject({ ok: true, diff: 0 });
   });
 
+  it("groups the directed lane by human request, per human and untraced, and closes on the lane (gr_k71b7b6px7)", () => {
+    const d = (agentId: string, assignmentId: string, output: number, lane: "directed" | "exploration" = "directed") => ({ ...s(agentId, assignmentId, output), lane, purpose: "work" as const });
+    const inp: SpendInputs = {
+      sessions: [
+        d("ag_b", "d1", 100), d("ag_b", "d1", 50), d("ag_l", "d2", 300), // one 1:1 asked work in two buildings
+        d("ag_b", "d3", 40), // a flag
+        d("ag_b", "d4", 20), // a tell
+        d("ag_b", "d5", 10), d("ag_l", "d6", 5), // untraced: made by a human directly, and nothing recorded
+        d("ag_b", "e1", 999, "exploration"), // not directed: never in the grouping
+      ],
+      assignments: [
+        { id: "d1", buildingId: "bank", grantId: null, title: "a", sourceId: "mt_one" },
+        { id: "d2", buildingId: "lab", grantId: null, title: "b", sourceId: "mt_one" },
+        { id: "d3", buildingId: "bank", grantId: null, title: "c", sourceId: "dc_flag" },
+        { id: "d4", buildingId: "bank", grantId: null, title: "d", sourceId: "ms_tell" },
+        { id: "d5", buildingId: "bank", grantId: null, title: "e", sourceId: null, createdBy: "us_mitch", createdByKind: "user" },
+        { id: "d6", buildingId: "lab", grantId: null, title: "f", sourceId: null },
+        { id: "e1", buildingId: "bank", grantId: null, title: "g" },
+      ],
+      agents: [{ id: "ag_b", buildingId: "bank" }, { id: "ag_l", buildingId: "lab" }],
+      buildings: [{ id: "bank", name: "Bank" }, { id: "lab", name: "Lab" }],
+      grants: [],
+      users: [{ id: "us_mitch", name: "Mitchell" }, { id: "us_ann", name: "Ann" }],
+      sourceAskers: new Map([["mt_one", "us_mitch"], ["dc_flag", "us_ann"], ["ms_tell", "us_mitch"]]),
+      sourceTitles: new Map([["mt_one", { title: "1:1 with Mitchell", at: "2026-10-28T09:00:00.000Z" }], ["dc_flag", { title: "Flag: chest", at: null }], ["ms_tell", { title: null, at: null }]]),
+      convertedAt: null,
+    };
+    const f = financeSpend(inp, 1_524, T0);
+    const db = f.directedBySource;
+    expect(f.noGrant.byLane.directed.tokens).toBe(525);
+    expect(db.rows.map((r) => [r.id, r.kind, r.title, r.askedBy, r.tokens, r.sessions, r.assignments])).toEqual([
+      ["mt_one", "meeting", "1:1 with Mitchell", "Mitchell", 450, 3, 2],
+      ["dc_flag", "doc", "Flag: chest", "Ann", 40, 1, 1],
+      ["ms_tell", "tell", null, "Mitchell", 20, 1, 1],
+    ]);
+    expect(db.rows[0].buildings).toEqual([{ id: "lab", name: "Lab" }, { id: "bank", name: "Bank" }]);
+    expect(db.total.usd).toBe(Math.round((db.rows.reduce((t, r) => t + r.usd, 0) + db.untraced.usd) * 100) / 100);
+    expect(db.untraced).toMatchObject({ tokens: 15, sessions: 2, assignments: 2 });
+    expect(db.byAsker.map((a) => [a.askedBy, a.tokens, a.assignments, a.requests])).toEqual([["Mitchell", 480, 4, 2], ["Ann", 40, 1, 1], [null, 5, 1, 0]]);
+    expect(db.total).toMatchObject({ tokens: 525, sessions: 7, assignments: 6, requests: 3 });
+    expect(db.check).toEqual({ ok: true, diff: 0, identity: "Σ requests + untraced = the directed lane (every building)" });
+  });
+
   it("session spend beyond used gets a negative 'not funded' row, so the rows still sum to used", () => {
     const f = financeSpend({ ...base, sessions: [...base.sessions, s("ag_librarian", null, 250)], agents: [...base.agents, { id: "ag_librarian", buildingId: null }] }, 1_000, T0);
     expect(f).toMatchObject({ sessionsTotal: 1_400, unattributed: 0, notFunded: 400, check: { ok: true, diff: 0 } });
