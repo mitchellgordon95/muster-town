@@ -3,7 +3,7 @@ import { intrayOf } from "@muster-town/core";
 import { HostBackend, startRuntime, type CmdResult, type CommandRunner, type RuntimeOptions } from "../src/index.ts";
 import { drainNudgeOneOnOne } from "../src/redeploy.ts";
 import { oneOnOneQuietSince, oneOnOneWaiting } from "../src/manage.ts";
-import type { Meeting } from "@muster-town/core";
+import type { Meeting } from "@muster-town/schema";
 import { callVerb, deferred, fakeSdk, init, result, setup, text, toolUse, type Script } from "./helpers.ts";
 
 const until = async (ok: () => boolean) => { for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5)); expect(ok()).toBe(true); };
