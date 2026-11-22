@@ -203,7 +203,7 @@ function MeetingView({ m, room: roomPanel }: { m: Meeting; room?: SnapshotBuildi
  * "Work asked for here: N assignments, X adj. tokens, $Y" (gr_k71b7b6px7, kr_ig4qu7vil3): the directed work that names this
  * ended meeting (or its notes), from the same rows as the Spending tab's "Asked for by humans". Nothing when no work names it.
  */
-export function WorkCost({ id }: { id: string }) {
+function WorkCost({ id }: { id: string }) {
   const c = useLoad(() => api().meetingCost(id), [id]);
   const line = c.data ? workCostLine(c.data) : null;
   return line ? <div className="muted small-line meeting-cost" title="Directed work that names this meeting, as the Bank's Spending tab counts it">{line}</div> : null;
