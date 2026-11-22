@@ -85,6 +85,7 @@ export class Grants {
       fundedByName: g.fundedBy ? this.world.nameOf(g.fundedBy) : null, fundedWithLabel: g.fundedWith ? this.world.bank.input(g.fundedWith)?.label ?? null : null,
       holdAtTokens: g.status === "funded" ? holdAtTokens(g) : null,
       evidence: this.evidenceFor(g), stepStates: this.stepStates(g),
+      shipped: this.world.notices.where("kind = 'shipped' AND refs LIKE ?", [`%"${g.id}"%`], "ORDER BY createdAt, rowid").map((n) => ({ title: n.title, body: n.body, picture: n.picture, at: n.createdAt })),
     };
   }
 

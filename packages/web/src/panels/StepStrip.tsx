@@ -31,7 +31,9 @@ export function stepSpend(ss: GrantStepState | null | undefined): { text: string
 export function StepStrip({ grant: g }: { grant: Pick<GrantView, "steps" | "stepStates" | "forecast" | "spentTokens" | "grantTokens" | "askTokens" | "status"> & Partial<Pick<GrantView, "title" | "objective">> }) {
   if (!g.steps?.length) return null;
   const done = stepsDone(g);
-  const f = g.forecast ?? null;
+  // a closed grant's last forecast is stale (filed at a step report, before the close): its booked spend is the one
+  // number, and nothing is projected any more (gr_hwxc1lwi2e, kr_5epkmylb7c)
+  const f = g.status === "closed" || g.status === "rejected" ? null : g.forecast ?? null;
   const ceiling = f?.ceiling ?? g.grantTokens ?? g.askTokens;
   const spent = f?.spent ?? g.spentTokens;
   const over = !!f?.overCeiling;

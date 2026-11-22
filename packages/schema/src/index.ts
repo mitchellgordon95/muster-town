@@ -2051,6 +2051,11 @@ export const GrantView = Grant.extend({
   evidence: CheckpointEvidence.nullable().optional(),
   /** one entry per `steps` item: its latest assignment (`Assignment.grantStep`), null while none was queued (grant B gr_b5fyqibfx2) */
   stepStates: z.array(GrantStepState.nullable()).optional(),
+  /**
+   * What it shipped (gr_hwxc1lwi2e, kr_nidvt8pxfr): its `shipped` notices (filed at close_grant), oldest first: the title,
+   * where to look (`body`), the picture (an mf_ media id or a src; null: none) and when. Optional: an older server sends none.
+   */
+  shipped: z.array(z.object({ title: z.string(), body: z.string(), picture: z.string().nullable(), at: Iso })).optional(),
 });
 export type GrantView = z.infer<typeof GrantView>;
 
