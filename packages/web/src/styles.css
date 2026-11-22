@@ -1092,6 +1092,11 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .lane-kind-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lane-kind-table td, .lane-kind-table th { white-space: nowrap; }
 .lane-kind-scroll { overflow-x: auto; max-width: 100%; }
+.directed-requests { margin-top: 12px; } /* "Asked for by humans" on the Spending tab (gr_k71b7b6px7) */
+.directed-requests-table { margin-top: 4px; }
+.directed-requests-table td:not(.spend-name), .directed-requests-table th { white-space: nowrap; }
+.directed-untraced .spend-name { font-style: italic; }
+.directed-askers { margin: 6px 0 4px; font-size: var(--fs-sm); }
 
 /* ---------- asks, the funding slate, the feed (docs/legible-delegation.md §5-8; AskCard.tsx, FundingView.tsx, NoticesPanel.tsx) ---------- */
 /* the decision queue at the hydrant (DecisionQueue.tsx): one item at a time, light links under it */

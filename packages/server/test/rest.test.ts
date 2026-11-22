@@ -450,6 +450,9 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(spendToday.body.managerWakes).toMatchObject({ windowNote: "the last 7 full UTC days and today so far", check: { ok: true } });
     expect(spend7d.body.managerWakes.total).toEqual(spendToday.body.managerWakes.total);
     expect(typeof spendToday.body.managerWakes.total.askActions).toBe("number");
+    // the directed lane by human request (gr_k71b7b6px7): it closes on the directed lane row
+    expect(spendToday.body.directedBySource).toMatchObject({ rows: expect.any(Array), byAsker: expect.any(Array), check: { ok: true, diff: 0 } });
+    expect(spendToday.body.directedBySource.total.tokens).toBe(spendToday.body.noGrant.byLane.directed.tokens);
     expect((await json(app, "GET", "/api/finance/spend?window=year")).status).toBe(400);
     // pools were deleted (migration 067): one balance
     expect((await json(app, "GET", "/api/finance/pools")).status).toBe(404);

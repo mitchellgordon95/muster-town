@@ -1,0 +1,1 @@
+- 2026-11-22 Bank Transparency (Nell 1, gr_k71b7b6px7 step 1): GET /api/finance/spend adds `directedBySource` (the directed lane by human request: per 1:1, meeting, flag or tell, per human, untraced, check against the lane); Bank › Spending shows it as "Asked for by humans" (costliest 10, Show all); check:finance adds four lines.
