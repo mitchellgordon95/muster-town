@@ -986,6 +986,11 @@ export const Assignment = z.object({
   pages: z.array(Id).max(3).optional(),
   /** lane grant: which step of its grant's plan this runs (0-based; `Grant.steps`); its report queues the next one. Null = not a plan step */
   grantStep: z.number().int().min(0).nullable().default(null),
+  /**
+   * a standing per-run cap of its own, in adjusted tokens (grant gr_mcuj10tupi): the run watch asks it to file once it
+   * has spent this much, as a retainer run past its schedule's tokensPerRun. The Secretary's runs carry it; null = none
+   */
+  runCapTokens: z.number().int().positive().nullable().default(null),
   createdAt: Iso,
   updatedAt: Iso,
 });
@@ -1668,7 +1673,7 @@ export interface DigestCard {
  * The in-tray's "Daily digest" button for this viewer (core digestRunView; Mitchell, 1:1 mt_i50xwu4z2t): the digest
  * schedule, the run under way (null when none), and why a press would be refused now (null = it would start a run).
  */
-export interface DigestRunView { scheduleId: string; runningId: string | null; refused: string | null }
+export interface DigestRunView { scheduleId: string | null; runningId: string | null; refused: string | null }
 /** The in-tray's routes keyed by item id (grant, goal proposal or report), and the viewer's default list. */
 export interface IntrayRoutes { routes: Record<string, IntrayRoute>; defaultView: "mine" | "all" }
 

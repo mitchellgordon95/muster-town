@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { buildingRoleId, requestCaptain, reviewDeck, townRoleId } from "../src/index.ts";
 import { askGoalDepth, rankedAsks } from "../src/asks.ts";
 import { RANK_RULE } from "../src/secretary.ts";
-import { creditBank, seededWorld, renderNeeds } from "./helpers.ts";
+import { creditBank, legacyRankSchedule, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 
@@ -91,7 +91,7 @@ describe("the Secretary's ranking run", () => {
     expect(world.grants.require(g.id)).toMatchObject({ status: "proposed", grantTokens: before.grantTokens, history: before.history });
     expect(world.asks.require(k.id)).toMatchObject({ status: "open", decidedBy: null, decision: null });
     expect(world.asks.count("status = 'decided'")).toBe(0);
-    const s = world.secretary.ensureRankSchedule()!;
+    const s = legacyRankSchedule(world);
     expect(s.description).toMatch(/You never fund, continue, cut, approve or decide anything yourself/);
     expect(s.description).toMatch(/It funds nothing\./);
   });
@@ -121,6 +121,6 @@ describe("the Secretary's ranking run", () => {
     expect(read.inputs).toContain(`Goal (depth ${askGoalDepth(world, d2)}): ${world.goalTree.pathText(deeper.id, 50)}`);
     // the rule is the goal tree, in every prompt the Secretary ranks by: the daily run, the decision run and the 1:1
     expect(RANK_RULE).toMatch(/goal tree.*first, how directly the ask moves the root goal; second, how much it moves the rest of the tree; third, how much funded work it holds.*last, age/);
-    expect(world.secretary.ensureRankSchedule()!.description).toContain(RANK_RULE);
+    expect(legacyRankSchedule(world).description).toContain(RANK_RULE);
   });
 });

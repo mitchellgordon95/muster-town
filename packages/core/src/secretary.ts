@@ -5,11 +5,14 @@
  * "the secretary should be fable by default. this kind of high-level judgment work i think requires that level of
  * competence."):
  *
- * - **Rank** (the daily run, `RANK_RUN_PROMPT`, a retainer schedule it takes itself): reads the open asks (`rank` with no
- *   arguments), sets each one's `rank`, defers an ask that is moot until another resolves (`deferAsk`), and files the
- *   money slate (fund now, hold until, skip) as a `slate` notice citing ask ids (`applyRank`). A human's "Rank now"
- *   press (`pressRank`) runs the same job. The due run is skipped before any session when nothing changed since the
- *   last ranking (`rankNothingNew`).
+ * - **Rank** (`RANK_RUN_PROMPT`): reads the open asks (`rank` with no arguments), sets each one's `rank`, defers an ask
+ *   that is moot until another resolves (`deferAsk`), and files the money slate (fund now, hold until, skip) as a
+ *   `slate` notice citing ask ids (`applyRank`). It runs on events, not a schedule (grant gr_mcuj10tupi): a human's
+ *   decision (`afterDecision`), an overdue need (`needsOverdue`) and a "Rank now" press (`pressRank`) each queue one run
+ *   of the Town Hall's own job (jb_town-hall, rule building), capped at RANK_TOKENS_PER_RUN by the run itself
+ *   (`runCapTokens`; `townHallRun`). No daily schedule is made and no retainer is asked; the old "Daily ask ranking"
+ *   schedule, while one is still live, runs as before. "Rank now" is refused when nothing changed since the last
+ *   ranking (`rankNothingNew`).
  * - **Surface patterns** (the weekly run, `PATTERN_RUN_PROMPT`): reads the week's asks, shipped notices and events and files one
  *   `pattern` notice of convergences and repeats (`filePattern`), with an optional rule as a policy ask.
  * - **Propose a rule**: only from the pattern note's rule (never after a decided policy ask or `act_in_1on1`), the policy
@@ -48,19 +51,19 @@ import type { World } from "./world.ts";
 const SECRETARY_TITLE = "Secretary";
 /** The Secretary and its runs: Fable (docs/legible-delegation.md §6, §10). Its judgment is the product; never the cheap model. */
 export const SECRETARY_MODEL = "claude-fable-5-1";
-/** One ranking run on Fable reads the open asks and the money history and writes ranks and a slate: est. 40,000 Bank tokens. */
+/** One Secretary run on Fable reads the open asks and the money history and writes ranks and a slate: est. 40,000 Bank tokens, each run's standing cap (`runCapTokens`). */
 export const RANK_TOKENS_PER_RUN = 40_000;
 /** One weekly pattern run reads a week of asks, shipped notices and events and writes one notice: est. 60,000 Bank tokens. */
 const PATTERN_TOKENS_PER_RUN = 60_000;
-/** The daily run (UTC): before Mitchell's morning. */
-const RANK_AT = "07:00";
 const RANK_SCHEDULE_TITLE = "Daily ask ranking";
+/** A ranking run with no schedule behind it ("Rank now"; grant gr_mcuj10tupi): one under way at a time is found by it. */
+const RANK_RUN_TITLE = "Rank the open asks";
 const PATTERN_SCHEDULE_TITLE = "Weekly pattern note";
 /** The weekly schedule runs this long (a schedule is renewed on purpose; MAX_SCHEDULE_DAYS is 90). */
 const PATTERN_DAYS = 84;
 const WEEK_MS = 7 * 24 * 3_600_000;
 
-const DIRECTION = "Keep the humans' decision queue in order: rank the open asks daily with a money slate (fund, hold, skip), note the week's patterns, propose rules for the policy ledger, and in a 1:1 act only on what the human said.";
+const DIRECTION = "Keep the humans' decision queue in order: rank the open asks as they arrive and as decisions land, with a money slate (fund, hold, skip), note the week's patterns, propose rules for the policy ledger, and in a 1:1 act only on what the human said.";
 
 const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
 const oneLine = (s: string, max = 140) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > max ? `${t.slice(0, max - 1)}…` : t; };
@@ -72,7 +75,7 @@ const oneLine = (s: string, max = 140) => { const t = s.replace(/\s+/g, " ").tri
  */
 export const RANK_RULE = "this collective's own goal tree (the read opens with its root goal; each ask shows its goal path and depth, 0 = the root): first, how directly the ask moves the root goal; second, how much it moves the rest of the tree; third, how much funded work it holds (work parked on it, money a building waits on, a click that unblocks another ask); last, age (older first). The do asks go last (a do asks a human to leave the queue and act in the world). A new ask arrives with a default rank from code (below every ask whose goal is as near the root or nearer): judge it by the whole rule.";
 
-/** The daily run's instructions: the schedule's description, so each fired assignment carries them. */
+/** The ranking run's instructions ("Rank now", and the old schedule's description while one is live). */
 const RANK_RUN_PROMPT = `Rank the humans' open asks (you are the Secretary; docs/legible-delegation.md §6). You never fund, continue, cut, approve or decide anything yourself: the humans decide every ask; you put them in order and say why.
 1. Call \`rank\` with no arguments. It lists every open ask (id, type, building, how long it has waited, body, branches, recommendation, the records it came from) and the humans' recent money decisions with their notes. If it says there is nothing to rank, submit_report at once (verdict stop) and end.
 2. Order every open ask, most urgent first, by ${RANK_RULE} The humans' past fund and reject decisions, with their notes, show how they weigh within that order: follow them. A do ask that a button or an agent could carry out should not be in the queue: \`tell\` its building (its bl_ id) to withdraw it and say what would do it instead.
@@ -94,9 +97,9 @@ const DECISION_RUN_TITLE = "Settle and re-rank after a decision";
 /** A run of human decisions this close together is one Secretary wake (1:1 mt_msnjkpgwdb decision 10). */
 export const DECISION_RUN_DEBOUNCE_MS = 3 * 60_000;
 /**
- * At most this many decision runs a UTC day: they draw on the ranking schedule's retainer (each capped at its
- * tokensPerRun), which a human approved for the daily ranking, so a busy day can't spend it down. Past the cap a
- * decision waits for the next ranking, whose read lists it under "Decided since the last ranking" all the same.
+ * At most this many decision runs (and as many backstop runs) a UTC day: each is a run of the Town Hall's own job capped
+ * at RANK_TOKENS_PER_RUN, so a busy day costs at most DECISION_RUNS_PER_DAY × 40k each. Past the cap a decision waits
+ * for the next ranking, whose read lists it under "Decided since the last ranking" all the same.
  */
 export const DECISION_RUNS_PER_DAY = 8;
 const DECIDED_HEAD = "The human's decisions this run follows (oldest first):";
@@ -178,34 +181,22 @@ export class Secretary {
   }
 
   /**
-   * The daily ranking schedule, made once: on the Town Hall, taken by the Secretary, on a retainer of RANK_TOKENS_PER_RUN
-   * per run (asked in the decision queue: its runs start once a human approves), on SECRETARY_MODEL. It is the
-   * Secretary's first schedule: never made again once any exists (ended or rejected included). The live one (the old
-   * "Daily in-tray digest") is kept in step with the code at boot: its title, its description (RANK_RUN_PROMPT) and its
-   * model; a per-run amount below RANK_TOKENS_PER_RUN is raised to it through `raiseRetainerPerRun`, which asks the
-   * retainer again (the new total runs only once a human approves it).
+   * The old daily ranking schedule, if one is still live: no longer made (grant gr_mcuj10tupi: the Secretary's ranking,
+   * decision and backstop runs are capped runs of the Town Hall's own job, `townHallRun`, with no schedule and no
+   * retainer to renew). An ended or rejected one stays as it is. A live one is kept in step with the code at boot (its
+   * title, description and model) until it ends; a per-run amount below RANK_TOKENS_PER_RUN is raised through
+   * `raiseRetainerPerRun`, which asks the retainer again. Null when none is live.
    */
   ensureRankSchedule(at: Date = new Date()): Schedule | null {
-    const sec = this.agent();
-    const th = this.world.buildings.get(TOWN_HALL_ID);
-    if (!sec || !th) return null;
-    const had = this.world.schedules.first("takerId = ? AND title != ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt");
-    if (had) {
-      // a run on Fable needs RANK_TOKENS_PER_RUN: below it the retainer watch stops every run short, so it is raised and asked again
-      const cur = had.status !== "ended" && had.lane === "retainer" && had.tokensPerRun < RANK_TOKENS_PER_RUN
-        ? raiseRetainerPerRun(this.world, had, RANK_TOKENS_PER_RUN, `the ranking run moved to ${SECRETARY_MODEL} and needs ${RANK_TOKENS_PER_RUN.toLocaleString("en-US")} per run`, at)
-        : had;
-      if (cur !== had) console.log(`[secretary] raised "${cur.title}" (${cur.id}) from ${had.tokensPerRun} to ${cur.tokensPerRun} tokens per run; retainer ${cur.retainer}`);
-      if (cur.description === RANK_RUN_PROMPT && cur.model === SECRETARY_MODEL && cur.title === RANK_SCHEDULE_TITLE) return cur;
-      return this.world.schedules.patch(cur.id, { title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, model: SECRETARY_MODEL });
-    }
-    const s = createSchedule(this.world, th.id, { kind: "agent", id: sec.id }, {
-      title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, repeat: { dailyAt: [RANK_AT] },
-      tokensPerRun: RANK_TOKENS_PER_RUN, takerId: sec.id,
-      gap: "The humans' open asks need a daily order and a money slate (docs/legible-delegation.md §6; grant gr_kdlogzzo5s)",
-    }, null, at);
-    // the Town Hall's fork models don't name Fable: the Secretary's own runs are on it by design, so it is set here
-    return this.world.schedules.patch(s.id, { model: SECRETARY_MODEL });
+    const had = rankSchedule(this.world);
+    if (!had) return null;
+    // a run on Fable needs RANK_TOKENS_PER_RUN: below it the retainer watch stops every run short, so it is raised and asked again
+    const cur = had.lane === "retainer" && had.tokensPerRun < RANK_TOKENS_PER_RUN
+      ? raiseRetainerPerRun(this.world, had, RANK_TOKENS_PER_RUN, `the ranking run moved to ${SECRETARY_MODEL} and needs ${RANK_TOKENS_PER_RUN.toLocaleString("en-US")} per run`, at)
+      : had;
+    if (cur !== had) console.log(`[secretary] raised "${cur.title}" (${cur.id}) from ${had.tokensPerRun} to ${cur.tokensPerRun} tokens per run; retainer ${cur.retainer}`);
+    if (cur.description === RANK_RUN_PROMPT && cur.model === SECRETARY_MODEL && cur.title === RANK_SCHEDULE_TITLE) return cur;
+    return this.world.schedules.patch(cur.id, { title: RANK_SCHEDULE_TITLE, description: RANK_RUN_PROMPT, model: SECRETARY_MODEL });
   }
 
   /** The weekly pattern schedule, made once (never again once one exists), on SECRETARY_MODEL, its own retainer. */
@@ -241,25 +232,23 @@ export class Secretary {
    * A human decided on a Town Hall ask (1:1 mt_msnjkpgwdb decision 10: "take every user decision made on this queue …
    * potentially answer some cards that logically follow from the decision, rerank"): one Secretary run, debounced. The
    * first decision queues a run that waits DECISION_RUN_DEBOUNCE_MS; decisions that land while it waits add a line to
-   * it (one pending run at a time); a decision during a run queues one more. It is a run of the ranking schedule's
-   * retainer (lane retainer, capped per run, at most DECISION_RUNS_PER_DAY a day), so nothing is queued while that
-   * retainer is not approved, the Secretary is stopped, or no ask is left open. Returns the run, or null.
+   * it (one pending run at a time); a decision during a run queues one more. It is a capped run of the Town Hall's own
+   * job (`townHallRun`; grant gr_mcuj10tupi: no ranking schedule, no retainer), at most DECISION_RUNS_PER_DAY a day, so
+   * nothing is queued only while the Secretary is stopped or no ask is left open. Returns the run, or null.
    */
   afterDecision(d: { askId?: string | null; targetKind?: string | null; targetId?: string | null; text: string; by?: string | null }, at: Date = new Date()): Assignment | null {
     const world = this.world;
     const sec = this.agent();
-    const s = rankSchedule(world);
-    if (!sec || sec.status === "stopped" || isGone(sec) || !s || s.retainer !== "funded") return null;
+    if (!sec || sec.status === "stopped" || isGone(sec)) return null;
     if (!rankedAsks(world).length) return null;
     const line = `- ${stamp(at.toISOString())}: ${oneLine(d.text, 300)}${d.askId ? ` (ask ${d.askId})` : ""}${d.targetId ? ` (about ${d.targetId})` : ""}`;
     const pending = world.assignments.first("agentId = ? AND status = 'pending' AND title = ?", [sec.id, DECISION_RUN_TITLE], "ORDER BY createdAt DESC, rowid DESC");
     if (pending) return pending.description.includes(line) ? pending : world.assignments.upsert({ ...pending, description: `${pending.description}\n${line}`.slice(0, 20_000), updatedAt: at.toISOString() });
-    const today = `${at.toISOString().slice(0, 10)}T00:00:00.000Z`;
-    if (world.assignments.count("agentId = ? AND title = ? AND createdAt >= ?", [sec.id, DECISION_RUN_TITLE, today]) >= DECISION_RUNS_PER_DAY) return null;
+    if (runsToday(world, sec.id, DECISION_RUN_TITLE, at) >= DECISION_RUNS_PER_DAY) return null;
     const user = d.by?.startsWith("us_") ? d.by : null;
-    return createAssignment(world, {
-      agentId: sec.id, title: DECISION_RUN_TITLE, description: `${DECISION_RUN_PROMPT}\n\n${DECIDED_HEAD}\n${line}`, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
-      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: user ? humanOrigin(user, d.askId ?? d.targetId ?? s.id, at.toISOString()) : null, model: s.model,
+    return townHallRun(world, sec, {
+      title: DECISION_RUN_TITLE, description: `${DECISION_RUN_PROMPT}\n\n${DECIDED_HEAD}\n${line}`,
+      origin: user ? humanOrigin(user, d.askId ?? d.targetId ?? TOWN_HALL_ID, at.toISOString()) : null,
       waitFor: { after: new Date(at.getTime() + DECISION_RUN_DEBOUNCE_MS).toISOString() },
     });
   }
@@ -267,22 +256,17 @@ export class Secretary {
   /**
    * The backstop (1:1 mt_t65exni4et decision 2 point 3): when a need has waited unrendered past `NEED_BACKSTOP_MS`, one
    * Secretary run renders it. Called from the runtime tick; at most one such run pending or running at a time, and at
-   * most DECISION_RUNS_PER_DAY a day. A run of the ranking schedule's retainer, like the decision run. Returns the run, or null.
+   * most DECISION_RUNS_PER_DAY a day. A capped run of the Town Hall's own job, like the decision run. Returns the run, or null.
    */
   needsOverdue(at: Date = new Date()): Assignment | null {
     const world = this.world;
     const sec = this.agent();
-    const s = rankSchedule(world);
-    if (!sec || sec.status === "stopped" || isGone(sec) || !s || s.retainer !== "funded") return null;
+    if (!sec || sec.status === "stopped" || isGone(sec)) return null;
     if (world.assignments.exists("agentId = ? AND status IN ('pending', 'active') AND title = ?", [sec.id, NEEDS_RUN_TITLE])) return null;
     const overdue = overdueNeeds(world, at.getTime());
     if (!overdue.length) return null;
-    const today = `${at.toISOString().slice(0, 10)}T00:00:00.000Z`;
-    if (world.assignments.count("agentId = ? AND title = ? AND createdAt >= ?", [sec.id, NEEDS_RUN_TITLE, today]) >= DECISION_RUNS_PER_DAY) return null;
-    return createAssignment(world, {
-      agentId: sec.id, title: NEEDS_RUN_TITLE, description: `${NEEDS_RUN_PROMPT}\n\nWaiting now:\n${overdue.map(needLine).join("\n")}`, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
-      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, model: s.model,
-    });
+    if (runsToday(world, sec.id, NEEDS_RUN_TITLE, at) >= DECISION_RUNS_PER_DAY) return null;
+    return townHallRun(world, sec, { title: NEEDS_RUN_TITLE, description: `${NEEDS_RUN_PROMPT}\n\nWaiting now:\n${overdue.map(needLine).join("\n")}` });
   }
 
   /** The Secretary's part of a 1:1 prompt (null when the 1:1 is with anyone else). */
@@ -388,48 +372,60 @@ function rankSchedule(world: World): Schedule | undefined {
   return sec ? world.schedules.first("takerId = ? AND status = 'active' AND title != ?", [sec.id, PATTERN_SCHEDULE_TITLE], "ORDER BY createdAt") : undefined;
 }
 
-/** The ranking run under way (queued, running or parked), if any: its schedule's or a pressed one. */
-function liveRankRun(world: World, s: Pick<Schedule, "id">): Assignment | undefined {
-  return world.assignments.first("lane = 'retainer' AND sourceId = ? AND status IN ('pending', 'active')", [s.id], "ORDER BY createdAt");
+/**
+ * One Secretary run as a run of the Town Hall's own job (grant gr_mcuj10tupi): lane directed with no source, so jobs.ts
+ * `jobOf` gives jb_town-hall (rule building, which lanes.ts never holds for the Town Hall), on SECRETARY_MODEL, with a
+ * standing cap of RANK_TOKENS_PER_RUN carried by the run itself (`runCapTokens`: the run watch asks it to file there).
+ * No schedule and no retainer stand behind it.
+ */
+function townHallRun(world: World, sec: Agent, r: { title: string; description: string; origin?: Assignment["origin"]; waitFor?: Assignment["waitFor"] }): Assignment {
+  return createAssignment(world, {
+    agentId: sec.id, title: r.title, description: r.description, createdBy: { kind: "system", id: sec.id }, buildingId: TOWN_HALL_ID,
+    lane: { lane: "directed" }, origin: r.origin ?? null, model: SECRETARY_MODEL, runCapTokens: RANK_TOKENS_PER_RUN,
+    ...(r.waitFor ? { waitFor: r.waitFor } : {}),
+  });
 }
 
-/** The "Rank now" button for a viewer who may press it (null for anyone else, or with no active ranking schedule). */
-export function rankRunView(world: World, viewer: Agent | undefined): DigestRunView | null {
+/** How many of the Secretary's runs with this title were made today (UTC): the daily caps on the decision and backstop runs. */
+function runsToday(world: World, secId: string, title: string, at: Date): number {
+  return world.assignments.count("agentId = ? AND title = ? AND createdAt >= ?", [secId, title, `${at.toISOString().slice(0, 10)}T00:00:00.000Z`]);
+}
+
+/** The ranking run under way (queued, running or parked), if any: a pressed one, or the old schedule's while it lives. */
+function liveRankRun(world: World): Assignment | undefined {
+  const sec = world.secretary.agent();
+  if (!sec) return undefined;
   const s = rankSchedule(world);
-  if (!s || !canDecideRetainer(world, viewer, s)) return null;
-  const live = liveRankRun(world, s);
-  const refused = live ? "a ranking run is under way: the ranks and the slate land here when it finishes"
-    : s.retainer !== "funded" ? `the ranking's retainer is ${s.retainer}, not approved`
-    : rankNothingNew(world);
-  return { scheduleId: s.id, runningId: live?.id ?? null, refused };
+  return world.assignments.first("agentId = ? AND status IN ('pending', 'active') AND (title = ? OR (lane = 'retainer' AND sourceId = ?))", [sec.id, RANK_RUN_TITLE, s?.id ?? ""], "ORDER BY createdAt");
+}
+
+/** The "Rank now" button for a viewer who may press it: a human who can fund the Town Hall or owns its goal (null for anyone else). */
+export function rankRunView(world: World, viewer: Agent | undefined): DigestRunView | null {
+  if (!world.secretary.agent() || !canDecideRetainer(world, viewer, { buildingId: TOWN_HALL_ID })) return null;
+  const live = liveRankRun(world);
+  const refused = live ? "a ranking run is under way: the ranks and the slate land here when it finishes" : rankNothingNew(world);
+  return { scheduleId: rankSchedule(world)?.id ?? null, runningId: live?.id ?? null, refused };
 }
 
 /**
- * The in-tray's "Rank now" button (it was "Daily digest", Mitchell 1:1 mt_i50xwu4z2t): one ranking run now, the
- * schedule's own prompt and model, booked as a run of its retainer (lane retainer, sourceId = the schedule; the
- * schedule's next run does not move). Only a human who can decide the retainer presses it; refused while a run is under
- * way, while the retainer isn't funded, or when nothing changed since the last ranking.
+ * The decision queue's "Rank now" button (it was "Daily digest", Mitchell 1:1 mt_i50xwu4z2t): one ranking run now,
+ * RANK_RUN_PROMPT with the Queue health block, a capped run of the Town Hall's own job (`townHallRun`; grant
+ * gr_mcuj10tupi: no schedule or retainer behind it). Only a human who can fund the Town Hall (or owns its goal) presses
+ * it; refused while a ranking run is under way, while the Secretary is stopped, or when nothing changed since the last ranking.
  */
 export function pressRank(world: World, actor: Agent, at: Date = new Date()): Assignment {
   const sec = world.secretary.agent();
-  const s = rankSchedule(world);
-  if (!sec || !s) throw new AppError("conflict", "There is no active ranking schedule to run.");
-  if (!canDecideRetainer(world, actor, s)) throw forbidden("building.fund", "Only a human who can decide the Town Hall's retainers runs the ranking.");
+  if (!sec) throw new AppError("conflict", "There is no Secretary to run the ranking.");
+  if (!canDecideRetainer(world, actor, { buildingId: TOWN_HALL_ID })) throw forbidden("building.fund", "Only a human who can fund the Town Hall runs the ranking.");
   if (sec.status === "stopped" || isGone(sec)) throw new AppError("conflict", `${sec.name} is stopped: nobody can run the ranking.`);
-  if (s.retainer !== "funded") throw new AppError("conflict", `The ranking's retainer is ${s.retainer}, not approved: approve it in the in-tray first.`);
-  const live = liveRankRun(world, s);
-  if (live) throw new AppError("conflict", `A ranking run is already under way (${live.id}): its ranks and slate land in the in-tray when it finishes.`);
+  const live = liveRankRun(world);
+  if (live) throw new AppError("conflict", `A ranking run is already under way (${live.id}): its ranks and slate land in the decision queue when it finishes.`);
   const idle = rankNothingNew(world);
   if (idle) throw new AppError("conflict", `Nothing to rank: ${idle}.`);
   const by = holderOf(actor);
   return world.transaction(() => {
-    const a = createAssignment(world, {
-      agentId: sec.id, title: `${s.title} (run now)`, description: rankRunText(world, s, at) ?? s.description, createdBy: { kind: "system", id: s.id }, buildingId: s.buildingId,
-      lane: { lane: "retainer", gap: s.gap ?? undefined, sourceId: s.id }, origin: humanOrigin(by.id, s.id, at.toISOString()), model: s.model,
-    });
-    // the schedule's next fire skips while this run is under way (fireSchedules checks lastAssignmentId)
-    world.schedules.patch(s.id, { lastAssignmentId: a.id, updatedAt: at.toISOString() });
-    world.events.append({ type: "schedule.fired", agentId: sec.id, buildingId: s.buildingId, text: `${world.nameOf(actor.id)} ran "${truncate(s.title, 80)}" now: ${sec.name} takes it`, payload: { scheduleId: s.id, assignmentId: a.id, queue: "agent", pressedBy: by.id } });
+    const a = townHallRun(world, sec, { title: RANK_RUN_TITLE, description: `${RANK_RUN_PROMPT}\n\n${queueHealthBlock(legibleMeasures(world, at).queue)}`, origin: humanOrigin(by.id, TOWN_HALL_ID, at.toISOString()) });
+    world.events.append({ type: "system", agentId: sec.id, buildingId: TOWN_HALL_ID, text: `${world.nameOf(actor.id)} ran the ranking now: ${sec.name} takes it`, payload: { assignmentId: a.id, pressedBy: by.id } });
     return a;
   });
 }

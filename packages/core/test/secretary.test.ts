@@ -5,10 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, createOneOnOne, createResident, createSchedule, fireSchedules, grantHistoryLine } from "../src/index.ts";
-import { decideRetainer } from "../src/retainers.ts";
+import { decideRetainer, runCapOf, watchRunCaps } from "../src/retainers.ts";
+import { jobOf } from "../src/jobs.ts";
+import { newId, nowIso } from "../src/util.ts";
 import { ruleBlock } from "../src/lanes.ts";
 import { applyRank, pressRank, RANK_TOKENS_PER_RUN, rankNothingNew, rankRunView, SECRETARY_MODEL } from "../src/secretary.ts";
-import { askAt, creditBank, seededWorld, renderNeeds } from "./helpers.ts";
+import { askAt, creditBank, legacyRankSchedule, seededWorld, renderNeeds } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const H = 3_600_000;
@@ -69,7 +71,10 @@ describe("the Secretary", () => {
     const other = createResident(world, { buildingId: LAB, name: "Ivy" });
     expect(() => createSchedule(world, th.id, world.holderOf(admin), { title: "x", description: "d", runsAt: new Date(Date.now() + H).toISOString(), takerId: other.id })).toThrow(/isn't a resident of/);
     const t0 = new Date("2030-01-01T06:00:00.000Z");
-    const s = world.secretary.ensureRankSchedule(t0)!;
+    // the town makes no ranking schedule any more (grant gr_mcuj10tupi); a live old one is kept in step until it ends
+    expect(world.secretary.ensureRankSchedule(t0)).toBeNull();
+    expect(world.schedules.count("takerId = ? AND title = 'Daily ask ranking'", [sec.id])).toBe(0);
+    const s = legacyRankSchedule(world, t0);
     expect(s).toMatchObject({ buildingId: th.id, takerId: sec.id, title: "Daily ask ranking", lane: "retainer", retainer: "asked", tokensPerRun: RANK_TOKENS_PER_RUN, model: SECRETARY_MODEL, dailyAt: ["07:00"] });
     expect(s.description).toMatch(/^Rank the humans' open asks/);
     expect(s.description).toMatch(/You never fund, continue, cut, approve or decide anything yourself/);
@@ -92,7 +97,7 @@ describe("the Secretary", () => {
   it("a live ranking schedule below RANK_TOKENS_PER_RUN is raised at boot and its retainer asked again; a human approves the new total", () => {
     const { world, admin } = setup();
     const t0 = new Date("2030-01-01T06:00:00.000Z");
-    const s = world.secretary.ensureRankSchedule(t0)!;
+    const s = legacyRankSchedule(world, t0);
     decideRetainer(world, admin, s.id, { action: "approve", note: "" });
     // the schedule as prod has it: funded at the old 10,000 per run
     world.schedules.patch(s.id, { tokensPerRun: 10_000 });
@@ -123,7 +128,7 @@ describe("the Secretary", () => {
   it("skips the run (no session) when there is no open ask, or nothing arrived since the last ranking", () => {
     const { world, sec, proposal } = setup();
     const t0 = new Date("2030-01-01T06:00:00.000Z");
-    const s = world.secretary.ensureRankSchedule(t0)!;
+    const s = legacyRankSchedule(world, t0);
     // the schedule's own retainer ask is open: rank it away first so the town has no open ask
     for (const a of world.asks.where("status = 'open'")) world.asks.upsert({ ...a, status: "retired" });
     expect(rankNothingNew(world)).toBe("no open asks");
@@ -139,27 +144,47 @@ describe("the Secretary", () => {
     expect(rankNothingNew(world)).toBeNull();
   });
 
-  it("the in-tray's Rank now button: a human who can decide the retainer runs one ranking now, booked on the retainer; a live run or nothing new holds it", () => {
+  it("the decision queue's Rank now button: a human who can fund the Town Hall runs one capped ranking of its own job, with no schedule or retainer; a live run or nothing new holds it", () => {
     const { world, sec, admin, manager, proposal } = setup();
-    const s = world.secretary.ensureRankSchedule(new Date())!;
+    expect(world.secretary.ensureRankSchedule()).toBeNull();
     expect(rankRunView(world, manager)).toBeNull(); // an agent never sees the button
     expect(() => pressRank(world, manager)).toThrow(/Only a human/);
-    expect(() => pressRank(world, admin)).toThrow(/retainer is asked, not approved/);
-    expect(rankRunView(world, admin)).toMatchObject({ scheduleId: s.id, runningId: null, refused: expect.stringMatching(/not approved/) });
-    decideRetainer(world, admin, s.id, { action: "approve", note: "" });
     applyRank(world, sec, { order: world.asks.where("status IN ('open', 'deferred')").map((a) => a.id) });
+    expect(rankRunView(world, admin)).toMatchObject({ scheduleId: null, runningId: null, refused: expect.stringMatching(/no open asks/) });
     expect(() => pressRank(world, admin)).toThrow(/Nothing to rank: no open asks/);
     proposal("Banner shows Usage", 350_000);
     expect(rankRunView(world, admin)!.refused).toBeNull();
-    const nextRun = world.schedules.require(s.id).nextRunAt;
     const a = pressRank(world, admin);
-    expect(a).toMatchObject({ agentId: sec.id, queue: "agent", lane: "retainer", sourceId: s.id, model: SECRETARY_MODEL, origin: { userId: world.holderOf(admin).id } });
+    expect(a).toMatchObject({ agentId: sec.id, buildingId: "town-hall", queue: "agent", lane: "directed", sourceId: null, model: SECRETARY_MODEL, runCapTokens: RANK_TOKENS_PER_RUN, origin: { userId: world.holderOf(admin).id } });
+    expect(jobOf(a)).toMatchObject({ id: "jb_town-hall", rule: "building" });
     // the run reads the queue-health numbers after its instructions (gr_pdja05z2f1 KR kr_nsghrfza2i)
-    expect(a.description.startsWith(`${s.description}\n\n## Queue health, last 14 days`)).toBe(true);
-    expect(ruleBlock(world, a)).toBeNull(); // the approved retainer pays for it
-    expect(world.schedules.require(s.id)).toMatchObject({ nextRunAt: nextRun, lastAssignmentId: a.id, runs: 0 });
+    expect(a.description).toMatch(/^Rank the humans' open asks[\s\S]*\n\n## Queue health, last 14 days/);
+    expect(ruleBlock(world, a)).toBeNull(); // the Town Hall's own job is never held
+    expect(world.schedules.count("takerId = ? AND title != 'Weekly pattern note'", [sec.id])).toBe(0);
     expect(rankRunView(world, admin)).toMatchObject({ runningId: a.id, refused: expect.stringMatching(/under way/) });
     expect(() => pressRank(world, admin)).toThrow(/already under way/);
+  });
+
+  it("a capped run past its runCapTokens is asked once to file, as a retainer run past its tokensPerRun", () => {
+    const { world, sec, admin, proposal } = setup();
+    proposal("Banner shows Usage", 350_000);
+    const a = world.assignments.patch(pressRank(world, admin).id, { status: "active" });
+    expect(runCapOf(a, null)).toBe(RANK_TOKENS_PER_RUN);
+    expect(runCapOf({ runCapTokens: null }, 10_000)).toBe(10_000);
+    expect(runCapOf({ runCapTokens: null }, null)).toBe(0);
+    const capped = () => world.events.list({ types: ["system"] }).filter((e) => (e.payload as { retainerCeiling?: string }).retainerCeiling === a.id);
+    const spend = (output: number) => world.sessions.upsert({
+      id: newId("se"), agentId: sec.id, assignmentId: a.id, meetingId: null, purpose: "work", backend: "host", status: "done", model: "claude-opus-5-5", bankModel: "claude-opus-5-5",
+      sdkSessionId: null, output, costUsd: 0, turns: 0, reportId: null, error: null, startedAt: nowIso(), endedAt: nowIso(), funding: null, lane: "directed", grantId: null,
+    });
+    spend(1_000);
+    watchRunCaps(world);
+    expect(capped()).toHaveLength(0);
+    spend(RANK_TOKENS_PER_RUN);
+    watchRunCaps(world);
+    watchRunCaps(world);
+    expect(capped()).toHaveLength(1);
+    expect(capped()[0]!.text).toMatch(/reached the cap per run of "Rank the open asks"/);
   });
 
   it("a decision made in a 1:1 reads \"<Human> via Secretary in mt_…\" on the deck's history line, with the human's words", () => {
