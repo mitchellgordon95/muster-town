@@ -79,7 +79,7 @@ describe("a click ask's \"redeploy\" branch (ak_nugzl9rheu: deciding it started 
       type: "click", title: "Press redeploy once so the merges go live",
       body: "Press redeploy once. Mei has waited on this since Nov 6.\nIf you press: main goes live.\nIf you decline: nothing goes live.",
       recommendation: "Press redeploy: one click ships main.",
-      branches: [{ label: "Press redeploy", action: "redeploy" }, { label: "Decline", action: "decline" }],
+      branches: [{ label: "Press redeploy", action: "redeploy" }, { label: "Decline", action: "keep" }],
     } as never) as { askId?: string; id?: string; ask?: { id: string } };
     const id = r.askId ?? r.ask?.id ?? r.id;
     expect(id).toMatch(/^ak_/);
@@ -101,7 +101,7 @@ describe("a click ask's \"redeploy\" branch (ak_nugzl9rheu: deciding it started 
     const res = await json(t.app, "POST", `/api/asks/${id}/decide`, { headers: t.auth, body: { decision: "Press redeploy" } });
     expect(res.status).toBe(503);
     expect(t.world.asks.get(id)!.status).toBe("open");
-    // Decline is a plain decision: it records the label and needs no runtime
+    // Decline is a declared keep: it records the label and needs no runtime
     expect((await json(t.app, "POST", `/api/asks/${id}/decide`, { headers: t.auth, body: { decision: "Decline" } })).body.ask.status).toBe("decided");
   });
 });
