@@ -137,6 +137,23 @@ describe("redeploy", () => {
     expect(h.r.running()).toBe(false);
   });
 
+  test("every step event carries the Machine's memAvailableMb (gr_xgr8j2f9ao)", async () => {
+    let mb = 900;
+    const h = harness(base(), [], { meminfo: () => ({ memAvailableMb: (mb -= 100), swapTotalMb: 0, swapFreeMb: 0 }) });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    const web = h.world.events.recent({ limit: 200 }).filter((e) => (e.payload as { step?: string }).step === "build web").map((e) => e.payload as { phase: string; memAvailableMb: unknown });
+    expect(web.map((p) => p.phase).sort()).toEqual(["end", "start"]);
+    for (const p of web) expect(typeof p.memAvailableMb).toBe("number");
+    // off Linux (no reading) the field is null, never missing
+    const off = harness(base(), [], { meminfo: () => null });
+    off.r.redeploy({ image: false, requestedBy: "Pix" });
+    await off.r.done();
+    const steps = off.world.events.recent({ limit: 200 }).filter((e) => typeof (e.payload as { step?: unknown }).step === "string" && (e.payload as { phase?: string }).phase === "start");
+    expect(steps.length).toBeGreaterThan(0);
+    for (const e of steps) expect((e.payload as { memAvailableMb?: unknown }).memAvailableMb).toBeNull();
+  });
+
   test("pulls the configured deploy branch (prod follows a CI-moved `prod` branch)", async () => {
     const h = harness(base(), [], { branch: "prod" });
     h.r.redeploy({ image: false, requestedBy: "Pix" });

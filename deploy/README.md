@@ -125,7 +125,7 @@ it can neither start desks nor spend tokens; `MUSTER_TOWN_DESKS` points at a doc
 at once). `throwaway.sh admin-token` fetches its admin token over `fly ssh` into `~/.muster-stress/admin-token`; `throwaway.sh destroy` deletes
 the app with its volume. The harness: `scripts/stress/viewers.mjs` (WebSocket viewers ramped 10 → 400 while scripted bodies walk and talk) and
 `scripts/stress/agents.mjs` (scripted visitors ramped 5 → 80 over `/mcp`), both refusing a `muster.town` target, both writing one row per ramp
-step to `~/.muster-stress/results/`. `GET /api/health` on any town reports `load: {lagMs, rssMb, wsClients}` (read-only) for the same numbers.
+step to `~/.muster-stress/results/`. `GET /api/health` on any town reports `load: {lagMs, rssMb, wsClients, memAvailableMb, swapMb, swapUsedMb}` (read-only; the last three are the Machine's /proc/meminfo in MiB) for the same numbers.
 
 ### Prod open items (as of 2026-10-25)
 Done (Mitchell, 2026-10-25, after rollup dc_jkbed7u3fo): the old OVH box is deleted (`15.204.79.179` now answers SSH with a different ed25519
@@ -248,6 +248,7 @@ cleared, and once when health itself is down.
 | `sessions` | Claude sessions ending in `error` | ≥ 3 in 15 min | ≥ 50 % of the sessions that ended in 30 min (min 4) |
 | `desk-steal` | steal share (steal / (cpu + steal)) of desk sessions (not `host`) of ≥ 5 min that ended since the last sample | ≥ 25 % | one ≥ 50 %, or two ≥ 35 % within an hour |
 | `steal` | the host Machine's CPU steal: steal / (busy + steal) from /proc/stat between two samples (a minute under 3 s of busy + steal counts as clean; none off Linux) | > 25 % for 5 min | > 50 % for 3 min |
+| `memory` | the Machine's MemAvailable from /proc/meminfo, in MB (none off Linux; grant gr_xgr8j2f9ao, after the 2026-11-22 redeploy froze in `build web`) | < 300 MB for 2 samples | never |
 | `desk-bill` | today's (UTC) desk bill at Fly list prices as a % of `desks.billCapUsd` (default $10/day) | ≥ 50 % | ≥ 100 % (new desk sessions already run on shared-cpu-2x) |
 | `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
 | `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change the puller would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
