@@ -227,6 +227,8 @@ Autonomy grows inside the grant: bigger steps, more of them, longer stop conditi
 
 A table change is a change to the collective's operating procedure: the human approves it like any policy ask, and the ledger records why. The loop is "cases to statute" applied to budgets.
 
+**How the raise is priced (gr_1ilvotnzta step 1, built).** A ceiling is a sum of steps, and a sum follows the mean, not the median: on 2026-11-23 S ran at a median of 1.08× but a mean of 1.41× over 22 steps, and 62% of the grants closed in 14 days held. Pricing the raise from the median gave "Raise S from 50,000 to 50,000". So the spend-over-size line carries each size's mean and p75 beside the median. When holds or adjust asks cross their line, the Planner raises the hottest S or M (by mean) by the smallest step of 10,000 whose projected hold share meets the line. The projection is a seeded bootstrap of the grants funded in the last 30 days: their real step mixes, each step drawn from the done steps of its size, step spend only. On that day's data it reads "Raise S from 50,000 to 120,000 tokens. Projected hold share 46% → 24%." It never proposes a size's current value: when no raise up to the next size's price meets the line, it falls back to the split rule. The brief also prices a margin on every ceiling as an alternative (30% that day); the table has no margin to adopt, so that line is for the card's words only.
+
 ## 8. Notices: what shipped
 
 **Mitchell said:** "where do 'cool things shipped that you asked for' fit in? … i would still like to see what got shipped."

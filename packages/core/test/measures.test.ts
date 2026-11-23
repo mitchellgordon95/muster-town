@@ -122,7 +122,7 @@ describe("legibleMeasures (docs/legible-delegation.md §9)", () => {
     const m = legibleMeasures(world);
     expect(m.topUpsPerFundedGrant).toEqual({ topUps: 1, funded: 3, ratio: 0.33 });
     expect(m.holdShare).toEqual({ held: 1, closed: 2, share: 0.5 });
-    expect(m.spentOverSize).toEqual({ S: { ratio: 0.8, sample: 1 }, M: { ratio: 3.73, sample: 1 }, L: { ratio: null, sample: 0 } });
+    expect(m.spentOverSize).toEqual({ S: { ratio: 0.8, sample: 1, mean: 0.8, p75: 0.8 }, M: { ratio: 3.73, sample: 1, mean: 3.73, p75: 3.73 }, L: { ratio: null, sample: 0, mean: null, p75: null } });
     expect(m.sessionsPerStep).toEqual({ median: 1, steps: 2 });
     expect(m.heldAtGates).toMatchObject({ grants: 1, tokens: 100_000 });
     expect(m.heldAtGates.oldestHours).toBeCloseTo(0, 0);

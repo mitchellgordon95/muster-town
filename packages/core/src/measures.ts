@@ -4,7 +4,7 @@
  * Pure reads over asks, seen, grants, assignments, sessions and events: nothing is written. `GET /api/health` and
  * `GET /api/town` carry them as `legible`.
  */
-import type { Ask, AskType, StepCalibration, StepSize } from "@muster-town/schema";
+import type { Ask, AskType, StepCalibration } from "@muster-town/schema";
 import { stepCalibration } from "./grant-estimate.ts";
 import { queueHealth, type QueueHealth, type QueueHealthInput } from "./queue-health.ts";
 import { screenViews } from "./screen-views.ts";
@@ -33,8 +33,8 @@ export interface LegibleMeasures {
   topUpsPerFundedGrant: { topUps: number; funded: number; ratio: number | null };
   /** grants closed in the window that held at least once before closing ÷ grants closed in the window */
   holdShare: { held: number; closed: number; share: number | null };
-  /** per size, the median spent ÷ the size's table value over the steps completed in the calibration window (stepCalibration, 30 days), with the sample */
-  spentOverSize: Record<StepSize, { ratio: number | null; sample: number }>;
+  /** per size, the median spent ÷ the size's table value over the steps completed in the calibration window (stepCalibration, 30 days), with the sample, mean and 75th percentile */
+  spentOverSize: StepCalibration["sizes"];
   /** the median number of sessions a plan step completed in the window took (its parked continuations included) */
   sessionsPerStep: { median: number | null; steps: number };
   /**

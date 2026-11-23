@@ -78,11 +78,39 @@ const CALIBRATION_MIN_SAMPLE = 3;
 /**
  * What steps really cost against the table (docs/legible-delegation.md §7.3, §7.4): for each size, over the plan steps
  * completed in the last 30 days (a step = the assignments of a grant with that `grantStep`, its parked continuations
- * included; done when its latest one is), the median of spent ÷ the size's table value, with the sample count,
- * collective-wide and per building. `ratio` is null with no sample. Read-only; GET /api/town shows it beside the table, and
+ * included; done when its latest one is), the median of spent ÷ the size's table value, with the sample count and the
+ * mean and 75th percentile beside it (gr_1ilvotnzta: a ceiling is a sum of steps, so a skewed size holds grants even
+ * when its median is on price), collective-wide and per building. `ratio` is null with no sample. Read-only; GET /api/town shows it beside the table, and
  * GET /api/finance/spend carries it as `steps` (public, gr_3na7vdmd52).
  */
 export function stepCalibration(world: Pick<Repos, "town" | "assignments" | "sessions" | "grants">, now = new Date()): StepCalibration {
+  const { since, all, per } = doneStepRatios(world, now);
+  const rows = (x: Record<StepSize, number[]>) => Object.fromEntries((["S", "M", "L"] as const).map((s) => [s, { ratio: median(x[s]), sample: x[s].length, mean: mean(x[s]), p75: quantile(x[s], 0.75) }])) as StepCalibration["sizes"];
+  const sizes = rows(all);
+  return {
+    since, days: CALIBRATION_DAYS, minSample: CALIBRATION_MIN_SAMPLE, sizes,
+    buildings: Object.fromEntries([...per].map(([id, x]) => [id, rows(x)])),
+    lines: (["S", "M", "L"] as const).map((s) => sizes[s].ratio === null ? `${s}: no step completed in ${CALIBRATION_DAYS} days` : `${s}: ${sizes[s].ratio!.toFixed(1)}× over ${sizes[s].sample} step${sizes[s].sample === 1 ? "" : "s"}`),
+  };
+}
+
+/**
+ * What the Planner's hold projection resamples (planner.ts `projectHoldShare`, docs/legible-delegation.md §7.4): the
+ * spent ÷ size of every plan step completed in the calibration window, per size, and the step mix (sizes in order) of
+ * every grant funded in that window whose steps all carry a size. Read-only.
+ */
+export interface HoldSample { ratios: Record<StepSize, number[]>; mixes: StepSize[][] }
+
+export function holdSample(world: Pick<Repos, "town" | "assignments" | "sessions" | "grants">, now = new Date()): HoldSample {
+  const { since, all } = doneStepRatios(world, now);
+  const mixes = world.grants.all()
+    .filter((g) => g.steps.length > 0 && g.steps.every((st) => st.size) && g.history.some((h) => h.action === "fund" && h.at >= since))
+    .map((g) => g.steps.map((st) => st.size!));
+  return { ratios: all, mixes };
+}
+
+/** The plan steps completed since the calibration window opened: spent ÷ today's table value per size, collective-wide and per building. */
+function doneStepRatios(world: Pick<Repos, "town" | "assignments" | "sessions" | "grants">, now: Date): { since: string; all: Record<StepSize, number[]>; per: Map<string, Record<StepSize, number[]>> } {
   const table = grantPricingOf(world.town.get()).stepSizes;
   const since = new Date(now.getTime() - CALIBRATION_DAYS * 86_400_000).toISOString();
   // the latest assignment per (grant, step) decides whether the step is done, and when
@@ -114,13 +142,7 @@ export function stepCalibration(world: Pick<Repos, "town" | "assignments" | "ses
     b[size].push(r);
     per.set(a.buildingId, b);
   }
-  const rows = (x: Record<StepSize, number[]>) => Object.fromEntries((["S", "M", "L"] as const).map((s) => [s, { ratio: median(x[s]), sample: x[s].length }])) as StepCalibration["sizes"];
-  const sizes = rows(all);
-  return {
-    since, days: CALIBRATION_DAYS, minSample: CALIBRATION_MIN_SAMPLE, sizes,
-    buildings: Object.fromEntries([...per].map(([id, x]) => [id, rows(x)])),
-    lines: (["S", "M", "L"] as const).map((s) => sizes[s].ratio === null ? `${s}: no step completed in ${CALIBRATION_DAYS} days` : `${s}: ${sizes[s].ratio!.toFixed(1)}× over ${sizes[s].sample} step${sizes[s].sample === 1 ? "" : "s"}`),
-  };
+  return { since, all, per };
 }
 
 /** The ratio a forecast or an earmark prices a size at: the collective's calibrated median once its sample is big enough, else 1.0 (the table). */
@@ -134,6 +156,17 @@ function median(xs: number[]): number | null {
   const r = [...xs].sort((a, b) => a - b);
   const m = r.length % 2 ? r[(r.length - 1) / 2]! : (r[r.length / 2 - 1]! + r[r.length / 2]!) / 2;
   return Math.round(m * 100) / 100;
+}
+/** The mean, to 2 decimals (null: none). A ceiling is a sum of steps, and a sum follows the mean, not the median. */
+function mean(xs: number[]): number | null {
+  return xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) / 100 : null;
+}
+/** The q-quantile, linear between ranks, to 2 decimals (null: none). */
+function quantile(xs: number[], q: number): number | null {
+  if (!xs.length) return null;
+  const r = [...xs].sort((a, b) => a - b);
+  const i = (r.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return Math.round((r[lo]! + (r[hi]! - r[lo]!) * (i - lo)) * 100) / 100;
 }
 
 /** How a closed grant did against its estimate (the grant.closed payload, the grant page): null when it had none. */

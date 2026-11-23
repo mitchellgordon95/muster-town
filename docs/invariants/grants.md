@@ -77,6 +77,12 @@ The first code span is the test file. The second is the `it` text, copied exactl
    - Test: `packages/core/test/kr-status.test.ts` › `a kr claim check that passes makes a claimed key result met once, with a verified notice; an open one or a failing check leaves it`
    - Test: `packages/core/test/kr-status.test.ts` › `migration 125 folds the old statuses and the evidence column into one status and drops buildingId, objectiveId and evidence`
 
+14. **The Planner never proposes a size's current value, and prices a hold-line raise from a projection** (gr_1ilvotnzta step 1, docs/legible-delegation.md §7.4). `calibrationProposal` (`packages/core/src/planner.ts`) proposes a size outside its 0.7-1.3 band at its median ratio; when hold share or adjust asks cross their line, it raises the hottest S or M (by mean spent ÷ size) by the smallest 10,000 step whose projected hold share (`projectHoldShare`: a seeded bootstrap of the grants funded in 30 days, their real step mixes, done-step spends from `holdSample` in `packages/core/src/grant-estimate.ts`) is at or under the line, capped at the next size's price. A change that would equal the table value, no raise that meets the line, or L running hottest fall back to the split rule. Every proposal carries `holdBefore` and `holdAfter`, and the brief and the adopt line say them. `stepCalibration` gives each size's mean and p75 beside the median.
+   - Test: `packages/core/test/planner-calibration.test.ts` › `on today's data it raises S to a new value with the hold share it projects, never 50,000 to 50,000`
+   - Test: `packages/core/test/planner-calibration.test.ts` › `never proposes a size's current value: the median-priced raise that rounds to the table falls back to the split rule`
+   - Test: `packages/core/test/planner-calibration.test.ts` › `the projection is deterministic, falls as a size rises, and a ceiling margin is an alternative`
+   - Test: `packages/core/test/planner-calibration.test.ts` › `stepCalibration reads each size's mean and p75 beside the median; holdSample has the funded grants' step mixes`
+
 ## How it connects
 
 - **Budget → checkpoints.** After every charge, `Budget.afterCharge` calls `Grants.checkpoints` (wired in `packages/core/src/world.ts`). That moves a grant whose spend reached its hold point to `checkpoint`, with no assignment (invariant 5).
