@@ -43,16 +43,17 @@ export function ClosedLoops({ notices, max = 3 }: { notices: Notice[]; max?: num
   );
 }
 
-/** The feed with its filters; the server filters (GET /api/notices). */
-export function NoticesFeed() {
+/** The feed with its filters; the server filters (GET /api/notices). `goal` opens it filtered to that goal's subtree (a goal's "See all"; `goalName` names it when the map has no plaza for it). */
+export function NoticesFeed({ goal: startGoal = "", goalName }: { goal?: string; goalName?: string } = {}) {
   const buildings = useTown((s) => s.buildings);
   const places = useTown((s) => s.places);
   const [building, setBuilding] = useState("");
-  const [goal, setGoal] = useState("");
+  const [goal, setGoal] = useState(startGoal);
   const [kind, setKind] = useState<NoticeKind | "">("");
   const feed = useLoad(() => api().notices({ building: building || undefined, goal: goal || undefined, kind: kind || undefined, limit: 100 }), [building, goal, kind]);
   // the goals the map draws (a plaza per goal) name the goal filter's options
-  const goals = places.filter((p) => p.id.startsWith("plaza:")).map((p) => ({ id: p.id.slice("plaza:".length), name: p.name }));
+  const plazas = places.filter((p) => p.id.startsWith("plaza:")).map((p) => ({ id: p.id.slice("plaza:".length), name: p.name }));
+  const goals = startGoal && !plazas.some((g) => g.id === startGoal) ? [...plazas, { id: startGoal, name: goalName ?? startGoal }] : plazas;
   return (
     <div className="notices-feed">
       <div className="notices-filters actions">

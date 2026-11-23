@@ -853,6 +853,9 @@ div.spend-row > .muted { font-size: var(--fs-xs); }
 .goal-text { text-align: left; }
 .chip { font-size: var(--fs-xs); padding: 1px 6px; border-radius: 9px; background: color-mix(in srgb, var(--blue) 23%, var(--panel-2)); border: 1px solid color-mix(in srgb, var(--blue) 25%, var(--line-2)); color: var(--text); cursor: pointer; margin-right: 3px; }
 .goal-krs { list-style: none; margin: 3px 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.goal-produced-line { font-weight: 600; margin: 2px 0 4px; }
+.goal-produced { list-style: none; margin: 0 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.goal-produced .link { text-align: left; }
 .goal-kr { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: var(--fs-sm); }
 .goal-due { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
 .goal-due.late { color: var(--warn); font-weight: 700; }

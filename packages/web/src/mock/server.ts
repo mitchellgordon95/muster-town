@@ -1,7 +1,7 @@
 /** `Api` implemented against the in-memory Sim. Same interface as HttpApi, so every panel works offline. */
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
-import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type QueueBoard, type FunderWeek } from "@muster-town/schema";
+import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type GoalProduced, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
@@ -299,6 +299,30 @@ export class MockApi implements Api {
     const now = Date.now();
     return { goalId: id, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(), total: 0, sessions: 0, byLane: z, series: [], seriesUnit: "day", byBuilding: [], byGrant: [], results: [], visitors: 0 };
   }
+  /** the goal and every goal under it in the mock tree (empty for an unknown goal) */
+  private async subtreeOf(id: string): Promise<Set<string>> {
+    const out = new Set<string>();
+    const walk = (n: GoalTreeNode, inside: boolean) => { const on = inside || n.id === id; if (on) out.add(n.id); n.children.forEach((c) => walk(c, on)); };
+    walk(await this.goalTree(), false);
+    return out;
+  }
+  /** GET /api/goals/:id/produced: the subtree's shipped notices in the window, newest first; grants closed and key results from the fixture's closed-loop and verified notices */
+  async goalProduced(id: string, days = 30, limit = 5): Promise<GoalProduced> {
+    const ids = await this.subtreeOf(id);
+    const to = Date.now(), from = to - days * 86_400_000;
+    const rows = this.noticeRows.filter((n) => (n.goalId ? ids.has(n.goalId) : id === "gl_town" && ids.size > 0) && Date.parse(n.createdAt) >= from)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const shipped = rows.filter((n) => n.kind === "shipped");
+    const closed = rows.filter((n) => n.kind === "closed-loop");
+    const met = rows.filter((n) => n.kind === "verified");
+    return {
+      goalId: id, days, from: new Date(from).toISOString(), to: new Date(to).toISOString(),
+      counts: { shipped: shipped.length, grantsClosed: closed.length, keyResultsMet: met.length + closed.length, keyResultsUnverified: closed.length, keyResultsMissed: 0, tokens: closed.length * 450_000 + shipped.length * 120_000 },
+      shipped: clone(shipped.slice(0, limit).map((n) => ({ id: n.id, title: n.title, body: n.body, picture: n.picture, buildingId: n.buildingId, goalId: n.goalId, refs: n.refs, createdAt: n.createdAt }))),
+      grants: closed.map((n) => ({ id: n.refs.find((r) => r.startsWith("gr_")) ?? n.id, title: n.title, goalId: n.goalId, buildingId: n.buildingId ?? "workshop", outcome: "done", closedAt: n.createdAt, spentTokens: 450_000, grantTokens: 1_000_000 })),
+      keyResults: met.map((n) => ({ id: n.refs[0] ?? n.id, text: n.title, status: "met" as const, at: n.createdAt })),
+    };
+  }
   async funderWeek(userId = "me", days = 7): Promise<FunderWeekView> {
     await wait();
     const now = Date.now(), at = (h: number) => new Date(now - h * 3_600_000).toISOString();
@@ -438,7 +462,10 @@ export class MockApi implements Api {
   /** GET /api/notices: newest first, filtered by building, goal and kind (default 50, at most 200) */
   async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
     await wait(60);
-    return clone(this.noticeRows.filter((n) => (!q.building || n.buildingId === q.building) && (!q.goal || n.goalId === q.goal) && (!q.kind || n.kind === q.kind))
+    // the goal filter covers the subtree; the root also keeps notices filed with no goal (core notices.ts goalNoticeWhere)
+    const ids = q.goal ? await this.subtreeOf(q.goal) : null;
+    const inGoal = (n: Notice) => !ids || (n.goalId ? ids.has(n.goalId) : q.goal === "gl_town" && ids.size > 0);
+    return clone(this.noticeRows.filter((n) => (!q.building || n.buildingId === q.building) && inGoal(n) && (!q.kind || n.kind === q.kind))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, Math.min(200, q.limit ?? 50)));
   }
   /** GET /api/town/pricing (admin): the table, oversell and the calibration */

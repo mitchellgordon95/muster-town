@@ -17,7 +17,7 @@ import { FUNDED, treeScope } from "./funderFilter";
 import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
-import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, krHeading, moveTargets, pastDue, pathTo, proposalVerb, retireMoves, retirePlan, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
+import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, krHeading, moveTargets, pastDue, pathTo, producedLine, proposalVerb, retireMoves, retirePlan, shippedLink, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
 import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
 import { fromMillions, toMillions } from "../format";
 import { FreeTokensLine, capText, desksText } from "./FreeTokens";
@@ -26,6 +26,7 @@ import { defaultFolds } from "./goalCanvas";
 import { GoalOutline } from "./GoalOutline";
 import { GE_DETAIL_KEY, savedGoalView, saveGoalView, useNarrow, type GoalView } from "./panelResize";
 import { Sheet } from "./Sheet";
+import { NoticesFeed } from "./NoticesPanel";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const clip = (s: string, n = 70) => s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -213,6 +214,7 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
       {form === "owner" ? <OwnerForm node={node} me={me} onDone={done} /> : null}
       {form === "retire" ? <RetireForm root={root} node={node} onDone={() => { done(); onSelect(node.parentId); }} /> : null}
       {proposals.length ? <Proposals root={root} list={proposals} me={me} onDone={onDone} here={node.id === ROOT_GOAL_ID ? null : node.text} /> : null}
+      <ProducedBlock node={node} />
       <Section title={krHeading(node.keyResults)}>
         {node.keyResults.length ? <KrLines krs={node.keyResults} cards focus={focusKr} actions={can ? (k) => isArchived(k) ? null : k.underReviewSince ? <ReviewActs root={root} k={k} onDone={onDone} onArchive={() => setMissing({ k, archive: true })} /> : <span className="goal-kr-acts">
           <Act small tone="ok" run={() => mark(k, "met")} title="A human marks it met: it archives under this goal">Met</Act>
@@ -221,6 +223,36 @@ function GoalDetail({ root, node, me, proposals, focusKr, onSelect, onDone }: { 
         {missing ? <MissedForm key={missing.k.id} k={missing.k} archive={missing.archive} onCancel={() => setMissing(null)} onDone={() => { setMissing(null); onDone(); }} /> : null}
       </Section>
     </div>
+  );
+}
+
+/** What the goal's whole subtree produced in the last 30 days (gr_6kangldj4t): one count line, the newest five shipped items each linking its grant (or report), and See all opening the feed filtered to this goal. */
+export function ProducedBlock({ node }: { node: Pick<GoalTreeNode, "id" | "text"> }) {
+  const [feed, setFeed] = useState(false);
+  const p = useLoad(() => api().goalProduced(node.id, 30, 5), [node.id]);
+  const open = (refs: string[]) => {
+    const to = shippedLink(refs);
+    if (to?.kind === "grant") store.open({ kind: "grant", id: to.id });
+    else if (to) void openDocLink(to.id);
+  };
+  return (
+    <Section title="What it produced" right={p.data?.counts.shipped ? <button className="link" onClick={() => setFeed(true)} title="The feed filtered to this goal and every goal under it">See all</button> : null}>
+      <ErrorLine error={p.error} />
+      {p.loading && !p.data ? <Loading /> : p.data ? <>
+        <div className="goal-produced-line" aria-label="What it produced">{producedLine(p.data)}</div>
+        {p.data.shipped.length ? <ul className="goal-produced">
+          {p.data.shipped.map((n) => <li key={n.id}>
+            {shippedLink(n.refs) ? <button className="link" onClick={() => open(n.refs)} title={n.body || undefined}>{n.title}</button> : <span title={n.body || undefined}>{n.title}</span>}
+            {" "}<span className="muted">{timeAgo(n.createdAt)}</span>
+          </li>)}
+        </ul> : <Empty>Nothing shipped under this goal in the last {p.data.days} days.</Empty>}
+      </> : null}
+      {feed ? (
+        <Sheet label="What shipped" title="What shipped" sub={`Under "${clip(node.text, 60)}" and every goal below it`} onClose={() => setFeed(false)} escFirst maxWidth={760}>
+          <NoticesFeed goal={node.id} goalName={clip(node.text, 60)} />
+        </Sheet>
+      ) : null}
+    </Section>
   );
 }
 

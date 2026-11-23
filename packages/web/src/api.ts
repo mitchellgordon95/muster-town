@@ -9,7 +9,7 @@ import type {
   ServerMessage, SessionView, TokenCounts, TokenMix, LedgerCutoff, CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput,
   ReviewInput, PinInput, PinView, SkillView, PutSecretInput, SecretView, WorkInput, DonateInput, AddBankInput, BankInput, AddBankFee, BankFee, CreateMeetingInput, DocState, DocType, Mailbox, Permission, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, GrantView, KeyResult, UpdateKeyResultInput, Stoplight,
   Ask, AskType, Notice, NoticeKind, StepCalibration, StepSize, StepSizeTable,
-  GoalTreeNode, Goal, GoalProposal, GoalSpend, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
+  GoalTreeNode, Goal, GoalProposal, GoalSpend, GoalProduced, QueueBoard, IntrayRoutes, CreateGoalInput, UpdateGoalInput, RetireGoalInput, DecideGoalProposalInput, ChangeGoalInput, ReviewKeyResultInput, GoalChangeView, FreeTokens,
 } from "@muster-town/schema";
 import { grantPricingOf } from "@muster-town/schema";
 import { arrivalSource, visitorId } from "./visitor";
@@ -626,6 +626,8 @@ export interface Api {
   /** `funder`: "me" (signed in) = only what my money paid for (the funder filter, goal tree step 8) */
   goalSpend(id: string, days?: number, funder?: string): Promise<GoalSpend>;
   /** GET /api/funders/:userId/week: one funder's window ("me" = the signed-in human; guests get 401) and the deck's slide 1 for it */
+  /** GET /api/goals/:id/produced: what the goal's whole subtree shipped, closed, met and spent in the last `days` (gr_6kangldj4t) */
+  goalProduced(id: string, days?: number, limit?: number): Promise<GoalProduced>;
   funderWeek(userId?: string, days?: number): Promise<FunderWeekView>;
   /** the kanban: one building's queue as a board (the building panel's Queue tab) */
   buildingQueue(id: string): Promise<QueueBoard>;
@@ -985,6 +987,7 @@ class HttpApi implements Api {
   async goalTree() { return (await this.get<{ root: GoalTreeNode }>("/api/goals")).root; }
   async goalTreeWithRetired() { return (await this.get<{ root: GoalTreeNode }>("/api/goals?retired=1")).root; }
   goalSpend(id: string, days = 7, funder?: string) { return this.get<GoalSpend>(`/api/goals/${id}/spend${qs({ days: String(days), funder })}`); }
+  goalProduced(id: string, days = 30, limit = 5) { return this.get<GoalProduced>(`/api/goals/${id}/produced${qs({ days: String(days), limit: String(limit) })}`); }
   funderWeek(userId = "me", days = 7) { return this.get<FunderWeekView>(`/api/funders/${userId}/week${qs({ days: String(days) })}`); }
   buildingQueue(id: string) { return this.get<QueueBoard>(`/api/buildings/${id}/queue`); }
   async createGoal(i: In<typeof CreateGoalInput>) { return unwrap<Goal>(await this.post("/api/goals", i), "goal"); }
