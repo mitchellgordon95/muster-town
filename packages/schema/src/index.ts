@@ -1414,7 +1414,8 @@ export const GrantForecast = z.object({
 });
 export type GrantForecast = z.infer<typeof GrantForecast>;
 /** Per size: the median of spent ÷ the size's table value over the steps completed (null: none), and how many. */
-type StepCalibrationRows = Record<StepSize, { ratio: number | null; sample: number }>;
+/** per size: the median spent ÷ table value (`ratio`), the sample, and the mean and 75th percentile (absent on an older server) */
+type StepCalibrationRows = Record<StepSize, { ratio: number | null; sample: number; mean?: number | null; p75?: number | null }>;
 /**
  * What steps really cost against the table (core grant-estimate.ts `stepCalibration`; GET /api/town `stepCalibration`):
  * collective-wide and per building id, over the last `days`; a size with fewer than `minSample` steps prices at 1.0.
@@ -1504,6 +1505,9 @@ export const CalibrationProposal = z.object({
   to: z.number().int().positive().nullable(),
   /** the line that was crossed, in words */
   line: z.string(),
+  /** the hold share a bootstrap of the last 30 days' grants projects with today's table and with the change (0-1; null: no sample, or a split) */
+  holdBefore: z.number().min(0).max(1).nullable().default(null),
+  holdAfter: z.number().min(0).max(1).nullable().default(null),
 });
 export type CalibrationProposal = z.infer<typeof CalibrationProposal>;
 // ---------- end legible delegation steps 9-10 ----------

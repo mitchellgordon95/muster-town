@@ -10,6 +10,7 @@ import { askStructure, grantPricingOf, type Agent, type Ask, type CalibrationPro
 import { refuseMissingStructure } from "./asks.ts";
 import { askOnOwnNeed } from "./ask-verb.ts";
 import { AppError, badRequest } from "./errors.ts";
+import { holdSample, type HoldSample } from "./grant-estimate.ts";
 import { legibleMeasures, type LegibleMeasures } from "./measures.ts";
 import { holderOf } from "./permissions.ts";
 import { createSchedule } from "./schedules.ts";
@@ -62,30 +63,113 @@ function crossedLines(m: LegibleMeasures): string[] {
   return out;
 }
 
+/** Draws per grant in the hold projection; the seed is fixed so every candidate table meets the same draws. */
+const HOLD_DRAWS = 400;
+const HOLD_SEED = 20261123;
+/** mulberry32: a small deterministic PRNG, so the same data always projects the same share. */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+/**
+ * The share of grants a table would hold (gr_1ilvotnzta): a bootstrap over the grants funded in the last 30 days, each
+ * with its real step mix. Each draw prices every step at a done step's real spend of its size (spent ÷ size × today's
+ * table, drawn with replacement; a size with no done step spends its price) and holds when the steps' spend passes the
+ * ceiling `table` (× 1 + `margin`) would give. Step spend only: PR-fix and resume sessions booked outside a step are not
+ * in it. Null with no grant to draw from.
+ */
+export function projectHoldShare(sample: HoldSample, today: StepSizeTable, table: StepSizeTable, margin = 0): number | null {
+  if (!sample.mixes.length) return null;
+  const next = rng(HOLD_SEED);
+  let held = 0;
+  for (const mix of sample.mixes) {
+    const ceiling = mix.reduce((n, s) => n + table[s], 0) * (1 + margin);
+    for (let d = 0; d < HOLD_DRAWS; d++) {
+      let spent = 0;
+      for (const s of mix) { const xs = sample.ratios[s]; spent += (xs.length ? xs[Math.floor(next() * xs.length)]! : 1) * today[s]; }
+      if (spent > ceiling) held++;
+    }
+  }
+  return Math.round((held / (sample.mixes.length * HOLD_DRAWS)) * 100) / 100;
+}
+
+/** How hot a size runs: its mean spent ÷ size (a ceiling is a sum, and a sum follows the mean), else its median. */
+const heat = (r: LegibleMeasures["spentOverSize"][StepSize]) => r.mean ?? r.ratio;
+
+/** The smallest raise of `size`, in 10,000 steps up to the next size's price, that projects a hold share at or under the line (null: none does). */
+function smallestRaise(sample: HoldSample, table: StepSizeTable, size: StepSize): { to: number; after: number } | null {
+  const cap = size === "S" ? table.M : size === "M" ? table.L : table.L * 2;
+  for (let to = round10k(table[size]) + 10_000; to <= cap; to += 10_000) {
+    if (to <= table[size]) continue;
+    const after = projectHoldShare(sample, table, { ...table, [size]: to });
+    if (after !== null && after <= PLANNER_LINES.holdShareMax) return { to, after };
+  }
+  return null;
+}
+
+/** The smallest ceiling margin, in 5% steps up to 100%, that projects a hold share at or under the line, with the ceiling tokens it adds over the sample (null: none does). */
+export function cheapestMargin(sample: HoldSample, table: StepSizeTable): { margin: number; after: number; tokens: number } | null {
+  const ceilings = sample.mixes.reduce((n, mix) => n + mix.reduce((k, s) => k + table[s], 0), 0);
+  for (let pct = 5; pct <= 100; pct += 5) {
+    const after = projectHoldShare(sample, table, table, pct / 100);
+    if (after !== null && after <= PLANNER_LINES.holdShareMax) return { margin: pct / 100, after, tokens: Math.round((ceilings * pct) / 100) };
+  }
+  return null;
+}
+
+/** The ceiling tokens a size change adds over the sample: its steps in the sampled mixes × the change. */
+const raiseTokens = (sample: HoldSample, p: CalibrationProposal) => (p.to === null ? 0 : sample.mixes.reduce((n, mix) => n + mix.filter((s) => s === p.size).length, 0) * (p.to - p.from));
+
 /**
  * The one change the town proposes for the crossed lines (null with none crossed). A size outside its band: set it to
- * its table value × its ratio (to the nearest 10,000), the size furthest out first. Holds or adjust asks over their
- * line: raise the hottest size that has a sample (ratio above 1) to its ratio; when that size is L, or no size runs
- * hot, require L steps to split (sizes priced right but steps too big, §7.3's slicing rule).
+ * its table value × its median ratio (to the nearest 10,000), the size furthest out first. Holds or adjust asks over
+ * their line: raise the hottest S or M (by mean spent ÷ size, sample of 3 or more) by the smallest step of 10,000 whose
+ * projected hold share (`projectHoldShare` over `sample`) meets the hold line; with no sample, price it at its mean.
+ * It never proposes a size's current value: when no raise does it, or L runs hottest, or no size runs hot, it requires
+ * L steps to split (sizes priced right but steps too big, §7.3's slicing rule). Each proposal carries the projected
+ * hold share before and after (null without a sample; after is null for a split).
  */
-export function calibrationProposal(m: LegibleMeasures, table: StepSizeTable): CalibrationProposal | null {
+export function calibrationProposal(m: LegibleMeasures, table: StepSizeTable, sample: HoldSample | null = null): CalibrationProposal | null {
   const L = PLANNER_LINES;
   const lines = crossedLines(m);
   if (!lines.length) return null;
+  const holdBefore = sample ? projectHoldShare(sample, table, table) : null;
+  const change = (size: StepSize, to: number, after?: number | null): CalibrationProposal => ({
+    kind: "step-size", change: to > table[size] ? "raise" : "lower", size, from: table[size], to, line: lines[0]!,
+    holdBefore, holdAfter: after !== undefined ? after : sample ? projectHoldShare(sample, table, { ...table, [size]: to }) : null,
+  });
   const out = SIZES.filter((s) => { const r = m.spentOverSize[s]; return r.ratio !== null && r.sample >= L.sizeMinSample && (r.ratio < L.sizeRatioLow || r.ratio > L.sizeRatioHigh); })
     .sort((a, b) => Math.abs(m.spentOverSize[b].ratio! - 1) - Math.abs(m.spentOverSize[a].ratio! - 1));
-  if (out.length) {
-    const s = out[0]!, r = m.spentOverSize[s].ratio!;
-    return { kind: "step-size", change: r > 1 ? "raise" : "lower", size: s, from: table[s], to: round10k(table[s] * r), line: lines[0]! };
+  for (const s of out) {
+    const to = round10k(table[s] * m.spentOverSize[s].ratio!);
+    if (to !== table[s]) return change(s, to);
   }
-  const hot = SIZES.filter((s) => (m.spentOverSize[s].ratio ?? 0) > 1 && m.spentOverSize[s].sample >= 3).sort((a, b) => m.spentOverSize[b].ratio! - m.spentOverSize[a].ratio!)[0];
-  if (hot && hot !== "L") return { kind: "step-size", change: "raise", size: hot, from: table[hot], to: round10k(table[hot] * m.spentOverSize[hot].ratio!), line: lines[0]! };
-  return { kind: "step-size", change: "split", size: "L", from: table.L, to: null, line: lines[0]! };
+  const hot = SIZES.filter((s) => (heat(m.spentOverSize[s]) ?? 0) > 1 && m.spentOverSize[s].sample >= 3).sort((a, b) => heat(m.spentOverSize[b])! - heat(m.spentOverSize[a])!)[0];
+  if (hot && hot !== "L") {
+    // the step-only bootstrap already under the line explains none of the holds: no raise is priced from it
+    if (sample?.mixes.length && holdBefore !== null && holdBefore > L.holdShareMax) {
+      const r = smallestRaise(sample, table, hot);
+      if (r) return change(hot, r.to, r.after);
+    } else {
+      const to = round10k(table[hot] * heat(m.spentOverSize[hot])!);
+      if (to > table[hot]) return change(hot, to);
+    }
+  }
+  return { kind: "step-size", change: "split", size: "L", from: table.L, to: null, line: lines[0]!, holdBefore, holdAfter: null };
 }
 
-/** The proposal as one sentence: "Raise M from 150,000 to 210,000 tokens." / "Require every L step to be split in two." */
+const pct = (x: number | null) => (x === null ? "none" : `${Math.round(x * 100)}%`);
+
+/** The proposal as one sentence: "Raise S from 50,000 to 120,000 tokens. Projected hold share 46% → 23%." / "Require every L step to be split in two." */
 function proposalSentence(p: CalibrationProposal): string {
-  return p.change === "split" ? `Require every ${p.size} step to be split in two.` : `${p.change === "raise" ? "Raise" : "Lower"} ${p.size} from ${fmt(p.from)} to ${fmt(p.to!)} tokens.`;
+  const head = p.change === "split" ? `Require every ${p.size} step to be split in two.` : `${p.change === "raise" ? "Raise" : "Lower"} ${p.size} from ${fmt(p.from)} to ${fmt(p.to!)} tokens.`;
+  return p.holdBefore !== null && p.holdBefore !== undefined && p.holdAfter !== null && p.holdAfter !== undefined ? `${head} Projected hold share ${pct(p.holdBefore)} → ${pct(p.holdAfter)}.` : head;
 }
 
 const liveCalibrationAsk = (world: World) => world.asks.first("targetKind = 'rule' AND targetId = ? AND status IN ('open', 'deferred')", [CALIBRATION_TARGET]);
@@ -96,9 +180,18 @@ function calibrationBrief(world: World, at: Date): string {
   const table = grantPricingOf(world.town.get()).stepSizes;
   const L = PLANNER_LINES;
   const lines = crossedLines(m);
-  const p = calibrationProposal(m, table);
-  const size = (s: StepSize) => { const r = m.spentOverSize[s]; return r.ratio === null ? `${s} no completed step` : `${s} ${r.ratio.toFixed(2)}× over ${r.sample} steps`; };
-  const pct = (x: number | null) => (x === null ? "none" : `${Math.round(x * 100)}%`);
+  const sample = holdSample(world, at);
+  const p = calibrationProposal(m, table, sample);
+  const size = (s: StepSize) => {
+    const r = m.spentOverSize[s];
+    if (r.ratio === null) return `${s} no completed step`;
+    const more = [r.mean != null && `mean ${r.mean.toFixed(2)}×`, r.p75 != null && `p75 ${r.p75.toFixed(2)}×`].filter(Boolean).join(", ");
+    return `${s} median ${r.ratio.toFixed(2)}×${more ? `, ${more}` : ""} over ${r.sample} steps`;
+  };
+  const margin = p && p.change !== "split" && p.holdBefore !== null ? cheapestMargin(sample, table) : null;
+  const projected = p?.holdBefore != null
+    ? `Projected hold share, a bootstrap of the ${sample.mixes.length} grants funded in 30 days with their real step mixes (step spend only): ${pct(p.holdBefore)} with today's table${p.holdAfter != null ? `, ${pct(p.holdAfter)} with the change (it adds ${fmt(raiseTokens(sample, p))} ceiling tokens over those grants)` : ""}.${margin ? ` A ${Math.round(margin.margin * 100)}% margin on every ceiling instead would project ${pct(margin.after)} and add ${fmt(margin.tokens)} ceiling tokens${margin.tokens < raiseTokens(sample, p!) ? ": cheaper, but the table has no margin to adopt, so it is for the card's words only" : ""}.` : ""}`
+    : null;
   return [
     `## Calibration data (computed ${stamp(at)})`,
     `Lines: a size spending outside ${L.sizeRatioLow}-${L.sizeRatioHigh}× its table value over at least ${L.sizeMinSample} completed steps; more than ${Math.round(L.holdShareMax * 100)}% of the grants closed in ${m.windowDays} days holding before they closed; more than ${L.topUpsPerGrantMax} adjust asks per grant funded in ${m.windowDays} days.`,
@@ -109,6 +202,7 @@ function calibrationBrief(world: World, at: Date): string {
     `Sessions per completed step: median ${m.sessionsPerStep.median ?? "none"} over ${m.sessionsPerStep.steps} steps. At gates now: ${m.heldAtGates.grants} grants holding ${fmt(m.heldAtGates.tokens)} tokens${m.heldAtGates.oldestHours !== null ? `, the oldest for ${m.heldAtGates.oldestHours} h` : ""}.`,
     `Crossed: ${lines.length ? lines.join("; ") : "none"}.`,
     `Proposed change: ${p ? proposalSentence(p) : "none"}`,
+    ...(projected ? [projected] : []),
   ].join("\n");
 }
 
@@ -135,7 +229,7 @@ const CALIBRATION_RUN_PROMPT = `Weekly calibration run (you are the Planner, doc
 1. Read "## Calibration data" below: the measures, the lines, which are crossed and the town's one proposed change (\`calibrate\` with no arguments reads them again now). If nothing is crossed, submit_report at once (verdict stop) and end.
 2. Otherwise call \`calibrate\` with title, body and recommendation. It files one policy ask with the branches Adopt and Keep as is and the town's proposed change. The body is the card a human reads: sentences of at most 20 words, no ids, no semicolons, no parentheses. Say "adjust asks", never "top-ups". Write it as:
 Rule: the change as one sentence, for example "Price an M step at 190,000 tokens."
-The data: which line was crossed, by how much, over how many steps or grants.
+The data: which line was crossed, by how much, over how many steps or grants, and the projected hold share before and after the change.
 What I did: I applied nothing. The table stays as it is until you decide.
 Reversing it: what changing it back costs.
 If you adopt: what changes for the next proposals.
@@ -176,7 +270,7 @@ export function calibrate(world: World, me: Agent, input: { title?: string; body
   const live = liveCalibrationAsk(world);
   if (live) throw new AppError("conflict", `A calibration ask already waits for a human (${live.id}): file at most one.`);
   const table = grantPricingOf(world.town.get()).stepSizes;
-  const proposal = calibrationProposal(legibleMeasures(world, at), table);
+  const proposal = calibrationProposal(legibleMeasures(world, at), table, holdSample(world, at));
   if (!proposal) throw new AppError("conflict", "No line is crossed: there is nothing to propose. submit_report (verdict stop).");
   const branches = [{ label: "Adopt", action: ADOPT }, { label: "Keep as is", action: "keep" }];
   const card = { body: input.body, recommendation: input.recommendation, claims: [], branches, targetKind: "rule" };

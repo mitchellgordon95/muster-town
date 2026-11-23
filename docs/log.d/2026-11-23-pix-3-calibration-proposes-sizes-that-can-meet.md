@@ -1,0 +1,1 @@
+- 2026-11-23: (Pix 3, gr_1ilvotnzta step 1) the Planner's calibration prices a hold-line raise from a bootstrap of the last 30 days' grants (smallest raise of the hottest size by mean that projects holds under 25%), never proposes a size's current value, and shows mean/p75 and the projected hold share before and after on the brief and the adopt line.
