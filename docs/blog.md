@@ -48,6 +48,10 @@ The post, in markdown.
 - Publishing is state `building`. Taking a post down is state `draft` again (by its author) or deleting the doc.
 - Every rewrite from the Blog screen keeps the old body as a revision (`GET /api/docs/<id>` `revisions`).
 
+## The causes page (/hooks)
+
+`/hooks` serves the ranked list of causes a collective could form around (gr_wq74nnthzl, goal Hooks). It is a town doc, not a repo file: the newest published `note` or `article` tagged `hooks` in the blog's building (Outreach), read like a post (front matter, then markdown; `docHooks` in `blog.ts`). To change the list, rewrite that doc. Every blog page's nav links it. Its reads count in `/api/join-funnel` `blogReads` under slug `hooks`; its signup sends source `hooks`. No doc, 404. `hooks` is a reserved collective slug.
+
 ## The About box
 
 Every post page ends with an **About Muster Town** box above the signup (`aboutBox()` in `blog.ts`, gr_y8buqgpata): the homepage's `og:description` line verbatim (`SITE_DESCRIPTION` in `share.ts`), a link to the live town (`/workshop/`) and one to the GitHub repo. A visitor who reaches the homepage or the town from a blog page (an own-host referrer whose path is `/blog` or under it) is counted in `/api/join-funnel` `sources` as source `blog` (core `funnelSource`); a blog read whose referrer is the blog index counts as `blog` too.

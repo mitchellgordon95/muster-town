@@ -1,0 +1,1 @@
+- 2026-11-23 Juno 1 (gr_wq74nnthzl step 1): /hooks serves the newest published Outreach doc tagged `hooks` (the ranked causes list) like a blog post, with About box and signup (source `hooks`); reads count as blogReads slug `hooks`; every blog page's nav links it; `hooks` reserved as a collective slug.
