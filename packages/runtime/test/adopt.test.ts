@@ -171,17 +171,75 @@ describe("redeploy without draining", () => {
     expect(s.world.sessions.require(s.session.id)).toMatchObject({ status: "error", error: "desk lost after restart" });
   });
 
-  test("a server that starts without a hand-over (a crash) still orphans running desk sessions; a stale hand-over file is ignored", async () => {
+  test("a stale or missing hand-over file means an unclean restart (null); a fresh one lists its sessions once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "adopt-"));
+    const { writeFileSync } = await import("node:fs");
+    expect(takeAdoptable(dir, "c")).toBeNull();
+    writeFileSync(adoptPath(dir, "c"), JSON.stringify({ sessions: ["se_1"], at: new Date(Date.now() - ADOPT_MAX_AGE_MS - 1000).toISOString() }));
+    expect(takeAdoptable(dir, "c")).toBeNull();
+    expect(existsSync(adoptPath(dir, "c"))).toBe(false);
+    writeFileSync(adoptPath(dir, "c"), JSON.stringify({ sessions: ["se_1"], at: new Date().toISOString() }));
+    expect(takeAdoptable(dir, "c")).toEqual(["se_1"]);
+    expect(takeAdoptable(dir, "c")).toBeNull();
+    writeFileSync(adoptPath(dir, "c"), JSON.stringify({ sessions: [], at: new Date().toISOString() }));
+    expect(takeAdoptable(dir, "c")).toEqual([]);
+  });
+});
+
+describe("unclean restart (no hand-over: a crash, an OOM kill, a redeploy that died mid-build)", () => {
+  test("crash restart: a running desk session is adopted on probation, not cut by the reconcile", async () => {
     const s = await running();
+    const next = restart(s);
+    expect(next.adopted).toEqual([s.session.id]);
+    expect(next.reconciled).toEqual({ orphanedSessions: [], requeuedAssignments: [] });
+    expect(s.world.sessions.require(s.session.id).status).toBe("running");
+    expect(s.world.assignments.require(s.asg.id).status).toBe("active");
+    expect(next.isWorking(s.noor.id)).toBe(true);
+    const ev = s.world.events.recent({ limit: 50 }).find((e) => (e.payload as { adopted?: string[] }).adopted);
+    expect(ev?.text).toMatch(/after an unclean restart \(no hand-over\)/);
+    expect(ev?.payload).toMatchObject({ handedOver: false });
+  });
+
+  test("desk polls: once heard it is a normal adopted session and finishes with its own report", async () => {
+    const s = await running();
+    const next = restart(s, { adoptGraceMs: 60_000 });
+    s.clock.t += 10_000;
+    next.deskSeen(s.noor.id, s.session.id);
+    // past the grace: heard, so the probation rule no longer applies
+    s.clock.t += 120_000;
+    next.deskSeen(s.noor.id, s.session.id);
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id).status).toBe("running");
+    expect(s.world.sessions.count("agentId = ? AND status = 'running'", [s.noor.id])).toBe(1);
+    const ended = await next.finishWorkSession(s.session.id, { counts: { input: 10, output: 500, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 }, turns: 4 });
+    expect(ended).toMatchObject({ status: "done", error: null });
+    expect(next.isWorking(s.noor.id)).toBe(false);
+  });
+
+  test("desk silent: never heard within the grace, it is cut as the reconcile would have (interrupted, re-queued, desk process killed)", async () => {
+    const s = await running();
+    const desk = new FakeDesk();
+    const killed: string[] = [];
+    Object.assign(desk, { killOrphan: async (agentId: string, sid: string) => { killed.push(`${agentId}:${sid}`); } });
+    const next = restart(s, { deskBackend: desk, adoptGraceMs: 60_000 });
+    // within the grace, even with no desk heard: kept
+    s.clock.t += 30_000;
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id).status).toBe("running");
+    s.clock.t += 31_000;
+    await next.tickOnce();
+    expect(s.world.sessions.require(s.session.id)).toMatchObject({ status: "interrupted", error: "cut by restart" });
+    expect(s.world.assignments.require(s.asg.id).status).not.toBe("active");
+    expect(killed).toEqual([`${s.noor.id}:${s.session.id}`]);
+    expect(s.world.events.recent({ limit: 50 }).some((e) => (e.payload as { probation?: boolean }).probation)).toBe(true);
+  });
+
+  test("a clean hand-over adopts only the sessions it lists: no probation for the others", async () => {
+    const s = await running();
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(adoptPath(s.repoRoot, dockerSafe("climate")), JSON.stringify({ sessions: [], at: new Date().toISOString() }));
     const next = restart(s);
     expect(next.adopted).toEqual([]);
     expect(next.reconciled.orphanedSessions).toEqual([s.session.id]);
-    const dir = mkdtempSync(join(tmpdir(), "adopt-"));
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(adoptPath(dir, "c"), JSON.stringify({ sessions: ["se_1"], at: new Date(Date.now() - ADOPT_MAX_AGE_MS - 1000).toISOString() }));
-    expect(takeAdoptable(dir, "c")).toEqual([]);
-    writeFileSync(adoptPath(dir, "c"), JSON.stringify({ sessions: ["se_1"], at: new Date().toISOString() }));
-    expect(takeAdoptable(dir, "c")).toEqual(["se_1"]);
-    expect(takeAdoptable(dir, "c")).toEqual([]);
   });
 });

@@ -74,6 +74,8 @@ export interface RuntimeOptions {
   adoptedSilentMs?: number;
   /** how long an adopted desk session may stay silent before it counts as lost even when no desk reaches the town (tests). Default ADOPTED_LOST_MS. */
   adoptedLostMs?: number;
+  /** how long a desk session adopted without a hand-over has to be heard before it is cut (tests). Default ADOPT_GRACE_MS. */
+  adoptGraceMs?: number;
   /** redeploy knobs (tests inject the command runner and `exit`; never the real process.exit) */
   redeploy?: Pick<RedeployDeps, "run" | "exit" | "exitDelayMs" | "drainTimeoutMs" | "drainPollMs" | "againDelayMs" | "drainWrapUpMs" | "drainMeetingMs" | "drainManageMs">;
   /** the docker desk backend probed when `desks.backend` is auto/docker (tests inject a fake); default a DockerBackend */
@@ -101,6 +103,12 @@ export const ADOPTED_SILENT_MS = 5 * 60_000;
 export const ADOPTED_LOST_MS = 30 * 60_000;
 /** some desk (any running desk session's control poll or activity) was heard this recently: the town is reachable from desks */
 export const DESKS_HEARD_MS = 60_000;
+/**
+ * After an unclean restart (no hand-over file: a crash, an OOM kill, a redeploy that died mid-build, 2026-11-22 18:25Z cut 8 desk
+ * sessions) every running desk work session is adopted on probation: its desk polls control every 3 s, so one not heard within this
+ * long is gone and is cut as the startup reconcile would have cut it ("cut by restart", interrupted, its desk's process killed).
+ */
+export const ADOPT_GRACE_MS = 2 * 60_000;
 
 /** Work sessions a hosted collective runs at once (host sessions only: town tools + web, no shell). */
 export const HOSTED_MAX_RUNNING = 1;
@@ -150,7 +158,7 @@ export interface Runtime {
   redeploy(o: RedeployRequest): RedeployResult;
   /** What the startup reconcile did (orphaned sessions ended, active assignments re-queued). */
   readonly reconciled: { orphanedSessions: string[]; requeuedAssignments: string[] };
-  /** Desk work sessions the previous server handed over at its restart that this one adopted (session ids). */
+  /** Desk work sessions this server adopted at startup (session ids): those the previous server handed over, or after an unclean restart every running one (on probation). */
   readonly adopted: string[];
 }
 
@@ -259,13 +267,19 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
   const adoptedSeen = new Map<string, number>();
   /** when any desk session last polled control or posted activity (ms; 0 = none since this server started) */
   let deskHeardAt = 0;
+  /** sessions adopted without a hand-over whose desk hasn't been heard yet: cut after ADOPT_GRACE_MS */
+  const probation = new Set<string>();
   const heardDesk = (sessionId: string) => {
     deskHeardAt = now().getTime();
     if (adoptedSeen.has(sessionId)) adoptedSeen.set(sessionId, deskHeardAt);
+    probation.delete(sessionId);
   };
   const adopted: string[] = [];
   if (!hosted) {
-    for (const sid of takeAdoptable(ctx.repoRoot, dockerSafe(collectiveSlug))) {
+    const handedOver = takeAdoptable(ctx.repoRoot, dockerSafe(collectiveSlug));
+    // no hand-over: the previous server died uncleanly, but its desks (their own containers or Machines) likely kept running
+    const candidates = handedOver ?? world.sessions.where("status = 'running' AND backend = 'docker' AND purpose = 'work'").map((s) => s.id);
+    for (const sid of candidates) {
       const s = world.sessions.get(sid);
       if (!s || s.status !== "running" || s.backend !== "docker" || s.purpose !== "work" || ctx.live.has(s.agentId)) continue;
       const input = new InputChannel();
@@ -277,11 +291,15 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
         ctx.deskAllocations.set(s.id, funding.allocationId);
       } catch (e) { console.log("[runtime] adopt funding:", e instanceof Error ? e.message : e); }
       adoptedSeen.set(s.id, now().getTime());
+      if (!handedOver) probation.add(s.id);
       adopted.push(s.id);
     }
     if (adopted.length) {
       const names = adopted.map((sid) => world.nameOf(world.sessions.require(sid).agentId)).join(", ");
-      world.events.append({ type: "system", text: `Adopted ${adopted.length} desk session(s) that kept running through the restart: ${names}`, payload: { adopted } });
+      const text = handedOver
+        ? `Adopted ${adopted.length} desk session(s) that kept running through the restart: ${names}`
+        : `Adopted ${adopted.length} desk session(s) after an unclean restart (no hand-over); each is cut unless its desk is heard within ${Math.round((opts.adoptGraceMs ?? ADOPT_GRACE_MS) / 1000)} s: ${names}`;
+      world.events.append({ type: "system", text, payload: { adopted, handedOver: !!handedOver } });
     }
   }
   let reconciled: Runtime["reconciled"] = { orphanedSessions: [], requeuedAssignments: [] };
@@ -536,6 +554,17 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
    * (no control poll or activity for ADOPTED_SILENT_MS while other desks are heard, or ADOPTED_LOST_MS when none is) as lost,
    * booking nothing, and put its assignment back in the queue.
    */
+  /** an adopted session ended as lost: its active assignment back to pending, its body idle */
+  function requeue(agentId: string, assignmentId: string | null | undefined): void {
+    const asg = assignmentId ? world.assignments.get(assignmentId) : undefined;
+    if (asg?.status === "active") {
+      try {
+        setAssignmentStatus(world, asg.id, "pending");
+        if (world.agents.get(agentId)?.currentAssignmentId === asg.id) world.agents.patch(agentId, { currentAssignmentId: null });
+      } catch (e) { log("re-queue lost desk session")(e); }
+    }
+    if (world.agents.get(agentId)?.status === "working") world.setStatus(agentId, "idle");
+  }
   function watchAdopted(): void {
     const t = now().getTime();
     const desksReachUs = t - deskHeardAt < DESKS_HEARD_MS;
@@ -543,21 +572,31 @@ export function startRuntime(opts: RuntimeOptions): Runtime {
     for (const [agentId, l] of [...ctx.live]) {
       if (!l.adopted) continue;
       const s = world.sessions.get(l.sessionId);
-      if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); continue; }
+      if (s?.status !== "running") { ctx.live.delete(agentId); adoptedSeen.delete(l.sessionId); probation.delete(l.sessionId); continue; }
+      if (probation.has(l.sessionId)) {
+        // adopted without a hand-over and never heard: its desk didn't survive the crash. Cut it as the reconcile would have
+        if (t - (adoptedSeen.get(l.sessionId) ?? t) < (opts.adoptGraceMs ?? ADOPT_GRACE_MS)) continue;
+        probation.delete(l.sessionId);
+        adoptedSeen.delete(l.sessionId);
+        dropLive(agentId, "cut by restart", "interrupted");
+        requeue(agentId, s.assignmentId);
+        if (s.backend === "docker" && orphanKiller?.killOrphan) {
+          reaping.add(agentId);
+          void track(orphanKiller.killOrphan(agentId, s.id).catch(log("kill orphan")).finally(() => {
+            reaping.delete(agentId);
+            if (!stopped) scheduleWork();
+          }));
+        }
+        world.events.append({ type: "system", agentId, text: `${world.nameOf(agentId)}'s desk session was not heard after the unclean restart; cut and re-queued`, payload: { sessionId: s.id, adoptedLost: true, probation: true } });
+        continue;
+      }
       if (t - (adoptedSeen.get(l.sessionId) ?? t) < silentMs) continue;
       adoptedSeen.delete(l.sessionId);
       // its desk is likely frozen (11-12: a test run filled its memory): stop it before the re-queued work lands on it. The desk
       // is resolved before dropLive retires the fork and frees its slot
       try { orphanKiller?.stopFrozen?.(agentId, "its adopted session went silent"); } catch (e) { log("stop silent desk")(e); }
       dropLive(agentId, "desk lost after restart");
-      const asg = s.assignmentId ? world.assignments.get(s.assignmentId) : undefined;
-      if (asg?.status === "active") {
-        try {
-          setAssignmentStatus(world, asg.id, "pending");
-          if (world.agents.get(agentId)?.currentAssignmentId === asg.id) world.agents.patch(agentId, { currentAssignmentId: null });
-        } catch (e) { log("re-queue lost desk session")(e); }
-      }
-      if (world.agents.get(agentId)?.status === "working") world.setStatus(agentId, "idle");
+      requeue(agentId, s.assignmentId);
       world.events.append({ type: "system", agentId, text: `${world.nameOf(agentId)}'s adopted desk session went silent after the restart; ended and re-queued`, payload: { sessionId: s.id, adoptedLost: true } });
     }
   }

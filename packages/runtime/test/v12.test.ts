@@ -29,7 +29,8 @@ describe("startup reconcile", () => {
     const { world, by, sdk } = setup(async function* () { yield result(1, 0); });
     const mei = by("Mei");
     const asg = world.ops.createWork(null, mei.id, { title: "Orphan" });
-    const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: asg.id, backend: "docker" });
+    // a host session dies with the server's process (desk sessions are adopted: adopt.test.ts)
+    const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: asg.id, backend: "host" });
     expect(world.assignments.require(asg.id).status).toBe("active");
     // a second runtime on the same world = a restart: no live children
     const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: new HostBackend() });
@@ -44,15 +45,19 @@ describe("startup reconcile", () => {
     }
   });
 
-  test("a docker orphan's leftover desk process is killed (the container outlives the server)", async () => {
+  test("a docker session adopted after a crash whose desk stays silent: its leftover desk process is killed (the container outlives the server)", async () => {
     const { world, by, sdk } = setup(async function* () { yield result(1, 0); });
     const mei = by("Mei"), noor = by("Noor");
     const s = world.ops.startSession(mei.id, { purpose: "work", model: "m", assignmentId: world.ops.createWork(null, mei.id, {}).id, backend: "docker" });
     world.ops.startSession(noor.id, { purpose: "work", model: "m", backend: "host" });
     const desk = new FakeDesk();
-    const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: desk });
+    const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: desk, adoptGraceMs: 0 });
     try {
+      await rt.tickOnce();
       await vi.waitFor(() => expect(desk.orphansKilled).toEqual([`${mei.id} ${s.id}`]));
+      // its assignment went back to the queue and starts again once the orphan is gone
+      await vi.waitFor(() => expect(desk.execs).toHaveLength(1));
+      desk.execs[0].exit(0);
     } finally {
       await rt.stop();
     }
@@ -67,8 +72,10 @@ describe("startup reconcile", () => {
     const killed = new Promise<void>((r) => { release = r; });
     const desk = new FakeDesk();
     desk.killOrphan = async (agentId: string, sessionId: string) => { desk.orphansKilled.push(`${agentId} ${sessionId}`); await killed; };
-    const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: desk });
+    const rt = startRuntime({ world, mcpUrl: "http://127.0.0.1:4321/mcp", sdk, intervalMs: 0, exportDir: false, deskBackend: desk, adoptGraceMs: 0 });
     try {
+      // adopted on probation (no hand-over); never heard, so the first tick cuts it and kills its desk process
+      await rt.tickOnce();
       expect(world.assignments.require(asg.id).status).toBe("pending");
       await rt.tickOnce();
       await new Promise((r) => setTimeout(r, 20));
