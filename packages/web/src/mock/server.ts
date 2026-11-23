@@ -2,7 +2,7 @@
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type GoalProduced, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, DayLimits, WindowLimits, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
 import { ApiError } from "../api";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
@@ -1121,7 +1121,7 @@ export class MockApi implements Api {
   }
   // the Balance tab's "Day by day" chart (core finance-daily.ts): `usedBank` spread over 30 UTC days and the toy's
   // buildings (a weekday wave, so the bars move), one credit a day; the rows sum to usedBank exactly, so the check is ✓
-  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck" | "split" | "utilization"> {
+  private toyDaily(usedBank: number, inflow: number): Pick<Finance, "daily" | "dailyCheck" | "split" | "utilization" | "limitsCheck" | "limitsNote"> {
     const DAY = 86_400_000, days = 30, today = Date.parse(now().slice(0, 10) + "T00:00:00.000Z");
     const bs = this.sim.buildings.filter((b) => b.kind !== "town-hall");
     const weights = Array.from({ length: days }, (_, i) => 1 + 0.6 * Math.sin(i / 2.3) + (i % 7 === 5 ? -0.5 : 0));
@@ -1147,14 +1147,37 @@ export class MockApi implements Api {
     });
     // each toy day's credit lasts until the next day: what that day did not draw expires on the next row (gr_z13gmx54su)
     rows.forEach((r, i) => { r.expired = i === 0 ? 0 : Math.max(0, rows[i - 1]!.credited - rows[i - 1]!.used); });
+    // what held spending back (gr_6c24p5uy01): today's desks, a few desk-hours busy a day, the exploration and grant
+    // tokens taken from byLane (so the check closes), a toy cap reached on the days that explored the most, held today only
+    const desks = bs.reduce((s, b) => s + b.headcount, 0);
+    const explore = rows.map((r) => r.byLane.exploration).sort((a, z) => a - z);
+    const cap = explore[Math.floor(explore.length * 0.6)]!;
+    const limits: DayLimits[] = rows.map((r, i) => {
+      const last = i === days - 1, hours = last ? Math.max(1, new Date(now()).getUTCHours()) : 24;
+      const reached = r.byLane.exploration >= cap;
+      return {
+        deskHoursBusy: Math.round(desks * hours * (0.02 + 0.03 * Math.abs(Math.sin(i / 2))) * 100) / 100, deskHours: desks * hours, desks,
+        exploration: { tokens: r.byLane.exploration, cap, capGoalId: "gl_town", reachedAt: reached ? `${r.day}T${String(9 + (i % 12)).padStart(2, "0")}:15:00.000Z` : null },
+        grantTokens: r.byLane.grant, grantsQueued: r.byLane.grant > 0 ? 1 + (i % 3) : 0, held: last ? 2 : null,
+      };
+    });
+    const withLimits = rows.map((r, i) => ({ ...r, limits: limits[i]! }));
+    const windowLimits = (k: number): WindowLimits => {
+      const tail = withLimits.slice(-k), busy = tail.reduce((s, r) => s + r.limits.deskHoursBusy, 0), avail = tail.reduce((s, r) => s + r.limits.deskHours, 0);
+      return { days: k, from: tail[0]!.day, to: tail[k - 1]!.day, deskHoursBusy: Math.round(busy * 100) / 100, deskHours: Math.round(avail * 100) / 100, deskShare: avail ? Math.round((busy / avail) * 1e4) / 1e4 : 0, capDays: tail.filter((r) => r.limits.exploration.reachedAt).length, grantDays: tail.filter((r) => r.limits.grantTokens > 0).length };
+    };
+    const utilization = toyUtilization(rows);
+    utilization.d7.limits = windowLimits(7); utilization.d30.limits = windowLimits(30);
     const totals = new Map<string, number>();
     for (const r of rows) for (const [id, t] of Object.entries(r.byBuilding)) totals.set(id, (totals.get(id) ?? 0) + t);
     const buildings = [...totals].map(([id, tokens]) => ({ id, name: bs.find((b) => b.id === id)?.name ?? id, tokens })).sort((a, z) => z.tokens - a.tokens);
     return {
-      daily: { days, from: rows[0]!.day, to: rows[days - 1]!.day, rows, buildings, usedBefore: 0, undatedUsed: 0, usageLedgerInWindow: usedBank },
+      daily: { days, from: rows[0]!.day, to: rows[days - 1]!.day, rows: withLimits, buildings, usedBefore: 0, undatedUsed: 0, usageLedgerInWindow: usedBank },
       dailyCheck: { ok: true, diff: 0, rowsUsed: usedBank, usedSinceStart: usedBank, buildingDiff: 0, laneDiff: 0, identity: "Σ daily used = Bank used since the window start; each day's buildings sum to its used; each day's lanes sum to its session spend" },
       split: toySplit(rows),
-      utilization: toyUtilization(rows),
+      utilization,
+      limitsCheck: { ok: true, diff: 0, overDays: 0, noEnd: 0, identity: "each day's limits exploration and grant tokens = its byLane; desk-hours busy ≤ available" },
+      limitsNote: "Headcounts and the exploration cap are not versioned: every day uses today's desks and today's cap. Held work is today's only. Host sessions (managers, the Secretary) use no desk.",
     };
   }
   // Paid in cash, last 30 days (gr_qggxximtru step 2) as core finance-cash.ts counts it: the toy fees prorated over the

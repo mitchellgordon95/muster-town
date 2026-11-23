@@ -1,8 +1,8 @@
 // gr_epbcgb0hvs step 1 (kr_86jpcp8x0w, kr_l0zj80iz8z): the Balance tab's "Day by day" chart over GET /api/finance `daily`
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { Finance, FinanceDaily, FinanceSplit, FinanceUtilization, SplitWindow, UtilizationWindow } from "../src/api";
-import { DailyChart, axisLabel, dailyCheckLine, dailyStacks, daySegments, niceMax, splitCheckLine, splitSegments, splitSentence, utilizationCheckLine, utilizationSentence } from "../src/panels/BankDaily";
+import type { DayLimits, Finance, FinanceDaily, FinanceSplit, FinanceUtilization, SplitWindow, UtilizationWindow, WindowLimits } from "../src/api";
+import { DailyChart, axisLabel, dailyCheckLine, dailyStacks, daySegments, dayLimitParts, deskPct, limitsCheckLine, limitsSentence, niceMax, splitCheckLine, splitSegments, splitSentence, utilizationCheckLine, utilizationSentence } from "../src/panels/BankDaily";
 
 const ids = ["a", "b", "c", "d", "e", "f"];
 const daily: FinanceDaily = {
@@ -135,5 +135,53 @@ describe("Used share and expired per day", () => {
   it("has no Expired column from an older server", () => {
     const html = renderToStaticMarkup(<DailyChart f={{ daily, dailyCheck: check } as Finance} />);
     expect(html).not.toContain("<th>Expired</th>");
+  });
+});
+
+// gr_6c24p5uy01 step 2 (kr_k9eiapj5ka, kr_whv4vsbi6q): what held spending back, per window and per day
+describe("What held spending back", () => {
+  const wl = (days: number, deskShare: number, capDays: number, grantDays: number): WindowLimits => ({ days, from: "2026-11-11", to: "2026-11-17", deskHoursBusy: 10, deskHours: 1000, deskShare, capDays, grantDays });
+  const day = (o: Partial<DayLimits> = {}): DayLimits => ({ deskHoursBusy: 2.5, deskHours: 576, desks: 24, exploration: { tokens: 512_000, cap: 500_000, capGoalId: "gl_town", reachedAt: "2026-11-21T14:05:31.000Z" }, grantTokens: 0, grantsQueued: 0, held: null, ...o });
+  const win = (days: number, limits: WindowLimits): UtilizationWindow => ({ days, from: "2026-11-11", to: "2026-11-17", credits: 1, credited: 1000, used: 100, expired: 900, left: 0, usedShare: 0.1, expiredShare: 0.9, drawnPastSize: 0, durable: 0, limits });
+  const utilization: FinanceUtilization = { d7: win(7, wl(7, 0.012, 6, 5)), d30: win(30, wl(30, 0.004, 20, 1)), check: { ok: true, diff: 0, dailyDiff: 0, identity: "x" } };
+
+  it("says desk use, cap days and grant days for a window", () => {
+    expect(limitsSentence(utilization.d7.limits!, 500_000)).toBe("Desks were busy 1% of the time. Exploration reached its 500,000-a-day cap on 6 of 7 days. Grant work ran on 5 days.");
+    expect(limitsSentence(utilization.d30.limits!, 500_000)).toBe("Desks were busy under 1% of the time. Exploration reached its 500,000-a-day cap on 20 of 30 days. Grant work ran on 1 day.");
+    expect(limitsSentence({ ...wl(7, 0, 0, 0) }, null)).toBe("Desks were busy 0% of the time. Exploration had no daily cap. No grant work ran.");
+    expect(deskPct(0.004)).toBe("under 1%");
+    expect(deskPct(0.236)).toBe("24%");
+  });
+
+  it("says a day's limit: desk use, cap reached or not, grant work, held today", () => {
+    expect(dayLimitParts(day())).toEqual(["desks busy under 1% (2.5 of 576 desk-hours)", "exploration cap reached at 14:05 UTC", "no grant work"]);
+    expect(dayLimitParts(day({ exploration: { tokens: 120_000, cap: 500_000, capGoalId: "gl_town", reachedAt: null }, grantTokens: 1_234_567, held: 3 })))
+      .toEqual(["desks busy under 1% (2.5 of 576 desk-hours)", "exploration 120,000 of its 500,000 cap", "grant work 1,234,567", "3 assignments held now"]);
+    expect(dayLimitParts(day({ exploration: { tokens: 7, cap: null, capGoalId: null, reachedAt: null }, held: 0 }))[1]).toBe("exploration 7, no cap");
+  });
+
+  it("puts a ✓ line from limitsCheck, ✗ with what is off", () => {
+    expect(limitsCheckLine({ limitsCheck: { ok: true, diff: 0, overDays: 0, noEnd: 0, identity: "x" } })!.ok).toBe(true);
+    const bad = limitsCheckLine({ limitsCheck: { ok: false, diff: 12, overDays: 1, noEnd: 0, identity: "x" } })!;
+    expect(bad.text).toContain("tokens off by 12, 1 day over the desk-hours");
+    expect(limitsCheckLine({})).toBeNull();
+  });
+
+  it("renders the sentences, the note, a Limit column and the limit on hover targets", () => {
+    const withLimits: FinanceDaily = { ...daily, rows: [{ ...daily.rows[0]!, limits: day({ grantTokens: 40 }) }, { ...daily.rows[1]!, limits: day({ held: 2 }) }] };
+    const html = renderToStaticMarkup(<DailyChart f={{ daily: withLimits, dailyCheck: check, utilization, limitsCheck: { ok: true, diff: 0, overDays: 0, noEnd: 0, identity: "x" }, limitsNote: "Every day uses today's desks and today's cap." } as Finance} />);
+    expect(html).toContain("What held spending back, last 7 days: Desks were busy 1% of the time. Exploration reached its 500,000-a-day cap on 6 of 7 days. Grant work ran on 5 days.");
+    expect(html).toContain("Last 30 days: Desks were busy under 1% of the time.");
+    expect(html).toContain("Every day uses today&#x27;s desks and today&#x27;s cap.");
+    expect(html).toContain("<th>Limit</th>");
+    expect(html).toContain("<td>desks busy under 1% (2.5 of 576 desk-hours); exploration cap reached at 14:05 UTC; grant work 40</td>");
+    expect(html).toContain("2 assignments held now");
+    expect(html).toContain("2026-11-16: used 150, credited 1,000; desks busy under 1%");
+  });
+
+  it("shows no limits from an older server", () => {
+    const html = renderToStaticMarkup(<DailyChart f={{ daily, dailyCheck: check } as Finance} />);
+    expect(html).not.toContain("<th>Limit</th>");
+    expect(html).not.toContain("What held spending back");
   });
 });

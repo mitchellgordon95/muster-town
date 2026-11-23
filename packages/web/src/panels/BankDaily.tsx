@@ -5,7 +5,7 @@
  * tokens. Hovering (or focusing) a day shows its numbers; the ✓ line under it is `dailyCheck`; a table view sits below.
  */
 import { useState } from "react";
-import type { Finance, FinanceDaily, SplitWindow, UtilizationWindow } from "../api";
+import type { DayLimits, Finance, FinanceDaily, SplitWindow, UtilizationWindow, WindowLimits } from "../api";
 
 /** Fixed categorical order (dark steps of the dataviz palette); "Other" is neutral gray. Colour follows the building's slot, not its day's rank. */
 const SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500"];
@@ -118,6 +118,71 @@ function UtilizationSummary({ f }: { f: Finance }) {
   );
 }
 
+/** A desk share as a whole percent; a share above 0 but under half a percent reads "under 1%". */
+export function deskPct(share: number): string {
+  return share > 0 && share < 0.005 ? "under 1%" : `${Math.round(share * 100)}%`;
+}
+const plural = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+
+/**
+ * What held spending back over a window (gr_6c24p5uy01, kr_k9eiapj5ka): "Desks were busy 1% of the time. Exploration
+ * reached its 500,000-a-day cap on 6 of 7 days. Grant work ran on 5 days." `cap` is today's town cap (null = uncapped).
+ */
+export function limitsSentence(w: WindowLimits, cap: number | null): string {
+  const desk = w.deskHours > 0 ? `Desks were busy ${deskPct(w.deskShare)} of the time.` : "No desks were counted.";
+  const explore = cap === null ? "Exploration had no daily cap." : `Exploration reached its ${n(cap)}-a-day cap on ${w.capDays} of ${w.days} days.`;
+  const grant = w.grantDays === 0 ? "No grant work ran." : `Grant work ran on ${plural(w.grantDays, "day")}.`;
+  return `${desk} ${explore} ${grant}`;
+}
+
+/** A UTC time "14:05" from an ISO stamp. */
+const hhmm = (iso: string) => iso.slice(11, 16);
+
+/**
+ * One day's limit (kr_whv4vsbi6q), as short parts: desk use, the exploration cap (reached at what time, or how much of it
+ * was spent), grant work, and (today only) the work held now.
+ */
+export function dayLimitParts(l: DayLimits): string[] {
+  const share = l.deskHours > 0 ? l.deskHoursBusy / l.deskHours : 0;
+  const parts = [`desks busy ${deskPct(share)} (${l.deskHoursBusy.toFixed(1)} of ${n(Math.round(l.deskHours))} desk-hours)`];
+  const e = l.exploration;
+  parts.push(e.cap === null ? `exploration ${n(e.tokens)}, no cap`
+    : e.reachedAt ? `exploration cap reached at ${hhmm(e.reachedAt)} UTC`
+    : `exploration ${n(e.tokens)} of its ${n(e.cap)} cap`);
+  parts.push(l.grantTokens > 0 ? `grant work ${n(l.grantTokens)}` : "no grant work");
+  if (l.held !== null && l.held > 0) parts.push(`${plural(l.held, "assignment")} held now`);
+  return parts;
+}
+
+/** The ✓ line under the limits sentences: `limitsCheck`. */
+export function limitsCheckLine(f: Pick<Finance, "limitsCheck">): { ok: boolean; text: string } | null {
+  const c = f.limitsCheck;
+  if (!c) return null;
+  const text = "Each day's exploration and grant tokens equal its session spend in those lanes, and no day's busy desk-hours exceed the available ones";
+  if (c.ok) return { ok: true, text };
+  const off = [c.diff ? `tokens off by ${n(c.diff)}` : "", c.overDays ? `${plural(c.overDays, "day")} over the desk-hours` : ""].filter(Boolean).join(", ");
+  return { ok: false, text: `${text}: ${off}` };
+}
+
+const LIMITS_NOTE_FALLBACK = "Past days use today's desks and today's exploration cap.";
+
+/** "What held spending back": a line for 7 and 30 days under the used-share sentences, its ✓ line and a muted note. */
+function LimitsSummary({ f }: { f: Finance }) {
+  const u = f.utilization;
+  if (!u?.d7.limits || !u.d30.limits) return null;
+  const last = f.daily?.rows[f.daily.rows.length - 1]?.limits;
+  const cap = last ? last.exploration.cap : null;
+  const check = limitsCheckLine(f);
+  return (
+    <div className="limits-summary" style={{ marginTop: 6 }}>
+      <p style={{ margin: "2px 0" }}>What held spending back, last 7 days: {limitsSentence(u.d7.limits, cap)}</p>
+      <p style={{ margin: "2px 0" }}>Last 30 days: {limitsSentence(u.d30.limits, cap)}</p>
+      {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
+      <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>{f.limitsNote ?? LIMITS_NOTE_FALLBACK}</div>
+    </div>
+  );
+}
+
 /** The ✓ line under the chart (kr_l0zj80iz8z). */
 export function dailyCheckLine(f: Pick<Finance, "daily" | "dailyCheck">): { ok: boolean; text: string } | null {
   const c = f.dailyCheck, d = f.daily;
@@ -161,6 +226,7 @@ export function DailyChart({ f }: { f: Finance }) {
   const check = dailyCheckLine(f);
   const h = hover === null ? null : d.rows[hover]!;
   const hasExpired = d.rows.some((r) => r.expired !== undefined);
+  const hasLimits = d.rows.some((r) => r.limits);
   const labelEvery = Math.ceil(d.rows.length / 6);
   return (
     <div className="daily-chart" aria-label="Day by day: tokens used and credited per UTC day">
@@ -198,7 +264,7 @@ export function DailyChart({ f }: { f: Finance }) {
           <polyline points={line} fill="none" stroke={CREDIT} strokeWidth={2} strokeLinejoin="round" />
           {d.rows.map((r, i) => r.credited > 0 && hover === i ? <circle key={r.day} cx={x(i)} cy={y(r.credited)} r={4} fill={CREDIT} stroke="var(--panel)" strokeWidth={2} /> : null)}
           {d.rows.map((r, i) => <rect key={r.day} x={L + i * slot} y={T} width={slot} height={ph} fill="transparent" tabIndex={0}
-            aria-label={`${r.day}: used ${n(r.used)}, credited ${n(r.credited)}${r.expired !== undefined ? `, expired ${n(r.expired)}` : ""}`}
+            aria-label={`${r.day}: used ${n(r.used)}, credited ${n(r.credited)}${r.expired !== undefined ? `, expired ${n(r.expired)}` : ""}${r.limits ? `; ${dayLimitParts(r.limits).join(", ")}` : ""}`}
             onMouseEnter={() => setHover(i)} onFocus={() => setHover(i)} onBlur={() => setHover(null)} />)}
         </svg>
         {h ? (
@@ -207,6 +273,7 @@ export function DailyChart({ f }: { f: Finance }) {
             <div>Used: <b>{n(h.used)}</b></div>
             <div>Credited: <b>{n(h.credited)}</b></div>
             {hasExpired ? <div>Expired (undrawn): <b>{n(h.expired ?? 0)}</b></div> : null}
+            {h.limits ? <div className="daily-tip-limit">Limit: {dayLimitParts(h.limits).join("; ")}</div> : null}
             {segsOf(h).filter((s) => s.tokens > 0).map((s) => {
               const st = stacks.find((x2) => x2.key === s.key)!;
               return <div key={s.key} className="muted"><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: st.color, marginRight: 4 }} />{st.name}: {n(s.tokens)}</div>;
@@ -216,13 +283,14 @@ export function DailyChart({ f }: { f: Finance }) {
       </div>
       {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
       <UtilizationSummary f={f} />
+      <LimitsSummary f={f} />
       <SplitSummary f={f} />
       {d.undatedUsed > 0 ? <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Not in the bars: {n(d.undatedUsed)} spent from donations straight to buildings, which carry no date.</div> : null}
       <details>
         <summary className="muted" style={{ fontSize: "var(--fs-sm)" }}>The numbers as a table</summary>
         <table className="table">
-          <thead><tr><th>Day (UTC)</th><th>Used</th><th>Credited</th>{hasExpired ? <th>Expired</th> : null}{stacks.map((s) => <th key={s.key}>{s.name}</th>)}</tr></thead>
-          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{hasExpired ? <td>{n(r.expired ?? 0)}</td> : null}{segsOf(r).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
+          <thead><tr><th>Day (UTC)</th><th>Used</th><th>Credited</th>{hasExpired ? <th>Expired</th> : null}{hasLimits ? <th>Limit</th> : null}{stacks.map((s) => <th key={s.key}>{s.name}</th>)}</tr></thead>
+          <tbody>{[...d.rows].reverse().map((r) => <tr key={r.day}><td>{r.day}</td><td>{n(r.used)}</td><td>{n(r.credited)}</td>{hasExpired ? <td>{n(r.expired ?? 0)}</td> : null}{hasLimits ? <td>{r.limits ? dayLimitParts(r.limits).join("; ") : ""}</td> : null}{segsOf(r).map((s) => <td key={s.key}>{n(s.tokens)}</td>)}</tr>)}</tbody>
         </table>
       </details>
     </div>
@@ -231,5 +299,5 @@ export function DailyChart({ f }: { f: Finance }) {
 
 /** The sidebar's line on how to read the chart. */
 export const DailyAbout = () => (
-  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}). By default it is split into work (grant, request, exploration and retainer sessions), coordination (manager and Secretary wakes) and other, by that day&apos;s session spend in each lane; switch to Building to split it by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day; subscription credit not drawn before renewal expires, and each day shows what expired on it. Hover or tab to a day for its numbers.</p>
+  <p className="muted">Day by day: each bar is what the Bank paid out that UTC day ({"adj. tokens"}). By default it is split into work (grant, request, exploration and retainer sessions), coordination (manager and Secretary wakes) and other, by that day&apos;s session spend in each lane; switch to Building to split it by the building whose sessions used it (the 4 largest over the window, the rest as Other). The line is what the Bank&apos;s inputs credited that day; subscription credit not drawn before renewal expires, and each day shows what expired on it. Each day also shows its limit: how busy the desks were, whether exploration reached its daily cap, and whether grant work ran. Hover or tab to a day for its numbers.</p>
 );

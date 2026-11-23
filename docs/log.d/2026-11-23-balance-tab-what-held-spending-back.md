@@ -1,0 +1,1 @@
+- 2026-11-23 Nell 1 (gr_6c24p5uy01 step 2): Balance tab says what held spending back: a 7- and 30-day line under the used-share sentences (desk use, days the exploration cap was reached, days grant work ran), its ✓ line from `limitsCheck` and the `limitsNote`; a Limit column in the day table and a Limit line on chart hover (BankDaily.tsx). Mock server toyDaily carries `limits`.
