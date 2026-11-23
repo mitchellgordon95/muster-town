@@ -322,6 +322,9 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 .grant-id { color: var(--accent); }
 /* an id labelled by name (an agent, building, meeting, key result) reads as a word, not code */
 .doc-id.named { font-family: inherit; font-size: inherit; }
+/* an id that opens nothing here (a thread entry, a message, a person): muted, its tooltip says what it is (gr_4upa0og9zc step 2) */
+.muted-id { color: var(--muted); cursor: help; }
+.ask-outcome { margin: 0 0 8px; font-weight: 600; }
 .grant-row .grant-id { margin-left: auto; }
 .grant-panel .grant-row { cursor: default; }
 /* the grant page: the short name is the header, the objective (the record's full sentence) sits beneath it */

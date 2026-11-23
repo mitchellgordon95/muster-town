@@ -94,3 +94,14 @@ describe("stacked sheets", () => {
     offIntray();
   });
 });
+
+describe("an ask opened from its id says what became of it (gr_4upa0og9zc step 2)", async () => {
+  const { askOutcome } = await import("../src/panels/LinkSheet");
+  it("decided, folded, retired; nothing while open", () => {
+    const base = { decidedBy: null, decision: null, retiredBy: null } as never as Parameters<typeof askOutcome>[0];
+    expect(askOutcome({ ...base, status: "open" })).toBeNull();
+    expect(askOutcome({ ...base, status: "decided", decision: "Add" })).toBe("Decided: Add");
+    expect(askOutcome({ ...base, status: "folded" })).toBe("Folded into another ask on the same thing.");
+    expect(askOutcome({ ...base, status: "retired", retiredBy: "grant cut" })).toBe("Closed: grant cut");
+  });
+});

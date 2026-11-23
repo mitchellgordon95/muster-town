@@ -658,8 +658,8 @@ export interface Api {
   intray(buildingId: string): Promise<Intray>;
   /** GET /api/review-deck: the Town Hall's waiting items as slides, computed by the server (design dc_y7a8g257of §2) */
   reviewDeck(meetingId?: string): Promise<ReviewDeck & Partial<IntrayRoutes>>;
-  /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min) */
-  getAsk(id: string): Promise<AskView>;
+  /** GET /api/asks/:id: one ask (marks it seen for a signed-in human; re-runs claim checks older than 5 min); `peek` does neither (an id link's label) */
+  getAsk(id: string, peek?: boolean): Promise<AskView>;
   /** POST /api/asks/:id/decide: a human's decision on an ask with no other channel (policy, meeting, a question in words) */
   /** press a branch: the server does its act on the ask's target (core ask-acts.ts) with the form's fields */
   decideAsk(id: string, decision: string, fields?: Omit<In<typeof DecideAskInput>, "decision">): Promise<AskView>;
@@ -1010,7 +1010,7 @@ class HttpApi implements Api {
     return intrayOf(await this.get<Partial<Intray>>(`/api/buildings/${id}/intray`));
   }
   reviewDeck(meetingId?: string) { return this.get<ReviewDeck & Partial<IntrayRoutes>>(`/api/review-deck${qs({ meeting: meetingId })}`); }
-  async getAsk(id: string) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}`)).ask; }
+  async getAsk(id: string, peek?: boolean) { return (await this.get<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}${peek ? "?peek=1" : ""}`)).ask; }
   async decideAsk(id: string, decision: string, fields: Omit<In<typeof DecideAskInput>, "decision"> = {}) { const { note, ...rest } = fields; return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/decide`, { decision, ...rest, ...(note?.trim() ? { note: note.trim() } : {}) })).ask; }
   async deferAsk(id: string, until: string) { return (await this.post<{ ask: AskView }>(`/api/asks/${encodeURIComponent(id)}/defer`, { until })).ask; }
   async notices(q: { building?: string; goal?: string; kind?: NoticeKind; limit?: number } = {}) {
