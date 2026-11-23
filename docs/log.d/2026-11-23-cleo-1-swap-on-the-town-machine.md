@@ -1,0 +1,1 @@
+- 2026-11-23 Prod (Cleo 1, gr_xgr8j2f9ao): fly.town.toml gets `swap_size_mb = 1024` on the town Machine (2 GB RAM, no swap before), after the 2026-11-22 18:25Z redeploy was OOM-killed during `build web` (dc_7lp8owphy8). The change triggers CI's image deploy, which replaces the Machine once.
