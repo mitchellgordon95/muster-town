@@ -1,0 +1,1 @@
+- 2026-11-23 Merge when green: a 5xx on the town's merge call now reads the PR again. Merged anyway counts as merged; still open retries on the next poll. Before, PR #558 (merged as 7f71e990 behind a GitHub HTTP 500) woke a session for nothing. (Mara 2, gr_qg42b4guky)

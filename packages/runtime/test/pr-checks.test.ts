@@ -281,7 +281,7 @@ function fakeMergeGitHub() {
       head: { sha: SHA, ref: "agent/mara-1/merge-when-green", repo: { full_name: "mitchellgordon95/agent-town" } }, base: { ref: "main", repo: { full_name: "mitchellgordon95/agent-town" } } },
     suites: [{ status: "completed", conclusion: "success", latest_check_runs_count: 1 }],
     runs: [{ name: "check", status: "completed", conclusion: "success" }] as { name: string; status: string; conclusion: string | null }[],
-    merge: { status: 200, body: { sha: "beefcafe1234567890", merged: true } as unknown },
+    merge: { status: 200, body: { sha: "beefcafe1234567890", merged: true } as unknown, lands: false } as { status: number; body: unknown; lands?: boolean },
     calls: [] as { method: string; path: string; body?: unknown }[],
   };
   const fetch = (async (url: string, init?: RequestInit) => {
@@ -291,7 +291,7 @@ function fakeMergeGitHub() {
     gh.calls.push({ method, path, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) });
     if (path === "/graphql") { gh.pr.draft = false; return new Response(JSON.stringify({ data: { markPullRequestReadyForReview: { pullRequest: { isDraft: false } } } })); }
     if (method === "PUT" && path === "/pulls/179/merge") {
-      if (gh.merge.status === 200) Object.assign(gh.pr, { state: "closed", merged: true, merge_commit_sha: "beefcafe1234567890" });
+      if (gh.merge.status === 200 || gh.merge.lands) Object.assign(gh.pr, { state: "closed", merged: true, merge_commit_sha: "beefcafe1234567890" });
       return new Response(JSON.stringify(gh.merge.body), { status: gh.merge.status });
     }
     if (method === "DELETE") return new Response(null, { status: 204 });
@@ -372,6 +372,19 @@ describe("merge when green (gr_rlt0ctnhqk)", () => {
     expect(p.get(179)).toMatchObject({ state: "failed", failed: ["merge refused: HTTP 405: At least 1 approving review is required by reviewers with write access."] });
     expect(checkWaits(world).unblocked.map((x) => x.id)).toEqual([a.id]);
     expect(world.assignments.require(a.id).status).toBe("pending");
+  });
+
+  it("a 5xx on an open PR retries next poll with no wake; a 5xx on a merge GitHub made anyway counts as merged", async () => {
+    const { world, a, gh, p } = setup();
+    gh.merge = { status: 500, body: { message: "Server Error" } };
+    await p.poll();
+    expect(p.get(179)?.state).toBe("pending");
+    expect(checkWaits(world).unblocked).toEqual([]);
+    gh.merge = { status: 500, body: { message: "Server Error" }, lands: true };
+    await p.poll();
+    expect(p.get(179)).toMatchObject({ state: "merged", mergeSha: "beefcafe1234567890", mergedBy: "town" });
+    expect(checkWaits(world).merged.map((x) => x.id)).toEqual([a.id]);
+    expect(gh.calls.filter((c) => c.method === "DELETE")).toHaveLength(1);
   });
 
   it("only an agent branch of this repo is merged: a human's branch or a fork's PR wakes the work instead", async () => {
