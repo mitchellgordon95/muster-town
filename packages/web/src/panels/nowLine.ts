@@ -57,7 +57,9 @@ type NowInput = {
 /** `{ now, task }`: "Now: …" in plain words, and the task it serves ("Working on …"), if any. */
 export function nowLine({ agent, thought, task, lastDone }: NowInput): { now: string; task?: { label: string; title: string } } | null {
   if (agent.kind === "human") return null;
-  const doing = thought && !INTERNAL.test(firstSentence(thought)) ? firstSentence(thought) : plainActivity(agent.activity ?? "");
+  // a thought that opens with "Now" would read "Now: Now tests: …" (gr_93s00hyq1l): the head line says "Now:" once
+  const said = thought ? firstSentence(thought).replace(/^now\b[\s,:;.—–-]*/i, "") : "";
+  const doing = said && !INTERNAL.test(said) ? said : plainActivity(agent.activity ?? "");
   const working = task ? { label: "Working on", title: task } : undefined;
   const finished = lastDone ? { label: "Last finished", title: lastDone } : undefined;
   switch (agent.status) {

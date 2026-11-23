@@ -10,6 +10,13 @@ describe("agent panel Now line", () => {
     expect(l?.now).toBe("Now: I'm reading the panel code.");
     expect(l?.task).toEqual({ label: "Working on", title: "Delight step 2" });
   });
+  it("says Now once when the thought itself opens with Now (gr_93s00hyq1l)", () => {
+    const now = (thought: string) => nowLine({ agent: agent("working", { activity: "Reading x.ts" }), thought })?.now;
+    expect(now("Now tests: web render test for the card.")).toBe("Now: tests: web render test for the card.");
+    expect(now("Now, I'll run the census.")).toBe("Now: I'll run the census.");
+    expect(now("Nowhere left to look.")).toBe("Now: Nowhere left to look.");
+    expect(now("Now.")).toBe("Now: Reading x.ts");
+  });
   it("falls back to the activity, without the funding note or a git branch", () => {
     expect(nowLine({ agent: agent("working", { activity: "Starting work (funded by subscription)" }) })?.now).toBe("Now: Starting work");
     expect(plainActivity("Setting up agent/teo-1/delight-step-2")).toBe("Setting up their desk");
