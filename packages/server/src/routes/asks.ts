@@ -18,9 +18,11 @@ export async function askRoutes(app: FastifyInstance) {
 
   app.get("/api/asks", async () => ({ asks: openAsks(world) }));
 
-  app.get<{ Params: Params }>("/api/asks/:id", async (req) => {
+  // `?peek=1`: a link labelling the id by its title (gr_4upa0og9zc step 2) reads it without marking it seen or re-running checks
+  app.get<{ Params: Params; Querystring: { peek?: string } }>("/api/asks/:id", async (req) => {
     let ask = world.asks.get(req.params.id);
     if (!ask) throw new AppError("not_found", `ask not found: ${req.params.id}`);
+    if (req.query.peek === "1") return { ask };
     if (req.auth?.kind === "user") markSeen(world, req.auth.user.id, "ask", ask.id);
     // a claim's check result is never older than 5 minutes when shown (docs/invariants/asks.md)
     if (claimsStale(world, ask)) ask = await runClaimChecks(world, ask);

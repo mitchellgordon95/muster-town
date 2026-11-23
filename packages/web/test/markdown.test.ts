@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { api, getApi } from "../src/api";
-import { docIdParts, docIdsIn, idLabel, isGrantId, loadKrTexts, markdownHtml, rememberAssignmentTitle, rememberGrant, sanitize } from "../src/panels/Markdown";
+import { docIdParts, docIdsIn, idLabel, isGrantId, linkTarget, loadKrTexts, loadOwned, markdownHtml, openIdLink, rememberAssignmentTitle, rememberGrant, sanitize } from "../src/panels/Markdown";
+import { routeOf } from "../src/route";
+import { store } from "../src/state";
 
 describe("markdownHtml", () => {
   it("keeps a single newline as a soft wrap by default (docs)", () => {
@@ -92,5 +94,51 @@ describe("grant, key result and goal ids read as names (gr_4upa0og9zc step 1)", 
     expect(html).toContain('title="goal gl_bl_t7slw19vgg: Make Muster Town beautiful and intuitive"');
     expect(html).toContain('title="grant gr_4upa0og9zc: Every id reads as its name"');
     expect(html).toContain(">Grant ids read as their names</a>");
+  });
+});
+
+describe("ask ids open the ask card; other ids name what they are (gr_4upa0og9zc step 2)", () => {
+  // the Secretary's weekly pattern report dc_ntd2iabhpg, as it cites ids
+  const report = "filed the pattern notice nt_cidh52f9ns and its rule as policy ask ak_74axg6n1ke. Pix's tell ms_eys8ddyw2g (both Town Hall retainers still rejected) cites entry en_lfa1nnwncs and gr_1ilvotnzta.";
+
+  it("splits ask ids and the muted kinds out", () => {
+    const ids = docIdParts(report).filter((p) => typeof p !== "string");
+    expect(ids).toEqual([{ id: "nt_cidh52f9ns" }, { id: "ak_74axg6n1ke" }, { id: "ms_eys8ddyw2g" }, { id: "en_lfa1nnwncs" }, { id: "gr_1ilvotnzta" }]);
+    expect(docIdParts("us_u4mzpz4zc7 ob_508f35a2m4 rs_aaaaaaaaaa cr_6xfa4ka7bq sc_bbbbbbbbbb gp_cccccccccc").filter((p) => typeof p !== "string")).toHaveLength(6);
+  });
+
+  it("an ask id reads as its title, opens its card in the link sheet and has its own hash", () => {
+    rememberAssignmentTitle("ak_74axg6n1ke", "Let the town adjust a grant by one S step when only its live check is left");
+    expect(idLabel("ak_74axg6n1ke")).toBe("Let the town adjust a grant by one S step when…");
+    openIdLink("ak_74axg6n1ke");
+    expect(store.state.sheet).toEqual({ kind: "ask", id: "ak_74axg6n1ke" });
+    expect(routeOf("#/ask/ak_74axg6n1ke")).toEqual({ sheet: { kind: "ask", id: "ak_74axg6n1ke" } });
+  });
+
+  it("renders the weekly report: the ask as a named link, entries, messages and notices as muted ids with a plain tooltip", () => {
+    const html = sanitize(markdownHtml(report));
+    expect(html).toContain('href="ak_74axg6n1ke"');
+    expect(html).toContain('title="ask ak_74axg6n1ke: Let the town adjust a grant by one S step when only its live check is left"');
+    expect(html).toContain('<span class="doc-id muted-id" title="notice nt_cidh52f9ns: opens nothing here">nt_cidh52f9ns</span>');
+    expect(html).toContain('title="message ms_eys8ddyw2g: opens nothing here"');
+    expect(html).toContain('title="thread entry en_lfa1nnwncs: opens nothing here"');
+    expect(html).not.toContain('href="en_lfa1nnwncs"');
+  });
+
+  it("a schedule opens its grant (or building) and a goal proposal its goal once the API gives them; until then they are muted", async () => {
+    await getApi();
+    expect(linkTarget("sc_retainer01")).toBeNull();
+    vi.spyOn(api(), "scheduled").mockResolvedValue([{ id: "sc_retainer01", title: "Weekly pattern run", grantId: null, buildingId: "town-hall" }, { id: "sc_granted001", title: "Nightly census", grantId: "gr_4upa0og9zc", buildingId: "bl_t7slw19vgg" }] as never);
+    vi.spyOn(api(), "goalProposals").mockResolvedValue([{ id: "gp_proposal01", action: "add-goal", parentId: "gl_town", targetId: null, resultId: null, fields: { text: "Strangers can join" } }] as never);
+    await loadOwned("sc_retainer01 gp_proposal01");
+    expect(linkTarget("sc_granted001")).toBe("gr_4upa0og9zc");
+    expect(linkTarget("sc_retainer01")).toBe("town-hall");
+    expect(linkTarget("gp_proposal01")).toBe("gl_town");
+    expect(linkTarget("sc_unknown001")).toBeNull();
+    const html = sanitize(markdownHtml("sc_granted001 gp_proposal01 sc_unknown001"));
+    expect(html).toContain('href="gr_4upa0og9zc"');
+    expect(html).toContain('title="schedule sc_granted001: Nightly census"');
+    expect(html).toContain(">add-goal: Strangers can join</a>");
+    expect(html).toContain('title="schedule sc_unknown001: opens nothing here"');
   });
 });

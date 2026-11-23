@@ -90,6 +90,24 @@ export function docHooks(world: World, buildingId: string = BLOG_BUILDING): () =
   };
 }
 
+/** The tag of a cause's landing page doc (gr_wq74nnthzl step 2), served at /hooks/<slug>. */
+const HOOK_PAGE_TAG = "hook";
+
+/**
+ * The causes' landing pages: published `note`s or `article`s tagged `hook` in `buildingId` (Outreach), each read like a
+ * post; its slug (front matter, else the title) is its address /hooks/<slug>. Two with one slug: the first published keeps it.
+ */
+export function docHookPages(world: World, buildingId: string = BLOG_BUILDING): PostSource {
+  return () => {
+    const docs = world.docs.where("type IN ('note', 'article') AND state = 'building' AND buildingId = ? AND tags LIKE ?", [buildingId, `%"${HOOK_PAGE_TAG}"%`], "ORDER BY createdAt, rowid")
+      .filter((d) => d.tags.includes(HOOK_PAGE_TAG));
+    const seen = new Set<string>();
+    const pages: Post[] = [];
+    for (const d of docs) { const p = postOf(d); if (p && !seen.has(p.slug)) { seen.add(p.slug); pages.push(p); } }
+    return pages;
+  };
+}
+
 /**
  * Markdown to HTML for a post. Posts are town docs now, written by anyone who can publish in the blog's building, so raw
  * HTML in the markdown is shown as text and a link or image may only point at http(s), mailto or a path on this site.
@@ -183,8 +201,8 @@ ${o.body}
  * `website` is the honeypot: hidden from people, filled by bots. `source` is the post slug, or "index". `upcoming` (a post's
  * front matter) is the hook: "Coming next:" and its items, then Mitchell's line (gr_qholnel3q4, his decision on ak_rw02ier2ni).
  */
-function signup(source: string, upcoming: string[] = []): string {
-  const hook = upcoming.length
+function signup(source: string, upcoming: string[] = [], pitch?: string): string {
+  const hook = pitch ? `<p>${esc(pitch)}</p>` : upcoming.length
     ? `<p>Coming next:</p>\n<ul>\n${upcoming.map((u) => `<li>${esc(u)}</li>`).join("\n")}\n</ul>\n<p>Subscribe for updates (mailing list for every blog post)</p>`
     : "<p>New posts by email. Nothing else.</p>";
   return `<form class="signup" method="post" action="/api/blog/subscribe" data-source="${esc(source)}">
@@ -216,16 +234,32 @@ ${signup(p.slug, p.upcoming)}
 </footer>` });
 }
 
-function renderHooks(origin: string, p: Post): string {
+function renderHooks(origin: string, p: Post, pages: Post[]): string {
+  const linked = pages.length
+    ? `<section class="about">\n<h2>Causes with their own page</h2>\n<ul>\n${pages.map((h) => `<li><a href="/hooks/${esc(h.slug)}">${esc(h.title)}</a></li>`).join("\n")}\n</ul>\n</section>\n`
+    : "";
   return page({ origin, path: "/hooks", title: p.title, description: p.summary || p.title, image: p.image || undefined, body: `<article>
 <h1>${esc(p.title)}</h1>
 ${byline(p)}
-${md.parse(p.body, { async: false })}
+${linked}${md.parse(p.body, { async: false })}
 </article>
 <footer>
 ${aboutBox()}
 ${signup("hooks")}
 <p class="meta"><a href="/blog">Blog</a> · <a href="/">Visit muster.town</a></p>
+</footer>` });
+}
+
+/** A cause's landing page (gr_wq74nnthzl step 2): its doc, then a signup whose source is `hook:<slug>`. */
+function renderHookPage(origin: string, p: Post): string {
+  return page({ origin, path: `/hooks/${p.slug}`, title: p.title, description: p.summary || p.title, image: p.image || undefined, body: `<article>
+<h1>${esc(p.title)}</h1>
+${md.parse(p.body, { async: false })}
+</article>
+<footer>
+${signup(`hook:${p.slug}`, [], "Want this collective to exist? Leave your email to join, captain or fund it. We write when it starts, and about nothing else.")}
+${aboutBox()}
+<p class="meta"><a href="/hooks">All causes we'll test</a> · <a href="/">Visit muster.town</a></p>
 </footer>` });
 }
 
@@ -269,11 +303,12 @@ function notFound(origin: string, reply: FastifyReply) {
 }
 
 /**
- * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`, and `/hooks` (the `hooks` doc, when `hooks` gives one). `origin` is the absolute base for canonical and feed links; `posts` the
+ * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`, `/hooks` (the `hooks` doc, when `hooks` gives one) and `/hooks/<slug>`
+ * (a cause's landing page from `hookPages`). `origin` is the absolute base for canonical and feed links; `posts` the
  * public posts, read per request. `onRead` (gr_ox3fmliv9n) hears each GET of a public post by a browser (bots, scripts
  * and HEAD left out) with its source: the link's ?ref= tag, else the Referer's host, else "direct" (core `funnelSource`).
  */
-export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: string, source: string) => void, hooks?: () => Post | null) {
+export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: string, source: string) => void, hooks?: () => Post | null, hookPages?: { pages: PostSource; onView?: (slug: string, source: string) => void }) {
   const ownHost = (() => { try { return new URL(origin).host; } catch { return null; } })();
   return async (app: FastifyInstance) => {
     const html = (reply: FastifyReply, body: string) => reply.type("text/html; charset=utf-8").send(body);
@@ -294,7 +329,16 @@ export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: st
       if (onRead && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
         try { onRead(HOOKS_TAG, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
       }
-      return html(reply, renderHooks(origin, p));
+      return html(reply, renderHooks(origin, p, hookPages?.pages() ?? []));
+    });
+    // a cause's landing page (gr_wq74nnthzl step 2): its views count per slug as `hookViews` in /api/join-funnel
+    app.get<{ Params: { slug: string }; Querystring: { ref?: string } }>("/hooks/:slug", async (req, reply) => {
+      const p = SLUG.test(req.params.slug) ? hookPages?.pages().find((h) => h.slug === req.params.slug) : undefined;
+      if (!p) return notFound(origin, reply);
+      if (hookPages?.onView && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
+        try { hookPages.onView(p.slug, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
+      }
+      return html(reply, renderHookPage(origin, p));
     });
   };
 }

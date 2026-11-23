@@ -34,7 +34,8 @@ export function normalizeEmail(raw: string): string | null {
   return /^[^@]+@[^@]+\.[^@.]+$/.test(e) ? e : null;
 }
 
-const SOURCE = /^[a-z0-9][a-z0-9-]{0,79}$/;
+/** A signup's source: a post slug, "index", "hooks", or `hook:<slug>` for a cause's landing page (gr_wq74nnthzl); anything else is stored as "index". */
+const SOURCE = /^(?:hook:)?[a-z0-9][a-z0-9-]{0,79}$/;
 const TOKEN = /^[A-Za-z0-9_-]{16,80}$/;
 const newToken = () => randomBytes(24).toString("base64url");
 
@@ -89,12 +90,14 @@ class MailingList {
 }
 
 /** The confirmation email, with its unsubscribe link in the body and in the List-Unsubscribe header (RFC 8058 one-click). */
-function confirmationMail(origin: string, email: string, t: { confirmToken: string; unsubscribeToken: string }): Mail {
+function confirmationMail(origin: string, email: string, t: { confirmToken: string; unsubscribeToken: string }, source = "index"): Mail {
   const confirmUrl = `${origin}/api/blog/confirm?token=${t.confirmToken}`, unsubscribeUrl = `${origin}/api/blog/unsubscribe?token=${t.unsubscribeToken}`;
+  // a cause's landing page (gr_wq74nnthzl): the signup is for news of that collective, not the blog
+  const hook = /^hook:([a-z0-9-]+)$/.exec(source)?.[1];
   return {
     to: email,
-    subject: "Confirm your signup to the Muster Town blog",
-    text: `Someone, hopefully you, asked for new posts from the Muster Town blog (${origin}/blog) to be sent to ${email}.\n\nConfirm with this link:\n${confirmUrl}\n\nIf it wasn't you, ignore this email: you won't hear from us again.\n\nUnsubscribe: ${unsubscribeUrl}\n`,
+    subject: hook ? "Confirm your signup to Muster Town" : "Confirm your signup to the Muster Town blog",
+    text: `${hook ? `Someone, hopefully you, signed up at ${origin}/hooks/${hook} to hear from Muster Town when that collective starts, at ${email}.` : `Someone, hopefully you, asked for new posts from the Muster Town blog (${origin}/blog) to be sent to ${email}.`}\n\nConfirm with this link:\n${confirmUrl}\n\nIf it wasn't you, ignore this email: you won't hear from us again.\n\nUnsubscribe: ${unsubscribeUrl}\n`,
     headers: { "List-Unsubscribe": `<${unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
   };
 }
@@ -153,7 +156,7 @@ export function mailingListRoutes(opts: { clientIpHeader?: string | null; now?: 
       const tokens = list.add(email, input.source ?? "index", confirm);
       if (!confirm) return { ok: true };
       if (tokens) {
-        try { await mail.send(confirmationMail(origin, email, tokens)); } catch (err) {
+        try { await mail.send(confirmationMail(origin, email, tokens, input.source)); } catch (err) {
           req.log.warn({ err: (err as Error).message }, "[mailing-list] confirmation email not sent");
           throw new AppError("internal", "We couldn't send the confirmation email. Try again in a minute.");
         }

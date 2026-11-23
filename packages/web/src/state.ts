@@ -26,7 +26,7 @@ export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: 
  * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant
  * or an agent in a centred sheet over the map and over whatever side panel is open; closing it leaves that panel where it was.
  */
-export interface SheetRef { kind: "doc" | "grant" | "agent"; id: string; tab?: string }
+export interface SheetRef { kind: "doc" | "grant" | "agent" | "ask"; id: string; tab?: string }
 /** The sheet a panel ref names: a doc in the library (`docId`) and a grant are content, so they open as a sheet, not a side panel. */
 export function sheetOf(p: PanelRef | null): SheetRef | null {
   if (p?.kind === "library" && p.docId) return { kind: "doc", id: p.docId };

@@ -1,6 +1,6 @@
 /**
  * Shareable URLs: `/#/doc/<id>` opens that doc in the link sheet (`/#/doc/<id>/<n>`: a deck at slide n), `/#/grant/<id>` that grant or
- * proposal and `/#/agent/<id>` that agent (gr_4csjpgh346 step 3: content opens centred, over whatever side panel is open); opening one
+ * proposal, `/#/ask/<id>` that ask's card (read-only; gr_4upa0og9zc step 2) and `/#/agent/<id>` that agent (gr_4csjpgh346 step 3: content opens centred, over whatever side panel is open); opening one
  * puts its hash in the address bar, so a link can be pasted into a report, chat or anywhere else, and closing it puts back the panel's.
  * `/#/connect` opens "Connect your agent" (the README's Bring your own agent section links it).
  * `/#/bank` opens the Bank page (tokens received, used and left, their sources, free tokens, spending and hosting in dollars; public).
@@ -12,7 +12,7 @@
  */
 import { store, type PanelRef, type SheetRef } from "./state";
 
-const DOC_HASH = /^#\/(doc|grant)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance|goals|queue)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$|^#\/(building)\/(workshop|town-hall)$|^#\/(goal)\/(gl_[a-z0-9_]+)$/;
+const DOC_HASH = /^#\/(doc|grant|ask)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance|goals|queue)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$|^#\/(building)\/(workshop|town-hall)$|^#\/(goal)\/(gl_[a-z0-9_]+)$/;
 
 /** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
@@ -49,7 +49,7 @@ export const shownHash = (sheet: SheetRef | null, panel: PanelRef | null): strin
 export function routeOf(hash: string): { sheet: SheetRef } | { panel: PanelRef } | null {
   const m = DOC_HASH.exec(hash);
   if (!m) return null;
-  if (m[1]) return { sheet: { kind: m[1] as "doc" | "grant", id: m[2] } };
+  if (m[1]) return { sheet: { kind: m[1] as "doc" | "grant" | "ask", id: m[2] } };
   if (m[7] === "agent") return { sheet: { kind: "agent", id: m[8] } };
   if (m[7]) return { panel: { kind: m[7] === "kr" ? "goals" : m[7] as "meeting" | "building" | "assignment" | "session", id: m[8] } };
   if (m[9]) return { panel: { kind: "building", id: m[10] } }; // the two buildings whose ids have no xx_ prefix

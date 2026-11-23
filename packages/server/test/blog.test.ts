@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { BLOG_BUILDING, blogRoutes, docHooks, docPosts, postOf } from "../src/blog.ts";
+import { BLOG_BUILDING, blogRoutes, docHookPages, docHooks, docPosts, postOf } from "../src/blog.ts";
 
 const ORIGIN = "https://example.town";
 const post = (fm: string, body = "Hello **world**.") => `---\n${fm}\n---\n\n${body}\n`;
@@ -272,6 +272,36 @@ describe("blog", () => {
     expect(res.body).toContain('data-source="hooks"');
     expect(reads).toEqual([["hooks", "ref:hn"]]);
     expect((await app.inject("/blog")).body).toContain('<a href="/hooks">');
+    await app.close();
+    world.close();
+  });
+  it("serves each cause's landing page at /hooks/<slug> with a hook:<slug> signup, counts its views, and lists it on /hooks (gr_wq74nnthzl step 2)", async () => {
+    const world = World.open(":memory:");
+    const views: [string, string][] = [], reads: [string, string][] = [];
+    const app = Fastify();
+    await app.register(blogRoutes(ORIGIN, docPosts(world), (slug, source) => reads.push([slug, source]), docHooks(world), { pages: docHookPages(world), onView: (slug, source) => views.push([slug, source]) }));
+    const mk = (title: string, slug: string, state: "draft" | "building" = "building") => createDoc(world, { type: "note", title, body: post(`slug: ${slug}\nsummary: ${title} summary`, `Who we want: **${title} people**.`), authorId: "ag_writer", authorKind: "agent", state, buildingId: BLOG_BUILDING, tags: ["hook"] });
+    createDoc(world, { type: "note", title: "Ranked", body: post("summary: s", "1. causes"), authorId: "ag_writer", authorKind: "agent", state: "building", buildingId: BLOG_BUILDING, tags: ["hooks"] });
+    mk("C-PTSD research", "cptsd");
+    mk("Hidden", "hidden", "draft");
+    mk("Duplicate", "cptsd");
+    const ua = { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" };
+    const res = await app.inject({ url: "/hooks/cptsd?ref=reddit", headers: ua });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("<h1>C-PTSD research</h1>");
+    expect(res.body).toContain("<strong>C-PTSD research people</strong>");
+    expect(res.body).toContain('data-source="hook:cptsd"');
+    expect(res.body).toContain('<link rel="canonical" href="https://example.town/hooks/cptsd">');
+    expect(views).toEqual([["cptsd", "ref:reddit"]]);
+    await app.inject({ url: "/hooks/cptsd", headers: { "user-agent": "curl/8.5.0" } }); // a script: not counted
+    expect(views).toHaveLength(1);
+    expect((await app.inject({ url: "/hooks/hidden", headers: ua })).statusCode).toBe(404);
+    expect((await app.inject({ url: "/hooks/Bad_Slug", headers: ua })).statusCode).toBe(404);
+    expect(views).toHaveLength(1);
+    const list = (await app.inject("/hooks")).body;
+    expect(list).toContain('<a href="/hooks/cptsd">C-PTSD research</a>');
+    expect(list).not.toContain("Duplicate");
+    expect(reads.map(([slug]) => slug)).toEqual(["hooks"]); // a landing page's views are not blog reads
     await app.close();
     world.close();
   });

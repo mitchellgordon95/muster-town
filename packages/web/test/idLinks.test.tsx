@@ -46,3 +46,13 @@ describe("id links in plain text", () => {
     expect(store.state.panel).toMatchObject({ kind: "session", id: "se_gggggggggg" });
   });
 });
+
+// gr_4upa0og9zc step 2: ids with nothing to open read as a muted id, their tooltip says what they are
+describe("muted ids in plain text", () => {
+  it("a thread entry or a person is a muted span, not a link", () => {
+    const html = renderToStaticMarkup(<DocText text="entry en_lfa1nnwncs by us_u4mzpz4zc7" />);
+    expect(html).toContain('<span class="doc-id muted-id" title="thread entry en_lfa1nnwncs: opens nothing here">en_lfa1nnwncs</span>');
+    expect(html).toContain('title="person us_u4mzpz4zc7: opens nothing here"');
+    expect(html).not.toContain("<a");
+  });
+});
