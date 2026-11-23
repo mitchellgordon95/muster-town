@@ -3,12 +3,13 @@
  * crossed line files one policy ask with the data and one change; "Adopt" applies the table change through
  * `World.setGrantPricing` and logs it; "Keep as is" changes nothing.
  */
-import { grantPricingOf } from "@muster-town/schema";
+import { grantPricingOf, type StepSize } from "@muster-town/schema";
 import { describe, expect, it } from "vitest";
 import { createBuilding, createResident, newId, nowIso, updateBuilding } from "../src/index.ts";
 import { decideAsk } from "../src/asks.ts";
+import { holdSample, stepCalibration, type HoldSample } from "../src/grant-estimate.ts";
 import { legibleMeasures } from "../src/measures.ts";
-import { calibrate, calibrationIdleReason, calibrationProposal, ensureCalibrationSchedule, PLANNER_LINES } from "../src/planner.ts";
+import { calibrate, calibrationIdleReason, calibrationProposal, cheapestMargin, ensureCalibrationSchedule, PLANNER_LINES, projectHoldShare } from "../src/planner.ts";
 import { creditBank, seededWorld } from "./helpers.ts";
 
 const KR = { text: "A guest sees the banner", howToCheck: "Open the lab as a guest" };
@@ -115,5 +116,80 @@ describe("the Planner's calibration run (docs/legible-delegation.md §7.4)", () 
     expect(calibrationProposal(hotS, table)).toMatchObject({ change: "raise", size: "S", from: 50_000, to: 80_000 });
     const cold = { ...base, spentOverSize: { ...base.spentOverSize, L: { ratio: 0.5, sample: 40 } } };
     expect(calibrationProposal(cold, table)).toMatchObject({ change: "lower", size: "L", from: 400_000, to: 200_000 });
+  });
+});
+
+/** Today's live data (2026-11-23 16:1xZ, GET /api/grants/:id stepStates on the 42 grants with sized steps funded in 30 days): done-step spends in tokens and the step mixes. S median 1.08×, mean 1.41× over 22 steps. */
+const TODAY_SPENDS = {"S": [22933, 31339, 121370, 232371, 47652, 55865, 51442, 67270, 111019, 43698, 51833, 67854, 23333, 38759, 81588, 129472, 117872, 20570, 46509, 12121, 104328, 66378], "M": [168098, 98539, 158868, 115814, 104455, 92632, 276410, 96247, 214198, 208567, 138175, 74720, 128201, 145650, 181379, 29949, 196054, 89734, 126627, 164123, 50446, 43314, 126526, 81717, 173437, 127283, 252339, 90485, 158214, 147404, 271870, 43774, 25690, 70032, 109473, 227484, 137711, 63195, 95323, 247796, 94506, 300631, 209143, 147948, 101814, 134662, 141231, 161172, 234285], "L": [203233, 307845, 200492]} as const;
+const TODAY_MIXES = ["MSS", "MMS", "MSS", "MS", "MMS", "MMS", "MLSM", "MMS", "MS", "MS", "M", "MS", "MSS", "MS", "MSMS", "MMM", "MS", "M", "SM", "MS", "MSS", "M", "MS", "M", "M", "S", "M", "MMM", "MMMS", "MS", "MS", "MS", "MSS", "MS", "M", "SMS", "MM", "MS", "SMS", "LLLM", "MMM", "S"];
+const TABLE = { S: 50_000, M: 150_000, L: 400_000 };
+const todaySample = (): HoldSample => ({
+  ratios: { S: TODAY_SPENDS.S.map((x) => x / TABLE.S), M: TODAY_SPENDS.M.map((x) => x / TABLE.M), L: TODAY_SPENDS.L.map((x) => x / TABLE.L) },
+  mixes: TODAY_MIXES.map((m) => [...m] as StepSize[]),
+});
+
+describe("calibration prices sizes that can meet the hold line (gr_1ilvotnzta step 1)", () => {
+  /** today's measures: S median 1.08, mean 1.41; M 0.90 / 0.94; 23 of 37 closed grants held (62%), 22 adjust asks for 42 funded */
+  const today = () => {
+    const base = legibleMeasures(town().world);
+    return {
+      ...base,
+      holdShare: { held: 23, closed: 37, share: 0.62 },
+      topUpsPerFundedGrant: { topUps: 22, funded: 42, ratio: 0.52 },
+      spentOverSize: { S: { ratio: 1.08, sample: 22, mean: 1.41, p75: 2.07 }, M: { ratio: 0.9, sample: 49, mean: 0.94, p75: 1.11 }, L: { ratio: 0.51, sample: 3, mean: 0.59, p75: 0.64 } },
+    };
+  };
+
+  it("on today's data it raises S to a new value with the hold share it projects, never 50,000 to 50,000", () => {
+    const p = calibrationProposal(today(), TABLE, todaySample())!;
+    expect(p).toMatchObject({ change: "raise", size: "S", from: 50_000 });
+    expect(p.to!).toBeGreaterThan(50_000);
+    expect(p.holdBefore!).toBeGreaterThan(PLANNER_LINES.holdShareMax);
+    expect(p.holdAfter!).toBeLessThanOrEqual(PLANNER_LINES.holdShareMax);
+    // the smallest such raise: 10,000 less would not meet the line
+    expect(projectHoldShare(todaySample(), TABLE, { ...TABLE, S: p.to! - 10_000 })!).toBeGreaterThan(PLANNER_LINES.holdShareMax);
+    expect(p).toEqual({ kind: "step-size", change: "raise", size: "S", from: 50_000, to: 120_000, holdBefore: 0.46, holdAfter: 0.24, line: "23 of 37 grants closed in 14 days held before they closed (62%), over 25%" });
+  });
+
+  it("the projection is deterministic, falls as a size rises, and a ceiling margin is an alternative", () => {
+    const s = todaySample();
+    expect(projectHoldShare(s, TABLE, TABLE)).toBe(projectHoldShare(s, TABLE, TABLE));
+    expect(projectHoldShare(s, TABLE, { ...TABLE, S: 100_000 })!).toBeLessThan(projectHoldShare(s, TABLE, TABLE)!);
+    expect(projectHoldShare({ ratios: { S: [], M: [], L: [] }, mixes: [] }, TABLE, TABLE)).toBeNull();
+    const m = cheapestMargin(s, TABLE)!;
+    expect(m.after).toBeLessThanOrEqual(PLANNER_LINES.holdShareMax);
+    expect(m.margin).toBeGreaterThan(0);
+  });
+
+  it("never proposes a size's current value: the median-priced raise that rounds to the table falls back to the split rule", () => {
+    const m = today();
+    // no sample, S's heat rounds back to 50,000: split, not "from 50,000 to 50,000"
+    const flat = { ...m, spentOverSize: { ...m.spentOverSize, S: { ratio: 1.08, sample: 22, mean: 1.04, p75: 1.2 } } };
+    expect(calibrationProposal(flat, TABLE)).toMatchObject({ change: "split", size: "L", to: null });
+    // with a sample whose step spend already projects under the line, no raise is priced from it either
+    const cool: HoldSample = { ratios: { S: [0.5], M: [0.5], L: [0.5] }, mixes: [["S"], ["M"]] };
+    expect(calibrationProposal(flat, TABLE, cool)).toMatchObject({ change: "split", holdBefore: 0, holdAfter: null });
+    // without a sample, a hot S is priced at its mean
+    expect(calibrationProposal(m, TABLE)).toMatchObject({ change: "raise", size: "S", to: 70_000, holdBefore: null, holdAfter: null });
+  });
+
+  it("stepCalibration reads each size's mean and p75 beside the median; holdSample has the funded grants' step mixes", () => {
+    const { world, completedSteps } = town();
+    completedSteps(3, 150_000);
+    completedSteps(1, 450_000);
+    expect(stepCalibration(world).sizes.M).toEqual({ ratio: 1, sample: 4, mean: 1.5, p75: 1.5 });
+    const s = holdSample(world);
+    expect(s.ratios.M.sort()).toEqual([1, 1, 1, 3]);
+    expect(s.mixes.map((x) => x.join("")).sort()).toEqual(["M", "MMM"]);
+  });
+
+  it("the brief carries mean and p75 and the projected hold share before and after", () => {
+    const { world, planner, completedSteps } = town();
+    completedSteps(PLANNER_LINES.sizeMinSample, 300_000);
+    const r = calibrate(world, planner, {});
+    const brief = "brief" in r ? r.brief : "";
+    expect(brief).toContain("M median 2.00×, mean 2.00×, p75 2.00× over 30 steps");
+    expect(brief).toMatch(/Proposed change: Raise M from 150,000 to 300,000 tokens\. Projected hold share 100% → 0%\./);
+    expect(brief).toMatch(/Projected hold share, a bootstrap of the 1 grants funded in 30 days/);
   });
 });

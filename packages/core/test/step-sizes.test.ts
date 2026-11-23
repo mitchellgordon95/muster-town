@@ -71,13 +71,13 @@ describe("calibration: spent over size per size, collective-wide and per buildin
       retireFork(world, fork.id);
     }
     const c = stepCalibration(world);
-    expect(c.sizes).toEqual({ S: { ratio: null, sample: 0 }, M: { ratio: 2, sample: 3 }, L: { ratio: null, sample: 0 } });
-    expect(c.buildings[b.id]!.M).toEqual({ ratio: 2, sample: 3 });
+    expect(c.sizes).toEqual({ S: { ratio: null, sample: 0, mean: null, p75: null }, M: { ratio: 2, sample: 3, mean: 2, p75: 2.5 }, L: { ratio: null, sample: 0, mean: null, p75: null } });
+    expect(c.buildings[b.id]!.M).toEqual({ ratio: 2, sample: 3, mean: 2, p75: 2.5 });
     expect(c.lines).toContain("M: 2.0× over 3 steps");
     // the next forecast prices the L step left at the table (no L sample), its spend so far at 900k over 3 M steps
     expect(world.grantDesk.get(g.id).forecast).toMatchObject({ stepsDone: 3, spent: 900_000, spentOverSize: 2, projected: 1_300_000 });
     // 31 days on, nothing is recent enough to count
-    expect(stepCalibration(world, new Date(Date.now() + 31 * 86_400_000)).sizes.M).toEqual({ ratio: null, sample: 0 });
+    expect(stepCalibration(world, new Date(Date.now() + 31 * 86_400_000)).sizes.M).toEqual({ ratio: null, sample: 0, mean: null, p75: null });
   });
 });
 
