@@ -5,7 +5,10 @@
  * a full path, an env var's value or a `$VAR`. The generic list and the leak test are the ones in
  * packages/runtime/src/describe.ts (GENERIC_LINES, LEAK), so the census and the unit test agree.
  *
- *   node scripts/tool-label-census.mjs [https://muster.town] [--limit=1000] [--relabel] [--examples=5]
+ *   node scripts/tool-label-census.mjs [https://muster.town] [--limit=1000] [--since=ISO] [--relabel] [--examples=5]
+ *
+ * --since keeps only lines at or after that time (e.g. the deploy's /api/health startedAt), so lines labelled by an
+ * older server don't count.
  *
  * --relabel also labels the same Bash inputs with this checkout's describeTool, to compare live words with the next
  * deploy's. Inputs are stored clipped (500 chars of JSON), so a long command is cut: its first line is what counts.
@@ -18,6 +21,7 @@ const flag = (name, dflt) => { const a = args.find((x) => x.startsWith(`--${name
 const base = (args.find((a) => !a.startsWith("--")) ?? "https://muster.town").replace(/\/+$/, "");
 const limit = Math.min(1000, Number(flag("limit", 1000)));
 const examples = Number(flag("examples", 5));
+const since = flag("since", "");
 
 /** A clipped JSON input, read as far as it goes (`{"command":"grep -n … ` with no closing quote). */
 function inputOf(raw) {
@@ -30,7 +34,7 @@ function inputOf(raw) {
 
 const res = await fetch(`${base}/api/events?limit=${limit}`);
 if (!res.ok) { console.error(`GET /api/events: ${res.status}`); process.exit(0); }
-const tools = (await res.json()).events.filter((e) => e.type === "agent.tool");
+const tools = (await res.json()).events.filter((e) => e.type === "agent.tool" && (!since || e.ts >= since));
 if (!tools.length) { console.log("no agent.tool lines in the window"); process.exit(0); }
 
 function measure(label, lines) {

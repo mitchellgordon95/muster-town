@@ -1,0 +1,1 @@
+- 2026-11-23 Teo 1 (gr_93s00hyq1l step 2): Grep and Glob tool lines show no folder or slash ("Searching grants.ts for captain", "Looking for *grant*"); a searched API route reads "jobs API route"; agent-written titles in report, ask, grant and schedule lines name routes and cut paths; tool-label-census takes --since=ISO.

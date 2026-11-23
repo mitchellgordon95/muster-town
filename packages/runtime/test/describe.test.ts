@@ -19,6 +19,13 @@ describe("Bash bubbles read as plain words, never the raw command", () => {
     expect(describeTool(null as never, "Write", { file_path: "/home/agent/work/agent-town/packages/server/src/backup/restore.ts" })).toBe("Writing restore.ts");
     expect(describeTool(null as never, "Edit", { file_path: "/tmp/pw/bub.mjs" })).toBe("Editing bub.mjs");
     expect(describeTool(null as never, "Read", {})).toBe("Reading a file");
+    // Grep and Glob show no folder and no slash (gr_93s00hyq1l step 2: seen live as "Grepping for /api/health")
+    expect(describeTool(null as never, "Grep", { pattern: "/api/health" })).toBe("Searching for health API route");
+    expect(describeTool(null as never, "Grep", { pattern: "captain|access", path: "/home/agent/x/packages/core/src/grants.ts" })).toBe("Searching grants.ts for captain, access");
+    expect(describeTool(null as never, "Grep", { pattern: "$HOME" })).toBe("Searching files");
+    expect(describeTool(null as never, "Glob", { pattern: "packages/core/src/*grant*" })).toBe("Looking for *grant*");
+    expect(describeTool({ nameOf: (x: string) => x } as never, "mcp__town__submit_report", { title: "Subtree filter and GET /api/goals/:id/produced in packages/web/src/x.ts" }))
+      .toBe("Submitting report: Subtree filter and GET goals API route in x.ts");
   });
 
   it("maps common programs past cd/env prefixes", () => {
@@ -75,8 +82,9 @@ describe("Bash bubbles read as plain words, never the raw command", () => {
   });
 
   it("keeps the generic line when the term or name is not safe to show", () => {
-    expect(describeCommand(`grep -rn "/api/jobs/:id" packages/server/src`)).toBe("Searching files");
-    expect(describeCommand(`grep -rn "/api/jobs" packages/server/src/app.ts`)).toBe("Searching app.ts");
+    expect(describeCommand(`grep -rn "/api/jobs/:id" packages/server/src`)).toBe("Searching for jobs API route");
+    expect(describeCommand(`grep -rn "/api/jobs" packages/server/src/app.ts`)).toBe("Searching app.ts for jobs API route");
+    expect(describeCommand(`grep -n "/data/repo" x.ts`)).toBe("Searching x.ts");
     expect(describeCommand(`grep -n "TOKEN=abc" .env`)).toBe("Searching files");
     expect(describeCommand(`grep ghp_abcdefghijklmnop x`)).toBe("Searching files");
     expect(describeCommand(`grep -c "$HOME" notes`)).toBe("Searching files");
