@@ -1,0 +1,645 @@
+{
+ "source": "GET https://muster.town/api/events agent.tool Bash inputs, 2026-11-19 15:18Z to 2026-11-23 16:08Z (2,937 calls); first line plus at most 6 body lines, secrets and tokens screened out",
+ "commands": [
+  {
+   "command": "curl -s https://muster.town/api/health; echo; cd /home/agent/work/muster-town && git fetch -q origin && git log --oneline -1 46669b9d",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town/packages/web && timeout 300 npx vitest run 2>&1 | tail -6",
+   "label": "Running tests"
+  },
+  {
+   "command": "gh pr ready 511 && gh pr merge 511 --squash --delete-branch=false 2>&1 | tail -2; gh pr view 511 --json state,mergeCommit,mergedAt",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "grep -rln \"{pr: N}\\|{pr}\\` wait\\|pr: N\" docs/*.md | head; grep -n \"pr\" docs/wakes.md | grep -i \"ci\\b\\|checks\" | head",
+   "label": "Searching files"
+  },
+  {
+   "command": "git add -A && git status --short && git commit -q -m \"Directed spend by human request: /api/finance/spend directedBySource, check:finance lines, \\\"Asked for by humans\\\" on Bank › Spending (gr_k71b7b6px7 step 1)\n\nGroups the directed lane's assignment rows by the 1:1, meeting, flag or tell each\ntraces to (source id), with per-human totals, an untraced row and a check that\nthe sum equals noGrant.byLane.directed. Titles come from the meeting or published\ndoc; a tell's text stay…",
+   "label": "Working with git (add)"
+  },
+  {
+   "command": "git fetch -q origin && git log --oneline -3 origin/main && curl -s https://muster.town/api/health | head -c 400; echo; git merge-base --is-ancestor b71d6025 $(curl -s https://muster.town/api/health | python3 -c 'import sys,json;print(json.load(sys.stdin)[\"commit\"])') && echo LIVE",
+   "label": "Working with git (fetch)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 790,815p packages/runtime/src/index.ts",
+   "label": "Reading index.ts"
+  },
+  {
+   "command": "mb=$(git merge-base HEAD origin/main); git log --oneline $mb..origin/main -- packages/web/src/panels/AskCard.tsx packages/web/src/panels/asks.ts packages/web/src/styles.css packages/web/test/askCard.test.tsx scripts/disclosure-census.mjs",
+   "label": "Working with git (log)"
+  },
+  {
+   "command": "git show 92267e55 --stat && git show 92267e55 -- '*.css' '*.ts' ':!*.test.ts' | head -400",
+   "label": "Working with git (show)"
+  },
+  {
+   "command": "gh run list --branch main --limit 1 2>&1 | head -2",
+   "label": "Working with GitHub (run)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && timeout 400 npm run typecheck 2>&1 | tail -8 && cd packages/web && timeout 400 npx vitest run 2>&1 | tail -6",
+   "label": "Type-checking the code"
+  },
+  {
+   "command": "git push -q --no-verify -u origin HEAD 2>&1 | tail -2; gh pr create --draft --fill --base main 2>&1 | tail -1",
+   "label": "Working with git (push)"
+  },
+  {
+   "command": "sed -n 260,345p packages/core/src/asks.ts && sed -n 780,810p packages/core/src/asks.ts && grep -n \"owns\\b\\|owns(\" packages/core/src/goal-tree*.ts packages/core/src/*.ts | head -20",
+   "label": "Reading asks.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; cat deploy/fly/fly.toml 2>/dev/null | grep -n -i \"memory\\|cpu\\|size\" ; ls deploy/fly; grep -n -i \"rss\\|memory\" packages/server/src/monitor*.ts packages/server/src/monitor/*.ts 2>/dev/null | head",
+   "label": "Writing a file"
+  },
+  {
+   "command": "ls ~/skills/test-account-live-check ~/skills/test-account-live-check/*; cd ~/skills/test-account-live-check && (python3 scripts/test_account.py me 2>&1 | python3 -c \"import sys,re;s=sys.stdin.read();print(s[:1500])\")",
+   "label": "Listing files"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; cat docs/log.d/2026-11-22-live-checks-on-a-deploy-wait.md | head -5",
+   "label": "Reading files"
+  },
+  {
+   "command": "sed -n 195,245p packages/server/src/routes/town.ts 2>/dev/null || grep -rn \"/api/sessions\\\"\" -A30 packages/server/src/routes | head -50",
+   "label": "Reading town.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; for p in /api/bank /api/grants /api/buildings /api/goals /api/state /api/events /api/docs?limit=1 /api/verbs /api/census; do echo \"$p $(curl -s -o /dev/null -w '%{http_code} %{size_download}' \"https://muster.town$p\")\"; done; ls packages/server/src | head -100",
+   "label": "Listing the src folder"
+  },
+  {
+   "command": "sed -n 1,110p packages/server/src/routes/docs.ts",
+   "label": "Reading docs.ts"
+  },
+  {
+   "command": "sed -n 110,130p packages/core/src/finance-spend.ts; grep -n \"sourceTitles\" packages/core/src/finance-spend.ts | head -5; grep -n \"^import\\|^export\" packages/server/src/routes/town.ts | head -30",
+   "label": "Reading finance-spend.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 8,12p scripts/disclosure-census.mjs",
+   "label": "Reading disclosure-census.mjs"
+  },
+  {
+   "command": "cat AGENTS.md | head -80 && ls packages && ls packages/core/src | head -80",
+   "label": "Reading AGENTS.md"
+  },
+  {
+   "command": "git status --short && git diff --stat",
+   "label": "Working with git (status)"
+  },
+  {
+   "command": "git checkout -q -b pr537 origin/agent/nell-1/expired-per-day-and-the-used-share-core- && git merge origin/main 2>&1 | tail -5; git diff --name-only --diff-filter=U",
+   "label": "Working with git (checkout)"
+  },
+  {
+   "command": "env | grep -i -E \"muster|town\" | sed 's/=.*/=…/'; ls ~/.config 2>/dev/null; cd /home/agent/work/muster-town; grep -rn \"api/media\" packages/server/src/*.ts | grep -i \"post\" | head -3",
+   "label": "Searching for muster, town"
+  },
+  {
+   "command": "sed -n 500,540p packages/web/src/panels/Places.tsx | grep -n \"pct\\|spent\" ",
+   "label": "Reading Places.tsx"
+  },
+  {
+   "command": "wc -l packages/web/src/panels/AskCard.tsx packages/web/src/panels/asks.ts && grep -rn \"openGoalEditor\\|goal-editor\\|openOneOnOne\\|open1on1\\|startOneOnOne\" packages/web/src --include=*.ts --include=*.tsx | head -40",
+   "label": "Reading AskCard.tsx"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 230,280p packages/server/src/app.ts; cat packages/web/src/home/funnel.ts; grep -n \"visitorId\" packages/web/src/api.ts | head; sed -n 480,515p packages/web/src/api.ts; cat packages/server/src/blog.ts | head -80; wc -l packages/server/src/blog.ts",
+   "label": "Reading app.ts"
+  },
+  {
+   "command": "sed -i 's/export { bankConvertedAt, countersSince, financeSpend,/export { bankConvertedAt, countersSince, directedBySource, DIRECTED_SOURCE_IDENTITY, type DirectedBySource, type DirectedSourceRow, type DirectedAsker, financeSpend,/' packages/core/src/index.ts && grep -rln \"noGrantCheck\" packages --include=*.ts --include=*.tsx | grep -v node_modules; grep -n \"noGrantCheck\\|noGrant\" scripts/finance-check.ts",
+   "label": "Editing index.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town/packages/server/src/routes; sed -n 55,100p grants.ts; sed -n 70,110p goals.ts; sed -n 170,195p town.ts; grep -n \"PATCH\\|patch\\|explore\" goals.ts | head -20",
+   "label": "Reading grants.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && git diff packages/core/test/grants-schema.test.ts | grep \"^[-+]\" ; git diff --stat -- packages/*/test | tail -3",
+   "label": "Working with git (diff)"
+  },
+  {
+   "command": "sed -n 1040,1090p src/mock/server.ts; grep -n \"toyDaily(\" src/mock/server.ts; grep -n \"^function toySplit\\|^const toySplit\" src/mock/server.ts",
+   "label": "Reading server.ts"
+  },
+  {
+   "command": "sed -n 660,668p packages/web/src/api.ts; sed -n 1010,1016p packages/web/src/api.ts; sed -n 370,380p packages/web/src/mock/server.ts; ls packages/web/test | grep -i \"grant\\|goal-spend\\|goalspend\\|finance\"",
+   "label": "Reading api.ts"
+  },
+  {
+   "command": "cd /tmp && mkdir -p pw && cd pw && npm i playwright-core@latest >/dev/null 2>&1; ls ~/.cache/ms-playwright 2>/dev/null; which chromium chromium-browser google-chrome 2>/dev/null; grep -n \"executablePath\\|launch(\" /home/agent/work/muster-town/scripts/disclosure-census.mjs | head -3",
+   "label": "Installing packages"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; timeout 300 node scripts/disclosure-census.mjs mock --only=goals,queue --shots=/tmp/shots-mock 2>&1 | tail -15",
+   "label": "Running disclosure-census.mjs"
+  },
+  {
+   "command": "ls packages/schema/test | head; sed -n 1,20p packages/server/test/captain-requests.test.ts",
+   "label": "Listing the test folder"
+  },
+  {
+   "command": "sed -n 420,470p packages/core/src/secretary.ts; grep -rn \"rankSchedule\\|ensureRankSchedule\\|rankRunText\\|secretaryIdleReason\\|rankRunView\\|pressRank\\|DECISION_RUNS_PER_DAY\\|RANK_TOKENS_PER_RUN\" packages --include=*.ts --include=*.tsx | grep -v \"^packages/core/src/secretary.ts\"",
+   "label": "Reading secretary.ts"
+  },
+  {
+   "command": "ls node_modules | wc -l && (cd packages/web && npx vite build 2>&1 | tail -3) && ls packages/web/dist | head",
+   "label": "Listing the node_modules folder"
+  },
+  {
+   "command": "sed -n 199,225p packages/server/test/blog.test.ts",
+   "label": "Reading blog.test.ts"
+  },
+  {
+   "command": "sed -n 135,200p packages/core/src/jobs.ts; sed -n 340,395p packages/core/src/jobs.ts; grep -n \"EntryKind\\|EntryLevel =\" packages/schema/src/index.ts | head",
+   "label": "Reading jobs.ts"
+  },
+  {
+   "command": "cat packages/core/src/plugins.ts; grep -n \"countBlogRead\\|publicPosts\" packages/server/src/*.ts | head; ls packages/server/test 2>/dev/null | grep -i blog; ls packages/server/src/*.test.ts 2>/dev/null | grep -i blog",
+   "label": "Reading plugins.ts"
+  },
+  {
+   "command": "grep -rn \"branchCall\" packages/web/src --include=*.tsx --include=*.ts | grep -v test | head; ls packages/core/src | head -100; wc -l packages/core/src/ask-verb.ts",
+   "label": "Searching for branchCall"
+  },
+  {
+   "command": "grep -rn \"meetings:\" packages/core/src/world.ts | head -3; grep -rn \"^export class Meeting\" packages/core/src | head",
+   "label": "Searching world.ts for meetings:"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; gh pr ready 509 && gh pr merge 509 --squash && gh pr view 509 --json state,mergeCommit --jq '{state,sha:.mergeCommit.oid}'",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; npm run check:docs 2>&1 | tail -4",
+   "label": "Running tests"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -n \"homeViews\" packages/server/src/app.ts | head -5; grep -rn \"blog_read\\|blogRead\" packages/server/src --include=*.ts | grep -v test | head -5",
+   "label": "Searching app.ts for homeViews"
+  },
+  {
+   "command": "sed -n 1,50p packages/runtime/src/prod-watch.ts 2>/dev/null | head -50 || grep -rln \"prod-watch\" packages | head",
+   "label": "Reading prod-watch.ts"
+  },
+  {
+   "command": "cd /tmp/harness && timeout 60 chromium --headless=new --no-sandbox --disable-gpu --window-size=1300,900 --timeout=12000 --screenshot=/tmp/harness/blogdoc.png \"https://muster.town/workshop/#/doc/dc_24io0e0i6q\" >/dev/null 2>&1; ls -la /tmp/harness/*.png 2>&1",
+   "label": "Taking a screenshot"
+  },
+  {
+   "command": "CHROMIUM=/usr/bin/chromium timeout 600 node scripts/delight-walk.mjs https://muster.town/ /tmp/delight 2>&1 | tail -30; ls /tmp/delight",
+   "label": "Running delight-walk.mjs"
+  },
+  {
+   "command": "grep -rn \"SITE_DESCRIPTION\\s*=\" packages/ | head; grep -rn \"SITE_DESCRIPTION\" packages/server/src --include=*.ts | grep -v test | head; curl -s https://muster.town/ | grep -o '<meta property=\"og:[a-z]*\" content=\"[^\"]*\"'; grep -n \"funnelSource(\" -r packages/server/src | head",
+   "label": "Searching for SITE_DESCRIPTIONs*="
+  },
+  {
+   "command": "sed -n 80,140p packages/core/test/flags.test.ts",
+   "label": "Reading flags.test.ts"
+  },
+  {
+   "command": "git add -A && git commit -qm \"Blog: About Muster Town box on every post, /og.png preview fallback, own-host /blog referrer counts as source blog (gr_y8buqgpata step 1)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\" && git push -qu origin HEAD 2>&1 | tail -2; gh pr create --draft --base main --title \"Blog: About box on every post, /og.png preview fallback, blog clicks counted as source blog (gr_y8buqgpata)\" --body \"Grant gr_y8buqgpata step 1 (Outreach).\n\n- packages…",
+   "label": "Working with git (add)"
+  },
+  {
+   "command": "sed -n 1111,1112p packages/web/src/styles.css; sed -n 17,21p packages/web/src/panels/asks.ts; sed -n 88,93p packages/web/src/panels/asks.ts; sed -n 46,47p scripts/disclosure-census.mjs; sed -n 230,237p scripts/disclosure-census.mjs | cut -c1-120",
+   "label": "Reading styles.css"
+  },
+  {
+   "command": "curl -s https://muster.town/api/asks | python3 -c \"\nimport json,sys,collections;a=json.load(sys.stdin)['asks']\nprint(len(a));print(collections.Counter((x.get('type'),x.get('targetKind')) for x in a))\nfor x in a: print(x['id'],x.get('type'),x.get('targetKind'),x.get('buildingId'),x['title'][:70])\n\"",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "grep -n '^  assign:' packages/schema/src/index.ts | cut -c1-900; grep -rn \"withoutWaits\\|verbToolFor\\|NO_DEPLOY\" packages/*/test | head; grep -rn \"deploy\" packages/schema/test/*.ts | head",
+   "label": "Searching index.ts for assign:"
+  },
+  {
+   "command": "sed -n 1,115p packages/core/test/secretary-decisions.test.ts",
+   "label": "Reading secretary-decisions.test.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && grep -rln \"mock\" packages/web/vite.config.ts packages/web/src/*.ts 2>/dev/null | head; grep -n \"\\\"dev\\|\\\"scripts\" -A12 packages/web/package.json | head -20; ls scripts | grep -i \"census\\|shot\\|mock\"",
+   "label": "Searching vite.config.ts for mock"
+  },
+  {
+   "command": "sed -i 's/new Set(\\[\"keep\", \"leave\", \"skip\", \"hold\", \"wait\", \"later\", \"no\", \"none\", \"record\", \"not\", \"don'\"'\"'t\", \"dont\", \"ignore\"\\])/new Set([\"keep\", \"leave\", \"skip\", \"hold\", \"wait\", \"later\", \"no\", \"none\", \"record\", \"not\", \"don'\"'\"'t\", \"dont\", \"ignore\", \"decline\", \"reject\"])/' packages/schema/src/ask-acts.ts && grep -n \"RECORD_VERBS: \" packages/schema/src/ask-acts.ts && (cd packages/server && npx vitest run test/asks.te…",
+   "label": "Editing ask-acts.ts"
+  },
+  {
+   "command": "ls packages/schema/src; grep -n \"export const Grant\\b\\|export const GrantSchema\\|proposedAt\\|decidedAt\\|decidedBy\" packages/schema/src/*.ts | head -30; grep -n \"jobs\\b.*Table\\|closedAs\" packages/core/src/world.ts packages/schema/src/*.ts | head",
+   "label": "Listing the src folder"
+  },
+  {
+   "command": "grep -rn \"CREATE TABLE.*meetings\\|CREATE TABLE IF NOT EXISTS meetings\" -A8 packages/core/src | head -20; grep -rn \"CREATE TABLE.*grants\\b\\|CREATE TABLE IF NOT EXISTS grants\" -A3 packages/core/src | head",
+   "label": "Searching for CREATE TABLE meetings, CREATE TABLE IF …"
+  },
+  {
+   "command": "sed -i 's/3.51M adj. tokens/3.5M adj. tokens/' test/meetingCost.test.ts && grep -n '\"one-on-one\"' src/mock/*.ts | head -5",
+   "label": "Editing meetingCost.test.ts"
+  },
+  {
+   "command": "cat packages/web/src/panels/AskCard.tsx | sed -n 1,200p",
+   "label": "Reading AskCard.tsx"
+  },
+  {
+   "command": "grep -n \"laneOverride\" src/domain.ts | head -3; sed -n 76,82p test/explore.test.ts",
+   "label": "Searching domain.ts for laneOverride"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 35,110p packages/core/src/goal-spend.ts; grep -rn \"class AgentRepo\\|agents = new\\|AgentsRepo\" packages/core/src | head",
+   "label": "Reading goal-spend.ts"
+  },
+  {
+   "command": "sed -n 1,40p packages/core/test/retainers.test.ts; sed -n 120,150p packages/core/test/retainers.test.ts",
+   "label": "Reading retainers.test.ts"
+  },
+  {
+   "command": "sed -i '/^import { fileNotice } from \"..\\/notices.ts\";$/d' packages/core/src/verbs/docs.ts && ls docs/log.d | tail -2 && cat docs/log.d/$(ls docs/log.d | tail -1) | head -3",
+   "label": "Editing docs.ts"
+  },
+  {
+   "command": "sed -i '17s#await import(\"/tmp/pw/node_modules/playwright-core/index.mjs\")#await import(process.env.PLAYWRIGHT ?? \"/tmp/pw/node_modules/playwright-core/index.mjs\")#' scripts/type-contrast-census.mjs && sed -n 17p scripts/type-contrast-census.mjs && git commit -qam \"type-contrast-census: playwright path from PLAYWRIGHT like the disclosure census (knip saw a literal /tmp/pw import as an unlisted dependency)\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\" && git push -…",
+   "label": "Editing type-contrast-census.mjs"
+  },
+  {
+   "command": "grep -rn \"stepSizes\\[\" packages/core/src packages/server/src --include=*.ts | grep -v test | head -20; grep -rn \"calibrationProposal\\|proposalSentence\\|\\.proposal\\b\" packages --include=*.ts -l | head",
+   "label": "Searching for stepSizes"
+  },
+  {
+   "command": "sed -n 1,60p packages/server/test/uptime.test.ts",
+   "label": "Reading uptime.test.ts"
+  },
+  {
+   "command": "grep -n \"CREATE TABLE\" packages/core/src/db.ts | head -40; grep -n \"assignments\" packages/core/src/db.ts packages/core/src/repos*.ts 2>/dev/null | head",
+   "label": "Searching db.ts for CREATE TABLE"
+  },
+  {
+   "command": "sed -n 70,85p packages/core/src/goal-spend.ts; sed -n 112,118p packages/core/src/review-deck.ts; sed -n 162,167p packages/core/src/review-deck.ts; grep -n \"^import\" packages/core/src/funders.ts; grep -rn \"export function grantName\" packages/",
+   "label": "Reading goal-spend.ts"
+  },
+  {
+   "command": "sed -n 150,185p packages/web/src/api.ts; cat packages/web/src/panels/BankDaily.tsx; ls packages/web/src/panels/ | grep -i daily; ls packages/web/test 2>/dev/null | grep -i daily; grep -rln \"DailyChart\" packages/web --include=*.ts* | grep -v node_modules",
+   "label": "Reading api.ts"
+  },
+  {
+   "command": "for p in /api/asks/ak_pmt8fn27fj /api/jobs/jb_workshop; do echo \"== $p\"; curl -s -H \"Authorization: Bearer $MUSTER_TOWN_TOKEN\" \"$MUSTER_TOWN_URL$p\" | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\ns=json.dumps(d)\nprint(s[:1500])\n\"; done; curl -s $MUSTER_TOWN_URL/api/health | head -c 300",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "cd /tmp && for o in 200 400 600; do curl -s -H \"Authorization: Bearer $MUSTER_TOWN_TOKEN\" \"$MUSTER_TOWN_URL/api/sessions?limit=200&offset=$o\" > s$o.json; done; python3 -c \"\nimport json,collections\nxs=[]\nfor f in ['s.json','s200.json','s400.json','s600.json']:\n  xs+=json.load(open(f))['sessions']\nids=set();u=[]\nfor s in xs:",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -n \"holdAtTokens\\|stepStates:\" packages/core/src/*.ts | head; grep -n \"noticesOn\" packages/core/src/notices.ts | head -3; ls packages/web/src | head -50; grep -rln \"StepStrip\" packages/web/src",
+   "label": "Searching for holdAtTokens, stepStates:"
+  },
+  {
+   "command": "grep -rn \"pingHome\\|from \\\"./home/funnel\\\"\\|home/funnel\" packages/web/src --include=*.ts | grep -v \"^packages/web/src/home/funnel.ts\" | head; sed -n 1,20p packages/web/src/home/funnel.ts",
+   "label": "Searching files"
+  },
+  {
+   "command": "sed -n 35,70p packages/web/test/keyResults.test.ts; sed -n 118,126p packages/web/test/keyResults.test.ts; grep -n \"keyResultText\\|KR kr_1\\|A thing\" packages/web/test/funderFilter.test.tsx",
+   "label": "Reading keyResults.test.ts"
+  },
+  {
+   "command": "sed -n 170,300p packages/core/src/meetings.ts; cat packages/core/src/meeting-focus.ts | head -80; sed -n 125,145p packages/server/src/routes/docs.ts",
+   "label": "Reading meetings.ts"
+  },
+  {
+   "command": "git log --oneline -8 --grep=\"merge-when-green\\|Merge-when-green\\|merge when green\" main; grep -rn \"merge\" packages/core/src/waits.ts | head",
+   "label": "Working with git (log)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; cat blog/posts/hello-from-muster-town.md; ls docs | head -80; wc -w docs/engineering-human-oversight.txt 2>/dev/null; git log --oneline -3 -- blog/posts",
+   "label": "Reading hello-from-muster-town.md"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -rn \"\\\"/api/media\\\"\\|'/api/media'\\|/api/media\\b\" packages/server/src --include=*.ts | head -5; env | grep -i -E \"^MUSTER|TOKEN|TOWN_URL\" | cut -d= -f1",
+   "label": "Searching files"
+  },
+  {
+   "command": "git log --oneline -1 && curl -s https://muster.town/api/health | head -c 600; echo; grep -n \"resumeWhen\\|deploy\" packages/server/src/mcp/*.ts 2>/dev/null | head -5; grep -rln \"Never guess an\\|merge when green\\|resumeWhen\" packages/*/src docs/wakes.md | head -30",
+   "label": "Working with git (log)"
+  },
+  {
+   "command": "timeout 900 npm run check --fast 2>&1 | tail -15",
+   "label": "Running tests"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 280,380p packages/core/src/asks.ts; grep -n \"askStructure\\|AskBranch\\b\\|AskTargetKind\\|export const AskBranch\\|function vetAsk\" -r packages/schema/src | head -30",
+   "label": "Reading asks.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 478,560p packages/core/src/meetings.ts",
+   "label": "Reading meetings.ts"
+  },
+  {
+   "command": "echo \"- 2026-11-22 scripts/disclosure-census.mjs: closed-grant row (gr_hwxc1lwi2e step 2): --closed=gr_a,gr_b checks objective, shipped block and key result 1 on the first screen, ≤12 controls / ≤200 words without the shipped items' words, one spend number, no \\\"projected\\\" (Teo 1).\" > docs/log.d/2026-11-22-census-row-closed-grants.md; git add -A && git commit -qm \"Disclosure census: closed-grant row (objective, shipped block, key result 1 on the first screen; one spend number…",
+   "label": "Writing 2026-11-22-census-row-closed-grants.md"
+  },
+  {
+   "command": "grep -n \"insert\\|create\" packages/server/test/*.test.ts | grep -i \"docs\\.\\(insert\\|create\\)\\|grants\\.\\(insert\\|create\\)\" | head -5",
+   "label": "Searching for insert, create"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && grep -rln \"own sessions: reading reports\" packages scripts 2>/dev/null | grep -v node_modules; timeout 400 npm run typecheck 2>&1 | tail -5",
+   "label": "Searching for own sessions: reading reports"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -rn \"legibleMeasures\\|measures\" packages/server/src/routes/*.ts | head -5; sed -n 140,175p packages/core/src/planner.ts",
+   "label": "Searching for legibleMeasures, measures"
+  },
+  {
+   "command": "cd /tmp && mkdir -p tr && python3 - <<'E'\nimport json,os,urllib.request\ns=json.load(open('s.json'))['sessions']\nU=os.environ['AGENT_TOWN_URL'];T=os.environ['AGENT_TOWN_TOKEN']\nok=0\nfor x in s:\n    if x['status']=='running': continue",
+   "label": "Running a Python script on s.json"
+  },
+  {
+   "command": "wc -l packages/core/src/secretary.ts && sed -n 1,120p packages/core/src/secretary.ts",
+   "label": "Reading secretary.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; git log --oneline -1; curl -s https://muster.town/api/health | head -c 400; echo; wc -l scripts/disclosure-census.mjs; grep -n \"queue\\|goal\" scripts/disclosure-census.mjs | head -60",
+   "label": "Working with git (log)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -n \"Reading files\\|Running a Python\\|Searching files\\|export function\" packages/runtime/src/describe.ts | head -40; wc -l packages/runtime/src/describe.ts",
+   "label": "Searching describe.ts for Reading files, Running a Python, Search…"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -n \"renderHome\\|collectives(\" packages/server/test/web.test.ts | head; grep -n \"tile-wait\\|tile-tag\\|tile-live\" packages/web/src/home/home.css | head; grep -n \"DirectoryTown\" -r packages/server/src | head -3",
+   "label": "Searching web.test.ts for renderHome, collectives"
+  },
+  {
+   "command": "sed -n 1,24p packages/core/src/dictionary.ts; sed -n 60,200p packages/core/src/dictionary.ts",
+   "label": "Reading dictionary.ts"
+  },
+  {
+   "command": "gh pr checks 551 2>&1 | head -5",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "grep -n \"  grants(\\|  goalTree(\\|async grants(\\|async goalTree(\" -A4 packages/web/src/api.ts | head -30; grep -rn \"keyResults:\" packages/core/src/goals.ts | head; grep -n \"GoalKeyResult\\b\" packages/web/src/api.ts | head -3",
+   "label": "Searching api.ts for grants, goalTree, async grants, async g…"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; git add -A; git status --short; git commit -q -m \"Ask card buttons do the thing: the branch's act runs server-side at decide; the door refuses a click ask with dead buttons (Mitchell, mt_m6qjva55rh)\n\n- schema ask-acts.ts: branchAct (moved from web branchCall) plus goal (gl_) cap/explore acts, key result met/missed, keep; deadBranches in askStructure\n- core ask-acts.ts actOnAsk: POST /api/asks/:id/decide runs the target's own verb as the human, the…",
+   "label": "Working with git (add)"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town/packages/core; sed -i 's|buildingId: \"town-hall\", homeBuildingId: b.id }|buildingId: null, homeBuildingId: b.id }|; s|walking in the Town Hall: worldGoalSpend|with no current building: worldGoalSpend|' test/agent-scans.test.ts\nsed -i 's|\\[\"id\", \"buildingId\", \"homeBuildingId\", \"kind\", \"status\"\\]|[\"id\", \"buildingId\", \"kind\", \"status\"]|' src/goal-spend.ts; npx vitest run test/agent-scans.test.ts 2>&1 | grep -E \"Tests |→\"; sed -i '…",
+   "label": "Editing agent-scans.test.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 1,17p packages/web/src/panels/asks.ts",
+   "label": "Reading asks.ts"
+  },
+  {
+   "command": "grep -rn \"manager-wakes\\b\\|\\.manager-wakes \" packages/web --include=*.css -l | grep -v node_modules; grep -rn \"\\.manager-wakes\" packages/web --include=*.css | grep -v node_modules | head",
+   "label": "Searching for manager-wakesb, .manager-wakes"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && timeout 200 npx vitest run packages/core/test/check-scripts.test.ts 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | grep -E '\"(ref|text|line|file)\"' | head -30",
+   "label": "Running tests"
+  },
+  {
+   "command": "timeout 500 npm run check -- --fast > /tmp/check.log 2>&1; echo exit $?; grep -E \"^check|FAILED| Test Files|Tests  \" /tmp/check.log | tail -12",
+   "label": "Running tests"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 40,70p packages/core/test/budget.test.ts; grep -n \"fork\\b\\|createFork\\|forkFor\" packages/core/test/helpers.ts | head",
+   "label": "Reading budget.test.ts"
+  },
+  {
+   "command": "grep -n \"export const EventsQuery\" -A10 packages/schema/src/index.ts | head -12",
+   "label": "Searching index.ts for export const EventsQuery"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; gh pr view 509 --json state,isDraft,mergeable,statusCheckRollup,headRefOid --jq '{state,isDraft,mergeable,head:.headRefOid,checks:[.statusCheckRollup[]|{name,conclusion,status}]}'",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "grep -rn \"validateWait(\" packages/*/src | head; grep -n \"export async function safeGet\\|export interface\\|export type Fetcher\\|statusOnly\\|body\" packages/core/src/net-guard.ts | head -20; ls packages/core/test | grep -i \"wait\\|ask-check\\|merge\"; grep -n \"KeyResultStatus\\|status: z.enum\" packages/schema/src/index.ts | head",
+   "label": "Searching for validateWait"
+  },
+  {
+   "command": "cat > docs/log.d/2026-11-19-phone-outline-view-for-the-goal-tree.md <<'EOF'\n- 2026-11-19 Teo 1 (UI / UX, grant gr_nhayb7s9bd step 2): on a phone (≤ 760 px) the goal tree opens on an outline (GoalOutline.tsx): one indented row per goal with its words, captain, open key results and proposals; a tap selects it and opens its detail below; \"Outline | Map\" switches to the canvas and is kept in localStorage (musterTown.goalEditor.phoneView). role=tree with aria-level, one tab stop, ↑ ↓ H…",
+   "label": "Writing a file"
+  },
+  {
+   "command": "grep -n \"1900\\|wordCount\\|words(\" scripts/check-doc-refs.ts scripts/doc-refs.ts | head",
+   "label": "Searching for 1900, wordCount, words"
+  },
+  {
+   "command": "sed -i 's/decided = reports and flags the manager decided inside a wake/decided = reports, flags and asks the manager acted on inside a wake (fund, counter, reject, approve, rank…)/' packages/web/src/panels/BankSpending.tsx && sed -n 250,258p packages/web/src/panels/BankSpending.tsx && grep -rn \"Manager wakes\" packages/web/test | head",
+   "label": "Editing BankSpending.tsx"
+  },
+  {
+   "command": "cat packages/core/src/goal-spend.ts && sed -n 1740,1775p packages/schema/src/index.ts && cat scripts/finance-check.ts | head -150",
+   "label": "Reading goal-spend.ts"
+  },
+  {
+   "command": "cat packages/core/test/rest-spot.test.ts | head -80; grep -rn \"Secretary\\|hydrant\" packages/core/test/*.ts | grep -v rest-spot | head -30",
+   "label": "Reading rest-spot.test.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; git grep -n -E \">[^<{]*[Oo]bjective|\\\"[^\\\"]*[Oo]bjective[^\\\"]*\\\"\" -- 'packages/web/src/*.tsx' | grep -v \"^\\s*//\" | head -20; git grep -n \"kr-objective\" packages/web/src | grep -v styles.css | head",
+   "label": "Searching files"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -n \"shipped\" packages/core/src/grants.ts | head -40; grep -n \"interface GrantView\\|GrantView = \" -r packages/*/src | head",
+   "label": "Searching grants.ts for shipped"
+  },
+  {
+   "command": "grep -rn \"tool_result\\|isError\\|is_error\" packages/runtime/src/*.ts | grep -v test | head -15",
+   "label": "Searching for tool_result, isError, is_error"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; ls; find . -path ./node_modules -prune -o -name 'asks.ts' -print | grep -v node_modules; wc -l AGENTS.md CLAUDE.md",
+   "label": "Listing files"
+  },
+  {
+   "command": "F=/tmp/claude-1000/-home-agent-work-muster-town/9e316537-6eea-4ea3-96a9-47cf9251109d/tasks/b030egsv3.output; grep -n \"FAIL\\|✗\\|×\" $F | head; ",
+   "label": "Searching for FAIL, ✗, ×"
+  },
+  {
+   "command": "grep -n \"FAIL\\|AssertionError\\|Error:\" /tmp/claude-1000/-home-agent-work-muster-town/fb27032a-d5ca-485e-85bb-cd7d106f6dfb/tasks/brjqye7s9.output | head -20",
+   "label": "Searching brjqye7s9.output for FAIL, AssertionError, Error:"
+  },
+  {
+   "command": "sed -n 1,20p packages/core/test/finance-spend.test.ts; sed -n 75,130p packages/core/test/finance-spend.test.ts",
+   "label": "Reading finance-spend.test.ts"
+  },
+  {
+   "command": "echo '- 2026-11-19: A human'\"'\"'s own request (a pocket job: a flag, a meeting, a tell) now files its \"Done: <title>\" shipped notice however its last report is settled: by the town at submit, or by the manager'\"'\"'s review approve / stop. One helper, `requestDone` (packages/core/src/notices.ts), called from `applyDecision`; nothing while the job has open work, never twice per report. Seen on Mitchell'\"'\"'s flag dc_hrm72814k5, whose report reached the manager and told him noth…",
+   "label": "Printing a note"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; ls packages/schema/src | grep -i ask; grep -rn -i \"If you fund\\|ifYou\\|If you \" packages/schema/src/*.ts | head -8",
+   "label": "Listing the src folder"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; curl -s https://muster.town/api/finance | python3 -c \"\nimport json,sys\nd=json.load(sys.stdin)\ndef keys(x,p='',depth=0):\n  if depth>2: return\n  if isinstance(x,dict):\n    for k,v in x.items():",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "curl -s -o /dev/null -A \"curl/8\" \"https://muster.town/blog/engineering-human-oversight-with-decision-queues?ref=bot\"; curl -s -o /dev/null -A \"Googlebot/2.1\" \"https://muster.town/blog/engineering-human-oversight-with-decision-queues?ref=bot\"; curl -s https://muster.town/api/join-funnel | python3 -c \"import json,sys;d=json.load(sys.stdin);print(json.dumps(d['blogReads']))\"; date -u",
+   "label": "Calling the town API"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 37,48p packages/web/test/askCard.test.tsx; sed -n 60,66p packages/web/test/askCard.test.tsx",
+   "label": "Reading askCard.test.tsx"
+  },
+  {
+   "command": "pkill -f r531/serve.ts; gh pr view 531 --json state,mergeCommit -q '.state+\" \"+(.mergeCommit.oid//\"\")'; grep -n \"function tile\\|function selfHostedTile\\|function previewOf\\|export function renderHome\\|tile-ext\\|selfHosted.filter\\|<ul class=\\\"tiles\\\">\\|export function collectives\\|NOT_STARTED =\" packages/server/src/home.ts; grep -n \"tile\" packages/web/src/home/home.css | cut -c1-80",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "grep -n \"SpendLane =\" -A3 packages/schema/src/index.ts; grep -rn \"grantStep\" packages/core/src --include=*.ts | grep -v test | grep -iv \"a.grantStep\\b\" | head -20; grep -n \"export function jobOf\" -A30 packages/core/src/jobs.ts | head -45",
+   "label": "Searching index.ts for SpendLane ="
+  },
+  {
+   "command": "sed -n 84,105p packages/web/src/panels/MeetingSlide.tsx; ls packages/web/src/panels/*.test.* | head -50; grep -n \"ge-tools\\|ge-canvas\" packages/web/src/styles.css; grep -rn \"localStorage\" packages/web/src/panels/panelResize.ts | head -5",
+   "label": "Reading MeetingSlide.tsx"
+  },
+  {
+   "command": "cd /home/agent; ls -t scratch shots tools | head -30; grep -rl \"If you\" scratch shots 2>/dev/null | head",
+   "label": "Listing the tools folder"
+  },
+  {
+   "command": "grep -rn \"searchParams.get\\|query\\.\" packages/server/src/routes/events* 2>/dev/null | head; grep -rln \"'/api/events'\" packages/server/src | head -3",
+   "label": "Searching for searchParams.get, query."
+  },
+  {
+   "command": "grep -n \"className\" packages/web/src/panels/DecisionQueue.tsx | head -80",
+   "label": "Searching DecisionQueue.tsx for className"
+  },
+  {
+   "command": "F=/tmp/claude-1000/-home-agent-work-muster-town/9e316537-6eea-4ea3-96a9-47cf9251109d/tasks/b030egsv3.output; timeout 115 bash -c \"until grep -q 'total' $F; do sleep 5; done\"; tail -c 1500 $F",
+   "label": "Searching for total"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town && npm run check -- --fast > /tmp/check2.log 2>&1",
+   "label": "Running tests"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -rn \"mock\" packages/web/src/main.tsx packages/web/vite.config.* 2>/dev/null | head -5; grep -rln \"VITE_MOCK\\|\\?mock\\|mock=1\" packages/web/src | head -3; grep -rn \"mock\" AGENTS.md CLAUDE.md | head -5",
+   "label": "Searching main.tsx for mock"
+  },
+  {
+   "command": "f=$(grep -rln \"function AskCard\\|export function AskCard\" packages/web/src); echo $f; grep -n \"className\" $f | head -40",
+   "label": "Searching for className"
+  },
+  {
+   "command": "git add -A && git commit -q -m \"Merge when green: a {pr, merge: true} wait has the town squash-merge a green PR and close the parked work with no session (gr_rlt0ctnhqk step 1)\n\nThe runtime's PR poller marks the PR ready, squash-merges it with its title and\ndeletes its agent branch once its checks pass with no conflict; core checkWaits\ncloses the parked continuation as done, writes 'merged PR #N as <sha>' on its\njob's thread and queues a parked grant step's next step. Red check…",
+   "label": "Working with git (add)"
+  },
+  {
+   "command": "cat >> packages/runtime/test/pr-checks.test.ts <<'EOF'\n\n/** Merge when green (gr_rlt0ctnhqk, kr_lse9k08ixi): a fake GitHub that also answers GraphQL, the merge and the branch delete. */\nfunction fakeMergeGitHub() {\n  const gh = {\n    pr: { state: \"open\", merged: false, merge_commit_sha: null as string | null, mergeable: true as boolean | null, draft: true, title: \"Merge when green\", node_id: \"PR_node179\",\n      head: { sha: SHA, ref: \"agent/mara-1/merge-when-green\", rep…",
+   "label": "Writing pr-checks.test.ts"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; awk '/^## 7/,/^## 9/' docs/how-work-gets-done.md | head -40 | cut -c1-300",
+   "label": "Reading how-work-gets-done.md"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; grep -rn \"asks (\" packages/core/src --include=*.ts | head -3; grep -rn \"CHECK (targetKind\\|targetKind IN\" packages/core/src | head",
+   "label": "Searching for asks"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 25,60p packages/core/src/grants.ts; grep -n \"reserve\" packages/core/src/grants.ts | head",
+   "label": "Reading grants.ts"
+  },
+  {
+   "command": "gh pr checks 545 2>&1 | head -3",
+   "label": "Working with GitHub (pr)"
+  },
+  {
+   "command": "env | grep -i \"muster\\|town\" | sed 's/=.*/=…/'; ",
+   "label": "Searching for muster, town"
+  },
+  {
+   "command": "grep -n \"keyResults(buildingId\\|  keyResults(\" packages/web/src/api.ts; grep -n \"export interface GoalBoard\\|export const GoalBoard\\|GoalKeyResult =\" -A8 packages/schema/src/index.ts | head -30",
+   "label": "Searching api.ts for keyResults(buildingId, keyResults"
+  },
+  {
+   "command": "grep -rn \"bank.spend\\|\\.spend(now\\|finance/spend\" packages/server/src | head",
+   "label": "Searching files"
+  },
+  {
+   "command": "grep -n \"export\" packages/server/test/helpers.ts | head -30; grep -rn \"signInAs\\|sessionFor\\|loginAs\" packages/server/test/*.ts | head -5; grep -n \"seededWorld\\|export\" packages/core/test/helpers.ts | head; grep -n \"buildings\\|\\\"id\\\"\" packages/core/test/fixtures/*.json 2>/dev/null | head",
+   "label": "Searching helpers.ts for export"
+  },
+  {
+   "command": "grep -n \"class Table\" -A40 packages/core/src/store.ts | head -60; grep -rn \"grantStep\" packages/core/src/sql* packages/core/src/*.sql packages/schema 2>/dev/null| head",
+   "label": "Searching store.ts for class Table"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; awk '/^## 7/,/^## 9/' docs/how-work-gets-done.md | head -70; grep -n \"pocket\" docs/how-work-gets-done.md | head",
+   "label": "Reading how-work-gets-done.md"
+  },
+  {
+   "command": "sed -i '5s/WriteDocInput } from \"..\\/api\";/WriteDocInput, PluginWithPage } from \"..\\/api\";/' packages/web/src/mock/server.ts && grep -n \"^import.*Doc\\b\\|type Doc[,} ]\" packages/web/src/mock/server.ts | head -3",
+   "label": "Editing server.ts"
+  },
+  {
+   "command": "grep -n \"requireWriter(\" packages/core/src/grants.ts | head; sed -i 's/  private requireWriter(actor: Actor, b: Building, what = \"key results\"): void {/  private requireWriter(actor: Actor, b: Building): void {/; s/writes its goal'\"'\"'s ${what}.`);/writes its goal'\"'\"'s key results.`);/' packages/core/src/grants.ts && sed -n 949,954p packages/core/src/grants.ts\ncat > docs/log.d/2026-11-19-pix-1-objectives-are-goals-drop-the-table-rout.md <<'EOF'\n- 2026-11-19 Pix 1 (as_vkxhe…",
+   "label": "Searching grants.ts for requireWriter"
+  },
+  {
+   "command": "cd /tmp && python3 - <<'E'\nimport json,os,urllib.request\ns=json.load(open('s.json'))['sessions']\nU=os.environ['AGENT_TOWN_URL'];T=os.environ['AGENT_TOWN_TOKEN']\ndef get(p):\n    r=urllib.request.Request(U+p,headers={'Authorization':'Bearer '+T})\n    try: return json.load(urllib.request.urlopen(r))",
+   "label": "Running a Python script on s.json"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; git log --oneline -1; curl -s https://muster.town/api/health; echo; curl -s https://muster.town/api/asks | head -c 600; echo; wc -l scripts/disclosure-census.mjs; grep -n \"queue\\|row\\|function \\|viewport\\|390\\|1366\" scripts/disclosure-census.mjs | head -80",
+   "label": "Working with git (log)"
+  },
+  {
+   "command": "grep -rn \"sitemap.xml\\|\\\"/blog\\\"\\|robots.txt\" packages/server/src --include=*.ts | grep -v test | head; sed -n '/## 7/,/## 9/p' docs/how-work-gets-done.md | head -60",
+   "label": "Searching files"
+  },
+  {
+   "command": "cd ~/work/muster-town && cat packages/server/src/routes/asks.ts | head -80; grep -rln \"canDecide\" packages/server/src | head",
+   "label": "Reading asks.ts"
+  },
+  {
+   "command": "grep -n \"CI\\b\\|\\bPR\\b\\|PRs\" packages/core/src/prompts.ts | head -40; sed -n 790,810p packages/core/src/prompts.ts; grep -n -i \"PR\\b\\|pull request\\|gh pr\" AGENTS.md | head -30",
+   "label": "Searching prompts.ts for CIb, bPRb, PRs"
+  },
+  {
+   "command": "grep -n \"objectives\\|objective\\\"\" packages/core/src/grants.ts | head; grep -n \"private requireWriter\" -A8 packages/core/src/grants.ts",
+   "label": "Searching grants.ts for objectives, objective"
+  },
+  {
+   "command": "grep -n \"keyResultsOf\" packages/core/src/grants.ts | head -2; files=$(cut -d' ' -f1 /tmp/errs | sort -u); perl -0pi -e 's/world\\.grants\\.require\\(([^()]*(?:\\([^()]*\\))?[^()]*)\\)\\.keyResultId!/world.grantDesk.keyResultsOf($1)[0]!.id/g; s/, keyResultId: g\\.keyResultId(?=[ ,}])//g; s/\\$\\{(\\w+)\\.keyResultId\\}/\\${$1.keyResults[0]!.id}/g; s/\\.keyResultId!/.keyResults[0]!.id/g' $files; npm run typecheck 2>&1 | grep -E \"error\" | cut -c1-220",
+   "label": "Searching grants.ts for keyResultsOf"
+  },
+  {
+   "command": "grep -rn \"SpendByLane\\|byLane\\.none\\|none: 0\" packages/web/src packages/server/src packages/core/src --include=*.ts --include=*.tsx | grep -v \"finance-daily\\|finance-split\\|finance-spend\\|health.ts\" | head -20",
+   "label": "Searching for SpendByLane, byLane.none, none: 0"
+  },
+  {
+   "command": "sed -n 1,133p finance-split.ts | grep -n \"d7\\|d30\\|from\\|DAY_MS\\|window\" | head -30; curl -s https://muster.town/api/finance | python3 -I -c \"import json,sys;d=json.load(sys.stdin);print({k:d[k] for k in ['total','used','expired','left','overdrawn']});print(d['split']['d7'] if 'split' in d else '');print(d['daily']['rows'][-2])\"; curl -s https://muster.town/api/finance/sources | python3 -I -c \"\nimport json,sys;d=json.load(sys.stdin)\nfor i in d['inputs']:\n  print(i['label'…",
+   "label": "Reading finance-split.ts"
+  },
+  {
+   "command": "npx vitest run test/plugins.test.ts 2>&1 | grep -B3 -A3 \"Error\\|expected\" | head -20",
+   "label": "Running tests"
+  },
+  {
+   "command": "cd /home/agent/work/muster-town; sed -n 770,830p packages/core/src/finance-spend.ts; grep -n \"RETIRED\" scripts/stress/tick-bench.mts | head",
+   "label": "Reading finance-spend.ts"
+  },
+  {
+   "command": "cat > /home/agent/scripts/fix_dec_test.py <<'PYEOF'\np='packages/core/test/secretary-decisions.test.ts'\ns=open(p).read()\ndef rep(o,n):\n    global s\n    assert o in s, o[:70]\n    s=s.replace(o,n,1)",
+   "label": "Writing fix_dec_test.py"
+  }
+ ]
+}
