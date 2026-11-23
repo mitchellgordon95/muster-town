@@ -136,8 +136,10 @@ export function AskButtons({ ask, grant, retainer, onDecided, deckSlide }: { ask
   );
 }
 
-export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenRecord, aside, deckSlide }: {
+export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenRecord, aside, deckSlide, readOnly }: {
   ask: AskView; grant?: GrantView; retainer?: Pick<ScheduleView, "tokensPerRun" | "endsAt">; canDecide?: boolean; onDecided: () => void; onOpenRecord?: (id: string) => void;
+  /** opened from an ak_ link (gr_4upa0og9zc step 2): no buttons and no sign-in line; the sheet says where it is decided */
+  readOnly?: boolean;
   /** beside the buttons: the funding view's fund / hold toggle */
   aside?: ReactNode; deckSlide?: number;
 }) {
@@ -168,7 +170,7 @@ export function AskCard({ ask, grant, retainer, canDecide, onDecided, onOpenReco
       ) : null}
       {/* one row of every action, last on the card: the branches (their follow-up form opens under them), the aside, Steer, the record */}
       <div className="ask-actions">
-        {deciding ? <AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} /> : <span className="muted ask-signin">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span>}
+        {readOnly ? null : deciding ? <AskButtons ask={ask} grant={grant} retainer={retainer} onDecided={onDecided} deckSlide={deckSlide} /> : <span className="muted ask-signin">{signedIn ? "A captain or admin decides this." : "Sign in to decide."}</span>}
         {aside}
         {steer ? <Act small run={async () => { const t = steerTarget(steer); if (t) await steerAsk(ask.id, t); }} title={`Open ${building}'s goal in the goal tree, with a 1:1 with its manager about this ask beside it`}>Steer</Act> : null}
         {record ? <button className="link ask-record" title={record} onClick={() => onOpenRecord!(record)}>The full record →</button> : null}

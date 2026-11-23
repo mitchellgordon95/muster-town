@@ -37,6 +37,10 @@ describe("asks over the API (docs/legible-delegation.md §4-5)", () => {
     // an agent reading writes no seen row; a signed-in human's open does, and the stale (never run) api check runs in-process
     expect((await json(app, "GET", `/api/asks/${ask.id}`, { headers: agent })).status).toBe(200);
     expect(seen()).toEqual([]);
+    // a link labelling the id (?peek=1, gr_4upa0og9zc step 2): no seen row, even for a signed-in human
+    const peeked = await json(app, "GET", `/api/asks/${ask.id}?peek=1`, { headers: auth });
+    expect(peeked.body.ask.title).toBe(card.title);
+    expect(seen()).toEqual([]);
     const opened = await json(app, "GET", `/api/asks/${ask.id}`, { headers: auth });
     expect(opened.body.ask.claims[0].result).toMatchObject({ ok: true, note: expect.stringMatching(/^\/building\/name is "/) });
     const at = opened.body.ask.claims[0].result.at;
