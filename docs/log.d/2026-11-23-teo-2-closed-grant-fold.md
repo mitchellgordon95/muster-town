@@ -1,0 +1,1 @@
+- 2026-11-23 (Teo 2, gr_hwxc1lwi2e step 2): a closed grant's "What it shipped" folds to its titles when it has a picture or more than three items (the plan's stop condition). Live census before the fix: gr_x7p580xe1o's two pictures pushed key result 1 off the first screen at 1280×800 and 390×844.

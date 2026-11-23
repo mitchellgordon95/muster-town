@@ -63,17 +63,28 @@ export function Shipped({ grant: g }: { grant: Pick<GrantView, "status" | "shipp
       </p>
     );
   }
+  // The plan's stop condition: when the block would push the key results off a phone's first screen (pictures, or more
+  // than three items: gr_x7p580xe1o's two pictures did at both sizes), it folds to its titles; each opens on a tap.
+  const fold = g.shipped.length > 3 || g.shipped.some((it) => it.picture);
   return (
     <section className="grant-shipped" aria-label="What it shipped">
       <h3 className="grant-shipped-head">What it shipped</h3>
-      <ul>
+      <ul className={fold ? "folded" : undefined}>
         {g.shipped.map((it, i) => {
           const src = pictureSrc(it.picture);
-          return (
-            <li key={i}>
-              <div className="grant-shipped-title">{it.title}</div>
+          const rest = (
+            <>
               {it.body ? <div className="grant-shipped-body"><DocText text={it.body} /></div> : null}
               {src ? <a href={src} target="_blank" rel="noreferrer"><img className="grant-shipped-picture" src={src} alt={it.title} loading="lazy" /></a> : null}
+            </>
+          );
+          return (
+            <li key={i}>
+              {fold ? (
+                <details><summary className="grant-shipped-title">{it.title}</summary>{rest}</details>
+              ) : (
+                <><div className="grant-shipped-title">{it.title}</div>{rest}</>
+              )}
             </li>
           );
         })}
