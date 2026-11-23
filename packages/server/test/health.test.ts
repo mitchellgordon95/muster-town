@@ -28,6 +28,16 @@ describe("GET /api/health answers from memory (503 post-mortem 2026-10-31, follo
     }
   });
 
+  it("load carries the Machine's memAvailableMb, swapMb and swapUsedMb (numbers on Linux, null elsewhere; gr_xgr8j2f9ao)", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const { load } = (await json(s.app, "GET", "/api/health")).body as { load: Record<string, unknown> };
+    for (const k of ["memAvailableMb", "swapMb", "swapUsedMb"]) {
+      expect(load).toHaveProperty(k);
+      expect(typeof load[k]).toBe(process.platform === "linux" ? "number" : "object");
+    }
+  });
+
   it("without one (tests, the default) each request computes the figures afresh", async () => {
     const s = await seededApp();
     close = s.close;

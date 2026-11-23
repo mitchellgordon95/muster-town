@@ -12,7 +12,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { World } from "@muster-town/core";
+import { readMeminfo, type MemInfo, type World } from "@muster-town/core";
 import { REDEPLOY_CHANGES_MAX, townEnv, type Event, type RedeployChange, type RedeployLive, type RedeployResult, type RedeployRun } from "@muster-town/schema";
 import { DESK_IMAGE, DESK_LABEL_PREFIXES, OLD_DESK_IMAGE } from "./desk/backend.ts";
 
@@ -106,6 +106,8 @@ export interface RedeployDeps {
   isManage?(agentId: string): boolean;
   /** how long the drain waits on team-lead sessions. Default 8 min (DRAIN_MANAGE_MS). */
   drainManageMs?: number;
+  /** the Machine's memory (/proc/meminfo), read at each step's start and end: its `memAvailableMb` goes on the step's events (grant gr_xgr8j2f9ao). Default: readMeminfo (null off Linux). */
+  meminfo?(): MemInfo | null;
   /** called just before the exit (with the commit going live): post the restart notice into live meetings. Default: none. */
   beforeRestart?(head: string | null): void;
   run?: CommandRunner;
@@ -267,19 +269,22 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
     }
   } catch (e) { console.log("[runtime] redeploy startup check:", e instanceof Error ? e.message : e); }
 
+  /** the Machine's MemAvailable in MiB now, or null (off Linux, unreadable): every step event carries it */
+  const memMb = (): number | null => { try { return (deps.meminfo ?? readMeminfo)()?.memAvailableMb ?? null; } catch { return null; } };
+
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
     halt();
     setPhase(label);
-    say(`Redeploy: ${label} …`, { step: label, phase: "start" });
+    say(`Redeploy: ${label} …`, { step: label, phase: "start", memAvailableMb: memMb() });
     const r = await run(cmd, args, { cwd, timeoutMs, ...(cmd === "git" ? { env: gitEnv() } : {}) });
     if (r.code !== 0) {
       fail();
-      say(`Redeploy: ${label} … failed (exit ${r.code})`, { step: label, phase: "end", ok: false, code: r.code, output: tail(r) });
+      say(`Redeploy: ${label} … failed (exit ${r.code})`, { step: label, phase: "end", ok: false, code: r.code, output: tail(r), memAvailableMb: memMb() });
       return null;
     }
     const note = okNote ? await okNote() : "";
-    say(`Redeploy: ${label} … ok${note ? ` (${note})` : ""}`, { step: label, phase: "end", ok: true, code: 0, output: tail(r) });
+    say(`Redeploy: ${label} … ok${note ? ` (${note})` : ""}`, { step: label, phase: "end", ok: true, code: 0, output: tail(r), memAvailableMb: memMb() });
     return r;
   }
 

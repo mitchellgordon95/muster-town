@@ -1,0 +1,1 @@
+- 2026-11-23 (Cleo 1): gr_xgr8j2f9ao step 1: core `parseMeminfo`/`readMeminfo` (packages/core/src/meminfo.ts) read /proc/meminfo; `GET /api/health` `load` gains `memAvailableMb`, `swapMb`, `swapUsedMb` (null off Linux); every redeploy step event (start and end) carries `memAvailableMb`; the monitor gains key `memory` (yellow under 300 MB available for 2 samples, no red).

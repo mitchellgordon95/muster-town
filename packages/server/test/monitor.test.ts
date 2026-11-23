@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { CLEAR_AFTER, Counters, parseHostCpu, PINGER_STALE_MS, PingerWatch, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { CLEAR_AFTER, MEMORY_YELLOW_MB, Counters, parseHostCpu, PINGER_STALE_MS, PingerWatch, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { deployable } from "@muster-town/schema";
 import { DeployWatch, type DeployView } from "../src/deploy-watch.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -12,9 +12,9 @@ function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
-    cpu: null as { cpu: number; steal: number } | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null, pinger: null as number | null };
+    cpu: null as { cpu: number; steal: number } | null, mem: null as number | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null, pinger: null as number | null };
   const probes: Probes = {
-    rssBytes: () => state.rss, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
+    rssBytes: () => state.rss, memAvailableMb: () => state.mem, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
     deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, pingerSeenAt: () => state.pinger, ...o.probes,
   };
@@ -247,6 +247,29 @@ describe("monitor thresholds", () => {
       expect(s.alerts().at(-1)).toMatchObject({ key: "desk-steal", phase: "clear", level: "red", stale: true });
       expect(s.world.docs.get(s.alerts().at(-1)!.docId!)!.body).toContain("as stale");
     });
+  });
+
+  it("memory: yellow when MemAvailable stays under 300 MB for 2 samples, never red, clears after 5; no reading changes nothing", async () => {
+    const { r, m, step } = await setup();
+    expect(MEMORY_YELLOW_MB).toBe(300);
+    await step(2); // null off Linux: nothing
+    expect(m.view().alerts).toEqual([]);
+    r.state.mem = 250;
+    await step(1);
+    expect(m.view().alerts).toEqual([]); // one sample is not enough (a build's short dip)
+    r.state.mem = 800;
+    await step(1);
+    r.state.mem = 120;
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "memory", level: "yellow", value: 120 }]);
+    r.state.mem = 40;
+    await step(5);
+    expect(m.view().alerts).toMatchObject([{ key: "memory", level: "yellow", value: 40 }]);
+    r.state.mem = 900;
+    await step(CLEAR_AFTER);
+    expect(m.view().alerts).toEqual([]);
   });
 
   describe("steal (host CPU, 503 post-mortem 2026-10-31)", () => {
