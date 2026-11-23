@@ -613,17 +613,22 @@ export function adoptPath(repoRoot: string, collective: string): string {
 /** A file this old was left by a crash or an aborted exit, not the restart just now: its sessions aren't adopted. */
 export const ADOPT_MAX_AGE_MS = 10 * 60_000;
 
-/** The desk sessions the previous server handed over (and the file removed), or [] when there are none or the file is stale. */
-export function takeAdoptable(repoRoot: string, collective: string, now = Date.now()): string[] {
+/**
+ * The desk sessions the previous server handed over (and the file removed), or null when there was no hand-over: no file, a stale
+ * one or an unreadable one. null means the previous server stopped uncleanly (a crash, an OOM kill, a redeploy that died mid-build)
+ * and the caller adopts every running desk work session on probation instead.
+ */
+export function takeAdoptable(repoRoot: string, collective: string, now = Date.now()): string[] | null {
   const path = adoptPath(repoRoot, collective);
+  let v: { sessions?: unknown; at?: unknown };
   try {
-    const v = JSON.parse(readFileSync(path, "utf8")) as { sessions?: unknown; at?: unknown };
-    unlinkSync(path);
-    if (typeof v.at !== "string" || now - Date.parse(v.at) > ADOPT_MAX_AGE_MS || !Array.isArray(v.sessions)) return [];
-    return v.sessions.filter((s): s is string => typeof s === "string");
+    v = JSON.parse(readFileSync(path, "utf8")) as typeof v;
   } catch {
-    return [];
+    return null;
   }
+  try { unlinkSync(path); } catch { /* gone already */ }
+  if (typeof v.at !== "string" || now - Date.parse(v.at) > ADOPT_MAX_AGE_MS || !Array.isArray(v.sessions)) return null;
+  return v.sessions.filter((s): s is string => typeof s === "string");
 }
 
 /** HEAD of the checkout at `repoRoot` (the code this server started from), or null when it isn't a git checkout. */
