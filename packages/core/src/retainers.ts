@@ -247,16 +247,29 @@ export function retainerHold(world: World, a: Pick<Assignment, "sourceId" | "id"
   return null;
 }
 
-/** Retainer runs whose sessions reached tokensPerRun are asked once to wrap up (the explorer's ceiling, explore.ts). */
-export function watchRetainerRuns(world: World): void {
-  for (const a of world.assignments.where("status = 'active' AND lane = 'retainer'")) {
-    const s = a.sourceId ? world.schedules.get(a.sourceId) : undefined;
-    if (!s || s.tokensPerRun <= 0) continue;
+/**
+ * A run's per-run cap (pure): its own `runCapTokens` when it carries one (the Secretary's runs of the Town Hall's own
+ * job, grant gr_mcuj10tupi), else its retainer schedule's tokensPerRun; 0 = no cap.
+ */
+export function runCapOf(a: Pick<Assignment, "runCapTokens">, scheduleTokensPerRun: number | null): number {
+  return a.runCapTokens ?? Math.max(0, scheduleTokensPerRun ?? 0);
+}
+
+/**
+ * Runs that reached their per-run cap are asked once to wrap up (the explorer's ceiling, explore.ts): a retainer run at
+ * its schedule's tokensPerRun, and any run that carries its own `runCapTokens` (the Secretary's capped runs).
+ */
+export function watchRunCaps(world: World): void {
+  for (const a of world.assignments.where("status = 'active' AND (lane = 'retainer' OR runCapTokens IS NOT NULL)")) {
+    const s = a.lane === "retainer" && a.sourceId ? world.schedules.get(a.sourceId) : undefined;
+    const cap = runCapOf(a, s?.tokensPerRun ?? null);
+    if (cap <= 0) continue;
     const spent = runSpent(world, a.id);
-    if (spent < s.tokensPerRun) continue;
+    if (spent < cap) continue;
     if (world.db.prepare("SELECT 1 FROM events WHERE type = 'system' AND json_extract(payload, '$.retainerCeiling') = ? LIMIT 1").get(a.id)) continue;
-    interruptNow(world, a.agentId, `This run of the schedule "${s.title}" has used ${fmt(spent)} of its ${fmt(s.tokensPerRun)}-token retainer per run. Don't start anything new: write your pages and \`submit_report\` now.`, "The schedule's retainer");
-    world.events.append({ type: "system", agentId: a.agentId, buildingId: s.buildingId, text: `${world.nameOf(a.agentId)} reached the retainer per run of "${truncate(s.title, 80)}" and was asked to file`, payload: { retainerCeiling: a.id, scheduleId: s.id, spentTokens: spent, tokensPerRun: s.tokensPerRun } });
+    const what = s && a.runCapTokens === null ? `This run of the schedule "${s.title}" has used ${fmt(spent)} of its ${fmt(cap)}-token retainer per run.` : `This run ("${truncate(a.title, 80)}") has used ${fmt(spent)} of its ${fmt(cap)}-token cap per run.`;
+    interruptNow(world, a.agentId, `${what} Don't start anything new: write your pages and \`submit_report\` now.`, s && a.runCapTokens === null ? "The schedule's retainer" : "The run's cap");
+    world.events.append({ type: "system", agentId: a.agentId, buildingId: a.buildingId, text: `${world.nameOf(a.agentId)} reached the cap per run of "${truncate(s?.title ?? a.title, 80)}" and was asked to file`, payload: { retainerCeiling: a.id, scheduleId: s?.id ?? null, spentTokens: spent, tokensPerRun: cap } });
   }
 }
 

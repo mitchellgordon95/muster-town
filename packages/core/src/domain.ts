@@ -58,7 +58,7 @@ export function canSeeDoc(holder: Holder, d: Doc): boolean {
  * (`fromAssignmentId`, or the assignment behind `fromReportId`) inherits its lane, else it is directed. `laneOverride`
  * skips the validation (system-made work such as the checkpoint assignment).
  */
-export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; model?: string | null; reservationId?: string | null }): Assignment {
+export function createAssignment(world: World, a: { agentId: string; title: string; description: string; createdBy: Holder | { kind: "system"; id: string }; fromReportId?: string | null; fromMeetingId?: string | null; fromAssignmentId?: string | null; buildingId?: string; front?: boolean; waitFor?: WaitFor | null; parked?: number; lane?: LaneFields; laneOverride?: Lane; origin?: Origin | null; model?: string | null; reservationId?: string | null; runCapTokens?: number | null }): Assignment {
   let agent = world.agents.require(a.agentId, "agent");
   // work routing (1:1 mt_lsyqj98z0w): work goes to a building, never to a forking manager as a worker. Callers don't
   // pick a queue: a fork's work (a park continuation, a review follow-up) and work naming a forking manager go on the
@@ -91,6 +91,8 @@ export function createAssignment(world: World, a: { agentId: string; title: stri
     waitFor: a.waitFor ?? null, ...(a.parked ? { parked: a.parked } : {}), ...lane, heldReason: null, origin, reservationId: a.reservationId ?? null,
     // the chain is the first assignment's id: a retry, a park continuation and a review follow-up continue `from`'s
     chainId: from ? from.chainId ?? from.id : id, queue, model: a.model ?? null, grantStep: null,
+    // a retry or park continuation of a capped run keeps its cap (grant gr_mcuj10tupi)
+    runCapTokens: a.runCapTokens ?? from?.runCapTokens ?? null,
     // v1.4: a visitor's loop runs outside the town, so its assignments are offers it accepts (never scheduled)
     ...(agent.kind === "visitor" ? { offered: true } : {}),
   });
