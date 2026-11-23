@@ -1,0 +1,1 @@
+- 2026-11-23 Pix 2 (gr_064fmkq31s step 3): docs/goals.md Spend by goal names the managing and 1:1s lanes and the grant page's "Managing it" line.
