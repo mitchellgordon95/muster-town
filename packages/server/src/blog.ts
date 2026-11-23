@@ -75,6 +75,21 @@ export function docPosts(world: World, buildingId: string = BLOG_BUILDING): Post
   };
 }
 
+/** The tag of the doc served at /hooks (gr_wq74nnthzl): the ranked list of causes a collective could form around. */
+const HOOKS_TAG = "hooks";
+
+/**
+ * The /hooks page's doc: the newest published `note` or `article` tagged `hooks` in `buildingId` (Outreach), read like a
+ * post (front matter, then markdown), so the list is rewritten in the town, not in the repo. Null when there is none.
+ */
+export function docHooks(world: World, buildingId: string = BLOG_BUILDING): () => Post | null {
+  return () => {
+    const d = world.docs.where("type IN ('note', 'article') AND state = 'building' AND buildingId = ? AND tags LIKE ?", [buildingId, `%"${HOOKS_TAG}"%`], "ORDER BY updatedAt DESC, rowid DESC")
+      .find((x) => x.tags.includes(HOOKS_TAG));
+    return d ? postOf(d) : null;
+  };
+}
+
 /**
  * Markdown to HTML for a post. Posts are town docs now, written by anyone who can publish in the blog's building, so raw
  * HTML in the markdown is shown as text and a link or image may only point at http(s), mailto or a path on this site.
@@ -154,7 +169,7 @@ function page(o: { origin: string; path: string; title: string; description: str
 </head>
 <body>
 <main>
-<nav><a href="/">muster.town</a><a href="/blog">Blog</a><a href="/blog/feed.xml">Feed</a></nav>
+<nav><a href="/">muster.town</a><a href="/blog">Blog</a><a href="/hooks">Causes we'll test</a><a href="/blog/feed.xml">Feed</a></nav>
 ${o.body}
 </main>
 </body>
@@ -201,6 +216,19 @@ ${signup(p.slug, p.upcoming)}
 </footer>` });
 }
 
+function renderHooks(origin: string, p: Post): string {
+  return page({ origin, path: "/hooks", title: p.title, description: p.summary || p.title, image: p.image || undefined, body: `<article>
+<h1>${esc(p.title)}</h1>
+${byline(p)}
+${md.parse(p.body, { async: false })}
+</article>
+<footer>
+${aboutBox()}
+${signup("hooks")}
+<p class="meta"><a href="/blog">Blog</a> · <a href="/">Visit muster.town</a></p>
+</footer>` });
+}
+
 function renderIndex(origin: string, posts: Post[]): string {
   const list = posts.length
     ? `<ul class="posts">\n${posts.map((p) => `<li><h2><a href="/blog/${esc(p.slug)}">${esc(p.title)}</a></h2>${byline(p)}${p.summary ? `<p>${esc(p.summary)}</p>` : ""}</li>`).join("\n")}\n</ul>`
@@ -241,11 +269,11 @@ function notFound(origin: string, reply: FastifyReply) {
 }
 
 /**
- * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`. `origin` is the absolute base for canonical and feed links; `posts` the
+ * `GET /blog`, `/blog/feed.xml`, `/blog/<slug>`, and `/hooks` (the `hooks` doc, when `hooks` gives one). `origin` is the absolute base for canonical and feed links; `posts` the
  * public posts, read per request. `onRead` (gr_ox3fmliv9n) hears each GET of a public post by a browser (bots, scripts
  * and HEAD left out) with its source: the link's ?ref= tag, else the Referer's host, else "direct" (core `funnelSource`).
  */
-export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: string, source: string) => void) {
+export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: string, source: string) => void, hooks?: () => Post | null) {
   const ownHost = (() => { try { return new URL(origin).host; } catch { return null; } })();
   return async (app: FastifyInstance) => {
     const html = (reply: FastifyReply, body: string) => reply.type("text/html; charset=utf-8").send(body);
@@ -258,6 +286,15 @@ export function blogRoutes(origin: string, posts: PostSource, onRead?: (slug: st
         try { onRead(post.slug, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
       }
       return post ? html(reply, renderPost(origin, post)) : notFound(origin, reply);
+    });
+    // the ranked causes (gr_wq74nnthzl): its reads count like a post's, under the slug "hooks"
+    app.get<{ Querystring: { ref?: string } }>("/hooks", async (req, reply) => {
+      const p = hooks?.();
+      if (!p) return notFound(origin, reply);
+      if (onRead && req.method === "GET" && !isAutomatedClient(req.headers["user-agent"])) {
+        try { onRead(HOOKS_TAG, funnelSource({ ref: req.query.ref, referrer: req.headers.referer, ownHost })); } catch { /* a count never breaks the page */ }
+      }
+      return html(reply, renderHooks(origin, p));
     });
   };
 }

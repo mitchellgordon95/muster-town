@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { BLOG_BUILDING, blogRoutes, docPosts, postOf } from "../src/blog.ts";
+import { BLOG_BUILDING, blogRoutes, docHooks, docPosts, postOf } from "../src/blog.ts";
 
 const ORIGIN = "https://example.town";
 const post = (fm: string, body = "Hello **world**.") => `---\n${fm}\n---\n\n${body}\n`;
@@ -252,5 +252,27 @@ describe("blog", () => {
     expect(article).toContain('<a href="https://a.example/">ok</a>');
     expect(article).not.toContain("javascript:");
     expect(article).toContain('<img src="/og.png" alt="i">');
+  });
+  it("serves the newest published hooks doc at /hooks with a signup sourced hooks, counts its reads, and 404s without one (gr_wq74nnthzl)", async () => {
+    const world = World.open(":memory:");
+    const reads: [string, string][] = [];
+    const app = Fastify();
+    await app.register(blogRoutes(ORIGIN, docPosts(world), (slug, source) => reads.push([slug, source]), docHooks(world)));
+    expect((await app.inject("/hooks")).statusCode).toBe(404);
+    const mk = (title: string, state: "draft" | "building", buildingId = BLOG_BUILDING) => createDoc(world, { type: "note", title, body: post(`summary: ${title} summary`, `1. **${title} cause**`), authorId: "ag_writer", authorKind: "agent", state, buildingId, tags: ["hooks"] });
+    mk("Draft list", "draft");
+    mk("Elsewhere", "building", "bl_other");
+    expect((await app.inject("/hooks")).statusCode).toBe(404);
+    mk("Ranked causes", "building");
+    const res = await app.inject({ url: "/hooks?ref=hn", headers: { "user-agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/131.0 Safari/537.36" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("<h1>Ranked causes</h1>");
+    expect(res.body).toContain("<strong>Ranked causes cause</strong>");
+    expect(res.body).toContain('<link rel="canonical" href="https://example.town/hooks">');
+    expect(res.body).toContain('data-source="hooks"');
+    expect(reads).toEqual([["hooks", "ref:hn"]]);
+    expect((await app.inject("/blog")).body).toContain('<a href="/hooks">');
+    await app.close();
+    world.close();
   });
 });
