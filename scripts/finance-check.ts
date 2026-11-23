@@ -71,6 +71,8 @@ function checks(f: Json, s: Json, src: Json, bank: Json, fly: Json): Check[] {
     // how much incoming credit was used (gr_z13gmx54su): expired per day, and the 7 d / 30 d used share per credit
     ...expiredChecks(f, src),
     ...utilizationChecks(f, src),
+    // what held spending back each day (gr_6c24p5uy01): each day's limits close on its byLane, the windows on the rows
+    ...limitsChecks(f),
     // what managing each job cost (gr_064fmkq31s): the manage sessions' shares close on the manager wakes' total
     ...managingChecks(s),
   ];
@@ -130,6 +132,30 @@ function utilizationChecks(f: Json, src: Json): Check[] {
     out.push(eq(`utilization ${k} credited`, `Σ sources subscription credits ${w.from} → ${w.to}`, sum(inWindow.map((c) => Number(c.tokens))), `utilization.${k}.credited`, w.credited));
     out.push(eq(`utilization ${k} expired`, "Σ those credits' expiredTokens", sum(inWindow.map((c) => Number(c.expiredTokens))), `utilization.${k}.expired`, w.expired));
     out.push(eq(`utilization ${k} = daily rows`, `Σ daily credited ${w.from} → ${w.to}`, sum(rows.filter((r) => r.day >= w.from && r.day <= w.to).map((r) => Number(r.credited))), "credited + durable", Number(w.credited) + Number(w.durable)));
+  }
+  return out;
+}
+
+/**
+ * GET /api/finance `daily.rows[].limits` and `utilization.d7/.d30.limits` (kr_4zg2jqsww1): limitsCheck ok; Σ rows'
+ * exploration and grant tokens = Σ their byLane; no day busier than its desk-hours; each window's summary re-added from
+ * its rows (desk-hours busy, days the cap was reached, days grant work ran).
+ */
+function limitsChecks(f: Json): Check[] {
+  const rows: Json[] = f.daily?.rows ?? [], c = f.limitsCheck;
+  if (!c || !rows.every((r) => r.limits)) return [flag("limits", false, "GET /api/finance has no `limits` (server older than gr_6c24p5uy01 step 1)")];
+  const out: Check[] = [flag("limitsCheck", c.ok, `ok ${c.ok}, diff ${fmt(c.diff)}, days over ${c.overDays}, desk sessions with no end ${c.noEnd} (${c.identity})`)];
+  out.push(eq("limits exploration", "Σ rows limits.exploration.tokens", sum(rows.map((r) => Number(r.limits.exploration.tokens))), "Σ rows byLane.exploration", sum(rows.map((r) => Number(r.byLane?.exploration ?? 0)))));
+  out.push(eq("limits grant", "Σ rows limits.grantTokens", sum(rows.map((r) => Number(r.limits.grantTokens))), "Σ rows byLane.grant", sum(rows.map((r) => Number(r.byLane?.grant ?? 0)))));
+  out.push(flag("limits desk-hours", rows.every((r) => r.limits.deskHoursBusy <= r.limits.deskHours + 0.01), `no day has more desk-hours busy than available (${rows.length} days, ${rows.at(-1)?.limits.desks} desks today)`));
+  for (const k of ["d7", "d30"] as const) {
+    const w = f.utilization?.[k]?.limits;
+    if (!w) { out.push(flag(`limits ${k}`, false, `utilization.${k}.limits missing`)); continue; }
+    const inW = rows.filter((r) => r.day >= w.from && r.day <= w.to);
+    const capDays = inW.filter((r) => r.limits.exploration.reachedAt).length, grantDays = inW.filter((r) => r.limits.grantTokens > 0).length;
+    const busy = Math.round(sum(inW.map((r) => Number(r.limits.deskHoursBusy))) * 100) / 100;
+    out.push(flag(`limits ${k}`, capDays === w.capDays && grantDays === w.grantDays && Math.abs(busy - w.deskHoursBusy) <= 0.01,
+      `${w.from} → ${w.to}: desks busy ${w.deskHoursBusy.toFixed(2)} of ${fmt(w.deskHours)} h (${(w.deskShare * 100).toFixed(2)}%; rows ${busy.toFixed(2)}), cap reached ${w.capDays} days (rows ${capDays}), grant work ${w.grantDays} days (rows ${grantDays})`));
   }
   return out;
 }
@@ -396,6 +422,7 @@ async function main(): Promise<number> {
   if (s.managerWakes) console.log(`manager wakes 7 d: ${s.managerWakes.total.wakes} wakes, ${fmt(s.managerWakes.total.tokens)} adj. tokens, ${s.managerWakes.total.decided} decided (${s.managerWakes.total.askActions ?? "no"} ask actions); town-hall ${s.managerWakes.buildings?.["town-hall"]?.total?.decided ?? 0} decided`);
   if (f.split) console.log(`split: 7 d ${fmt(f.split.d7.total.tokens)}: work ${(f.split.d7.work.share * 100).toFixed(1)}%, coordination ${(f.split.d7.coordination.share * 100).toFixed(1)}%, other ${(f.split.d7.other.share * 100).toFixed(1)}%; 30 d ${fmt(f.split.d30.total.tokens)}: work ${(f.split.d30.work.share * 100).toFixed(1)}%, coordination ${(f.split.d30.coordination.share * 100).toFixed(1)}%`);
   if (f.utilization) console.log(`utilization: 7 d credited ${fmt(f.utilization.d7.credited)}, used ${fmt(f.utilization.d7.used)} (${(f.utilization.d7.usedShare * 100).toFixed(1)}%), expired ${fmt(f.utilization.d7.expired)}, left ${fmt(f.utilization.d7.left)}; 30 d credited ${fmt(f.utilization.d30.credited)}, used ${(f.utilization.d30.usedShare * 100).toFixed(1)}%`);
+  if (f.limitsNote) console.log(`limits: ${f.limitsNote}`);
   for (const c of result) console.log(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.line}`);
   const failed = result.filter((c) => !c.ok).length;
   console.log(failed ? `${failed} of ${result.length} checks failed` : `all ${result.length} checks ✓`);

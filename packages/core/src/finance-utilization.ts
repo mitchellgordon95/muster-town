@@ -1,4 +1,5 @@
 import type { BankCredit, BankDebit } from "@muster-town/schema";
+import type { WindowLimits } from "./finance-limits.ts";
 
 const DAY_MS = 86_400_000;
 const dayOf = (t: number): string => new Date(t).toISOString().slice(0, 10);
@@ -29,6 +30,8 @@ export interface UtilizationWindow {
   drawnPastSize: number;
   /** durable (API key) credits created in the window: no expiry, outside the identity */
   durable: number;
+  /** what held spending back over the window (finance-limits.ts, gr_6c24p5uy01); filled by Bank.finance */
+  limits?: WindowLimits;
 }
 
 export interface FinanceUtilization {
