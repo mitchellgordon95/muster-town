@@ -37,6 +37,11 @@ describe("mailing list", () => {
       const n = await json(t.app, "GET", "/api/blog/subscribers/count", { headers: { authorization: `Bearer ${t.world.ops.createUser("Stranger").token}` } });
       expect(n).toEqual({ status: 200, body: { count: 2, confirmed: 2 } });
       expect((await json(t.app, "GET", "/api/blog/subscribers/count")).status).toBe(401);
+      // a cause's landing page (gr_wq74nnthzl) keeps its hook:<slug>; any other colon falls back to index
+      await json(t.app, "POST", "/api/blog/subscribe", { body: { email: "cy@example.org", source: "hook:cptsd" } });
+      await json(t.app, "POST", "/api/blog/subscribe", { body: { email: "di@example.org", source: "evil:cptsd" } });
+      const all = (await json(t.app, "GET", "/api/blog/subscribers", { headers: t.auth })).body.subscribers as { email: string; source: string }[];
+      expect(all.filter((s) => s.email > "c").map((s) => [s.email, s.source])).toEqual([["cy@example.org", "hook:cptsd"], ["di@example.org", "index"]]);
     } finally { await t.close(); }
   });
 

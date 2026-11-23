@@ -14,7 +14,8 @@
  * each once per UTC day.
  * `sources` and `blogReads` (gr_ox3fmliv9n) say which channel brought them: a homepage or guest-card visitor's first ping of
  * the day carries a source (`funnelSource`: a ?ref= tag, else the external referrer's host, else "direct"), and each GET of a
- * blog post counts with its Referer's host, in join_funnel_sources. Counts only, never a path, IP or id.
+ * blog post counts with its Referer's host, in join_funnel_sources. `hookViews` (gr_wq74nnthzl) are the same for each
+ * cause's landing page /hooks/<slug>. Counts only, never a path, IP or id.
  */
 import { createHash } from "node:crypto";
 import type { World } from "./world.ts";
@@ -35,7 +36,9 @@ export interface FunnelDay extends FunnelCounts { day: string }
 export interface FunnelSourceRow { day: string; step: SourceStep; source: string; count: number }
 /** One day's reads of a blog post from one source (gr_ox3fmliv9n): each GET of /blog/<slug>, bots left out. */
 export interface BlogReadRow { day: string; slug: string; source: string; count: number }
-export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null; sources: FunnelSourceRow[]; blogReads: BlogReadRow[] }
+/** One day's views of a cause's landing page /hooks/<slug> from one source (gr_wq74nnthzl): each browser GET, bots left out. */
+export interface HookViewRow { day: string; slug: string; source: string; count: number }
+export interface JoinFunnel { days: number; from: string; to: string; daily: FunnelDay[]; totals: FunnelCounts; decisions: number; medianDecisionMs: number | null; sources: FunnelSourceRow[]; blogReads: BlogReadRow[]; hookViews: HookViewRow[] }
 
 export const FUNNEL_DAYS = 30;
 const DAY_MS = 86_400_000;
@@ -128,14 +131,20 @@ export function countBlogRead(world: World, slug: string, source: string, now = 
   countSource(world, `blog:${slug}`, source, now);
 }
 
-function sourceRows(world: World, from: string, to: string): { sources: FunnelSourceRow[]; blogReads: BlogReadRow[] } {
+/** One view of a cause's landing page /hooks/<slug> (gr_wq74nnthzl): the caller has left bots out and checked the page exists. */
+export function countHookView(world: World, slug: string, source: string, now = Date.now()): void {
+  countSource(world, `hook:${slug}`, source, now);
+}
+
+function sourceRows(world: World, from: string, to: string): { sources: FunnelSourceRow[]; blogReads: BlogReadRow[]; hookViews: HookViewRow[] } {
   const rows = world.db.prepare("SELECT day, source, step, n FROM join_funnel_sources WHERE day >= ? AND day <= ? ORDER BY day, n DESC, source").all(from, to) as { day: string; source: string; step: string; n: number }[];
-  const sources: FunnelSourceRow[] = [], blogReads: BlogReadRow[] = [];
+  const sources: FunnelSourceRow[] = [], blogReads: BlogReadRow[] = [], hookViews: HookViewRow[] = [];
   for (const r of rows) {
     if (r.step.startsWith("blog:")) blogReads.push({ day: r.day, slug: r.step.slice(5), source: r.source, count: r.n });
+    else if (r.step.startsWith("hook:")) hookViews.push({ day: r.day, slug: r.step.slice(5), source: r.source, count: r.n });
     else sources.push({ day: r.day, step: r.step as SourceStep, source: r.source, count: r.n });
   }
-  return { sources, blogReads };
+  return { sources, blogReads, hookViews };
 }
 
 /** Rows from several collectives as one: the same (day, key, source) summed, ordered by day then count. */
@@ -172,7 +181,8 @@ export function sumFunnels(worlds: World[], days = FUNNEL_DAYS, now = Date.now()
   const waits = worlds.flatMap((w) => (w.db.prepare("SELECT waitMs FROM join_funnel_waits WHERE day >= ? AND day <= ?").all(from, to) as { waitMs: number }[]).map((r) => r.waitMs)).sort((a, b) => a - b);
   const sources = sumRows(parts.map((p) => p.sources), (r) => r.step);
   const blogReads = sumRows(parts.map((p) => p.blogReads), (r) => r.slug);
-  return { days, from, to, totals, decisions: waits.length, medianDecisionMs: median(waits), sources, blogReads };
+  const hookViews = sumRows(parts.map((p) => p.hookViews), (r) => r.slug);
+  return { days, from, to, totals, decisions: waits.length, medianDecisionMs: median(waits), sources, blogReads, hookViews };
 }
 
 function median(sorted: number[]): number | null {
