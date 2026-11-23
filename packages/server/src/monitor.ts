@@ -1,6 +1,6 @@
 /**
  * In-process monitor (grant gr_rntk0echpi, design dc_f2hpf9u1ya): every 60 s it samples what the server already knows
- * (RSS, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors, failed
+ * (RSS, the Machine's available memory, event-loop lag p99, data-volume free space, session slots, backup age, the 5xx share, WebSocket errors, failed
  * Claude sessions and the steal share of finished desk sessions), raises and clears alerts with
  * hysteresis, and sends each one down one path: a town event (type `alert`) plus a Prod board FYI (a town-wide one
  * on the Town Hall board when no building is named Prod, e.g. a self-hosted town). The server sends no SMS or email
@@ -10,7 +10,7 @@
  * State lives in memory plus one `meta` row (key `monitor`), so a restart keeps the open alerts and notices a gap.
  * `GET /api/health` shows `monitor` read-only; never a secret.
  */
-import { createDoc, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
+import { createDoc, readMeminfo, TOWN_HALL_ID, updateDoc, type World } from "@muster-town/core";
 import { readFileSync, statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import { FRESH_TOWN, type BackupView } from "./backup/index.ts";
@@ -67,6 +67,8 @@ const MB = 1024 * 1024;
 /** What the default metrics read; tests pass fakes. */
 export interface Probes {
   rssBytes(): number;
+  /** the Machine's MemAvailable in MiB (/proc/meminfo); null off Linux or unreadable */
+  memAvailableMb(): number | null;
   /** p99 event-loop delay since the last call (ms) */
   lagP99Ms(): number | null;
   /** free fraction of the data volume (0..1) */
@@ -150,6 +152,7 @@ export function defaultMetrics(p: Probes): Metric[] {
   return [
     { key: "rss", describe: (v) => `RSS ${v} MB`, yellowForMs: 5 * MIN, redForMs: 3 * MIN,
       read: () => { const v = Math.round(p.rssBytes() / MB); return { value: v, yellow: v > 1.2 * 1024, red: v > 1.6 * 1024 }; } },
+    memoryMetric(p),
     { key: "lag", describe: (v) => `event-loop lag p99 ${v} ms`, yellowForMs: 5 * MIN, redForMs: 3 * MIN,
       read: () => { const v = p.lagP99Ms(); return v == null ? null : { value: v, yellow: v > 200, red: v > 1000 }; } },
     { key: "disk", describe: (v) => `data volume ${v}% free`, yellowForMs: 0, redForMs: 0,
@@ -192,6 +195,22 @@ export function defaultMetrics(p: Probes): Metric[] {
     deployMetric(p),
     pingerMetric(p),
   ];
+}
+
+/** `memory`: yellow under this many MiB available on the Machine */
+export const MEMORY_YELLOW_MB = 300;
+
+/**
+ * `memory` (grant gr_xgr8j2f9ao): the Machine's MemAvailable. Yellow (in town only, no text) when it stays under
+ * MEMORY_YELLOW_MB for 2 samples in a row (the second sample, a minute after the first): the 2026-11-22 18:25Z redeploy
+ * froze the 2 GB Machine in `build web` with no evidence left behind (dc_7lp8owphy8). No red: step 2 makes the redeploy
+ * wait for memory, and this key shows whether it still runs short. Null off Linux: nothing changes.
+ */
+function memoryMetric(p: Pick<Probes, "memAvailableMb">): Metric {
+  return {
+    key: "memory", describe: (v) => `only ${v} MB of memory available on the Machine`, yellowForMs: SAMPLE_MS, redForMs: 0,
+    read: () => { const v = p.memAvailableMb(); return v == null ? null : { value: v, yellow: v < MEMORY_YELLOW_MB, red: false }; },
+  };
 }
 
 /** the pinger is stale (health state `stale`, monitor key `pinger` red, /api/health/pinger 503) after this long unseen */
@@ -366,6 +385,7 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
   h.enable();
   return {
     rssBytes: () => process.memoryUsage().rss,
+    memAvailableMb: () => readMeminfo()?.memAvailableMb ?? null,
     // percentile() is in ns and includes the 20 ms resolution (load.ts does the same)
     lagP99Ms: () => { const v = h.count > 0 ? Math.max(0, Math.round(h.percentile(99) / 1e6) - 20) : null; h.reset(); return v; },
     diskFree: () => { try { const s = statfsSync(dataDir); return s.blocks > 0 ? s.bavail / s.blocks : null; } catch { return null; } },
