@@ -5,6 +5,11 @@
 # deploy/README.md has the whole procedure. Live code and state are on the volume; the image is the runtime plus a first-boot seed.
 app = "muster-town"
 primary_region = "iad"
+# Swap (a top-level key in Fly's fly.toml): the Machine had none, and on 2026-11-22 18:25Z a redeploy's `build web` (~+480 MB beside the
+# server and 3 host Claude processes) froze the whole server for 4 min until the kernel OOM-killed it (exit 137; dc_7lp8owphy8, dc_rmq5ivkp73).
+# 1024 MB: half of RAM covers that peak about twice over, while staying small enough that steady-state paging can't hide a real leak
+# (the monitor's rss alert still fires at 1.2 / 1.6 GB). Changing it needs an image deploy, which replaces the Machine.
+swap_size_mb = 1024
 
 [build]
   dockerfile = "deploy/fly/Dockerfile"
