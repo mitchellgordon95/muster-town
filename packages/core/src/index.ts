@@ -38,6 +38,7 @@ export { spendByLaneKind, laneKindRow, LANE_KIND_WINDOWS, type LaneKindWindow, t
 export { managerWakes } from "./finance-manager-wakes.ts";
 export { managerShares, managerActs, townManagerShares, jobManaging, type ManagerShares, type ManagingLine } from "./finance-manager-shares.ts";
 export { financeSplit, SPLIT_GROUPS, SPLIT_LANES, type FinanceSplit, type SplitLane, type SplitWindow } from "./finance-split.ts";
+export { financeLimits, limitsCheck, windowLimits, townExploreCap, LIMITS_IDENTITY, LIMITS_NOTE, type DayLimits, type WindowLimits, type LimitsCheck, type FinanceLimitsInputs } from "./finance-limits.ts";
 export { financeUtilization, utilizationAgainstDaily, UTILIZATION_IDENTITY, type FinanceUtilization, type UtilizationWindow } from "./finance-utilization.ts";
 export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type FinanceSources, type SourceCredit, type SourceDonation, type SourceInput, type SourcesInputs } from "./finance-sources.ts";
 export { cashCheck, financeCash, CASH_FLY_DAYS, CASH_IDENTITY, CASH_WINDOW_DAYS, type CashCheck, type CashInputs, type FinanceCash } from "./finance-cash.ts";

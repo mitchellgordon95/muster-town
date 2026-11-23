@@ -1,5 +1,6 @@
 import type { BankCredit, BankDebit, UsageEntry } from "@muster-town/schema";
 import type { DayLanes, SplitLane } from "./finance-split.ts";
+import type { DayLimits } from "./finance-limits.ts";
 
 const DAY_MS = 86_400_000;
 /** How many UTC days the Balance tab's "Day by day" chart covers (today included). */
@@ -28,6 +29,8 @@ export interface FinanceDailyRow {
    * tokens minus its debits (floor 0, as /api/finance `expired` counts it), dated by its expiresAt day
    */
   expired: number;
+  /** what held spending back that day (finance-limits.ts, gr_6c24p5uy01); filled by Bank.finance */
+  limits?: DayLimits;
 }
 
 /**

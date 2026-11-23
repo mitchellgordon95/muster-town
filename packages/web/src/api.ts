@@ -156,6 +156,10 @@ export interface Finance {
   utilization?: FinanceUtilization;
   /** work versus coordination over 7 and 30 days, from session rows (core finance-split.ts, gr_3ougmyubdm); absent from an older server */
   split?: FinanceSplit;
+  /** each day's limits exploration and grant tokens = its byLane; desk-hours busy ≤ available (gr_6c24p5uy01); absent from an older server */
+  limitsCheck?: { ok: boolean; diff: number; overDays: number; noEnd: number; identity: string };
+  /** past days use today's headcounts and cap; held work is today's only */
+  limitsNote?: string;
   at: string;
 }
 /** One window of `utilization`: the subscription credits created in it; used + expired + left = credited, per credit. */
@@ -168,7 +172,23 @@ export interface UtilizationWindow {
   drawnPastSize: number;
   /** durable (API key) credits in the window: they never expire, so they sit outside the identity */
   durable: number;
+  /** what held spending back over the window (gr_6c24p5uy01); absent from an older server */
+  limits?: WindowLimits;
 }
+/**
+ * What held spending back one UTC day (core finance-limits.ts, gr_6c24p5uy01): desk-hours busy of available (today's
+ * headcounts), exploration tokens against today's town cap and when the cap was reached, grant-lane tokens, grant
+ * assignments queued, and (today only) the pending assignments held now.
+ */
+export interface DayLimits {
+  deskHoursBusy: number; deskHours: number; desks: number;
+  exploration: { tokens: number; cap: number | null; capGoalId: string | null; reachedAt: string | null };
+  grantTokens: number; grantsQueued: number;
+  /** today: held now; past days: null (not recorded) */
+  held: number | null;
+}
+/** A window's limits: deskShare = busy / available (0..1), capDays = days the exploration cap was reached, grantDays = days grant work spent tokens. */
+export interface WindowLimits { days: number; from: string; to: string; deskHoursBusy: number; deskHours: number; deskShare: number; capDays: number; grantDays: number }
 export interface FinanceUtilization {
   d7: UtilizationWindow; d30: UtilizationWindow;
   /** diff: used + expired + left vs credited; dailyDiff: credited + durable vs Σ the daily rows' credited */
@@ -194,7 +214,7 @@ export interface FinanceSplit {
 export interface FinanceDaily {
   days: number; from: string; to: string;
   /** byLane / sessionsTokens: that day's session spend by lane (gr_3ougmyubdm); absent from an older server */
-  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number>; byLane?: Record<SplitLane, number>; sessionsTokens?: number; /** subscription credit that expired undrawn that day, by expiresAt day (gr_z13gmx54su); absent from an older server */ expired?: number }[];
+  rows: { day: string; used: number; credited: number; byBuilding: Record<string, number>; byLane?: Record<SplitLane, number>; sessionsTokens?: number; /** subscription credit that expired undrawn that day, by expiresAt day (gr_z13gmx54su); absent from an older server */ expired?: number; /** what held spending back that day (gr_6c24p5uy01); absent from an older server */ limits?: DayLimits }[];
   /** buildings by their window total, largest first */
   buildings: { id: string; name: string; tokens: number }[];
   usedBefore: number; undatedUsed: number; usageLedgerInWindow: number;

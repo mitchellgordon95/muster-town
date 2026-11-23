@@ -434,6 +434,11 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(finance.body.utilization).toMatchObject({ d7: { days: 7 }, d30: { days: 30 }, check: { ok: true, diff: 0, dailyDiff: 0 } });
     const u7 = finance.body.utilization.d7;
     expect(u7.used + u7.expired + u7.left).toBe(u7.credited);
+    // what held spending back each day (gr_6c24p5uy01 step 1): every row has limits, both windows a summary, the check holds
+    expect(finance.body.daily.rows.at(-1).limits).toMatchObject({ deskHoursBusy: expect.any(Number), deskHours: expect.any(Number), exploration: { tokens: expect.any(Number) }, held: expect.any(Number) });
+    expect(finance.body.utilization.d7.limits).toMatchObject({ days: 7, deskShare: expect.any(Number), capDays: expect.any(Number), grantDays: expect.any(Number) });
+    expect(finance.body.limitsCheck).toMatchObject({ ok: true, diff: 0 });
+    expect(finance.body.limitsNote).toEqual(expect.any(String));
     expect(finance.body.cash.total).toBeCloseTo(finance.body.cash.plans + finance.body.cash.apiKeys + finance.body.cash.hosting, 2);
     const sources = await json(app, "GET", "/api/finance/sources");
     expect(sources.status).toBe(200);

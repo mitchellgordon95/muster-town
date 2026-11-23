@@ -9,7 +9,8 @@ import { FINANCE_DAILY_DAYS, financeDaily, type FinanceDaily, type FinanceDailyC
 import { sourceCost, townSpend, type FinanceSpend, type SourceCost } from "./finance-spend.ts";
 import { townSpendByLaneKind, type LaneKindWindow, type SpendByLaneKind } from "./finance-lane-kind.ts";
 import { townManagerWakes, type ManagerWakes } from "./finance-manager-wakes.ts";
-import { townFinanceSplit, type FinanceSplit } from "./finance-split.ts";
+import { financeSplit, type FinanceSplit } from "./finance-split.ts";
+import { financeLimits, limitsCheck, windowLimits, LIMITS_NOTE, type LimitsCheck } from "./finance-limits.ts";
 import { financeUtilization, utilizationAgainstDaily, type FinanceUtilization } from "./finance-utilization.ts";
 import { townSources, type FinanceSources } from "./finance-sources.ts";
 import { townFly, type FinanceFly, type FlyInputs, type FlyOptions } from "./finance-fly.ts";
@@ -972,10 +973,15 @@ export class Bank {
   }
 
   /** GET /api/finance: received, used, expired, left, overdrawn and a 30-day projection (finance.ts). */
-  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck; split: FinanceSplit; utilization: FinanceUtilization } {
+  finance(now = new Date()): FinanceSummary & { mix: TokenMix; cutoff: LedgerCutoff | null; daily: FinanceDaily; dailyCheck: FinanceDailyCheck; split: FinanceSplit; utilization: FinanceUtilization; limitsCheck: LimitsCheck; limitsNote: string } {
     const f = townFinance(this.repos, now);
-    // work versus coordination (finance-split.ts, gr_3ougmyubdm): session spend by lane, 7 and 30 days, and per chart day
-    const { split, byDay } = townFinanceSplit(this.repos, now, FINANCE_DAILY_DAYS);
+    // work versus coordination (finance-split.ts, gr_3ougmyubdm): session spend by lane, 7 and 30 days, and per chart day.
+    // The sessions that could fall in the window (ended in it, or still running) are read once for the split and the limits.
+    const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const windowFrom = new Date(midnight - (FINANCE_DAILY_DAYS - 1) * 86_400_000).toISOString();
+    const sessions = this.repos.sessions.where("COALESCE(endedAt, startedAt) >= ? OR endedAt IS NULL", [windowFrom]);
+    const assignments = this.repos.assignments.all();
+    const { split, byDay } = financeSplit({ sessions, assignments }, now, FINANCE_DAILY_DAYS);
     // the Balance tab's "Day by day" chart (finance-daily.ts, gr_epbcgb0hvs): Bank debits and credits per UTC day, by building
     const debits = this.repos.bankDebits.all(), credits = this.repos.bankCredits.all();
     const { daily, dailyCheck } = financeDaily({
@@ -984,8 +990,14 @@ export class Bank {
       expired: f.expired, lanesByDay: byDay,
     }, now);
     // how much of what came in was used (finance-utilization.ts, gr_z13gmx54su): 7 and 30 days, per subscription credit
-    const utilization = utilizationAgainstDaily(financeUtilization({ credits, debits }, now), daily.rows);
-    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck, split, utilization };
+    const u = utilizationAgainstDaily(financeUtilization({ credits, debits }, now), daily.rows);
+    // what held spending back each day (finance-limits.ts, gr_6c24p5uy01): desk use, the exploration cap, grant work, held work
+    const lim = financeLimits({ sessions, assignments, buildings: this.repos.buildings.all(), goals: this.repos.goals.all(), days: daily.rows.map((r) => r.day) }, now);
+    for (const r of daily.rows) r.limits = lim.byDay.get(r.day);
+    const utilization: FinanceUtilization = {
+      ...u, d7: { ...u.d7, limits: windowLimits(daily.rows, u.d7.from, u.d7.to, u.d7.days) }, d30: { ...u.d30, limits: windowLimits(daily.rows, u.d30.from, u.d30.to, u.d30.days) },
+    };
+    return { ...f, mix: this.mix(now), cutoff: this.repos.town.ledgerCutoff(), daily, dailyCheck, split, utilization, limitsCheck: limitsCheck(daily.rows, lim.noEnd), limitsNote: LIMITS_NOTE };
   }
 
   /** GET /api/finance/spend: `used` by building → grant → assignment, from the sessions table (finance-spend.ts), plus the window's lane × token-kind table (finance-lane-kind.ts) and the 7 d manager wakes per building (finance-manager-wakes.ts). */
