@@ -30,11 +30,18 @@ export interface GoalSpendInputs {
 const DAY = 86_400_000;
 const lanes = (): SpendByLane => ({ grant: 0, exploration: 0, directed: 0, retainer: 0, managing: 0, oneOnOnes: 0, none: 0 });
 
-/** A session's lane on the Spend tab: a manage session is `managing` (`oneOnOnes` in a 1:1), else its own or its assignment's lane, else "none". */
+/**
+ * A session's lane on the Spend tab: a manage session is `managing` (`oneOnOnes` in a 1:1); any other non-work session in a
+ * meeting (facilitate, summary, meeting-reply) is `oneOnOnes` too; else its own or its assignment's lane; a non-work session
+ * with no lane (naming, review) is `managing`; only a work session with no lane is "none" (gr_064fmkq31s step 3).
+ */
 function spendLane(s: Partial<Pick<Session, "purpose" | "meetingId" | "lane">>, assignmentLane: string | null | undefined): keyof SpendByLane {
+  const coordination = s.purpose !== undefined && s.purpose !== "work";
   if (s.purpose === "manage") return s.meetingId ? "oneOnOnes" : "managing";
+  if (coordination && s.meetingId) return "oneOnOnes";
   const lane = s.lane ?? assignmentLane;
-  return lane === "grant" || lane === "exploration" || lane === "directed" || lane === "retainer" ? lane : "none";
+  if (lane === "grant" || lane === "exploration" || lane === "directed" || lane === "retainer") return lane;
+  return coordination ? "managing" : "none";
 }
 
 /** The pure aggregation behind GET /api/goals/:id/spend. `days` counts back from `now`; a session counts by when it ended (or started, while running). */

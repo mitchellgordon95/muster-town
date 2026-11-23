@@ -99,17 +99,19 @@ describe("the Spend tab (docs/goals.md \"Spend tab\", step 4): read-only, from s
       s("mgr", {}), // no assignment: agent's building b1 → gl_a
       s("wake", { purpose: "manage" }), // a manager's session: managing (gr_064fmkq31s)
       s("oneOnOne", { purpose: "manage", meetingId: "mt_1" }), // in a 1:1: oneOnOnes
+      s("facilitate", { purpose: "facilitate", meetingId: "mt_2" }), // a meeting's facilitator: oneOnOnes, not "none"
+      s("naming", { purpose: "naming" }), // coordination with no lane and no meeting: managing
       s("out", { assignmentId: "as_x", agentId: "ag_c", lane: "directed" }), // b3 → gl_b: not counted
       s("old", { assignmentId: "as_d", lane: "directed", startedAt: at(24 * 9), endedAt: at(24 * 8) }), // outside 7 days
     ]), 7, now);
-    expect(r.sessions).toBe(5);
-    expect(r.total).toBe(5 * one);
-    expect(r.byLane).toEqual({ grant: one, exploration: 0, directed: one, retainer: 0, managing: one, oneOnOnes: one, none: one });
-    expect(r.byBuilding.map((b) => [b.id, b.tokens])).toEqual([["b1", 5 * one]]);
+    expect(r.sessions).toBe(7);
+    expect(r.total).toBe(7 * one);
+    expect(r.byLane).toEqual({ grant: one, exploration: 0, directed: one, retainer: 0, managing: 2 * one, oneOnOnes: 2 * one, none: one });
+    expect(r.byBuilding.map((b) => [b.id, b.tokens])).toEqual([["b1", 7 * one]]);
     expect(r.byGrant.map((g) => [g.id, g.title, g.goalId, g.tokens])).toEqual([["gr_1", "Grant one", "gl_a1", one]]);
     expect(r.seriesUnit).toBe("day");
     expect(r.series).toHaveLength(7);
-    expect(r.series.at(-1)!.tokens).toBe(5 * one);
+    expect(r.series.at(-1)!.tokens).toBe(7 * one);
     expect(r.results.map((k) => k.id)).toEqual(["kr_2"]);
     // a narrower node sees only its own: gl_a1 is gr_1's goal
     const sub = goalSpend("gl_a1", { ...inputs([s("grant", { assignmentId: "as_g", grantId: "gr_1", lane: "grant" }), s("dir", { assignmentId: "as_d", lane: "directed" })]), subtree: new Set(["gl_a1"]) }, 30, now);
