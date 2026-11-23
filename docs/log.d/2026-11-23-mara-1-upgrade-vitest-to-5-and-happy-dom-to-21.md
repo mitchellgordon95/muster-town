@@ -1,0 +1,1 @@
+- 2026-11-23: vitest 3 → 5.1.1 in every package, happy-dom 20 → 21.0.4 in web, then `npm audit fix` (hono 4.13.21, minimatch). `npm audit` goes from 9 advisories (2 critical: tinypool via vitest 3; 1 high: happy-dom) to 0. No config or test change was needed: no package used poolOptions, and the mock-using tests pass as they are (grant gr_83ith5co2k step 1).
