@@ -1,5 +1,6 @@
-# Known security advisories in production dependencies (grant gr_gh3lnuihw9, KR kr_4jhab4c5cn): fails when
-# `npm audit` finds a high or critical advisory in what the server, schema and web ship (dev tools are left out).
+# Known security advisories (grants gr_gh3lnuihw9 and gr_83ith5co2k): fails when `npm audit` finds a high or critical
+# advisory, first in what the server, schema and web ship, then in every dependency, dev tools included (vitest and
+# happy-dom drifted to 2 critical advisories unseen while only the prod step ran).
 # Its own workflow, never a step of ci.yml: ci.yml promotes a green main to `prod`, and an advisory published overnight
 # must not freeze deploys. It runs weekly (new advisories land without any change of ours), on every PR and push to
 # main that touches a package.json or the lockfile, and by hand (Actions → audit → Run workflow).
@@ -27,5 +28,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # reads package-lock.json only (no install); prints every advisory, fails on high or critical
-      - run: npm audit --omit=dev --audit-level=high
+      # both read package-lock.json only (no install); each prints every advisory and fails on high or critical
+      - name: audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: audit all dependencies, dev included
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=high
