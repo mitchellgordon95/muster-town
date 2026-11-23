@@ -1792,6 +1792,22 @@ export interface GoalSpend {
   /** visitors at desks in the subtree's buildings now. What they spend is NOT tracked (a visitor runs on its own client; Mitchell, 1:1 mt_i50xwu4z2t: say "unknown" rather than guess or self-report), so it is in none of the figures above */
   visitors: number;
 }
+/**
+ * GET /api/goals/:id/produced (grant gr_6kangldj4t): what a goal's whole subtree produced over a window, for a funder
+ * or captain: its shipped notices, the grants that closed, the key results met or missed, and what it all cost
+ * (`tokens` = GET /api/goals/:id/spend's total over the same window). Read-only.
+ */
+export interface GoalProduced {
+  goalId: string; days: number; from: string; to: string;
+  /** `keyResultsMet` includes the met-unverified ones (met on code and tests at a grant's close); `keyResultsUnverified` counts those alone */
+  counts: { shipped: number; grantsClosed: number; keyResultsMet: number; keyResultsUnverified: number; keyResultsMissed: number; tokens: number };
+  /** the newest shipped notices in the window, newest first (at most `limit`; `counts.shipped` counts them all) */
+  shipped: { id: string; title: string; body: string; picture: string | null; buildingId: string | null; goalId: string | null; refs: string[]; createdAt: string }[];
+  /** grants closed in the window, newest first: spent (adjusted tokens) against the ceiling they were funded at */
+  grants: { id: string; title: string; goalId: string | null; buildingId: string; outcome: string | null; closedAt: string; spentTokens: number; grantTokens: number | null }[];
+  /** the subtree's key results judged in the window (met, met unverified, missed), oldest first */
+  keyResults: { id: string; text: string; status: "met" | "met-unverified" | "missed"; at: string }[];
+}
 /** One card of the kanban (docs/goals.md "Kanban: the queue as a board", build step 6): an assignment on a building's board. */
 export interface QueueCard {
   id: string; title: string; lane: string; grantId: string | null;

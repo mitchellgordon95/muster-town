@@ -7,7 +7,7 @@
  * `gate` is a grant's step gate: a step report whose forecast is within the ceiling (`fileForecast`, grant-forecast.ts;
  * past it the forecast is recorded on the grant and its events, and asks nothing: the hold at the ceiling is the only gate). Nothing here asks or decides anything.
  */
-import { grantName, NoticeKind, Notice, type Assignment, type Grant, type KeyResult } from "@muster-town/schema";
+import { grantName, NoticeKind, Notice, ROOT_GOAL_ID, type Assignment, type Grant, type KeyResult } from "@muster-town/schema";
 import { badRequest } from "./errors.ts";
 import { utcDate } from "./time.ts";
 import { newId, nowIso } from "./util.ts";
@@ -26,12 +26,22 @@ export function fileNotice(world: World, n: Omit<Notice, "id" | "createdAt"> & {
   return notice;
 }
 
-/** `GET /api/notices`: newest first, filtered by building, goal and kind; at most `limit` (default 50, at most 200). */
+/**
+ * The SQL that keeps a goal's notices: those filed on the goal or any goal below it (gr_6kangldj4t step 1); on the
+ * root, also the ones filed on no goal (the Town Hall's slate and pattern notes hang there).
+ */
+export function goalNoticeWhere(world: World, goalId: string): { sql: string; args: unknown[] } {
+  const ids = [...world.goalTree.subtreeIds(goalId)];
+  const sql = `goalId IN (${ids.map(() => "?").join(", ")})`;
+  return goalId === ROOT_GOAL_ID ? { sql: `(${sql} OR goalId IS NULL)`, args: ids } : { sql, args: ids };
+}
+
+/** `GET /api/notices`: newest first, filtered by building, goal (with its whole subtree) and kind; at most `limit` (default 50, at most 200). */
 export function listNotices(world: World, f: { building?: string; goal?: string; kind?: string; limit?: number } = {}): Notice[] {
   const where: string[] = [];
   const args: unknown[] = [];
   if (f.building) { where.push("buildingId = ?"); args.push(f.building); }
-  if (f.goal) { where.push("goalId = ?"); args.push(f.goal); }
+  if (f.goal) { const g = goalNoticeWhere(world, f.goal); where.push(g.sql); args.push(...g.args); }
   if (f.kind) {
     const k = NoticeKind.safeParse(f.kind);
     if (!k.success) throw badRequest(`kind: one of ${NoticeKind.options.join(", ")}.`);

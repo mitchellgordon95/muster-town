@@ -5,8 +5,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { buildingRoleId } from "../src/index.ts";
-import { listNotices } from "../src/notices.ts";
-import { creditBank, seededWorld } from "./helpers.ts";
+import { goalProduced } from "../src/goal-produced.ts";
+import { worldGoalSpend } from "../src/goal-spend.ts";
+import { fileNotice, listNotices } from "../src/notices.ts";
+import { creditBank, fundBuilding, seededWorld } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const SHIPPED = [
@@ -77,5 +79,43 @@ describe("notices", () => {
     expect(listNotices(world, { goal: v!.goalId! }).map((n) => n.id)).toContain(v!.id);
     expect(listNotices(world, { limit: 1 })).toHaveLength(1);
     expect(() => listNotices(world, { kind: "nope" })).toThrow(/kind: one of shipped, closed-loop, verified, slate, pattern, gate/);
+  });
+});
+
+describe("a goal's subtree (gr_6kangldj4t step 1)", () => {
+  it("the goal filter keeps the notices of the goal and every goal below it; the root also keeps those filed on no goal", async () => {
+    const { world } = await setup();
+    const mid = fundBuilding(world, LAB, {});
+    const leaf = world.goalTree.create(null, { parentId: mid, text: "A leaf under the lab" }).id;
+    const other = world.goalTree.create(null, { parentId: "gl_town", text: "A sibling" }).id;
+    const at = (goalId: string | null, title: string) => fileNotice(world, { kind: "shipped", buildingId: LAB, goalId, title, body: "", picture: null, refs: [] }).id;
+    const onMid = at(mid, "mid"), onLeaf = at(leaf, "leaf"), onOther = at(other, "other"), onNone = at(null, "none");
+    expect(listNotices(world, { goal: mid }).map((n) => n.id).sort()).toEqual([onMid, onLeaf].sort());
+    expect(listNotices(world, { goal: leaf }).map((n) => n.id)).toEqual([onLeaf]);
+    expect(listNotices(world, { goal: "gl_town" }).map((n) => n.id).sort()).toEqual([onMid, onLeaf, onOther, onNone].sort());
+    expect(listNotices(world, { goal: "gl_nope" })).toEqual([]);
+  });
+
+  it("goalProduced counts the subtree's shipped items, closed grants, key results met and tokens over the window", async () => {
+    const { world, admin, mei, grant } = await setup();
+    const mid = fundBuilding(world, LAB, {});
+    const other = world.goalTree.create(null, { parentId: "gl_town", text: "A sibling" }).id;
+    const g = grant();
+    expect(world.grants.require(g.id).goalId).toBe(mid);
+    world.grantDesk.decide(admin, g.id, { action: "fund", tokens: 600_000 });
+    world.grantDesk.closeDone(mei, g.id, { note: "the banner is live", shipped: SHIPPED });
+    const p = goalProduced(world, mid, 30);
+    expect(p.counts).toMatchObject({ shipped: 2, grantsClosed: 1, keyResultsMet: 1, keyResultsUnverified: 1, keyResultsMissed: 0 });
+    expect(p.counts.tokens).toBe(worldGoalSpend(world, mid, 30).total);
+    expect(p.shipped.map((n) => n.title)).toEqual(["A quieter board", "A spend banner"]);
+    expect(p.grants).toEqual([expect.objectContaining({ id: g.id, title: "A spend banner", outcome: "done", grantTokens: 600_000, spentTokens: 0 })]);
+    expect(p.keyResults.map((k) => k.status)).toEqual(["met-unverified"]);
+    // the root sees it too; a sibling goal and a window that ends before it do not; the list is capped, the count is not
+    expect(goalProduced(world, "gl_town", 30).counts).toMatchObject({ shipped: 2, grantsClosed: 1, keyResultsMet: 1 });
+    expect(goalProduced(world, other, 30).counts).toMatchObject({ shipped: 0, grantsClosed: 0, keyResultsMet: 0, tokens: 0 });
+    expect(goalProduced(world, mid, 30, new Date(Date.now() - 86_400_000)).counts).toMatchObject({ shipped: 0, grantsClosed: 0 });
+    const capped = goalProduced(world, mid, 30, new Date(), 1);
+    expect([capped.shipped.length, capped.counts.shipped]).toEqual([1, 2]);
+    expect(() => goalProduced(world, "gl_nope")).toThrow();
   });
 });
