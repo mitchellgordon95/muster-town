@@ -85,11 +85,13 @@ function inlineMedia(root: Element) {
  * lowercase alphanumerics, as the server mints them.
  */
 const LINK_KINDS = ["dc", "gr", "mt", "ag", "bl", "kr", "mf", "as", "se"] as const;
-const LINK_ID_RE = new RegExp(`\\b(?:${LINK_KINDS.join("|")})_[a-z0-9]{10}\\b`, "g");
+/** A goal id (gr_4upa0og9zc): minted (`gl_` + 10), a building's own goal (`gl_bl_…`) or one of the root's named goals. */
+const GOAL_ID = "gl_(?:bl_[a-z0-9]{10}|[a-z0-9]{10}|town|join|trust|fund)";
+const LINK_ID_RE = new RegExp(`\\b(?:${GOAL_ID}|(?:${LINK_KINDS.join("|")})_[a-z0-9]{10})\\b`, "g");
 /** A doc id alone, for places that want docs only (the say-box preview by title). */
 const DOC_ID_RE = /\bdc_[a-z0-9]{10}\b/g;
 /** The id a link target names, bare or `doc:`-prefixed, with any path in front (media links are plain URLs and open as files). */
-const LINK_TARGET_RE = /^(?:doc:)?((?:dc|gr|mt|ag|bl|kr|as|se)_[a-z0-9]{10})$/;
+const LINK_TARGET_RE = new RegExp(`^(?:doc:)?(${GOAL_ID}|(?:dc|gr|mt|ag|bl|kr|as|se)_[a-z0-9]{10})$`);
 
 export const isGrantId = (id: string) => id.startsWith("gr_");
 /** Ids with a shareable hash URL (`/#/doc/<id>`, `/#/grant/<id>`, `/#/meeting/<id>`, …): every linkable id but media, which is its own URL. */
@@ -111,13 +113,15 @@ export function docIdParts(s: string): (string | { id: string })[] {
 /** The distinct doc ids cited in a text, in order of first mention. */
 export const docIdsIn = (s: string): string[] => [...new Set(s.match(DOC_ID_RE) ?? [])];
 
-/** Key result texts by id, for labelling kr_ links; filled from GET /api/goals the first time a text cites a key result. */
+/** Key result texts by id, for labelling kr_ links; filled from GET /api/goals the first time a text cites a key result, and from each fetched grant (its archived key results too). */
 const krTexts = new Map<string, string>();
+/** Goal texts by id, for labelling gl_ links; filled from the same GET /api/goals. */
+const goalTexts = new Map<string, string>();
 let krLoad: Promise<void> | null = null;
 const krListeners = new Set<() => void>();
-function loadKrTexts(): Promise<void> {
+export function loadKrTexts(): Promise<void> {
   krLoad ??= api().goalTree().then((root) => {
-    const walk = (n: GoalTreeNode) => { for (const k of n.keyResults) krTexts.set(k.id, k.text); n.children.forEach(walk); };
+    const walk = (n: GoalTreeNode) => { goalTexts.set(n.id, n.text); for (const k of n.keyResults) krTexts.set(k.id, k.text); n.children.forEach(walk); };
     walk(root);
     for (const f of krListeners) f();
   }, () => undefined);
@@ -126,18 +130,24 @@ function loadKrTexts(): Promise<void> {
 /** Assignment, meeting and doc titles by id, for labelling as_, mt_ and dc_ links the store doesn't hold (past meetings, other buildings' work, older docs): fetched (GET /api/assignments/:id, /api/meetings/:id, /api/docs/:id) once per id a text cites. */
 const fetchedTitles = new Map<string, string>();
 const titleAsked = new Set<string>();
-const FETCH_ID_RE = /\b(?:as|mt|dc)_[a-z0-9]{10}\b/g;
+const FETCH_ID_RE = /\b(?:as|mt|dc|gr)_[a-z0-9]{10}\b/g;
 /** An assignment card or meeting that loaded tells the labels its title. */
 export function rememberAssignmentTitle(id: string, title: string) {
   if (fetchedTitles.get(id) === title) return;
   fetchedTitles.set(id, title);
   for (const f of krListeners) f();
 }
+/** A grant that loaded tells the labels its title (its objective when it has none) and its key results' texts (gr_4upa0og9zc). */
+export function rememberGrant(g: { id: string; title?: string; objective: string; keyResults?: { id: string; text: string }[] }) {
+  for (const k of g.keyResults ?? []) if (!krTexts.has(k.id)) krTexts.set(k.id, k.text);
+  rememberAssignmentTitle(g.id, g.title || g.objective);
+}
 function loadFetchedTitles(text: string) {
   const s = store.state;
   const want = [...new Set(text.match(FETCH_ID_RE) ?? [])].filter((id) => !titleAsked.has(id) && !fetchedTitles.has(id) && !(id.startsWith("as_") ? s.assignments[id] : id.startsWith("dc_") ? s.docs[id] : s.meetings[id]));
   for (const id of want) {
     titleAsked.add(id);
+    if (id.startsWith("gr_")) { api().grant(id).then(rememberGrant, () => undefined); continue; }
     const title = id.startsWith("as_") ? api().assignmentCard(id).then((a) => a.title) : id.startsWith("dc_") ? api().doc(id).then((d) => d.title) : api().meeting(id).then((m) => m.title);
     title.then((t) => rememberAssignmentTitle(id, t), () => undefined);
   }
@@ -146,12 +156,13 @@ function loadFetchedTitles(text: string) {
 /** Re-renders once the key result texts arrive when `text` cites one (and, for any text, as agents and buildings load), so its links get their names. */
 function useIdLabels(text: string): number {
   const [kr, setKr] = useState(0);
-  const cites = text.includes("kr_");
-  const citesAs = text.includes("as_") || text.includes("mt_") || text.includes("dc_");
+  const cites = text.includes("kr_") || text.includes("gl_");
+  const citesAs = text.includes("as_") || text.includes("mt_") || text.includes("dc_") || text.includes("gr_");
   useEffect(() => {
     if (!cites && !citesAs) return;
     const f = () => setKr((n) => n + 1);
     krListeners.add(f);
+    // a key result the tree lacks (an archived one) is labelled by the grant the text cites, fetched below
     if (cites) void loadKrTexts();
     if (citesAs) loadFetchedTitles(text);
     return () => { krListeners.delete(f); };
@@ -162,7 +173,7 @@ function useIdLabels(text: string): number {
 
 const clipLabel = (s: string, n = 48) => s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s;
 
-/** What a reader sees for an id: the agent's, building's, meeting's or doc's name, a key result's text (clipped), else the id itself. Grants keep their id. */
+/** What a reader sees for an id: the agent's, building's, meeting's, doc's or grant's name, a key result's or goal's text (clipped), else the id itself (gr_4upa0og9zc step 1: grants and goals read as names too). */
 export function idLabel(id: string): string | null {
   const s = store.state;
   switch (id.slice(0, 2)) {
@@ -170,6 +181,8 @@ export function idLabel(id: string): string | null {
     case "bl": return s.buildings.find((b) => b.id === id)?.name ?? null;
     case "mt": { const t = s.meetings[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     case "kr": { const t = krTexts.get(id); return t ? clipLabel(t) : null; }
+    case "gr": { const t = fetchedTitles.get(id); return t ? clipLabel(t) : null; }
+    case "gl": { const t = goalTexts.get(id); return t ? clipLabel(t) : null; }
     case "as": { const t = s.assignments[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     case "dc": { const t = s.docs[id]?.title ?? fetchedTitles.get(id); return t ? clipLabel(t) : null; }
     default: return null;
@@ -178,15 +191,17 @@ export function idLabel(id: string): string | null {
 
 /** The tooltip of an id link: what it opens, and the id when the label is a name. */
 function idTitle(id: string, label: string | null): string | undefined {
-  const what: Record<string, string> = { gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file", as: "assignment", se: "session" };
+  const what: Record<string, string> = { gl: "goal", gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "key result", mf: "picture or video: opens the file", as: "assignment", se: "session" };
   if (id.startsWith("dc_")) return label ? `doc ${id}` : undefined;
   if (id.startsWith("kr_") && krTexts.get(id)) return `key result ${id}: ${krTexts.get(id)}`;
+  if (id.startsWith("gl_") && goalTexts.get(id)) return `goal ${id}: ${goalTexts.get(id)}`;
+  if (id.startsWith("gr_") && label) return `grant ${id}: ${fetchedTitles.get(id)}`;
   if (id.startsWith("as_") && label) return `assignment ${id}: ${store.state.assignments[id]?.title ?? fetchedTitles.get(id)}`;
   return label ? `${what[id.slice(0, 2)]} ${id}` : what[id.slice(0, 2)];
 }
 
 /** The shareable URL of an id (`/#/doc/<id>`, `/#/grant/<id>`, `/#/meeting/<id>`, `/#/agent/<id>`, `/#/building/<id>`, `/#/kr/<id>`), or the media file. */
-const KIND_HASH: Record<string, string> = { dc: "doc", gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "kr", as: "assignment", se: "session" };
+const KIND_HASH: Record<string, string> = { gl: "goal", dc: "doc", gr: "grant", mt: "meeting", ag: "agent", bl: "building", kr: "kr", as: "assignment", se: "session" };
 const urlOf = (id: string) => id.startsWith("gr_") ? grantUrl(id) : id.startsWith("dc_") ? docUrl(id) : hasHash(id) ? `${location.origin}${location.pathname}#/${KIND_HASH[id.slice(0, 2)]}/${id}` : mediaUrl(id);
 const mediaUrl = (id: string) => `${API_BASE}/api/media/${id}`;
 
@@ -200,7 +215,7 @@ export function openIdLink(id: string) {
     case "mt_": return store.open({ kind: "meeting", id });
     case "ag_": return store.openSheet({ kind: "agent", id });
     case "bl_": return store.open({ kind: "building", id });
-    case "kr_": return store.open({ kind: "goals", id });
+    case "kr_": case "gl_": return store.open({ kind: "goals", id });
     case "as_": return store.open({ kind: "assignment", id });
     case "se_": return store.open({ kind: "session", id });
     case "mf_": { window.open(mediaUrl(id), "_blank", "noopener"); return; }

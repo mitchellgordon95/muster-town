@@ -1,0 +1,1 @@
+- 2026-11-23 UI/UX (Teo 1, gr_4upa0og9zc step 1): grant ids in reports and Talk lines read as the grant's title (GET /api/grants/:id once per id), archived key results read their text from that grant, and goal ids (gl_…, gl_bl_…, gl_town) read as the goal's text and open the goal tree at that goal (`#/goal/<id>`). The tooltip keeps the id.
