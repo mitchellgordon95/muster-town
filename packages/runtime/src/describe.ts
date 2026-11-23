@@ -48,8 +48,8 @@ export function describeTool(world: World, name: string, input: unknown): string
       if (i.type === "wiki") return `Updating page "${clip(i.title, 60)}"`;
       return `Writing ${String(i.type ?? "note")} "${clip(i.title, 60)}"`;
     }
-    case "submit_report": return `Submitting report: ${clip(i.title, 60)}`;
-    case "request_human": return `Asking humans for help: ${clip(i.title, 60)}`;
+    case "submit_report": return `Submitting report: ${clip(plain(i.title), 60)}`;
+    case "request_human": return `Asking humans for help: ${clip(plain(i.title), 60)}`;
     case "withdraw_request": return `Withdrawing the outbox request ${i.docId}`;
     case "assignments": return "Checking assignments";
     case "accept_assignment": return "Accepting an assignment";
@@ -69,11 +69,11 @@ export function describeTool(world: World, name: string, input: unknown): string
     case "cancel": return i.scheduleId ? "Cancelling a schedule" : "Cancelling a queued assignment";
     case "fork_status": return `Checking on ${world.nameOf(String(i.forkId ?? "")) || "a fork"}`;
     case "stop_fork": return `Asking ${i.forkId ? world.nameOf(String(i.forkId)) : "a fork"} to wrap up and stop`;
-    case "schedule": return `Scheduling: ${clip(i.title, 60)}`;
-    case "propose_grant": return `Proposing a grant: ${clip(i.title ?? i.objective, 60)}`;
+    case "schedule": return `Scheduling: ${clip(plain(i.title), 60)}`;
+    case "propose_grant": return `Proposing a grant: ${clip(plain(i.title ?? i.objective), 60)}`;
     case "close_grant": return "Closing a grant as done";
     case "withdraw_grant": return "Withdrawing a grant proposal";
-    case "ask": return `Asking the humans: ${clip(i.title, 60)}`;
+    case "ask": return `Asking the humans: ${clip(plain(i.title), 60)}`;
     case "act_in_1on1": return `Doing what the human said: ${i.action} ${i.targetId}`;
     case "propose_goal": return `Proposing a goal change (${i.action})`;
     case "promote": return `Promoting a doc to the ${i.state === "library" ? "library" : "board"}`;
@@ -96,8 +96,13 @@ function describeBuiltin(name: string, i: Record<string, unknown>): string {
     case "Read": return `Reading ${file(i.file_path)}`;
     case "Write": return `Writing ${file(i.file_path)}`;
     case "Edit": case "MultiEdit": return `Editing ${file(i.file_path)}`;
-    case "Glob": return `Looking for ${clip(i.pattern, 50)}`;
-    case "Grep": return `Grepping for ${clip(i.pattern, 50)}`;
+    // the pattern's last part only (`packages/core/src/*grant*` → *grant*); a search term is cleaned as in Bash greps
+    case "Glob": { const last = String(i.pattern ?? "").split("/").filter(Boolean).pop(); return last ? `Looking for ${clip(last, 50)}` : "Searching files"; }
+    case "Grep": {
+      const term = searchTerm(typeof i.pattern === "string" ? i.pattern : undefined);
+      const f = fileName(typeof i.path === "string" ? i.path : undefined);
+      return term ? (f ? `Searching ${f} for ${term}` : `Searching for ${term}`) : f ? `Searching ${f}` : "Searching files";
+    }
     case "TodoWrite": return "Updating plan";
     case "Task": case "Agent": return "Delegating a sub-task";
     default: return `Using ${name}`;
@@ -116,6 +121,9 @@ export const LEAK = /(?:^|[\s("'`])(?:~|\.{1,2})?\/[\w.@-]|[\w.@-]+\/[\w.@-]+\/[
 
 /** An agent's own words with every full path cut to its last name (`packages/web/src/x.ts` → x.ts). */
 const withoutFolders = (s: string) => s.replace(/(?<![\w.@~-])(?:~|\.{1,2})?\/?(?:[\w.@-]+\/){2,}([\w.@*-]*)|(?<![\w.@~-])(?:~|\.{1,2})?\/(?:[\w.@-]+\/)*([\w.@*-]+)/g, (_m, a, b) => a || b || "");
+
+/** An agent's own title with API routes named (`GET /api/goals/:id/produced` → GET goals API route) and paths cut to names. */
+const plain = (t: unknown) => typeof t === "string" ? withoutFolders(t.replace(/(?:\/|\b)api\/([\w-]+)[^\s,"'`)]*/g, "$1 API route")) : t;
 
 /** Programs that only set the stage (cd, export, wrappers): the bubble names what runs after them. */
 const PRELUDE = new Set(["cd", "pushd", "popd", "export", "set", "unset", "source", ".", "true", ":", "ulimit", "umask", "env", "sudo", "time", "nohup", "exec", "command", "nice", "then", "do", "if", "until", "while", "!", "{", "(", "for", "else"]);
@@ -151,7 +159,8 @@ function shellSplit(line: string): Simple[] {
     const c = line[k]!;
     if (quote) {
       if (c === quote) quote = null;
-      else if (c === "\\" && quote === '"' && k + 1 < line.length) cur += line[++k]!;
+      // in double quotes a backslash escapes only $ ` " \ (bash keeps `\b`, `\|` as written, so grep sees them)
+      else if (c === "\\" && quote === '"' && k + 1 < line.length) cur += "$`\"\\".includes(line[k + 1]!) ? line[++k]! : c;
       else cur += c;
       continue;
     }
@@ -191,8 +200,10 @@ function searchTerm(raw: string | undefined): string | null {
   if (!raw) return null;
   let t = raw.replace(/\\\|/g, "\u0001").replace(/\\[bBwWsSdD<>]/g, "").replace(/\\(.)/g, "$1").replace(/^\^|\$$/g, "");
   t = t.split(/\u0001|\|/)
+    // an API route reads as its first name (`/api/jobs/:id` → jobs API route): a slash never shows
+    .map((s) => s.replace(/(?:\b[\w.]+\(\s*)?["'`]?(?:\/|\b)api\/([\w-]+)[^\s,"'`)]*["'`]?/g, " $1 API route "))
     .map((s) => s.replace(/\.[*+]\??/g, " ").replace(/^\^|\$$/g, "").replace(/[([{]+$/, "").replace(/\s+/g, " ").trim())
-    .filter(Boolean).join(", ");
+    .filter((x, k, all) => x && all.indexOf(x) === k).join(", ");
   if (!t || /[/$`]|[A-Za-z_]\w*=\S|\b(gh[pousr]_|sk-|xox[bp]-)\w|[A-Za-z0-9+]{32,}/.test(t)) return null;
   return clip(t, 40);
 }
