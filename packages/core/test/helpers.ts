@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import type { MapLayout } from "@muster-town/schema";
-import { World } from "../src/index.ts";
+import { World, createSchedule } from "../src/index.ts";
 import { createAsk, renderNeed, type NewAsk } from "../src/ask-verb.ts";
 import { appendEntry } from "../src/jobs.ts";
 import { unrenderedNeeds } from "../src/needs.ts";
@@ -188,4 +188,17 @@ export function seedAsk(world: World, n: Omit<NewAsk, "sourceEntryId"> & { sourc
   })?.id);
   if (!entryId) throw new Error(`seedAsk: no thread jb_${n.buildingId ?? "town-hall"}`);
   return createAsk(world, { ...n, sourceEntryId: entryId ?? null });
+}
+
+/**
+ * The old daily ranking schedule as prod had it before grant gr_mcuj10tupi (the town no longer makes one): a Town Hall
+ * retainer schedule taken by the Secretary, then kept in step by `ensureRankSchedule`. For the tests of a live one.
+ */
+export function legacyRankSchedule(world: World, at: Date = new Date()): import("@muster-town/schema").Schedule {
+  const sec = world.secretary.agent()!;
+  createSchedule(world, "town-hall", { kind: "agent", id: sec.id }, {
+    title: "Daily ask ranking", description: "old prompt", repeat: { dailyAt: ["07:00"] }, tokensPerRun: 40_000, takerId: sec.id,
+    gap: "The humans' open asks need a daily order and a money slate",
+  }, null, at);
+  return world.secretary.ensureRankSchedule(at)!;
 }

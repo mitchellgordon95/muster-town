@@ -55,21 +55,19 @@ describe("the Secretary's ranking in the Town Hall in-tray", () => {
     expect(world.grants.require(b.id).status).toBe("proposed");
   });
 
-  it("POST /api/rank/run (the in-tray's Rank now button; /api/digest/run its old name): a human who can decide the retainer starts one run; refused for an agent, before approval, with nothing new, or while a run is live", async () => {
+  it("POST /api/rank/run (the in-tray's Rank now button; /api/digest/run its old name): a human who can fund the Town Hall starts one capped run of its own job, with no schedule or retainer; refused for an agent, with nothing new, or while a run is live", async () => {
     const { world, app, auth, sec, mei, proposal } = await setup();
-    const sched = world.secretary.ensureRankSchedule()!;
+    expect(world.secretary.ensureRankSchedule()).toBeNull();
     const meiAuth = { authorization: `Bearer ${world.tokens.getOrCreate("agent", mei.id)}` };
     expect((await json(app, "POST", "/api/rank/run", { headers: meiAuth })).status).toBe(403);
-    expect((await json(app, "POST", "/api/rank/run", { headers: auth })).body.error).toMatch(/not approved/);
-    expect((await json(app, "POST", `/api/schedules/${sched.id}/retainer`, { headers: auth, body: { action: "approve" } })).status).toBe(200);
     expect((await json(app, "POST", "/api/rank/run", { headers: auth })).status).toBe(409); // no open ask
     await proposal("A banner with today's spend");
     const view = (await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body;
-    expect(view.rankRun).toEqual({ scheduleId: sched.id, runningId: null, refused: null });
+    expect(view.rankRun).toEqual({ scheduleId: null, runningId: null, refused: null });
     expect(view.digestRun).toEqual(view.rankRun);
     const ran = await json(app, "POST", "/api/digest/run", { headers: auth });
     expect(ran.status).toBe(200);
-    expect(ran.body.assignment).toMatchObject({ agentId: sec.id, lane: "retainer", sourceId: sched.id, model: "claude-fable-5-1" });
+    expect(ran.body.assignment).toMatchObject({ agentId: sec.id, lane: "directed", sourceId: null, buildingId: "town-hall", runCapTokens: 40_000, model: "claude-fable-5-1" });
     expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: auth })).body.rankRun.runningId).toBe(ran.body.assignment.id);
     expect((await json(app, "GET", "/api/buildings/town-hall/intray", { headers: meiAuth })).body.rankRun).toBeNull();
     expect((await json(app, "POST", "/api/rank/run", { headers: auth })).status).toBe(409);
