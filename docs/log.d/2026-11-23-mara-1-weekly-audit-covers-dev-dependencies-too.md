@@ -1,0 +1,1 @@
+- 2026-11-23 audit.yml gains a second step, `npm audit --audit-level=high` over all dependencies, dev included (gr_83ith5co2k step 2); the prod step is unchanged and ci.yml is untouched, so deploys never wait on it.
