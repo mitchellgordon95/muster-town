@@ -5,11 +5,13 @@
  * the template cards still in the queue. The human's decision keeps the card they saw on the thread.
  */
 import { describe, expect, it } from "vitest";
-import { buildingRoleId, decideRetainer, intrayCounts, jobThread, managerQueue, managerStateBlock } from "../src/index.ts";
+import { buildingRoleId, intrayCounts, jobThread, managerQueue, managerStateBlock } from "../src/index.ts";
 import { asksFor, decideAsk } from "../src/asks.ts";
 import { NEED_BACKSTOP_MS, openNeedsOn, overdueNeeds, unrenderedNeeds } from "../src/needs.ts";
 import { templateCardsToNeeds } from "../src/asks.ts";
 import { askAt, creditBank, seededWorld, seedAsk } from "./helpers.ts";
+import { jobOf } from "../src/jobs.ts";
+import { RANK_TOKENS_PER_RUN, SECRETARY_MODEL } from "../src/secretary.ts";
 
 const LAB = "carbon-cycle";
 const FUND_CARD = {
@@ -120,17 +122,16 @@ describe("needs and asks", () => {
     expect(unrenderedNeeds(world)).toEqual([]);
   });
 
-  it("backstop: the tick queues one Secretary run on the ranking retainer once a need is an hour old, never two at once", () => {
-    const { world, admin, sec, propose } = setup();
+  it("backstop: the tick queues one capped Secretary run of the Town Hall's own job once a need is an hour old, never two at once, with no ranking schedule or retainer", () => {
+    const { world, sec, propose } = setup();
     propose();
     const [need] = unrenderedNeeds(world);
     const later = new Date(Date.parse(need!.entry.createdAt) + NEED_BACKSTOP_MS + 1000);
-    const sched = world.secretary.ensureRankSchedule()!;
-    expect(world.secretary.needsOverdue(later)).toBeNull(); // the retainer is not approved yet
-    decideRetainer(world, admin, sched.id, { action: "approve", note: "" });
+    expect(world.secretary.ensureRankSchedule()).toBeNull(); // no ranking schedule, no retainer to approve
     expect(world.secretary.needsOverdue(new Date(Date.parse(need!.entry.createdAt) + 1000))).toBeNull(); // not an hour yet
     const run = world.secretary.needsOverdue(later)!;
-    expect(run).toMatchObject({ agentId: sec.id, title: "Render the needs no manager rendered", lane: "retainer" });
+    expect(run).toMatchObject({ agentId: sec.id, buildingId: "town-hall", title: "Render the needs no manager rendered", lane: "directed", sourceId: null, model: SECRETARY_MODEL, runCapTokens: RANK_TOKENS_PER_RUN });
+    expect(jobOf(run)).toMatchObject({ id: "jb_town-hall", rule: "building" });
     expect(run.description).toContain(need!.entry.id);
     expect(world.secretary.needsOverdue(later)).toBeNull();
   });

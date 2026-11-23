@@ -6,14 +6,15 @@
 import { describe, expect, it } from "vitest";
 import { buildingRoleId, openManagerEntries } from "../src/index.ts";
 import { decideAsk, rankedAsks } from "../src/asks.ts";
-import { decideRetainer } from "../src/retainers.ts";
-import { DECISION_RUN_DEBOUNCE_MS, DECISION_RUNS_PER_DAY } from "../src/secretary.ts";
+import { jobOf } from "../src/jobs.ts";
+import { ruleBlock } from "../src/lanes.ts";
+import { DECISION_RUN_DEBOUNCE_MS, DECISION_RUNS_PER_DAY, RANK_TOKENS_PER_RUN, SECRETARY_MODEL } from "../src/secretary.ts";
 import { creditBank, seededWorld, renderNeeds, seedAsk } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
 const RUN = "Settle and re-rank after a decision";
 
-function setup(opts: { fundRetainer?: boolean } = {}) {
+function setup() {
   const s = seededWorld();
   const { world, admin } = s;
   creditBank(world, 10_000_000);
@@ -21,8 +22,8 @@ function setup(opts: { fundRetainer?: boolean } = {}) {
   world.permissions.grant(manager, buildingRoleId(LAB, "manager"));
   world.buildings.patch(LAB, { managerAgentId: manager.id });
   const sec = world.secretary.ensure()!;
-  const schedule = world.secretary.ensureRankSchedule()!;
-  if (opts.fundRetainer ?? true) decideRetainer(world, admin, schedule.id, { action: "approve", note: "" });
+  // no ranking schedule and no retainer (grant gr_mcuj10tupi): the decision run is a capped run of the Town Hall's own job
+  expect(world.secretary.ensureRankSchedule()).toBeNull();
   const propose = (objective: string) => world.grantDesk.propose(manager, world.grantDesk.create(manager, LAB, {
     keyResults: [{ text: "Banner shows Usage", howToCheck: "Open the lab banner" }], objective, approach: "a banner line", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "two failed tries", askTokens: 300_000,
   }).id);
@@ -33,12 +34,12 @@ function setup(opts: { fundRetainer?: boolean } = {}) {
     title, body: "Pix has waited on this since today.", branches: [{ label: "Done" }, { label: "Decline" }], recommendation: "Done",
   }).ask;
   const runs = () => world.assignments.where("agentId = ? AND title = ?", [sec.id, RUN], "ORDER BY createdAt, rowid");
-  return { ...s, world, manager, sec, schedule, proposal, click, runs };
+  return { ...s, world, manager, sec, proposal, click, runs };
 }
 
 describe("a human decision on an ask wakes one Secretary run, debounced", () => {
-  it("the first decision queues one run on the ranking retainer that waits out the debounce; decisions meanwhile add a line, not a run", () => {
-    const { world, admin, sec, schedule, proposal, click, runs } = setup();
+  it("the first decision queues one capped run of the Town Hall's own job that waits out the debounce; decisions meanwhile add a line, not a run", () => {
+    const { world, admin, sec, proposal, click, runs } = setup();
     const a = click("Press Let in for the test account"), b = click("Confirm the banner colour");
     const g = proposal("A banner");
     click("Stays open, so there is something left to rank");
@@ -46,7 +47,10 @@ describe("a human decision on an ask wakes one Secretary run, debounced", () => 
     decideAsk(world, admin, a.id, "Done", "let in");
     const [run] = runs();
     expect(runs()).toHaveLength(1);
-    expect(run).toMatchObject({ agentId: sec.id, status: "pending", lane: "retainer", sourceId: schedule.id, queue: "agent", model: schedule.model });
+    expect(run).toMatchObject({ agentId: sec.id, buildingId: "town-hall", status: "pending", lane: "directed", sourceId: null, queue: "agent", model: SECRETARY_MODEL, runCapTokens: RANK_TOKENS_PER_RUN });
+    expect(jobOf(run!)).toMatchObject({ id: "jb_town-hall", rule: "building" });
+    expect(ruleBlock(world, run!)).toBeNull();
+    expect(world.schedules.count("status = 'active' AND takerId = ? AND title != 'Weekly pattern note'", [sec.id])).toBe(0);
     const wait = Date.parse((run!.waitFor as { after: string }).after) - at.getTime();
     expect(wait).toBeGreaterThan(DECISION_RUN_DEBOUNCE_MS - 5_000);
     expect(wait).toBeLessThanOrEqual(DECISION_RUN_DEBOUNCE_MS + 5_000);
@@ -64,7 +68,7 @@ describe("a human decision on an ask wakes one Secretary run, debounced", () => 
     expect(lines[2]).toContain(`(about ${g.id})`);
   });
 
-  it("a decision while a run is under way queues one more; nothing is queued with the retainer unapproved, the Secretary stopped, or no ask left open", () => {
+  it("a decision while a run is under way queues one more; nothing is queued with the Secretary stopped or no ask left open", () => {
     const one = setup();
     const a = one.click("One"), b = one.click("Two");
     one.click("Three");
@@ -72,12 +76,6 @@ describe("a human decision on an ask wakes one Secretary run, debounced", () => 
     one.world.assignments.patch(one.runs()[0]!.id, { status: "active" });
     decideAsk(one.world, one.admin, b.id, "Done");
     expect(one.runs().map((r) => r.status)).toEqual(["active", "pending"]);
-
-    const unfunded = setup({ fundRetainer: false });
-    const c = unfunded.click("One");
-    unfunded.click("Two");
-    decideAsk(unfunded.world, unfunded.admin, c.id, "Done");
-    expect(unfunded.runs()).toEqual([]);
 
     const stopped = setup();
     const d = stopped.click("One");
@@ -93,7 +91,7 @@ describe("a human decision on an ask wakes one Secretary run, debounced", () => 
     expect(last.runs()).toEqual([]);
   });
 
-  it("at most DECISION_RUNS_PER_DAY runs a day draw on the ranking retainer: past the cap a decision waits for the next ranking", () => {
+  it("at most DECISION_RUNS_PER_DAY decision runs a day: past the cap a decision waits for the next ranking", () => {
     const { world, admin, click, runs } = setup();
     click("Stays open");
     for (let i = 0; i < DECISION_RUNS_PER_DAY + 2; i++) {

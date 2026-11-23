@@ -16,7 +16,7 @@ import type { World } from "./world.ts";
 import { stamp } from "./time.ts";
 import { rankRunText, secretaryIdleReason } from "./secretary.ts";
 import { calibrationIdleReason, calibrationRunText } from "./planner.ts";
-import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRetainerRuns } from "./retainers.ts";
+import { askRetainer, missRetainerRun, releaseRetainer, retainerAfterEdit, retainerMissReason, watchRunCaps } from "./retainers.ts";
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
 /** A repeating schedule ends by default this long after it is made, and at most MAX_SCHEDULE_DAYS out. */
@@ -242,7 +242,7 @@ export function scheduleTaker(world: World, b: Building, s?: Pick<Schedule, "tak
  */
 export function fireSchedules(world: World, at: Date = new Date()): { fired: Assignment[]; ended: Schedule[] } {
   const fired: Assignment[] = [], ended: Schedule[] = [];
-  watchRetainerRuns(world);
+  watchRunCaps(world);
   // a paused schedule past its end never fires again: end it, so its retainer's claim goes back to the Bank
   for (const s of world.schedules.where("status = 'active' AND paused = 1 AND endsAt IS NOT NULL AND endsAt < ?", [at.toISOString()])) ended.push(endSchedule(world, s.id, "past its end (paused)", at));
   for (const s of world.schedules.where("status = 'active' AND paused = 0 AND nextRunAt <= ?", [at.toISOString()], "ORDER BY nextRunAt")) {
