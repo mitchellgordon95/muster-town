@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db.ts";
-import { countBlogRead, countFunnel, countMemberAct, countVisitor, countVisitorFrom, funnelSource, MAX_SOURCES_PER_DAY, decideAccess, HOME_STEPS, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
+import { countBlogRead, countHookView, countFunnel, countMemberAct, countVisitor, countVisitorFrom, funnelSource, MAX_SOURCES_PER_DAY, decideAccess, HOME_STEPS, isAutomatedClient, joinFunnel, requestAccess, sumFunnels, townRoleId, upsertGithubUser } from "../src/index.ts";
 import { seededWorld } from "./helpers.ts";
 
 // The join funnel (grant gr_fibsfwr4tz step 3): counted where each step happens, counts only, never who.
@@ -124,6 +124,12 @@ describe("join funnel", () => {
     const both = sumFunnels([world, other], 30, now);
     expect(both.blogReads).toContainEqual({ day: "2026-11-20", slug: "a-post", source: "direct", count: 2 });
     expect(both.sources).toEqual(f.sources);
+    // a cause's landing page (gr_wq74nnthzl): its views are hookViews, apart from blog reads
+    countHookView(world, "cptsd", "ref:reddit", now);
+    countHookView(other, "cptsd", "ref:reddit", now);
+    expect(joinFunnel(world, 30, now).hookViews).toEqual([{ day: "2026-11-20", slug: "cptsd", source: "ref:reddit", count: 1 }]);
+    expect(joinFunnel(world, 30, now).blogReads).toEqual(f.blogReads);
+    expect(sumFunnels([world, other], 30, now).hookViews).toEqual([{ day: "2026-11-20", slug: "cptsd", source: "ref:reddit", count: 2 }]);
     expect(joinFunnel(world, 30, now + 31 * 86_400_000).sources).toEqual([]); // out of the window
   });
 

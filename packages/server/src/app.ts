@@ -1,5 +1,5 @@
 import { CapacityProbe } from "./capacity.ts";
-import { AppError, canInteract, countBlogRead, countFunnel, countVisitor, countVisitorFrom, funnelSource, DOORS, HOME_STEPS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
+import { AppError, canInteract, countBlogRead, countHookView, countFunnel, countVisitor, countVisitorFrom, funnelSource, DOORS, HOME_STEPS, isAppError, isAutomatedClient, engagement, townHealth, joinFunnel, sumFunnels, type World } from "@muster-town/core";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
-import { blogRoutes, docHooks, docPosts } from "./blog.ts";
+import { blogRoutes, docHookPages, docHooks, docPosts } from "./blog.ts";
 import { mailFromEnv, type MailSender } from "./mail.ts";
 import { mailingListRoutes } from "./mailing-list.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
@@ -349,7 +349,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     });
     // the blog: published `blog` articles in Outreach, read per request (blog.ts; docs/blog.md)
     const posts = docPosts(opts.world, opts.blogBuildingId);
-    await app.register(blogRoutes(origin, posts, (slug, source) => countBlogRead(opts.world, slug, source), docHooks(opts.world, opts.blogBuildingId)));
+    await app.register(blogRoutes(origin, posts, (slug, source) => countBlogRead(opts.world, slug, source), docHooks(opts.world, opts.blogBuildingId),
+      { pages: docHookPages(opts.world, opts.blogBuildingId), onView: (slug, source) => countHookView(opts.world, slug, source) }));
     // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml (share.ts)
     await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts }));
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set

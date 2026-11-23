@@ -52,6 +52,10 @@ The post, in markdown.
 
 `/hooks` serves the ranked list of causes a collective could form around (gr_wq74nnthzl, goal Hooks). It is a town doc, not a repo file: the newest published `note` or `article` tagged `hooks` in the blog's building (Outreach), read like a post (front matter, then markdown; `docHooks` in `blog.ts`). To change the list, rewrite that doc. Every blog page's nav links it. Its reads count in `/api/join-funnel` `blogReads` under slug `hooks`; its signup sends source `hooks`. No doc, 404. `hooks` is a reserved collective slug.
 
+### A cause's landing page (/hooks/<slug>)
+
+Each cause we test gets its own page (gr_wq74nnthzl step 2). It is a town doc too: a published `note` or `article` tagged `hook` (singular) in Outreach, read like a post; its front-matter `slug` is its address. `docHookPages` in `blog.ts` reads them; two docs with one slug, the first published keeps it. The page ends with a signup whose source is `hook:<slug>` (mailing-list.ts accepts that one colon form) and its confirmation email names the page, not the blog. Each browser view counts in `/api/join-funnel` `hookViews` [{day, slug, source, count}] (core `countHookView`; bots and scripts left out). `/hooks` lists every landing page above the ranked list.
+
 ## The About box
 
 Every post page ends with an **About Muster Town** box above the signup (`aboutBox()` in `blog.ts`, gr_y8buqgpata): the homepage's `og:description` line verbatim (`SITE_DESCRIPTION` in `share.ts`), a link to the live town (`/workshop/`) and one to the GitHub repo. A visitor who reaches the homepage or the town from a blog page (an own-host referrer whose path is `/blog` or under it) is counted in `/api/join-funnel` `sources` as source `blog` (core `funnelSource`); a blog read whose referrer is the blog index counts as `blog` too.

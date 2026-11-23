@@ -1,0 +1,1 @@
+- 2026-11-23 Juno 1 (gr_wq74nnthzl step 2): /hooks/<slug> serves each Outreach doc tagged `hook` as a cause's landing page with a signup sourced `hook:<slug>` (mailing-list SOURCE now accepts it; its confirmation email names the page); views count per slug as `hookViews` in /api/join-funnel; /hooks lists the landing pages.
