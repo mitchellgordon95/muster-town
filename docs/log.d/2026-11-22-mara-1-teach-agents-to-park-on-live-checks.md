@@ -1,0 +1,1 @@
+- 2026-11-22: agents are taught to park on live checks: submit_report and assign wait texts, the fork prompt (world rules, Code access) and the manager in-tray rules say a step whose last work is an HTTP or API read of the live town parks with `{deploy, checks, verifies}` instead of ending for another session (gr_qg42b4guky step 2).
