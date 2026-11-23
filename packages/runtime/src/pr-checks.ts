@@ -140,9 +140,21 @@ export function createPrPoller(world: World, deps: PrPollerDeps): PrPoller {
       // a push landed since this read (409: head moved) or main moved under the merge (405 "Base branch was modified"):
       // not a refusal, the next poll reads the PR again
       if (res.status === 409 || /base branch was modified/i.test(why)) return { state: "pending", ...base };
+      // GitHub can answer 5xx to a merge it made (PR #558, 2026-11-23: HTTP 500, merged as 7f71e990): read the PR again
+      // before waking anyone; still open after a 5xx is GitHub's fault, not the PR's, so the next poll tries again
+      const again = await call(`/pulls/${n}`);
+      const now_ = again.ok ? await again.json() as PullRead : null;
+      if (now_?.merged) return mergedAs(n, p, base, now_.merge_commit_sha ?? undefined);
+      if (res.status >= 500) return { state: "pending", ...base };
       return no(`merge refused: ${why}`);
     }
     const merged = await res.json() as { sha?: string };
+    return mergedAs(n, p, base, merged.sha);
+  }
+
+  /** After the town's merge: delete the branch and say who merged it. */
+  async function mergedAs(n: number, p: PullRead, base: { sha: string; done: number; total: number; checkedAt: string }, sha: string | undefined): Promise<PrChecks> {
+    const merged = { sha };
     const del = await call(`/git/refs/heads/${p.head.ref}`, { method: "DELETE" });
     if (!del.ok && del.status !== 422) deps.log?.(`PR #${n}: merged, but its branch ${p.head.ref} was not deleted (${await refusal(del)})`);
     deps.log?.(`PR #${n}: merged when green as ${merged.sha?.slice(0, 8) ?? "?"}`);
