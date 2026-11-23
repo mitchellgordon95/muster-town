@@ -85,6 +85,8 @@ describe("Bash bubbles read as plain words, never the raw command", () => {
     expect(describeCommand(`grep -rn "/api/jobs/:id" packages/server/src`)).toBe("Searching for jobs API route");
     expect(describeCommand(`grep -rn "/api/jobs" packages/server/src/app.ts`)).toBe("Searching app.ts for jobs API route");
     expect(describeCommand(`grep -n "/data/repo" x.ts`)).toBe("Searching x.ts");
+    expect(describeCommand(`grep -rln 'api/asks/' test`)).toBe("Searching for asks API route");
+    expect(describeCommand(`grep -n "Redeploy\\b\\|redeploy" architecture.md`)).toBe("Searching architecture.md for Redeploy, redeploy");
     expect(describeCommand(`grep -n "TOKEN=abc" .env`)).toBe("Searching files");
     expect(describeCommand(`grep ghp_abcdefghijklmnop x`)).toBe("Searching files");
     expect(describeCommand(`grep -c "$HOME" notes`)).toBe("Searching files");
