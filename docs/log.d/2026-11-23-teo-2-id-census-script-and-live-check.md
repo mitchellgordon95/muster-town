@@ -1,0 +1,1 @@
+- 2026-11-23: scripts/id-census.mjs counts the ids cited in a town's newest docs by prefix: dead (opens nothing), raw label (opens but reads as the id), named, muted. It mirrors Markdown.tsx's LINK_KINDS, OWNED_KINDS and MUTED_WHAT. First run on muster.town under the new rules: 0.5% dead, 3.5% raw of 1,331 mentions (grant gr_4upa0og9zc step 3, kr_61a5puok88).
