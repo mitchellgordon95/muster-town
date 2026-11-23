@@ -102,7 +102,7 @@ describe("export", () => {
     expect((await world.exportOffThread(off.dir)).changed).toBe(false);
   });
 
-  it("off the main thread: a 5 ms timer never gaps 100 ms while a large town exports", async () => {
+  it("off the main thread: a 5 ms timer never gaps 250 ms while a large town exports", async () => {
     const { world } = seededWorld();
     const tmpl = world.docs.first("state != 'draft'")!;
     const body = "A report paragraph with words and a link dc_abcdefghij. ".repeat(50);
@@ -120,7 +120,8 @@ describe("export", () => {
     expect(r.changed).toBe(true);
     expect(r.files).toBeGreaterThan(400);
     expect(took).toBeGreaterThan(100); // long enough for a blocked loop to show
-    expect(maxGap).toBeLessThan(100);
+    // A blocked loop gaps for about the whole export (over 1 s); a busy CI runner gaps ~100 ms on its own (main run 45219693650: 102 ms).
+    expect(maxGap).toBeLessThan(250);
   }, 60_000);
 });
 
