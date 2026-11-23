@@ -123,7 +123,7 @@ export const LEAK = /(?:^|[\s("'`])(?:~|\.{1,2})?\/[\w.@-]|[\w.@-]+\/[\w.@-]+\/[
 const withoutFolders = (s: string) => s.replace(/(?<![\w.@~-])(?:~|\.{1,2})?\/?(?:[\w.@-]+\/){2,}([\w.@*-]*)|(?<![\w.@~-])(?:~|\.{1,2})?\/(?:[\w.@-]+\/)*([\w.@*-]+)/g, (_m, a, b) => a || b || "");
 
 /** An agent's own title with API routes named (`GET /api/goals/:id/produced` → GET goals API route) and paths cut to names. */
-const plain = (t: unknown) => typeof t === "string" ? withoutFolders(t.replace(/\/api\/([\w-]+)[^\s,"'`)]*/g, "$1 API route")) : t;
+const plain = (t: unknown) => typeof t === "string" ? withoutFolders(t.replace(/(?:\/|\b)api\/([\w-]+)[^\s,"'`)]*/g, "$1 API route")) : t;
 
 /** Programs that only set the stage (cd, export, wrappers): the bubble names what runs after them. */
 const PRELUDE = new Set(["cd", "pushd", "popd", "export", "set", "unset", "source", ".", "true", ":", "ulimit", "umask", "env", "sudo", "time", "nohup", "exec", "command", "nice", "then", "do", "if", "until", "while", "!", "{", "(", "for", "else"]);
@@ -159,7 +159,8 @@ function shellSplit(line: string): Simple[] {
     const c = line[k]!;
     if (quote) {
       if (c === quote) quote = null;
-      else if (c === "\\" && quote === '"' && k + 1 < line.length) cur += line[++k]!;
+      // in double quotes a backslash escapes only $ ` " \ (bash keeps `\b`, `\|` as written, so grep sees them)
+      else if (c === "\\" && quote === '"' && k + 1 < line.length) cur += "$`\"\\".includes(line[k + 1]!) ? line[++k]! : c;
       else cur += c;
       continue;
     }
@@ -200,7 +201,7 @@ function searchTerm(raw: string | undefined): string | null {
   let t = raw.replace(/\\\|/g, "\u0001").replace(/\\[bBwWsSdD<>]/g, "").replace(/\\(.)/g, "$1").replace(/^\^|\$$/g, "");
   t = t.split(/\u0001|\|/)
     // an API route reads as its first name (`/api/jobs/:id` → jobs API route): a slash never shows
-    .map((s) => s.replace(/(?:\b[\w.]+\(\s*)?["'`]?\/api\/([\w-]+)[^\s,"'`)]*["'`]?/g, " $1 API route "))
+    .map((s) => s.replace(/(?:\b[\w.]+\(\s*)?["'`]?(?:\/|\b)api\/([\w-]+)[^\s,"'`)]*["'`]?/g, " $1 API route "))
     .map((s) => s.replace(/\.[*+]\??/g, " ").replace(/^\^|\$$/g, "").replace(/[([{]+$/, "").replace(/\s+/g, " ").trim())
     .filter((x, k, all) => x && all.indexOf(x) === k).join(", ");
   if (!t || /[/$`]|[A-Za-z_]\w*=\S|\b(gh[pousr]_|sk-|xox[bp]-)\w|[A-Za-z0-9+]{32,}/.test(t)) return null;

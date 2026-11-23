@@ -199,7 +199,7 @@
     },
     {
       "command": "grep -rn \"SITE_DESCRIPTION\\s*=\" packages/ | head; grep -rn \"SITE_DESCRIPTION\" packages/server/src --include=*.ts | grep -v test | head; curl -s https://muster.town/ | grep -o '<meta property=\"og:[a-z]*\" content=\"[^\"]*\"'; grep -n \"funnelSource(\" -r packages/server/src | head",
-      "label": "Searching for SITE_DESCRIPTIONs*="
+      "label": "Searching for SITE_DESCRIPTION*="
     },
     {
       "command": "sed -n 80,140p packages/core/test/flags.test.ts",
@@ -323,7 +323,7 @@
     },
     {
       "command": "cd /home/agent/work/muster-town; grep -rn \"\\\"/api/media\\\"\\|'/api/media'\\|/api/media\\b\" packages/server/src --include=*.ts | head -5; env | grep -i -E \"^MUSTER|TOKEN|TOWN_URL\" | cut -d= -f1",
-      "label": "Searching for media API route, mediab API route"
+      "label": "Searching for media API route"
     },
     {
       "command": "git log --oneline -1 && curl -s https://muster.town/api/health | head -c 600; echo; grep -n \"resumeWhen\\|deploy\" packages/server/src/mcp/*.ts 2>/dev/null | head -5; grep -rln \"Never guess an\\|merge when green\\|resumeWhen\" packages/*/src docs/wakes.md | head -30",
@@ -403,7 +403,7 @@
     },
     {
       "command": "grep -rn \"manager-wakes\\b\\|\\.manager-wakes \" packages/web --include=*.css -l | grep -v node_modules; grep -rn \"\\.manager-wakes\" packages/web --include=*.css | grep -v node_modules | head",
-      "label": "Searching for manager-wakesb, .manager-wakes"
+      "label": "Searching for manager-wakes, .manager-wakes"
     },
     {
       "command": "cd /home/agent/work/muster-town && timeout 200 npx vitest run packages/core/test/check-scripts.test.ts 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' | grep -E '\"(ref|text|line|file)\"' | head -30",
@@ -611,7 +611,7 @@
     },
     {
       "command": "grep -n \"CI\\b\\|\\bPR\\b\\|PRs\" packages/core/src/prompts.ts | head -40; sed -n 790,810p packages/core/src/prompts.ts; grep -n -i \"PR\\b\\|pull request\\|gh pr\" AGENTS.md | head -30",
-      "label": "Searching prompts.ts for CIb, bPRb, PRs"
+      "label": "Searching prompts.ts for CI, PR, PRs"
     },
     {
       "command": "grep -n \"objectives\\|objective\\\"\" packages/core/src/grants.ts | head; grep -n \"private requireWriter\" -A8 packages/core/src/grants.ts",
