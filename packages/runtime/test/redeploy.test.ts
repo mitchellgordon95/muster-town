@@ -116,7 +116,7 @@ describe("redeploy", () => {
       "git log --first-parent -n50 --format=%h%x1f%s%x1f%b%x1e abc123..HEAD",
       // the no-op guard reads HEAD after the pull (the runtime's live commit is this checkout's HEAD, not abc123)
       "git rev-parse HEAD",
-      "npm run build --workspace packages/web",
+      "nice -n 10 npm run build --workspace packages/web",
       "npm run build --workspace packages/server",
       // pulls again after the drain: nothing new, so no rebuild
       "git rev-parse HEAD",
@@ -138,7 +138,7 @@ describe("redeploy", () => {
   });
 
   test("every step event carries the Machine's memAvailableMb (gr_xgr8j2f9ao)", async () => {
-    let mb = 900;
+    let mb = 5000;
     const h = harness(base(), [], { meminfo: () => ({ memAvailableMb: (mb -= 100), swapTotalMb: 0, swapFreeMb: 0 }) });
     h.r.redeploy({ image: false, requestedBy: "Pix" });
     await h.r.done();
@@ -152,6 +152,42 @@ describe("redeploy", () => {
     const steps = off.world.events.recent({ limit: 200 }).filter((e) => typeof (e.payload as { step?: unknown }).step === "string" && (e.payload as { phase?: string }).phase === "start");
     expect(steps.length).toBeGreaterThan(0);
     for (const e of steps) expect((e.payload as { memAvailableMb?: unknown }).memAvailableMb).toBeNull();
+  });
+
+  test("build web waits for memory under 800 MB, then builds once it is back (gr_xgr8j2f9ao step 2)", async () => {
+    const readings = [3000, 3000, 500, 600, 900]; // git pull start and end, then the wait
+    const h = harness(base(), [], { memPollMs: 1, meminfo: () => ({ memAvailableMb: readings.length > 1 ? readings.shift()! : readings[0], swapTotalMb: 0, swapFreeMb: 0 }) });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    const t = h.texts();
+    const wait = t.indexOf("Redeploy: waiting for memory (500 MB available, build web needs 800 MB)");
+    expect(wait).toBeGreaterThanOrEqual(0);
+    expect(t.some((x) => /^Redeploy: memory back after \d+ s \(900 MB available\)$/.test(x))).toBe(true);
+    // the wait comes before build web's start
+    expect(wait).toBeLessThan(t.indexOf("Redeploy: build web …"));
+    expect(h.exit).toHaveBeenCalledWith(75);
+  });
+
+  test("build web builds anyway after the memory wait times out; no reading means no wait", async () => {
+    const h = harness(base(), [], { memPollMs: 1, memWaitMs: 20, meminfo: () => ({ memAvailableMb: 400, swapTotalMb: 0, swapFreeMb: 0 }) });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await h.r.done();
+    expect(h.texts().some((x) => /^Redeploy: still 400 MB available after \d+ s; building web anyway$/.test(x))).toBe(true);
+    expect(h.runner.calls).toContain("nice -n 10 npm run build --workspace packages/web");
+    expect(h.exit).toHaveBeenCalledWith(75);
+    const off = harness(base(), [], { meminfo: () => null });
+    off.r.redeploy({ image: false, requestedBy: "Pix" });
+    await off.r.done();
+    expect(off.texts().some((x) => x.startsWith("Redeploy: waiting for memory"))).toBe(false);
+  });
+
+  test("stop() ends a memory wait without building", async () => {
+    const h = harness(base(), [], { memPollMs: 1, meminfo: () => ({ memAvailableMb: 100, swapTotalMb: 0, swapFreeMb: 0 }) });
+    h.r.redeploy({ image: false, requestedBy: "Pix" });
+    await vi.waitFor(() => expect(h.texts().some((x) => x.startsWith("Redeploy: waiting for memory"))).toBe(true));
+    await h.r.stop();
+    expect(h.runner.calls.some((c) => c.includes("packages/web"))).toBe(false);
+    expect(h.exit).not.toHaveBeenCalled();
   });
 
   test("pulls the configured deploy branch (prod follows a CI-moved `prod` branch)", async () => {
@@ -169,7 +205,7 @@ describe("redeploy", () => {
     await h.r.done();
     const i = h.runner.calls.indexOf("npm install --include=dev --no-audit --no-fund");
     expect(i).toBeGreaterThan(h.runner.calls.indexOf("git pull --rebase origin main"));
-    expect(i).toBeLessThan(h.runner.calls.indexOf("npm run build --workspace packages/web"));
+    expect(i).toBeLessThan(h.runner.calls.indexOf("nice -n 10 npm run build --workspace packages/web"));
   });
 
   test("a dirty working tree aborts before pulling; no exit", async () => {
@@ -185,7 +221,7 @@ describe("redeploy", () => {
   });
 
   test("a failing step stops the redeploy without restarting", async () => {
-    const h = harness([["npm run build", { code: 2, stdout: "", stderr: "vite: error" }], ...base()]);
+    const h = harness([["nice -n 10 npm run build", { code: 2, stdout: "", stderr: "vite: error" }], ...base()]);
     h.r.redeploy({ image: true, requestedBy: "Pix" });
     await h.r.done();
     expect(h.texts()).toContain("Redeploy: build web … failed (exit 2)");
@@ -207,7 +243,7 @@ describe("redeploy", () => {
     expect(docker[2]).toBe('docker ps -a --filter label=agent-town.collective=climate --filter label=agent-town.desk=1 --format {{.Names}}\t{{.Label "agent-town.agent"}}');
     expect(docker.slice(3)).toEqual(["docker rm -f desk-climate-ag_3", "docker rm -f desk-climate-ag_1"]);
     expect(docker.some((c) => c.includes("volume"))).toBe(false);
-    expect(h.runner.calls.indexOf(build)).toBeGreaterThan(h.runner.calls.indexOf("npm run build --workspace packages/web"));
+    expect(h.runner.calls.indexOf(build)).toBeGreaterThan(h.runner.calls.indexOf("nice -n 10 npm run build --workspace packages/web"));
     expect(h.exit).toHaveBeenCalledWith(75);
   });
 
@@ -410,7 +446,7 @@ describe("redeploy status for the UI", () => {
   });
 
   test("a failed step marks the run failed", async () => {
-    const h = harness([["npm run build", { code: 2, stdout: "", stderr: "x" }], ...base()]);
+    const h = harness([["nice -n 10 npm run build", { code: 2, stdout: "", stderr: "x" }], ...base()]);
     h.r.redeploy({ image: false, requestedBy: "Pix" });
     await h.r.done();
     expect(runs(h.world).at(-1)!.state).toBe("failed");
