@@ -1,0 +1,1 @@
+- 2026-11-23 Pix 4 (gr_6kangldj4t step 1): the notices goal filter matches the goal's whole subtree (the root also keeps notices on no goal); new read GET /api/goals/:id/produced (shipped, grants closed, key results judged, tokens over 30 days) in core goal-produced.ts.

@@ -101,7 +101,8 @@ export { Movement, WALK_TILES_PER_SEC, WALK_TIMEOUT_MS } from "./world/movement.
 export { Emitter, newId, newToken, nowIso, chebyshev, slugify, parseFrontmatter, stringifyFrontmatter, extractSection, firstLine } from "./util.ts";
 export { reviewDeck, presentedReviewDeck, decisionWaiters, grantHistoryLine } from "./review-deck.ts";
 export { rankRunView, pressRank } from "./secretary.ts";
-export { listNotices } from "./notices.ts";
+export { goalNoticeWhere, listNotices } from "./notices.ts";
+export { goalProduced } from "./goal-produced.ts";
 export { stamp, fromNow, whenFor, waitedFor, clockLine, guessedTimes, guessedTimesWarning } from "./time.ts";
 export { actOrigin } from "./origin.ts";
 export { stayReason, TALK_MS, walkHome, walkIdleHome } from "./home.ts";
