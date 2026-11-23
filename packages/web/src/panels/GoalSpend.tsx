@@ -19,8 +19,8 @@ export const LANES: { id: keyof SpendByLane; label: string; help: string }[] = [
   { id: "directed", label: "directed", help: "Work a human asked for." },
   { id: "retainer", label: "retainer", help: "The runs of a schedule a human approved." },
   { id: "managing", label: "managing", help: "A manager reading reports, deciding and writing asks." },
-  { id: "oneOnOnes", label: "1:1s", help: "A manager talking with a human in a 1:1." },
-  { id: "none", label: "no lane", help: "Other sessions with no lane recorded." },
+  { id: "oneOnOnes", label: "1:1s", help: "A manager talking with humans in a 1:1 or a meeting." },
+  { id: "none", label: "no lane", help: "Work sessions with no lane recorded." },
 ];
 
 /** The help lines of the lanes that spent anything, in the lane line's order. */

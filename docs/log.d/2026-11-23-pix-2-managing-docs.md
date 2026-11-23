@@ -1,1 +1,2 @@
 - 2026-11-23 Pix 2 (gr_064fmkq31s step 3): docs/goals.md Spend by goal names the managing and 1:1s lanes and the grant page's "Managing it" line.
+- 2026-11-23 Pix 2 (gr_064fmkq31s step 3): meeting sessions (facilitate, summary, meeting-reply) count as 1:1s on Spend by goal and lane-less coordination sessions as managing, so `none` holds only work sessions with no lane (live it held 219,619 from the 11-16 town hall).
