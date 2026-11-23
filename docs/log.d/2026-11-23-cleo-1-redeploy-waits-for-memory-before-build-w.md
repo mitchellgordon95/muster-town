@@ -1,0 +1,1 @@
+- 2026-11-23 Prod (Cleo 1), gr_xgr8j2f9ao step 2: a redeploy waits (15 s polls, up to 10 min) for 800 MB MemAvailable before build web, with "waiting for memory" events, then builds anyway; build web runs under `nice -n 10`.

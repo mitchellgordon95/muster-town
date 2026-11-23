@@ -34,6 +34,12 @@ export const realCommandRunner: CommandRunner = (cmd, args, opts) =>
  */
 export const REPO_LOCK_STALE_MS = 20 * 60_000;
 
+/**
+ * build web (vite) needs this much MemAvailable (MiB) to start: on the 2 GB town Machine with no swap a build started
+ * lower froze the server and was OOM-killed (2026-11-22 18:29Z, dc_7lp8owphy8; grant gr_xgr8j2f9ao).
+ */
+const MEMORY_BUILD_MIN_MB = 800;
+
 /** Exit code that asks scripts/serve.sh to restart the server. */
 export const RESTART_EXIT_CODE = 75;
 
@@ -108,6 +114,12 @@ export interface RedeployDeps {
   drainManageMs?: number;
   /** the Machine's memory (/proc/meminfo), read at each step's start and end: its `memAvailableMb` goes on the step's events (grant gr_xgr8j2f9ao). Default: readMeminfo (null off Linux). */
   meminfo?(): MemInfo | null;
+  /** build web waits until MemAvailable is at least this (MiB) before it starts. Default 800 (MEMORY_BUILD_MIN_MB). */
+  memMinMb?: number;
+  /** how long build web waits for memory before building anyway. Default 10 min. */
+  memWaitMs?: number;
+  /** the memory wait's poll period. Default 15 s. */
+  memPollMs?: number;
   /** called just before the exit (with the commit going live): post the restart notice into live meetings. Default: none. */
   beforeRestart?(head: string | null): void;
   run?: CommandRunner;
@@ -272,6 +284,29 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
   /** the Machine's MemAvailable in MiB now, or null (off Linux, unreadable): every step event carries it */
   const memMb = (): number | null => { try { return (deps.meminfo ?? readMeminfo)()?.memAvailableMb ?? null; } catch { return null; } };
 
+  /**
+   * Before build web: while MemAvailable is under `memMinMb`, say so and poll until it is back or `memWaitMs` has passed,
+   * then build anyway (with an event). No reading (off Linux) means no wait.
+   */
+  async function waitForMemory(label: string): Promise<void> {
+    const min = deps.memMinMb ?? MEMORY_BUILD_MIN_MB;
+    let mb = memMb();
+    if (mb === null || mb >= min) return;
+    const waitMs = deps.memWaitMs ?? 10 * 60_000;
+    const pollMs = deps.memPollMs ?? 15_000;
+    const t0 = Date.now();
+    setPhase(`waiting for memory${label}`);
+    say(`Redeploy: waiting for memory (${mb} MB available, build web needs ${min} MB)`, { step: "waiting for memory", phase: "start", memAvailableMb: mb, memMinMb: min });
+    while (mb !== null && mb < min && Date.now() - t0 < waitMs) {
+      await new Promise<void>((r) => setTimeout(r, Math.min(pollMs, Math.max(1, waitMs - (Date.now() - t0)))));
+      halt();
+      mb = memMb();
+    }
+    const waitedS = Math.round((Date.now() - t0) / 1000);
+    if (mb === null || mb >= min) say(`Redeploy: memory back after ${waitedS} s (${mb ?? "?"} MB available)`, { step: "waiting for memory", phase: "end", ok: true, memAvailableMb: mb, waitedS });
+    else say(`Redeploy: still ${mb} MB available after ${waitedS} s; building web anyway`, { step: "waiting for memory", phase: "end", ok: false, timedOut: true, memAvailableMb: mb, waitedS });
+  }
+
   /** One step: start event, run, end event. Returns the result, or null (after a failure event) on a non-zero exit. */
   async function step(label: string, cmd: string, args: string[], timeoutMs: number, okNote?: () => Promise<string>): Promise<CmdResult | null> {
     halt();
@@ -348,7 +383,9 @@ export function makeRedeployer(deps: RedeployDeps): Redeployer {
       } else {
         say(`Redeploy: npm install${label} … skipped (package-lock.json unchanged)`, { step: "npm install", phase: "end", ok: true, skipped: true });
       }
-      if (!(await step(`build web${label}`, "npm", ["run", "build", "--workspace", "packages/web"], 600_000))) return false;
+      // waits for memory first, and runs at low CPU priority so the live server keeps answering (gr_xgr8j2f9ao)
+      await waitForMemory(label);
+      if (!(await step(`build web${label}`, "nice", ["-n", "10", "npm", "run", "build", "--workspace", "packages/web"], 600_000))) return false;
       // the prebuilt server the Fly entrypoint starts (server/build.mjs, about a second): built before the drain, so a failure stops here
       if (!(await step(`build server${label}`, "npm", ["run", "build", "--workspace", "packages/server"], 300_000))) return false;
       if (o.image && buildImage) {
