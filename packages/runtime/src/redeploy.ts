@@ -38,7 +38,7 @@ export const REPO_LOCK_STALE_MS = 20 * 60_000;
  * build web (vite) needs this much MemAvailable (MiB) to start: on the 2 GB town Machine with no swap a build started
  * lower froze the server and was OOM-killed (2026-11-22 18:29Z, dc_7lp8owphy8; grant gr_xgr8j2f9ao).
  */
-export const MEMORY_BUILD_MIN_MB = 800;
+const MEMORY_BUILD_MIN_MB = 800;
 
 /** Exit code that asks scripts/serve.sh to restart the server. */
 export const RESTART_EXIT_CODE = 75;
