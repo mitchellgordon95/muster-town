@@ -50,6 +50,7 @@ describe("hash routes", () => {
   it("the other hashes still open their panels", () => {
     expect(routeOf("#/meeting/mt_dddddddddd")).toEqual({ panel: { kind: "meeting", id: "mt_dddddddddd" } });
     expect(routeOf("#/kr/kr_eeeeeeeeee")).toEqual({ panel: { kind: "goals", id: "kr_eeeeeeeeee" } });
+    expect(routeOf("#/goal/gl_bl_t7slw19vgg")).toEqual({ panel: { kind: "goals", id: "gl_bl_t7slw19vgg" } });
     expect(routeOf("#/finance")).toEqual({ panel: { kind: "bank" } });
     expect(routeOf("#/manual/design")).toEqual({ panel: { kind: "manual", id: "design" } });
     expect(routeOf("#/nothing")).toBeNull();

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { docIdParts, docIdsIn, idLabel, isGrantId, markdownHtml, rememberAssignmentTitle } from "../src/panels/Markdown";
+// @vitest-environment happy-dom
+import { describe, expect, it, vi } from "vitest";
+import { api, getApi } from "../src/api";
+import { docIdParts, docIdsIn, idLabel, isGrantId, loadKrTexts, markdownHtml, rememberAssignmentTitle, rememberGrant, sanitize } from "../src/panels/Markdown";
 
 describe("markdownHtml", () => {
   it("keeps a single newline as a soft wrap by default (docs)", () => {
@@ -59,5 +61,36 @@ describe("idLabel", () => {
     rememberAssignmentTitle("as_otherwork1", "Bank interior redesign");
     expect(idLabel("mt_pastmeet01")).toBe("1:1: Mitchell and Cleo");
     expect(idLabel("as_otherwork1")).toBe("Bank interior redesign");
+  });
+});
+
+describe("grant, key result and goal ids read as names (gr_4upa0og9zc step 1)", () => {
+  it("splits goal ids out: minted, a building's own and the root's named goals, not a longer word", () => {
+    const parts = docIdParts("gl_1ds3wl2n78 gl_bl_t7slw19vgg gl_town, gl_join. gl_townhall");
+    expect(parts.filter((p) => typeof p !== "string")).toEqual([{ id: "gl_1ds3wl2n78" }, { id: "gl_bl_t7slw19vgg" }, { id: "gl_town" }, { id: "gl_join" }]);
+  });
+  it("labels a grant by its title (its objective when it has none) and its archived key results by their text", () => {
+    expect(idLabel("gr_4upa0og9zc")).toBeNull();
+    rememberGrant({ id: "gr_4upa0og9zc", title: "Every id reads as its name", objective: "A human sees names", keyResults: [{ id: "kr_x4cc0w6wac", text: "Grant ids read as their names" }] });
+    rememberGrant({ id: "gr_untitled01", title: "", objective: "An old grant with no short name" });
+    expect(idLabel("gr_4upa0og9zc")).toBe("Every id reads as its name");
+    expect(idLabel("gr_untitled01")).toBe("An old grant with no short name");
+    expect(idLabel("kr_x4cc0w6wac")).toBe("Grant ids read as their names");
+  });
+  it("labels a goal by its text from the goal tree", async () => {
+    await getApi();
+    const node = (id: string, text: string, children: unknown[] = []) => ({ id, text, keyResults: [], children });
+    vi.spyOn(api(), "goalTree").mockResolvedValue(node("gl_town", "Make Muster Town something strangers can fund", [node("gl_bl_t7slw19vgg", "Make Muster Town beautiful and intuitive")]) as never);
+    await loadKrTexts();
+    expect(idLabel("gl_bl_t7slw19vgg")).toBe("Make Muster Town beautiful and intuitive");
+    expect(idLabel("gl_town")).toBe("Make Muster Town something strangers can fund");
+    expect(idLabel("gl_unknownxxx")).toBeNull();
+  });
+  it("renders the names in a report's markdown, the id kept in the tooltip", () => {
+    const html = sanitize(markdownHtml("Under gl_bl_t7slw19vgg the grant gr_4upa0og9zc moved kr_x4cc0w6wac."));
+    expect(html).toContain(">Make Muster Town beautiful and intuitive</a>");
+    expect(html).toContain('title="goal gl_bl_t7slw19vgg: Make Muster Town beautiful and intuitive"');
+    expect(html).toContain('title="grant gr_4upa0og9zc: Every id reads as its name"');
+    expect(html).toContain(">Grant ids read as their names</a>");
   });
 });
