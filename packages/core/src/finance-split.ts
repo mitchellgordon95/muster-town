@@ -2,7 +2,6 @@ import type { Assignment, Session, TokenCounts } from "@muster-town/schema";
 import { sessionTokens } from "./bank.ts";
 import { cents, sessionListUsd } from "./finance.ts";
 import { laneKindRow } from "./finance-lane-kind.ts";
-import type { Repos } from "./store.ts";
 
 /**
  * GET /api/finance `split` and the daily rows' `byLane` (gr_3ougmyubdm step 1, kr_6fwxvjormh, kr_sw61dw3a04): what share
@@ -123,11 +122,4 @@ export function financeSplit(inp: FinanceSplitInputs, now = new Date(), days = 3
     return win;
   });
   return { split: { d7: out[0]!, d30: out[1]!, groups: SPLIT_GROUPS, check: { ok, diff, dailyDiff, identity: IDENTITY } }, byDay };
-}
-
-/** financeSplit over the world's tables (read-only): only the sessions that could fall in the window are loaded. */
-export function townFinanceSplit(repos: Repos, now = new Date(), days = 30): ReturnType<typeof financeSplit> {
-  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const from = new Date(midnight - (days - 1) * DAY).toISOString();
-  return financeSplit({ sessions: repos.sessions.where("COALESCE(endedAt, startedAt) >= ?", [from]), assignments: repos.assignments.all() }, now, days);
 }
