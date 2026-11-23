@@ -3,7 +3,8 @@
  * rows the tree shows, archived key results folded under their goal, past-due dates, and the retire dialog's choices.
  */
 import { isJudgedKr } from "@muster-town/schema";
-import type { GoalTreeNode } from "@muster-town/schema";
+import type { GoalProduced, GoalTreeNode } from "@muster-town/schema";
+import { fmtTokens } from "../format";
 
 export type TreeKr = GoalTreeNode["keyResults"][number];
 
@@ -175,4 +176,21 @@ export function outlineStep(key: string, at: number, count: number): number | nu
   if (key === "Home") return 0;
   if (key === "End") return count - 1;
   return null;
+}
+
+/** The "What it produced" block's count line (gr_6kangldj4t): "Last 30 days: 3 shipped, 2 grants closed, 5 key results met (1 unverified), 1.2M tokens". */
+export function producedLine(p: Pick<GoalProduced, "days" | "counts">): string {
+  const c = p.counts;
+  const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
+  const met = `${n(c.keyResultsMet, "key result")} met${c.keyResultsUnverified ? ` (${c.keyResultsUnverified} unverified)` : ""}`;
+  const missed = c.keyResultsMissed ? `, ${c.keyResultsMissed} missed` : "";
+  return `Last ${n(p.days, "day")}: ${c.shipped} shipped, ${n(c.grantsClosed, "grant")} closed, ${met}${missed}, ${fmtTokens(c.tokens)} tokens`;
+}
+
+/** Where a shipped item links: its grant when it names one (a close_grant notice), else the report or doc it cites, else nothing. */
+export function shippedLink(refs: string[]): { kind: "grant" | "doc"; id: string } | null {
+  const grant = refs.find((r) => r.startsWith("gr_"));
+  if (grant) return { kind: "grant", id: grant };
+  const doc = refs.find((r) => r.startsWith("dc_"));
+  return doc ? { kind: "doc", id: doc } : null;
 }

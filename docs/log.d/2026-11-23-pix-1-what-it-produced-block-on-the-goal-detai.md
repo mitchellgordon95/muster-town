@@ -1,0 +1,1 @@
+- 2026-11-23: The goal tree's goal detail shows What it produced for the goal's subtree over 30 days: a count line (shipped, grants closed, key results met with unverified apart, tokens), the newest five shipped items linking their grant, and See all opening the feed filtered to the goal; the mock's notices goal filter covers the subtree too (gr_6kangldj4t step 2).
