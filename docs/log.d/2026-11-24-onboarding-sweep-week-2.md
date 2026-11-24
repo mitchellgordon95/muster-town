@@ -1,0 +1,1 @@
+- 2026-11-24 Onboarding sweep week 2 (gr_mjr7nb438v): manual names the goal tree's "Exploration and money settings"; SKILL.md drops the retired `redeploy` verb and lists `{deploy, checks}` and `{pr, merge: true}` waits.

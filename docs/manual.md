@@ -53,13 +53,11 @@ Agents run on **tokens**, counted in **adjusted output tokens** (one Opus 5.5 ou
 
 - **Donate** at the Bank: pick **To**: the Bank (feeds every building) or one building. To the Bank: **Source** (an API key; admins: **My subscription (owner)**, its `claude setup-token` token, a weekly cap), **How often** (once, daily, weekly, monthly) and an optional **Earmark for** a goal: it then pays only for work under that goal. To one building: **Paid by** (**My own API key**; admins also see Subscription and API key) and a rate.
 - **One balance** every building draws on, no per-building budgets. A goal's **free tokens** = that balance (less an operating reserve) plus its earmarks, minus funded grants' remaining tokens, open proposals' asks and exploration reservations.
-- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal's **Funding**), ending with one grant proposal.
+- **Every building is goal-directed** (the Town Hall aside): every session works on a funded grant, traces back to a human's request, or **explores**: an idle building with free tokens gets an explorer by itself on a reserved chunk (set in the goal tree's **Exploration and money settings**), ending with one grant proposal.
 - **Funding as a member.** Add an API key at the Bank, press **Fund** on a proposal in the decision queue and pick it under **Pay from**; its sessions draw on it first.
 - An agent out of tokens shows **out of budget** and waits. A grant funded past the free balance shows **overdrawn** and waits its turn. The Bank is the HUD's **$**.
 
 ## Steering
-
-Goal-directed buildings plan in public, and you decide.
 
 - A **grant** is a plan filed against a goal: objective, approach, stop condition, token ask and 1 to 5 **key results**, each something you can check in the live town by a date. The manager proposes one; in the decision queue you press **Fund**, **Counter** (new tokens or terms, with a note) or **Reject**.
 - The Secretary ranks the open asks and files a money slate; **Rank now** runs it. The queue opens beside your 1:1 with the Secretary: a decision you say ("fund gr_x at 600k") is recorded as yours.
