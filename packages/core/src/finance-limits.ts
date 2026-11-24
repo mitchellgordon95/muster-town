@@ -60,14 +60,16 @@ export interface LimitsCheck {
 }
 
 export const LIMITS_IDENTITY = "each day's exploration and grant tokens = its byLane exploration and grant; desk-hours busy ≤ desk-hours available";
-export const LIMITS_NOTE = "Headcounts and the exploration cap are not versioned: every day uses today's desks and today's cap. Held work is today's only. Host sessions (managers, the Secretary) use no desk.";
+export const LIMITS_NOTE = "Headcounts and the exploration cap are not versioned: every day uses today's desks and today's cap (desks × the per-desk default). Held work is today's only. Host sessions (managers, the Secretary) use no desk.";
 
 type LimitsSession = Pick<Session, "assignmentId" | "purpose" | "lane" | "backend" | "status" | "startedAt" | "endedAt" | "wallMs" | "model" | "bankModel" | "byModel"> & Partial<TokenCounts>;
 export interface FinanceLimitsInputs {
   sessions: LimitsSession[];
   assignments: Pick<Assignment, "id" | "lane" | "status" | "heldReason" | "createdAt">[];
   buildings: Pick<Building, "headcount">[];
-  goals: Pick<Goal, "id" | "parentId" | "exploreCapTokensPerDay">[];
+  goals: Pick<Goal, "id" | "parentId" | "desksTotal">[];
+  /** the town default exploration tokens a desk buys per day (schema grantPricingOf): the root's cap = its desks × this */
+  exploreTokensPerDeskPerDay: number;
   /** the days to fill, oldest first (the daily rows' days) */
   days: string[];
 }
@@ -75,18 +77,20 @@ export interface FinanceLimitsInputs {
 const DAY = 86_400_000;
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
-/** The town's exploration cap: the smallest cap set on a root goal (null = uncapped). */
-export function townExploreCap(goals: FinanceLimitsInputs["goals"]): { cap: number; goalId: string } | null {
-  let best: { cap: number; goalId: string } | null = null;
-  for (const g of goals) if (!g.parentId && g.exploreCapTokensPerDay != null && (!best || g.exploreCapTokensPerDay < best.cap)) best = { cap: g.exploreCapTokensPerDay, goalId: g.id };
-  return best;
+/**
+ * The town's exploration cap (gr_bre43gflz9 step 1): the root's desks × the per-desk default, its desks being the root's
+ * own desk total when set, else every building's headcount (core free-tokens.ts `exploreCapsOnPath` at the root). Null = no root.
+ */
+export function townExploreCap(goals: FinanceLimitsInputs["goals"], desks: number, perDesk: number): { cap: number; goalId: string } | null {
+  const root = goals.find((g) => !g.parentId);
+  return root ? { cap: (root.desksTotal ?? desks) * perDesk, goalId: root.id } : null;
 }
 
 /** The pure aggregation: one DayLimits per day, plus how many finished desk sessions had no end. */
 export function financeLimits(inp: FinanceLimitsInputs, now = new Date()): { byDay: Map<string, DayLimits>; noEnd: number } {
   const nowMs = now.getTime();
   const desks = inp.buildings.reduce((s, b) => s + b.headcount, 0);
-  const capRow = townExploreCap(inp.goals);
+  const capRow = townExploreCap(inp.goals, desks, inp.exploreTokensPerDeskPerDay);
   const lanes = new Map(inp.assignments.map((a) => [a.id, a.lane]));
   const today = now.toISOString().slice(0, 10);
   const acc = new Map<string, { busyMs: number; explore: { at: number; tokens: number }[]; exploreSum: number; grant: number; queued: number }>();

@@ -307,10 +307,10 @@ describe("grants service", () => {
     expect(snap.find((b) => b.kind === "town-hall")!.stoplight).toBeNull();
   });
 
-  it("exploration: uncapped by default with the free tokens under the goal, or the goal's cap; today's exploration sessions count", () => {
+  it("exploration: the free tokens under the goal and its cap from desks (gr_bre43gflz9); today's exploration sessions count", () => {
     const { world, admin, draft, charge } = setup();
     world.bank.addInput(admin.ownerUserId!, { label: "sub", source: "api-key", apiKey: "sk-test", model: "m", tokens: 20_000_000, recurrence: "daily" } as never);
-    expect(world.grantDesk.exploration(LAB)).toEqual({ spentTodayTokens: 0, freeTokens: 20_000_000, cap: null });
+    expect(world.grantDesk.exploration(LAB)).toMatchObject({ spentTodayTokens: 0, freeTokens: 20_000_000 });
     charge(draft().id, 300_000, "exploration");
     const goalId = fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1_000_000 });
     expect(world.grantDesk.exploration(LAB)).toMatchObject({ spentTodayTokens: 300_000, cap: { tokensPerDay: 1_000_000, goalId, spentTodayTokens: 300_000 } });

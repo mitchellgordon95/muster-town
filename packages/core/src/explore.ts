@@ -1,6 +1,7 @@
 /**
- * Declarative exploration (docs/how-work-gets-done.md §3; build step 3, 1:1 mt_wql34b8gkl). The rule lives on the goal
- * (`explore`, `exploreChunkTokens`, the optional `exploreCapTokensPerDay`; inherited, free-tokens.ts `exploreRuleAt`).
+ * Declarative exploration (docs/how-work-gets-done.md §3; build step 3, 1:1 mt_wql34b8gkl). On/off lives on the goal
+ * (`explore`, inherited, free-tokens.ts `exploreRuleAt`); the chunk and the daily cap derive from town defaults and the
+ * goal's desks (gr_bre43gflz9 step 1: `exploreChunkTokens`, desks × `exploreTokensPerDeskPerDay`, `exploreCapsOnPath`).
  * The runtime tick, not a manager, starts explorers: for each goal-directed building whose rule is on, with a free desk
  * and nothing else forkable queued, no explorer of its own open, none started in the last EXPLORE_MIN_GAP_MS, no open
  * proposal of its own and free tokens ≥ the chunk (under the cap), it reserves one chunk (bank_reservations) and queues one
@@ -87,7 +88,7 @@ export function emptyExplorations(world: World, buildingId: string): number {
 export function exploreBlock(world: World, b: Building, now = new Date(), free = freeTokensAll(world, now)): string | null {
   if (!laneGated(b)) return "the Town Hall never explores";
   const goalId = world.goalTree.attachmentOf(b);
-  const rule = exploreRuleAt(world.goals, goalId);
+  const rule = exploreRuleAt(world, goalId);
   if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
   const manager = forkableManagerOf(world, b);
   if (!manager || isGone(manager)) return "no manager to fork";
@@ -109,9 +110,12 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (world.grants.first("buildingId = ? AND status IN ('proposed', 'countered')", [b.id])) return "a proposal of this building is open and undecided";
   const f = free.get(goalId)?.freeTokens ?? 0;
   if (f < rule.chunkTokens) return `free tokens under the goal (${f.toLocaleString("en-US")}) are less than one chunk (${rule.chunkTokens.toLocaleString("en-US")})`;
-  // every cap on the path holds (the smallest binds, but a looser one above may already be used up by other subtrees)
-  for (const cap of exploreCapsOnPath(world.goals, goalId)) {
-    if (exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > cap.tokensPerDay) return `the exploration cap set on goal ${cap.goalId} would be passed today`;
+  // every cap on the path holds (the smallest binds, but a looser one above may already be used up by other subtrees). A
+  // cap derives from desks (gr_bre43gflz9): one smaller than a chunk still lets one explorer a day start under that goal
+  // (a 2-desk goal would otherwise never explore); a cap of 0 (no desks, or the per-desk default set to 0) lets none.
+  for (const cap of exploreCapsOnPath(world, goalId)) {
+    const room = cap.tokensPerDay === 0 ? 0 : Math.max(cap.tokensPerDay, rule.chunkTokens);
+    if (exploreSpentToday(world, cap.goalId, now) + rule.chunkTokens > room) return `the exploration cap on goal ${cap.goalId} (${cap.tokensPerDay.toLocaleString("en-US")} a day from its desks) would be passed today`;
   }
   return null;
 }
@@ -120,7 +124,7 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
 function startExplorer(world: World, b: Building, now: Date): Assignment {
   const goalId = world.goalTree.attachmentOf(b);
   const goal = world.goals.get(goalId);
-  const rule = exploreRuleAt(world.goals, goalId);
+  const rule = exploreRuleAt(world, goalId);
   const manager = forkableManagerOf(world, b)!;
   const goalText = truncate(goal?.text ?? b.name, 200);
   return world.transaction(() => {

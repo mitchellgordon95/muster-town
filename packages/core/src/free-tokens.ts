@@ -22,26 +22,34 @@ type OverdraftedClaim = NonNullable<FreeTokens["overdrafted"]>[number];
 
 /**
  * Every exploration cap on the path from a goal up to the root, nearest first (cycle-safe). The sum of exploration
- * opened today under each of these goals can't pass its cap (docs/how-work-gets-done.md §8).
+ * opened today under each of these goals can't pass its cap (docs/how-work-gets-done.md §8). A goal's cap derives from
+ * its desks (gr_bre43gflz9 step 1): desks × the town default `exploreTokensPerDeskPerDay`, where its desks are the desk
+ * total in force there (`desksTotalAt`) when one is set, else the headcounts of the buildings at or under it
+ * (`desksUnder`). The goal's own `exploreCapTokensPerDay` column stays in the DB but nothing reads it.
  */
-export function exploreCapsOnPath(goals: Repos["goals"], goalId: string): { tokensPerDay: number; goalId: string }[] {
+export function exploreCapsOnPath(world: World, goalId: string): { tokensPerDay: number; goalId: string }[] {
+  const perDesk = grantPricingOf(world.town.get()).exploreTokensPerDeskPerDay;
   const caps: { tokensPerDay: number; goalId: string }[] = [];
   const seen = new Set<string>();
-  for (let g = goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? goals.get(g.parentId) : undefined) {
+  for (let g = world.goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? world.goals.get(g.parentId) : undefined) {
     seen.add(g.id);
-    if (g.exploreCapTokensPerDay !== null) caps.push({ tokensPerDay: g.exploreCapTokensPerDay, goalId: g.id });
+    caps.push({ tokensPerDay: desksAt(world, g.id) * perDesk, goalId: g.id });
   }
   return caps;
 }
 
+/** The desks a goal's exploration cap counts: the desk total in force there when one is set, else the desks under it. */
+export function desksAt(world: World, goalId: string): number {
+  return desksTotalAt(world.goals, goalId)?.total ?? desksUnder(world, goalId);
+}
+
 /**
  * The binding exploration cap at a goal: the SMALLEST cap on the path to the root, with the goal that sets it (the
- * nearest one on a tie); null = uncapped. Caps combine as the minimum (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): a captain
- * can tighten a cap set above them but never loosen it.
+ * nearest one on a tie); null only for a goal not in the tree. Caps combine as the minimum (1:1 mt_a6wb51enia, gr_yu6qw3j9x5).
  */
-export function exploreCapAt(goals: Repos["goals"], goalId: string): { tokensPerDay: number; goalId: string } | null {
+export function exploreCapAt(world: World, goalId: string): { tokensPerDay: number; goalId: string } | null {
   let min: { tokensPerDay: number; goalId: string } | null = null;
-  for (const c of exploreCapsOnPath(goals, goalId)) if (!min || c.tokensPerDay < min.tokensPerDay) min = c;
+  for (const c of exploreCapsOnPath(world, goalId)) if (!min || c.tokensPerDay < min.tokensPerDay) min = c;
   return min;
 }
 
@@ -66,18 +74,17 @@ export function desksUnder(world: World, goalId: string): number {
   return world.buildings.all().filter((b) => under.has(world.goalTree.attachmentOf(b))).reduce((s, b) => s + b.headcount, 0);
 }
 
-/** The root's explore rule when nothing up the tree sets one (docs/how-work-gets-done.md §3): on, 100,000-token chunks. */
-export const EXPLORE_CHUNK_TOKENS = 100_000;
-
-/** The explore rule in effect at a goal: each of on/off and the chunk from the nearest ancestor-or-self that sets it (null = the root default). */
-export function exploreRuleAt(goals: Repos["goals"], goalId: string): ExploreRule {
-  const rule: ExploreRule = { on: true, onFrom: null, chunkTokens: EXPLORE_CHUNK_TOKENS, chunkFrom: null };
-  let onSet = false, chunkSet = false;
+/**
+ * The explore rule in effect at a goal: on/off from the nearest ancestor-or-self that sets it (null = on), and the chunk
+ * one explorer reserves, the town default `exploreChunkTokens` (gr_bre43gflz9 step 1: no longer a goal field; the goal's
+ * own column stays in the DB, read by nothing, so `chunkFrom` is always null).
+ */
+export function exploreRuleAt(world: World, goalId: string): ExploreRule {
+  const rule: ExploreRule = { on: true, onFrom: null, chunkTokens: grantPricingOf(world.town.get()).exploreChunkTokens, chunkFrom: null };
   const seen = new Set<string>();
-  for (let g = goals.get(goalId); g && !seen.has(g.id) && !(onSet && chunkSet); g = g.parentId ? goals.get(g.parentId) : undefined) {
+  for (let g = world.goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? world.goals.get(g.parentId) : undefined) {
     seen.add(g.id);
-    if (!onSet && g.explore !== null) { rule.on = g.explore; rule.onFrom = g.id; onSet = true; }
-    if (!chunkSet && g.exploreChunkTokens !== null) { rule.chunkTokens = g.exploreChunkTokens; rule.chunkFrom = g.id; chunkSet = true; }
+    if (g.explore !== null) { rule.on = g.explore; rule.onFrom = g.id; break; }
   }
   return rule;
 }
@@ -227,10 +234,10 @@ export function exploreSpentToday(world: World, goalId: string, now = new Date()
 
 /** A goal's funding as GET /api/goals shows it: the effective explore rule and exploration cap (and what it has used today) and the free tokens. */
 export function goalFunding(world: World, goalId: string, free?: FreeTokens, now = new Date()): GoalFunding {
-  const exploreCap = exploreCapAt(world.goals, goalId);
+  const exploreCap = exploreCapAt(world, goalId);
   const desks = desksTotalAt(world.goals, goalId);
   return {
-    exploreCap, explore: exploreRuleAt(world.goals, goalId), exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0,
+    exploreCap, explore: exploreRuleAt(world, goalId), exploreSpentTodayTokens: exploreCap ? exploreSpentToday(world, exploreCap.goalId, now) : 0,
     desksTotal: desks ? { ...desks, desks: desksUnder(world, desks.goalId) } : null, free: free ?? freeTokens(world, goalId, now),
   };
 }

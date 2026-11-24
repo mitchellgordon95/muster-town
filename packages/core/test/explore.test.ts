@@ -21,14 +21,17 @@ function setup() {
 }
 
 describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
-  it("the rule is inherited: on with 100k chunks by default, each setting from the nearest goal that sets it", () => {
+  it("on/off is inherited from the nearest goal that sets it; the chunk is the town default, not a goal's (gr_bre43gflz9)", () => {
     const { world, admin, goalId } = setup();
-    expect(exploreRuleAt(world.goals, goalId)).toEqual({ on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null });
+    expect(exploreRuleAt(world, goalId)).toEqual({ on: true, onFrom: null, chunkTokens: 100_000, chunkFrom: null });
     world.goalTree.update(admin, "gl_town", { explore: false, exploreChunkTokens: 50_000 });
     if (goalId !== "gl_town") world.goalTree.update(admin, goalId, { explore: true });
-    const rule = exploreRuleAt(world.goals, goalId);
-    expect(rule).toMatchObject({ chunkTokens: 50_000, chunkFrom: "gl_town" });
+    let rule = exploreRuleAt(world, goalId);
+    expect(rule).toMatchObject({ chunkTokens: 100_000, chunkFrom: null }); // the goal's old chunk column is read by nothing
     expect(rule.on).toBe(goalId !== "gl_town");
+    world.setGrantPricing({ exploreChunkTokens: 50_000 });
+    rule = exploreRuleAt(world, goalId);
+    expect(rule).toMatchObject({ chunkTokens: 50_000, chunkFrom: null });
   });
 
   it("the tick reserves one chunk and queues one explorer on the building queue; the reservation claims free tokens", () => {
@@ -87,22 +90,14 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
     const lab = () => world.buildings.require(LAB);
     world.goalTree.update(admin, goalId, { explore: false });
     expect(exploreBlock(world, lab())).toMatch(/exploration is off/);
-    world.goalTree.update(admin, goalId, { explore: null, exploreChunkTokens: 2_000_000 });
+    world.goalTree.update(admin, goalId, { explore: null });
     if (goalId !== "gl_town") world.goalTree.update(admin, "gl_town", { explore: true });
-    world.goalTree.update(admin, goalId, { exploreChunkTokens: 1_900_000 });
-    world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: 1_000_000 });
-    expect(exploreBlock(world, lab())).toMatch(/cap/);
-    world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: null, exploreChunkTokens: null });
     expect(exploreBlock(world, lab())).toBeNull();
-    // caps combine as the minimum: a looser cap below can't lift a tighter one above (gr_yu6qw3j9x5)
-    if (goalId !== "gl_town") {
-      world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 50_000 });
-      world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: 5_000_000 });
-      expect(exploreBlock(world, lab())).toMatch(/cap set on goal gl_town/);
-      world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: null });
-      world.goalTree.update(admin, goalId, { exploreCapTokensPerDay: null });
-      expect(exploreBlock(world, lab())).toBeNull();
-    }
+    // the cap derives from desks (gr_bre43gflz9): 0 tokens per desk = a cap of 0, nothing starts
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 0 });
+    expect(exploreBlock(world, lab())).toMatch(/exploration cap on goal .* \(0 a day from its desks\)/);
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 22_727 });
+    expect(exploreBlock(world, lab())).toBeNull();
     const g = world.grantDesk.create(mei, LAB, { keyResults: [{ text: "A visitor can see today's spend", howToCheck: "Open the banner" }], objective: "o", steps: [{ size: "M", title: "Step 1", description: "Do the work" }], stopCondition: "s", askTokens: 1_000 });
     world.grantDesk.propose(mei, g.id);
     expect(exploreBlock(world, lab())).toMatch(/proposal of this building is open/);
@@ -128,7 +123,7 @@ describe("declarative exploration (docs/how-work-gets-done.md §3)", () => {
   it("a cap allowing one chunk a day rotates across buildings: least recently explored first, not rowid order (dc_q48pbvg0td)", () => {
     const { world, admin, seed } = setup();
     const other = createBuilding(world, { name: "Second lab", headcount: 20 }, seed.admin.id, { manager: {} });
-    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 100_000 });
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 1 }); // every cap is below a chunk: one explorer a day under the root
     const first = exploreOrder(world).find((b) => b.kind !== "town-hall")!.id;
     const day = (n: number) => new Date(Date.UTC(2030, 0, 1 + n, 1));
     const turn = (n: number) => {

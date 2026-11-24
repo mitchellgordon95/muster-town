@@ -61,28 +61,32 @@ describe("free tokens (docs/how-work-gets-done.md §7)", () => {
     expect(freeTokens(world, b.id).freeTokens).toBe(0);
   });
 
-  it("caps combine as the smallest on the path to the root: a captain tightens, never loosens (gr_yu6qw3j9x5)", () => {
-    const { world, admin, a, a1 } = setup();
-    expect(exploreCapAt(world.goals, a1.id)).toBeNull();
-    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 500_000 });
-    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 5_000_000 });
-    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
-    expect(exploreCapAt(world.goals, a.id)).toEqual({ tokensPerDay: 500_000, goalId: "gl_town" });
-    expect(exploreCapsOnPath(world.goals, a1.id)).toEqual([{ tokensPerDay: 5_000_000, goalId: a.id }, { tokensPerDay: 500_000, goalId: "gl_town" }]);
-    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 100_000 });
-    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 100_000, goalId: a.id });
-    expect(world.goalTree.tree().children.find((c) => c.id === a.id)!.funding.exploreCap).toEqual({ tokensPerDay: 100_000, goalId: a.id });
+  it("a goal's cap is its desks × the town default per desk; the smallest on the path binds (gr_bre43gflz9)", () => {
+    const { world, admin, a, a1, b } = setup();
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 1_000 });
+    const h = world.buildings.require(LAB).headcount;
+    const all = world.buildings.all().reduce((n, x) => n + x.headcount, 0);
+    expect(exploreCapsOnPath(world, a1.id)).toEqual([{ tokensPerDay: h * 1_000, goalId: a1.id }, { tokensPerDay: h * 1_000, goalId: a.id }, { tokensPerDay: all * 1_000, goalId: "gl_town" }]);
+    expect(exploreCapAt(world, a1.id)).toEqual({ tokensPerDay: h * 1_000, goalId: a1.id }); // the nearest on a tie
+    expect(exploreCapAt(world, "gl_town")).toEqual({ tokensPerDay: all * 1_000, goalId: "gl_town" });
+    expect(exploreCapAt(world, b.id)).toEqual({ tokensPerDay: 0, goalId: b.id }); // no desks under it
+    // the goal's old cap column is read by nothing
+    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 1 });
+    expect(exploreCapAt(world, a1.id)).toEqual({ tokensPerDay: h * 1_000, goalId: a1.id });
+    // a desk total set above counts instead of the headcounts (the smallest on the path to the root)
+    world.goalTree.update(admin, a.id, { desksTotal: 2 });
+    expect(exploreCapsOnPath(world, a1.id).map((c) => c.tokensPerDay)).toEqual([2_000, 2_000, all * 1_000]);
+    // changing the default moves every cap at once, and the tree shows it
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 3_000 });
+    expect(world.goalTree.tree().children.find((c) => c.id === a.id)!.funding.exploreCap).toEqual({ tokensPerDay: 6_000, goalId: a.id });
   });
 
-  it("the exploration cap is inherited from the nearest goal that sets one; none = uncapped; the tree shows it with the free tokens", () => {
-    const { world, admin, a, a1 } = setup();
-    expect(exploreCapAt(world.goals, a1.id)).toBeNull();
-    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 9_000 });
-    world.goalTree.update(admin, a.id, { exploreCapTokensPerDay: 4_000 });
-    expect(exploreCapAt(world.goals, a1.id)).toEqual({ tokensPerDay: 4_000, goalId: a.id });
+  it("the seed default makes the root's cap about 500,000 a day for 22 desks; the tree shows the cap with the free tokens", () => {
+    const { world, a, a1 } = setup();
+    expect(exploreCapAt(world, "gl_town")!.tokensPerDay).toBe(world.buildings.all().reduce((n, x) => n + x.headcount, 0) * 22_727);
+    expect(22 * 22_727).toBe(499_994);
     const node = world.goalTree.tree().children.find((c) => c.id === a.id)!.children[0]!;
-    expect(node.funding).toMatchObject({ exploreCap: { tokensPerDay: 4_000, goalId: a.id }, exploreSpentTodayTokens: 0, free: { goalId: a1.id, freeTokens: 13_000 } });
-    expect(node.exploreCapTokensPerDay).toBeNull();
+    expect(node.funding).toMatchObject({ exploreCap: { goalId: a1.id }, exploreSpentTodayTokens: 0, free: { goalId: a1.id, freeTokens: 13_000 } });
   });
 
   describe("the operating reserve (1:1 mt_lb7tm75jgb)", () => {

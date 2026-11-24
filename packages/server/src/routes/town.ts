@@ -399,11 +399,13 @@ export async function townRoutes(app: FastifyInstance) {
   app.put("/api/town/defaults", async (req) => {
     const user = requireUser(req);
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the collective defaults.");
-    const { stepSizes, oversell, ...rest } = parse(TownDefaultsPatch, req.body);
+    const { stepSizes, oversell, exploreTokensPerDeskPerDay, exploreChunkTokens, ...rest } = parse(TownDefaultsPatch, req.body);
     const by = world.ops.ensureAvatar(user.id).id;
-    // the step-size table and oversell (docs/legible-delegation.md §7.3) ride the same route; the rest are building defaults
+    // the step-size table, oversell (docs/legible-delegation.md §7.3) and the two exploration defaults (gr_bre43gflz9:
+    // tokens a desk buys per day, an explorer's chunk) ride the same route; the rest are building defaults
     const t = world.town.get();
-    const pricing = stepSizes || oversell !== undefined ? world.setGrantPricing({ stepSizes, oversell }, by) : grantPricingOf(t);
+    const pricingPatch = { stepSizes, oversell, exploreTokensPerDeskPerDay, exploreChunkTokens };
+    const pricing = Object.values(pricingPatch).some((v) => v !== undefined) ? world.setGrantPricing(pricingPatch, by) : grantPricingOf(t);
     const saved = Object.values(rest).some((v) => v !== undefined) ? world.setTownDefaults(rest, by) : { defaults: world.town.defaults(), buildings: [] };
     return { ...saved, ...pricing };
   });
