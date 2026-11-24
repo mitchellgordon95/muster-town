@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.ts";
-import { excerpt, previewTags, robotsTxt, sitemapXml, siteRoutes, withPreview } from "../src/share.ts";
+import { excerpt, previewTags, robotsTxt, siteJsonLd, sitemapXml, sitePages, siteRoutes, verificationTags, withPreview } from "../src/share.ts";
 
 const ORIGIN = "https://muster.town";
 const tagsOf = (html: string) => ({
@@ -46,10 +46,44 @@ describe("share previews and site files (pure)", () => {
 
   it("robots.txt allows everything and names the sitemap; the sitemap lists /, the client, /blog and each post", () => {
     expect(robotsTxt(ORIGIN)).toBe(`User-agent: *\nAllow: /\n\nSitemap: ${ORIGIN}/sitemap.xml\n`);
-    const xml = sitemapXml(ORIGIN, "/workshop/", [{ slug: "hello", date: "2026-11-20" }]);
+    const xml = sitemapXml(ORIGIN, sitePages({ clientPaths: ["/workshop/"], posts: [{ slug: "hello", date: "2026-11-20" }] }));
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
     for (const loc of ["/", "/workshop/", "/blog", "/blog/hello"]) expect(xml).toContain(`<loc>${ORIGIN}${loc}</loc>`);
     expect(xml).toContain("<lastmod>2026-11-20</lastmod>");
+    expect(xml).not.toContain("/hooks");
+  });
+
+  it("sitePages lists every public page once: collectives, posts (updatedAt over date), /hooks and each cause page", () => {
+    const pages = sitePages({
+      clientPaths: ["/workshop/", "/acme/", "/workshop/"],
+      posts: [{ slug: "a", date: "2026-11-20", updated: "2026-11-21T10:00:00.000Z" }],
+      hooks: { updated: "2026-11-23T16:00:00.000Z" },
+      hookPages: [{ slug: "cptsd", updated: "2026-11-23T17:00:00.000Z" }, { slug: "climate-adaptation" }],
+    });
+    expect(pages.map((p) => p.path)).toEqual(["/", "/workshop/", "/acme/", "/blog", "/blog/a", "/hooks", "/hooks/cptsd", "/hooks/climate-adaptation"]);
+    expect(pages.find((p) => p.path === "/blog/a")?.lastmod).toBe("2026-11-21T10:00:00.000Z");
+    // property: never a duplicate path, and every post and cause page is there
+    fc.assert(fc.property(fc.array(fc.constantFrom("/workshop/", "/a/", "/b/")), fc.uniqueArray(fc.stringMatching(/^[a-z]{1,6}$/)), (clients, slugs) => {
+      const ps = sitePages({ clientPaths: clients, posts: slugs.map((slug) => ({ slug, date: "2026-11-20" })), hooks: {}, hookPages: slugs.map((slug) => ({ slug })) });
+      const paths = ps.map((p) => p.path);
+      expect(new Set(paths).size).toBe(paths.length);
+      for (const s of slugs) { expect(paths).toContain(`/blog/${s}`); expect(paths).toContain(`/hooks/${s}`); }
+    }));
+  });
+
+  it("the JSON-LD names Muster Town with the repo as sameAs and cannot be closed by its content", () => {
+    const tag = siteJsonLd(ORIGIN);
+    const json = JSON.parse(/^<script type="application\/ld\+json">([\s\S]*)<\/script>$/.exec(tag)![1]!);
+    const org = json["@graph"].find((x: { "@type": string }) => x["@type"] === "Organization");
+    expect(org).toMatchObject({ name: "Muster Town", alternateName: "muster.town", url: `${ORIGIN}/`, logo: `${ORIGIN}/og.png`, sameAs: ["https://github.com/mitchellgordon95/muster-town"] });
+    expect(json["@graph"].some((x: { "@type": string }) => x["@type"] === "WebSite")).toBe(true);
+    expect(siteJsonLd("https://x.y/</script>")).not.toContain("</script><");
+  });
+
+  it("verificationTags shows only the tokens set, escaped", () => {
+    expect(verificationTags(undefined)).toBe("");
+    expect(verificationTags({ google: "abc" })).toBe('<meta name="google-site-verification" content="abc">');
+    expect(verificationTags({ bing: 'x"y' })).toBe('<meta name="msvalidate.01" content="x&quot;y">');
   });
 });
 
@@ -58,7 +92,10 @@ describe("site routes", () => {
     const dir = mkdtempSync(join(tmpdir(), "og-"));
     writeFileSync(join(dir, "og.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const app = Fastify();
-    await app.register(siteRoutes({ origin: ORIGIN, clientPath: "/workshop/", posts: () => [{ slug: "first", date: "2026-11-21" }], image: join(dir, "og.png") }));
+    await app.register(siteRoutes({ origin: ORIGIN, pages: () => sitePages({ clientPaths: ["/workshop/"], posts: [{ slug: "first", date: "2026-11-21" }] }), image: join(dir, "og.png"), indexNowKey: "0123456789abcdef" }));
+    const key = await app.inject("/0123456789abcdef.txt");
+    expect(key.statusCode).toBe(200);
+    expect(key.body).toBe("0123456789abcdef");
     const png = await app.inject("/og.png");
     expect(png.statusCode).toBe(200);
     expect(png.headers["content-type"]).toBe("image/png");

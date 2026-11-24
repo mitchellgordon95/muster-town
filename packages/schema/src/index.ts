@@ -152,6 +152,13 @@ export const Town = z.object({
   oversell: z.number().min(0).max(1).optional(),
   /** Publish to GitHub (TownPublish): unset until an admin saves a repo */
   publish: TownPublish.optional(),
+  /** search engines' site-verification tokens shown as meta tags on the root homepage (gr_92sfjss7w3); PUT /api/town/site-verification (an admin) sets them */
+  siteVerification: z.object({ google: z.string().optional(), bing: z.string().optional() }).optional(),
+});
+/** PUT /api/town/site-verification: Google's google-site-verification and Bing's msvalidate.01 tokens; "" clears one, left out keeps it. */
+export const SiteVerificationInput = z.object({
+  google: z.string().trim().max(200).regex(/^[A-Za-z0-9_-]*$/, "letters, digits, - and _ only").optional(),
+  bing: z.string().trim().max(200).regex(/^[A-Za-z0-9_-]*$/, "letters, digits, - and _ only").optional(),
 });
 export type Town = z.infer<typeof Town>;
 
