@@ -75,12 +75,16 @@ export function desksUnder(world: World, goalId: string): number {
 }
 
 /**
- * The explore rule in effect at a goal: on/off from the nearest ancestor-or-self that sets it (null = on), and the chunk
+ * The explore rule in effect at a goal: off when the town switch `exploreOn` is off (gr_bre43gflz9 step 2), else on/off
+ * from the nearest ancestor-or-self that sets it (null = on; old goal ask cards' `explore:` still write it), and the chunk
  * one explorer reserves, the town default `exploreChunkTokens` (gr_bre43gflz9 step 1: no longer a goal field; the goal's
  * own column stays in the DB, read by nothing, so `chunkFrom` is always null).
  */
 export function exploreRuleAt(world: World, goalId: string): ExploreRule {
-  const rule: ExploreRule = { on: true, onFrom: null, chunkTokens: grantPricingOf(world.town.get()).exploreChunkTokens, chunkFrom: null };
+  const town = grantPricingOf(world.town.get());
+  const rule: ExploreRule = { on: town.exploreOn, onFrom: null, chunkTokens: town.exploreChunkTokens, chunkFrom: null };
+  // the town switch (gr_bre43gflz9 step 2) is the one on/off a human edits; off wins over every goal
+  if (!town.exploreOn) return rule;
   const seen = new Set<string>();
   for (let g = world.goals.get(goalId); g && !seen.has(g.id); g = g.parentId ? world.goals.get(g.parentId) : undefined) {
     seen.add(g.id);

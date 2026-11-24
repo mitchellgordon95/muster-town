@@ -1,12 +1,12 @@
 /**
- * Free tokens and the exploration cap (docs/how-work-gets-done.md §7, §8): the one number exploration reads, per goal,
- * and the optional per-day cap inherited down the tree. Per goal in the goal editor's Funding block; town-wide (the root's)
+ * Free tokens and what a goal's desks buy (docs/how-work-gets-done.md §7, §8): the one number exploration reads, per
+ * goal, and the daily exploration cap its desks derive (gr_bre43gflz9). Per goal in the goal editor's Funding block; town-wide (the root's)
  * on the Bank's Balance tab as one line, "Free for exploration: N", with its sum in the sidebar (gr_567tikzitl step 2:
  * the Bank's Free tokens tab and its fountain are gone).
  */
 import type { FreeTokens, GoalTreeNode } from "@muster-town/schema";
 import { goalShortName } from "../purpose";
-import { findGoal } from "./goalTree";
+import { findGoal, subtreeDesks } from "./goalTree";
 import { Section, fmtTokens } from "./ui";
 
 const RETAINERS = "retainers";
@@ -47,26 +47,23 @@ export function FreeTokensLine({ free }: { free: FreeTokens }) {
 }
 
 /**
- * "uncapped", or "N / day, set on X, M used today": the binding cap is the smallest on the path to the root
- * (core free-tokens.ts `exploreCapAt`), so X names the goal it comes from ("this goal" when it is `node` itself).
+ * What a goal's desks buy (gr_bre43gflz9 step 2), from the server's funding figures: the desks in force (the smallest
+ * total on the path, else the desks of the buildings under it), the binding exploration cap, the town's chunk per
+ * explorer and on/off. Grants in flight have no limit until the town default for them exists (step 3).
  */
-export function capText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTreeNode | null): string {
-  const cap = node.funding.exploreCap;
-  if (!cap) return "uncapped";
-  const from = cap.goalId === node.id ? "this goal" : `goal ${goalShortName(root ? findGoal(root, cap.goalId)?.text ?? cap.goalId : cap.goalId)}`;
-  return `${fmtTokens(cap.tokensPerDay)} / day, set on ${from}, ${fmtTokens(node.funding.exploreSpentTodayTokens)} used today`;
-}
-
-/**
- * "Desks: N of M (set on goal X)" when a desk total is in force (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): N is the sum of the
- * headcounts under the goal that sets it, M the smallest total on the path to the root (core free-tokens.ts
- * `desksTotalAt`). Null when none is set anywhere above.
- */
-export function desksText(node: Pick<GoalTreeNode, "id" | "funding">, root: GoalTreeNode | null): string | null {
+export function desksBuyLine(node: Pick<GoalTreeNode, "id" | "funding" | "buildings" | "children">, root: GoalTreeNode): { desks: number; short: string; long: string } {
   const d = node.funding.desksTotal;
-  if (!d) return null;
-  const from = d.goalId === node.id ? "this goal" : `goal ${goalShortName(root ? findGoal(root, d.goalId)?.text ?? d.goalId : d.goalId)}`;
-  return `Desks: ${d.desks} of ${d.total} (set on ${from})`;
+  const desks = d ? d.total : subtreeDesks(node).desks;
+  const from = d && d.goalId !== node.id ? ` (set on goal ${goalShortName(findGoal(root, d.goalId)?.text ?? d.goalId)})` : "";
+  const cap = node.funding.exploreCap;
+  const rule = node.funding.explore;
+  const word = `${desks} desk${desks === 1 ? "" : "s"}`;
+  const explore = rule.on ? `up to ${cap ? fmtTokens(cap.tokensPerDay) : "no limit"} exploration a day, ${fmtTokens(rule.chunkTokens)} per explorer` : "exploration off for the town";
+  return {
+    desks,
+    short: `${word}${from}`,
+    long: `${word}${from}: ${explore}, grants in flight no limit, ${desks} fork${desks === 1 ? "" : "s"} at once${cap && rule.on ? ` · ${fmtTokens(node.funding.exploreSpentTodayTokens)} explored today` : ""}`,
+  };
 }
 
 /** The sum behind the Balance tab's "Free for exploration" line (GET /api/bank `free`, the root goal's), for the sidebar: each term, then the total and any overdraft. */
