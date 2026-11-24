@@ -10,7 +10,7 @@
  * revoke per goal. The server is the gate: GET /api/members is 403 for anyone else.
  */
 import { useState, type ReactNode } from "react";
-import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView, type TownHealthView, type HealthLineView, type LegibleView, type MedianView } from "../api";
+import { api, API_BASE, type EngagementCounts, type EngagementView as Engagement, type JoinFunnelCounts, type JoinFunnelView, type MemberView, type TownHealthView, type HealthLineView, type LegibleView, type MedianView, type ClientErrorsView } from "../api";
 import { goalShortName } from "../purpose";
 import { useTown } from "../state";
 import { letInGoal } from "./letIn";
@@ -267,8 +267,40 @@ function QueueHealthView({ l }: { l: LegibleView }) {
   );
 }
 
+/**
+ * Browser errors (gr_cyqzweu6ed step 2), from GET /api/client-errors: the last 24 hours by kind, with its count, the commit it
+ * was first seen on and a "new" mark when it was first seen since the latest deploy (the running server's start).
+ */
+export function BrowserErrorsView({ e }: { e: ClientErrorsView }) {
+  const since = e.deployedAt ? ` since the latest deploy (${timeAgo(e.deployedAt)})` : " since the latest deploy";
+  return (
+    <Section title="Browser errors, last 24 hours" right={<a className="link" href={`${API_BASE}/api/client-errors`} target="_blank" rel="noreferrer">JSON</a>}>
+      {e.kinds.length === 0 ? <Empty>No browser errors in the last 24 hours.</Empty> : <>
+        <div className={e.newSinceDeploy ? "bad" : "muted"}>
+          {e.kinds.length} {e.kinds.length === 1 ? "kind" : "kinds"}, {n(e.total)} {e.total === 1 ? "error" : "errors"} counted since each was first seen; {e.newSinceDeploy} new{since}.
+        </div>
+        <div className="stats-scroll"><table className="table stats-table">
+          <thead><tr><th>Kind</th><th>Where</th><th className="num">Count</th><th>First commit</th><th>Last seen</th></tr></thead>
+          <tbody>
+            {e.kinds.map((k) => (
+              <tr key={k.signature}>
+                <td title={k.signature}>{k.newSinceDeploy ? <><span className="pill bad">new</span>{" "}</> : null}{k.message}</td>
+                <td className="faint">{[k.panel ? `${k.panel} panel` : k.source, k.frame].filter(Boolean).join(" · ")}</td>
+                <td className="num">{n(k.count)}</td>
+                <td><code title={k.firstCommit ?? "unknown"}>{k.firstCommit ? k.firstCommit.slice(0, 8) : "–"}</code></td>
+                <td title={k.lastSeen}>{timeAgo(k.lastSeen)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </>}
+      <div className="muted">A kind is one bug: its message with ids and numbers blanked, and the top line of its stack. Counts and commits only: no user, address or typed text is kept.</div>
+    </Section>
+  );
+}
+
 /** Town health (gr_8bxoy2heif): the last 24 h as tiles (red past threshold), tokens per report by lane, then by day and by week. */
-export function HealthView({ h, legible }: { h: TownHealthView; legible?: LegibleView | null }) {
+export function HealthView({ h, legible, errors }: { h: TownHealthView; legible?: LegibleView | null; errors?: ClientErrorsView | null }) {
   const l = h.last24h, t = h.thresholds, red = healthRed(l, t);
   const lanes = LANES.filter((x) => l.byLane[x]);
   return (
@@ -285,6 +317,7 @@ export function HealthView({ h, legible }: { h: TownHealthView; legible?: Legibl
         {lanes.length ? <div className="muted">Per report by lane: {lanes.map((x) => `${x} ${tok(l.byLane[x]!.perReport)} (${l.byLane[x]!.reports})`).join(" · ")}.</div> : null}
         <div className="muted">Red: paperwork above {pct(t.paperworkMax)}, cache hits below {pct(t.hitMin)}. Cost by lane and token kind is on the Bank's spending board.</div>
       </Section>
+      {errors ? <BrowserErrorsView e={errors} /> : null}
       <Section title="By day">
         <HealthTable first="Day (UTC)" t={t} rows={[...h.days].reverse().map((d) => ({ key: d.day, head: <span title={d.day}>{dayLabel(d.day)}</span>, l: d }))} />
       </Section>
@@ -310,10 +343,11 @@ export function HealthView({ h, legible }: { h: TownHealthView; legible?: Legibl
 function TownHealth() {
   const h = useLoad(() => api().healthStats(), []);
   const live = useLoad(() => api().health(), []);
+  const errors = useLoad(() => api().clientErrors(), []);
   return (
     <>
       <ErrorLine error={h.error} />
-      {h.loading && !h.data ? <Loading /> : h.data ? <HealthView h={h.data} legible={live.data?.legible ?? null} /> : null}
+      {h.loading && !h.data ? <Loading /> : h.data ? <HealthView h={h.data} legible={live.data?.legible ?? null} errors={errors.data} /> : null}
     </>
   );
 }

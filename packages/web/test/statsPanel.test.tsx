@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { EngagementView as Engagement, HealthLineView, JoinFunnelView, TownHealthView } from "../src/api";
-import { byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, HealthView, healthRed, legibleRows, MembersTable, queueRows, StatsView, waitLabel } from "../src/panels/StatsPanel";
+import type { ClientErrorsView, EngagementView as Engagement, HealthLineView, JoinFunnelView, TownHealthView } from "../src/api";
+import { BrowserErrorsView, byDay, COLUMNS, ENGAGEMENT_COLUMNS, EngagementView, HealthView, healthRed, legibleRows, MembersTable, queueRows, StatsView, waitLabel } from "../src/panels/StatsPanel";
 import { legible } from "../src/mock/fixture";
 
 const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0, homeCard: 0 };
@@ -114,5 +114,16 @@ describe("user stats panel", () => {
     expect(w).toContain('stats-warning bad');
     expect(w).toMatch(/class="num bad">0\.3 \(/);
     expect(queueRows(crossed).filter((r) => r.key.startsWith("card-")).map((r) => r.label)).toEqual(["Minutes on a money card", "Minutes on a click card", "Minutes on a policy card"]);
+  });
+
+  it("browser errors (gr_cyqzweu6ed step 2): kinds with count and first commit, new since the deploy marked; an empty day says so", () => {
+    const kind = (message: string, isNew: boolean, count: number) => ({ signature: `panel: ${message}`, source: "panel" as const, message, frame: "CrashTestPanel (index.js)", panel: "crash-test", route: "#/crash-test", firstCommit: isNew ? "bbbb2222cccc" : "aaaa1111dddd", lastCommit: "bbbb2222cccc", count, firstSeen: "2026-11-24T21:00:00Z", lastSeen: "2026-11-24T21:30:00Z", newSinceDeploy: isNew });
+    const e: ClientErrorsView = { from: "2026-11-23T22:00:00Z", to: "2026-11-24T22:00:00Z", deployedAt: "2026-11-24T20:00:00Z", kinds: [kind("old bug", false, 7), kind("crash test", true, 2)], total: 9, newSinceDeploy: 1 };
+    const html = renderToStaticMarkup(<BrowserErrorsView e={e} />);
+    for (const s of ["Browser errors, last 24 hours", "/api/client-errors", "2 kinds, 9 errors", "1 new since the latest deploy", "old bug", "crash test", "aaaa1111", "bbbb2222", "crash-test panel · CrashTestPanel (index.js)"]) expect(html).toContain(s);
+    expect(html.match(/pill bad">new</g)).toHaveLength(1);
+    expect(html.indexOf("pill bad")).toBeGreaterThan(html.indexOf("old bug"));
+    const none = renderToStaticMarkup(<BrowserErrorsView e={{ ...e, kinds: [], total: 0, newSinceDeploy: 0 }} />);
+    expect(none).toContain("No browser errors in the last 24 hours.");
   });
 });

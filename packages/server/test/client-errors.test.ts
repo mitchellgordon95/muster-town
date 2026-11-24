@@ -9,6 +9,7 @@ describe("client errors routes", () => {
     const t = await seededApp();
     try {
       t.world.host.commit = "e6b53093abc";
+      t.world.host.startedAt = new Date(Date.now() - 60_000).toISOString();
       const beacon = await t.app.inject({ method: "POST", url: "/api/client-errors", headers: { "content-type": "text/plain;charset=UTF-8" }, payload: JSON.stringify(crash) });
       expect(beacon.statusCode).toBe(200);
       expect(beacon.json()).toEqual({ recorded: true, new: true });
@@ -16,6 +17,8 @@ describe("client errors routes", () => {
       const v = await json(t.app, "GET", "/api/client-errors");
       expect(v.status).toBe(200);
       expect(v.body.kinds).toHaveLength(1);
+      expect(v.body.newSinceDeploy).toBe(1);
+      expect(v.body.kinds[0].newSinceDeploy).toBe(true);
       expect(v.body.kinds[0]).toMatchObject({ source: "panel", panel: "crash-test", message: "crash test: this panel throws on purpose", frame: "CrashTestPanel (index.js)", firstCommit: "e6b53093abc", lastCommit: "e6b53093abc", count: 2 });
       expect(JSON.stringify(v.body)).not.toMatch(/us_|127\.0\.0\.1/);
       expect((await json(t.app, "POST", "/api/client-errors", { body: { source: "panel" } })).status).toBe(400);

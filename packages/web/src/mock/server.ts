@@ -541,12 +541,12 @@ export class MockApi implements Api {
     const signature = `${b.source}: ${b.message}`, now = new Date().toISOString();
     const k = this.clientErrorKinds.find((x) => x.signature === signature);
     if (k) { k.count++; k.lastSeen = now; return; }
-    this.clientErrorKinds.push({ signature, source: b.source, message: b.message, frame: "", panel: b.panel, route: b.route || null, firstCommit: "mock", lastCommit: "mock", count: 1, firstSeen: now, lastSeen: now });
+    this.clientErrorKinds.push({ signature, source: b.source, message: b.message, frame: "", panel: b.panel, route: b.route || null, firstCommit: "mock", lastCommit: "mock", count: 1, firstSeen: now, lastSeen: now, newSinceDeploy: true });
   }
   async clientErrors(): Promise<ClientErrorsView> {
     await wait();
     const kinds = clone(this.clientErrorKinds).sort((a, b) => b.count - a.count);
-    return { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date().toISOString(), kinds, total: kinds.reduce((n, k) => n + k.count, 0) };
+    return { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date().toISOString(), deployedAt: null, kinds, total: kinds.reduce((n, k) => n + k.count, 0), newSinceDeploy: kinds.filter((k) => k.newSinceDeploy).length };
   }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }

@@ -552,8 +552,9 @@ export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notice
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
 /** One browser error kind (core client-errors.ts ClientErrorKind): GET /api/client-errors, gr_cyqzweu6ed. */
-export interface ClientErrorKindView { signature: string; source: ClientErrorSource; message: string; frame: string; panel: string | null; route: string | null; firstCommit: string | null; lastCommit: string | null; count: number; firstSeen: string; lastSeen: string }
-export interface ClientErrorsView { from: string; to: string; kinds: ClientErrorKindView[]; total: number }
+export interface ClientErrorKindView { signature: string; source: ClientErrorSource; message: string; frame: string; panel: string | null; route: string | null; firstCommit: string | null; lastCommit: string | null; count: number; firstSeen: string; lastSeen: string; newSinceDeploy: boolean }
+/** `newSinceDeploy`: kinds first seen since the running server started (`deployedAt`, its startedAt) */
+export interface ClientErrorsView { from: string; to: string; deployedAt: string | null; kinds: ClientErrorKindView[]; total: number; newSinceDeploy: number }
 
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
 export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number; homePage2: number; homePage3: number; homeSkip: number; homeOpen: number; homeTile: number; homeCard: number }
