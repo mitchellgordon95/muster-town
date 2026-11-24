@@ -155,7 +155,7 @@ export function ruleBlock(world: World, a: Assignment): { kind: "grant" | "reser
     const e = world.grantDesk.exploration(a.buildingId);
     if (e.freeTokens <= 0) return { kind: "exploration", reason: "held: no free tokens under its goal (funded grants, open proposals and reservations claim the whole balance)" };
     if (e.cap && e.cap.spentTodayTokens >= e.cap.tokensPerDay) {
-      return { kind: "exploration", used: e.cap.spentTodayTokens, cap: e.cap.tokensPerDay, reason: `held: exploration cap reached today (${fmt(e.cap.spentTodayTokens)} / ${fmt(e.cap.tokensPerDay)} tokens, set on goal ${e.cap.goalId})` };
+      return { kind: "exploration", used: e.cap.spentTodayTokens, cap: e.cap.tokensPerDay, reason: `held: exploration cap reached today (${fmt(e.cap.spentTodayTokens)} / ${fmt(e.cap.tokensPerDay)} tokens, the cap from the desks of goal ${e.cap.goalId})` };
     }
     return null;
   }

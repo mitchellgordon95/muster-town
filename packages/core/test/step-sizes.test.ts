@@ -52,9 +52,12 @@ describe("step sizes: S, M or L, required, priced by the table", () => {
   it("the table and oversell are seeded, shown on the town view and saved by an admin's pricing change (logged)", () => {
     const { world, admin } = lab();
     expect(world.townView()).toMatchObject({ stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0 });
-    expect(world.setGrantPricing({ oversell: 0.5 }, admin.id)).toEqual({ stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0.5 });
+    expect(world.setGrantPricing({ oversell: 0.5 }, admin.id)).toEqual({ stepSizes: { S: 50_000, M: 150_000, L: 400_000 }, oversell: 0.5, exploreTokensPerDeskPerDay: 22_727, exploreChunkTokens: 100_000 });
+    expect(world.townView()).toMatchObject({ exploreTokensPerDeskPerDay: 22_727, exploreChunkTokens: 100_000 });
+    expect(world.setGrantPricing({ exploreTokensPerDeskPerDay: 30_000, exploreChunkTokens: 80_000 }, admin.id)).toMatchObject({ oversell: 0.5, exploreTokensPerDeskPerDay: 30_000, exploreChunkTokens: 80_000 });
+    expect(world.events.list({ types: ["system"] }).at(-1)!.text).toMatch(/exploration 30,000 tokens per desk per day \(was 22,727\), explorer chunk 80,000 \(was 100,000\)/);
     expect(world.townView()).toMatchObject({ oversell: 0.5 });
-    expect(world.events.list({ types: ["system"] }).at(-1)!.text).toMatch(/Grant pricing saved: .*oversell 50% \(was 0%\)/);
+    expect(world.events.list({ types: ["system"] }).some((e) => /Grant pricing saved: .*oversell 50% \(was 0%\)/.test(e.text))).toBe(true);
   });
 });
 

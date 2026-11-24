@@ -128,8 +128,19 @@ export function undoAdjustedTokens(db: import("better-sqlite3").Database): void 
 }
 
 /**
+ * A goal's exploration cap is its desks × the town default per desk (gr_bre43gflz9): to give `goalId` a cap of X, set a
+ * desk total of 1 on it and the default to X (null: no desk total, the seed default). Other goals' caps move too.
+ */
+function capGoal(world: World, goalId: string, funding: { exploreCapTokensPerDay?: number | null }): void {
+  if (funding.exploreCapTokensPerDay === undefined) return;
+  const cap = funding.exploreCapTokensPerDay;
+  world.goalTree.update(null, goalId, { desksTotal: cap === null ? null : 1 });
+  world.setGrantPricing({ exploreTokensPerDeskPerDay: cap ?? 22_727 });
+}
+
+/**
  * Give a building a goal of its own under the root (the seed attaches every building to the root) and set its exploration
- * cap there (core free-tokens.ts `exploreCapAt`), as the system.
+ * cap there (core free-tokens.ts `exploreCapAt`, through `capGoal`), as the system.
  */
 export function fundBuilding(world: World, buildingId: string, funding: { exploreCapTokensPerDay?: number | null }): string {
   const b = world.buildings.require(buildingId, "building");
@@ -138,14 +149,14 @@ export function fundBuilding(world: World, buildingId: string, funding: { explor
     goalId = world.goalTree.create(null, { parentId: "gl_town", text: `${b.name}'s own goal` }).id;
     world.goalTree.attach(null, b.id, goalId);
   }
-  if (Object.keys(funding).length) world.goalTree.update(null, goalId, funding);
+  capGoal(world, goalId, funding);
   return goalId;
 }
 
 /** Set the exploration cap on the goal the building is attached to now (shared with any building attached there too). */
 export function fundGoalOf(world: World, buildingId: string, funding: { exploreCapTokensPerDay?: number | null }): string {
   const goalId = world.goalTree.attachmentOf(buildingId);
-  world.goalTree.update(null, goalId, funding);
+  capGoal(world, goalId, funding);
   return goalId;
 }
 

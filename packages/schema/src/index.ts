@@ -73,16 +73,32 @@ export const StepSizeTable = z.object({ S: z.number().int().positive(), M: z.num
 export type StepSizeTable = z.infer<typeof StepSizeTable>;
 /** The size table a collective starts with, in adjusted tokens (a roughly doubling scale). */
 const STEP_SIZES_SEED: StepSizeTable = { S: 50_000, M: 150_000, L: 400_000 };
-/** A town's grant pricing with the seeds filled in: the step-size table and oversell (0 = earmark at the ceiling). */
-export function grantPricingOf(t: { stepSizes?: StepSizeTable; oversell?: number }): { stepSizes: StepSizeTable; oversell: number } {
-  return { stepSizes: t.stepSizes ?? STEP_SIZES_SEED, oversell: t.oversell ?? 0 };
+/**
+ * Exploration a desk buys per day (gr_bre43gflz9 step 1): the daily exploration cap under a goal is its desks × this. The
+ * seed is 500,000 / 22: on 2026-11-24 the live town had 22 desks under its root and a flat 500,000-token cap there.
+ */
+export const EXPLORE_TOKENS_PER_DESK_SEED = 22_727;
+/** The tokens one explorer reserves (its chunk), the town default (gr_bre43gflz9 step 1; it was the root goal's inherited 100,000). */
+export const EXPLORE_CHUNK_SEED = 100_000;
+/** A town's grant pricing with the seeds filled in: the step-size table, oversell (0 = earmark at the ceiling), and the two exploration defaults. */
+export function grantPricingOf(t: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number }): GrantPricingDefaults {
+  return {
+    stepSizes: t.stepSizes ?? STEP_SIZES_SEED, oversell: t.oversell ?? 0,
+    exploreTokensPerDeskPerDay: t.exploreTokensPerDeskPerDay ?? EXPLORE_TOKENS_PER_DESK_SEED, exploreChunkTokens: t.exploreChunkTokens ?? EXPLORE_CHUNK_SEED,
+  };
 }
+/** What `grantPricingOf` returns and PUT /api/town/defaults answers with. */
+export interface GrantPricingDefaults { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number }
 /** `PUT /api/town/defaults` (admin): the keys to change. */
 export const TownDefaultsPatch = patchOf(BuildingDefaults).extend({
   /** the step-size table (all three sizes) */
   stepSizes: StepSizeTable.optional(),
   /** 0-1: how far free tokens oversell funded grants */
   oversell: z.number().min(0).max(1).optional(),
+  /** exploration tokens a desk buys per day: a goal's daily exploration cap = its desks × this */
+  exploreTokensPerDeskPerDay: z.number().int().nonnegative().max(10_000_000).optional(),
+  /** the tokens one explorer reserves */
+  exploreChunkTokens: z.number().int().min(10_000).max(2_000_000).optional(),
 }).refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
@@ -150,6 +166,13 @@ export const Town = z.object({
    * (1 − oversell) + expectedRemaining × oversell. 0 = the ceiling (today's figure); 1 = the expected spend. PUT /api/town/defaults sets it.
    */
   oversell: z.number().min(0).max(1).optional(),
+  /**
+   * Exploration tokens a desk buys per day (gr_bre43gflz9): the daily exploration cap under a goal is its desks × this
+   * (core free-tokens.ts `exploreCapsOnPath`). Unset = EXPLORE_TOKENS_PER_DESK_SEED; PUT /api/town/defaults sets it.
+   */
+  exploreTokensPerDeskPerDay: z.number().int().nonnegative().optional(),
+  /** The tokens one explorer reserves (core free-tokens.ts `exploreRuleAt`). Unset = EXPLORE_CHUNK_SEED; PUT /api/town/defaults sets it. */
+  exploreChunkTokens: z.number().int().positive().optional(),
   /** Publish to GitHub (TownPublish): unset until an admin saves a repo */
   publish: TownPublish.optional(),
   /** search engines' site-verification tokens shown as meta tags on the root homepage (gr_92sfjss7w3); PUT /api/town/site-verification (an admin) sets them */
@@ -1603,7 +1626,7 @@ export const Goal = z.object({
   exploreCapTokensPerDay: z.number().int().nonnegative().nullable().default(null),
   /** the explore rule (docs/how-work-gets-done.md §3), inherited down the tree (null = inherit; the root's null = on): whether the runtime tick starts explorers for buildings attached at or under it */
   explore: z.boolean().nullable().default(null),
-  /** the tokens one explorer reserves (inherited; the root's null = EXPLORE_CHUNK_TOKENS, 100,000) */
+  /** read by nothing since gr_bre43gflz9 step 1: the chunk is the town default `Town.exploreChunkTokens` */
   exploreChunkTokens: z.number().int().positive().nullable().default(null),
   /**
    * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks (the sum of the headcounts of the buildings

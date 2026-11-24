@@ -44,7 +44,7 @@ export { financeSources, townSources, DELETED_INPUT, SOURCES_IDENTITY, type Fina
 export { cashCheck, financeCash, CASH_FLY_DAYS, CASH_IDENTITY, CASH_WINDOW_DAYS, type CashCheck, type CashInputs, type FinanceCash } from "./finance-cash.ts";
 export { financeFly, flyRate, townFly, DESK_MACHINE_DEFAULTS, FLY_IDENTITY, FLY_NOT_COUNTED, FLY_PRICES, TOWN_MACHINE, type FinanceFly, type FlyBuilding, type FlyDay, type FlyDayBuilding, type FlyInputs, type FlyOptions, type FlyRate } from "./finance-fly.ts";
 export { deskPreset, deskSizeFor, DESK_FALLBACK_SIZE, type DeskBill, type DeskSize } from "./desk-bill.ts";
-export { EXPLORE_CHUNK_TOKENS, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
+export { desksAt, desksTotalAt, desksUnder, exploreCapAt, exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokens, freeTokensAll, goalFunding } from "./free-tokens.ts";
 export { EXPLORE_CEILING_SHARE, EXPLORE_MAX_GAP_MS, EXPLORE_MIN_GAP_MS, assignmentSpent, emptyExplorations, exploreBlock, exploreGapMs, exploreResetAt, exploreOrder, exploreTick, reservationLeft, type SubTimer } from "./explore.ts";
 export { JOURNAL_MAX_LINES, JOURNAL_SEED_DAYS, JOURNAL_TITLE, ensureJournal, ensureJournals, journalLine, reportReason } from "./exploration-journal.ts";
 export { SESSION_CIRCUIT_BREAKER, circuitBreakerTick, type CircuitCut } from "./circuit-breaker.ts";

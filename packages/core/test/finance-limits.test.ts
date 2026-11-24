@@ -17,8 +17,8 @@ const assignments = [
 ];
 const buildings = [{ headcount: 2 }, { headcount: 3 }];
 const goals = [
-  { id: "gl_town", parentId: null, exploreCapTokensPerDay: 2_000 },
-  { id: "gl_sub", parentId: "gl_town", exploreCapTokensPerDay: 500 }, // not a root: not the town's cap
+  { id: "gl_town", parentId: null, desksTotal: null },
+  { id: "gl_sub", parentId: "gl_town", desksTotal: 1 }, // not a root: not the town's cap
 ];
 const sessions: S[] = [
   ses("2026-11-17", { lane: "exploration", output: 1_500, endedAt: "2026-11-17T11:00:00.000Z" }),
@@ -32,7 +32,7 @@ const sessions: S[] = [
 ];
 
 describe("financeLimits (GET /api/finance limits, gr_6c24p5uy01)", () => {
-  const { byDay, noEnd } = financeLimits({ sessions, assignments, buildings, goals, days }, NOW);
+  const { byDay, noEnd } = financeLimits({ sessions, assignments, buildings, goals, exploreTokensPerDeskPerDay: 400, days }, NOW);
 
   it("counts desk-hours busy of available, clipped to each day, host sessions left out", () => {
     expect(byDay.get("2026-11-17")).toMatchObject({ deskHoursBusy: 3.5, deskHours: 120, desks: 5 }); // 1 + 1.5 + 1 (to midnight)
@@ -64,9 +64,9 @@ describe("financeLimits (GET /api/finance limits, gr_6c24p5uy01)", () => {
     expect(limitsCheck(bad, 0)).toMatchObject({ ok: false, diff: 5 });
   });
 
-  it("an uncapped town has no cap and never reaches it", () => {
-    const { byDay: d } = financeLimits({ sessions, assignments, buildings, goals: [{ id: "gl_town", parentId: null, exploreCapTokensPerDay: null }], days }, NOW);
-    expect(d.get("2026-11-17")!.exploration).toMatchObject({ cap: null, capGoalId: null, reachedAt: null });
+  it("the cap is the root's desks × the per-desk default: its own desk total when set (gr_bre43gflz9)", () => {
+    const { byDay: d } = financeLimits({ sessions, assignments, buildings, goals: [{ id: "gl_town", parentId: null, desksTotal: 10 }], exploreTokensPerDeskPerDay: 1_000, days }, NOW);
+    expect(d.get("2026-11-17")!.exploration).toMatchObject({ cap: 10_000, capGoalId: "gl_town", reachedAt: null });
   });
 });
 

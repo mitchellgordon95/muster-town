@@ -2,7 +2,7 @@
 import type { Tile, AccessRequest, AccessRequestView, CaptainRequest, CaptainRequestView, Agent, Assignment, AssignmentCard, AuthMe, BlockedAssignment, BlockedBy, BuildingStats, ScheduleView, Building, Doc, Event, Meeting, MeetingFocusKind, Membership, MapLayout, RedeployLive, ReviewDeck, ReviewSlide } from "@muster-town/schema";
 import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, funderSlide, parseDeck } from "@muster-town/schema";
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type GoalProduced, type QueueBoard, type FunderWeek } from "@muster-town/schema";
-import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, DayLimits, WindowLimits, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
+import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, DayLimits, WindowLimits, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage, GrantPricingPatch } from "../api";
 import { ApiError } from "../api";
 import type { ClientErrorKindView, ClientErrorsView } from "../api";
 import type { ClientErrorPost } from "../clientErrors";
@@ -10,7 +10,7 @@ import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillV
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
 import { asks as fixtureAsks, explorationSpentToday, legible, memoryDocs, notices as fixtureNotices, stepCalibration } from "./fixture";
-import type { Ask, Notice, NoticeKind, StepSizeTable } from "@muster-town/schema";
+import type { Ask, Notice, NoticeKind } from "@muster-town/schema";
 import { branchAct, grantPricingOf } from "@muster-town/schema";
 import manualMd from "../../../../docs/manual.md?raw";
 
@@ -473,10 +473,9 @@ export class MockApi implements Api {
   /** GET /api/town/pricing (admin): the table, oversell and the calibration */
   async pricing() { await wait(); return { ...clone(grantPricingOf(this.sim.town)), stepCalibration: clone(stepCalibration), figuresAt: now() }; }
   /** PUT /api/town/defaults with the step-size table and oversell (admin) */
-  async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
+  async setGrantPricing(patch: GrantPricingPatch) {
     await wait(60);
-    const cur = grantPricingOf(this.sim.town);
-    const next = { stepSizes: patch.stepSizes ?? cur.stepSizes, oversell: patch.oversell ?? cur.oversell };
+    const next = grantPricingOf({ ...this.sim.town, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) });
     Object.assign(this.sim.town, next);
     return clone(next);
   }

@@ -502,7 +502,7 @@ export type AskView = Ask;
 /** GET /api/town: the snapshot (the step-size calibration is on GET /api/town/pricing and /api/health). */
 export type TownRead = Snapshot;
 /** GET /api/town/pricing (an admin): the step-size table, oversell, and the cached calibration beside them. */
-export interface PricingRead { stepSizes: StepSizeTable; oversell: number; stepCalibration: StepCalibration | null; figuresAt: string }
+export interface PricingRead { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number; stepCalibration: StepCalibration | null; figuresAt: string }
 /** GET /api/health as the web reads it: the town's funding, and the cached step-size calibration (the funding slate's expected spend). */
 export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null; legible?: LegibleView }
 /** A median with its sample (core queue-health.ts). */
@@ -529,7 +529,9 @@ export interface LegibleView {
   };
 }
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
-export interface GrantPricing { stepSizes: StepSizeTable; oversell: number }
+export interface GrantPricing { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number }
+/** PUT /api/town/defaults: the grant pricing and exploration fields to change. */
+export type GrantPricingPatch = Partial<GrantPricing>;
 
 /**
  * An entry on a job's thread that waits for a building's manager and has no report behind it (core jobs.ts): a session
@@ -692,8 +694,8 @@ export interface Api {
   deferAsk(id: string, until: string): Promise<AskView>;
   /** GET /api/notices: the feed, newest first; [] from a server without it */
   notices(q?: { building?: string; goal?: string; kind?: NoticeKind; limit?: number }): Promise<Notice[]>;
-  /** PUT /api/town/defaults (admin): the step-size table and oversell */
-  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }): Promise<GrantPricing>;
+  /** PUT /api/town/defaults (admin): the step-size table, oversell and the two exploration defaults */
+  setGrantPricing(patch: GrantPricingPatch): Promise<GrantPricing>;
   /** GET /api/town/pricing: the table, oversell and the cached calibration (admins: the planning desk's Step sizes tab) */
   pricing(): Promise<PricingRead>;
   /** GET /api/grants/:id: one grant or proposal (drafts only for its building's managers and funders), with `managing`: what its manager's wakes cost (gr_064fmkq31s) */
@@ -1047,9 +1049,10 @@ class HttpApi implements Api {
     catch (e) { if (e instanceof ApiError && e.status === 404) return []; throw e; }
   }
   async pricing() { return this.get<PricingRead>("/api/town/pricing"); }
-  async setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }) {
+  async setGrantPricing(patch: GrantPricingPatch): Promise<GrantPricing> {
     const r = await this.call<Partial<GrantPricing>>("PUT", "/api/town/defaults", patch);
-    return { stepSizes: r.stepSizes ?? patch.stepSizes ?? grantPricingOf({}).stepSizes, oversell: r.oversell ?? patch.oversell ?? 0 };
+    // an older server answers without the exploration fields: fall back to what was sent, then the seeds
+    return grantPricingOf({ ...patch, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)) });
   }
   async grant(id: string): Promise<GrantPage> {
     const r = await this.get<{ grant?: GrantView; managing?: Managing }>(`/api/grants/${id}`);
