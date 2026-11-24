@@ -16,7 +16,8 @@ import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from 
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
 import { collectives, renderHome, renderRetired } from "./home.ts";
-import { shareRoutes, siteRoutes } from "./share.ts";
+import { shareRoutes, sitePages, siteRoutes } from "./share.ts";
+import { IndexNow, indexNowEnabled } from "./indexnow.ts";
 import { CreateCollectiveInput, RenameCollectiveInput, type Hub } from "./hub.ts";
 import type { BackupJob } from "./backup/index.ts";
 import type { Directory } from "./directory/index.ts";
@@ -305,7 +306,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     const list = () => collectives(opts.world, opts.hub?.listed() ?? [], opts.collective);
     app.get("/", async (req, reply) => {
       if (/\?./.test(req.url)) return toWeb(req, reply);
-      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null, origin, app.directory?.list() ?? []));
+      return reply.type("text/html; charset=utf-8").send(renderHome(list(), haveWeb ? dist : null, origin, app.directory?.list() ?? [], opts.world.town.get().siteVerification));
     });
     app.get("/api/collectives", async () => ({ collectives: list() }));
     // Start a collective (docs/hosted-collectives.md step 3): anyone signed in with GitHub, one active collective each;
@@ -353,10 +354,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     });
     // the blog: published `blog` articles in Outreach, read per request (blog.ts; docs/blog.md)
     const posts = docPosts(opts.world, opts.blogBuildingId);
-    await app.register(blogRoutes(origin, posts, (slug, source) => countBlogRead(opts.world, slug, source), docHooks(opts.world, opts.blogBuildingId),
-      { pages: docHookPages(opts.world, opts.blogBuildingId), onView: (slug, source) => countHookView(opts.world, slug, source) }));
-    // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml (share.ts)
-    await app.register(siteRoutes({ origin, clientPath: WEB_BASE, posts }));
+    const hooks = docHooks(opts.world, opts.blogBuildingId), hookPages = docHookPages(opts.world, opts.blogBuildingId);
+    await app.register(blogRoutes(origin, posts, (slug, source) => countBlogRead(opts.world, slug, source), hooks,
+      { pages: hookPages, onView: (slug, source) => countHookView(opts.world, slug, source) }));
+    // every public page (gr_92sfjss7w3): /, each started collective's client, the blog and its posts, /hooks and each cause page
+    const pages = () => sitePages({ clientPaths: list().filter((c) => c.started && c.url).map((c) => c.url), posts: posts(), hooks: hooks(), hookPages: hookPages() });
+    // IndexNow (indexnow.ts): on muster.town only unless MUSTER_TOWN_INDEXNOW says; new or changed pages are pushed every 10 minutes
+    const indexNow = indexNowEnabled(townEnv("INDEXNOW"), townEnv("PUBLIC_URL")) ? new IndexNow({ world: opts.world, origin, pages, log: (l) => app.log.info(l) }) : null;
+    if (indexNow) { indexNow.start(); app.addHook("onClose", async () => indexNow.stop()); }
+    // what a link to the site unfurls with and what crawlers read: /og.png, /robots.txt, /sitemap.xml, /<indexnow key>.txt (share.ts)
+    await app.register(siteRoutes({ origin, pages, ...(indexNow && { indexNowKey: indexNow.key }) }));
     // its mailing list: the signup at the foot of each blog page (mailing-list.ts); double opt-in once RESEND_API_KEY is set
     await app.register(mailingListRoutes({ clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null, origin, mail: opts.mail ?? mailFromEnv() }));
     if (opts.directory) await app.register(directoryRoutes(opts.directory));

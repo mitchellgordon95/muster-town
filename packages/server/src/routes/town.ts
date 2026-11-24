@@ -1,5 +1,5 @@
 import { AppError, badRequest, openManagerEntries, LANE_KIND_WINDOWS, type LaneKindWindow, BANK_ACCOUNTING, BANK_MODEL, deskPreset, deskSizeFor, type World, buildingStats, accessContext, canDirect, accessRequestOf, defaultDirectGoal, directGrantsOf, grantDirect, membersView, revokeDirect, boardWithTownDocs, canInteract, decideAccess, resetOwnAccount, pendingAccessRequests, deskSlotRows, requestAccess, townManagerShares, sessionView, sessionListUsd, cents, setDeskSlot, cabinetCounts, cabinetDocs, reportChains, reviewDeck, presentedReviewDeck, intrayRoutes, funderWeek, rankRunView, listNotices, stepCalibration, legibleMeasures, operatingManualDoc } from "@muster-town/core";
-import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
+import { funderSlide, AccessDecisionInput, DirectGrantInput, AccessRequestInput, AddBankFee, AddBankInput, EndBankFee, CreateBuildingInput, DesksPatch, MapLayout, PutPublishInput, SiteVerificationInput, TownDefaultsPatch, DocType, DonateInput, LayoutInput, Membership, PlantFlagInput, RedeployInput, UpdateBuildingInput, apiKeyProblem, grantPricingOf, townEnv, REVIEW_DECK_ID, type AccessRequest, type AuthMe, type RedeployLive } from "@muster-town/schema";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { brotliDecompressSync } from "node:zlib";
 import { z } from "zod";
@@ -361,6 +361,23 @@ export async function townRoutes(app: FastifyInstance) {
     world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can change the retainer lookahead.");
     const { hours } = parse(z.object({ hours: z.number().int().min(1).max(168) }), req.body);
     return { retainerLookaheadHours: world.setRetainerLookahead(hours, world.ops.ensureAvatar(user.id).id), free: world.bank.freeTokens?.() ?? null };
+  });
+
+  /**
+   * Search engines' site verification (admin; gr_92sfjss7w3): `{google?, bing?}` tokens shown on the root homepage as
+   * google-site-verification and msvalidate.01 meta tags; "" clears one, left out keeps it. Logs it. → { siteVerification }
+   */
+  app.put("/api/town/site-verification", async (req) => {
+    const user = requireUser(req);
+    world.permissions.requireAdmin({ kind: "user", id: user.id }, "Only an admin can set the search engines' site verification.");
+    const given = parse(SiteVerificationInput, req.body);
+    const was = world.town.get().siteVerification ?? {};
+    const next = { ...was, ...given };
+    const siteVerification = Object.fromEntries(Object.entries(next).filter(([, v]) => v)) as { google?: string; bing?: string };
+    world.town.set({ siteVerification });
+    const named = Object.keys(siteVerification);
+    world.events.append({ type: "system", agentId: world.ops.ensureAvatar(user.id).id, text: `Search engine site verification ${named.length ? `set for ${named.join(" and ")}` : "cleared"}`, payload: { siteVerification: named } });
+    return { siteVerification };
   });
 
   /**

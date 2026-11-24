@@ -2,7 +2,8 @@
 // the town picture they show (/og.png), /robots.txt and /sitemap.xml. Shared doc and grant links were `#/doc/<id>` hash URLs
 // the server never sees, so every one unfurled the same; `<client>/doc/<id>` and `<client>/grant/<id>` now serve the
 // client with that doc's or grant's own tags and turn themselves back into the hash URL the client routes on.
-// Pure core (previewTags, withPreview, robotsTxt, sitemapXml), stateful shell (shareRoutes, siteRoutes).
+// Pure core (previewTags, withPreview, robotsTxt, sitePages, sitemapXml, siteJsonLd, verificationTags), stateful shell
+// (shareRoutes, siteRoutes). gr_92sfjss7w3 added every public page to the sitemap, the homepage JSON-LD and IndexNow (indexnow.ts).
 import { canSeeDoc } from "@muster-town/core";
 import type { World } from "@muster-town/core";
 import { grantName } from "@muster-town/schema";
@@ -70,14 +71,57 @@ export function excerpt(text: string, max = 200): string {
 /** /robots.txt: every crawler may read everything; the sitemap says what is there. */
 export const robotsTxt = (origin: string) => `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`;
 
-/** /sitemap.xml: the homepage, the Workshop's client, the blog and each public post (its date as lastmod). */
-export function sitemapXml(origin: string, clientPath: string, posts: { slug: string; date: string }[]): string {
-  const url = (path: string, lastmod?: string) => `  <url><loc>${esc(origin + path)}</loc>${lastmod ? `<lastmod>${esc(lastmod)}</lastmod>` : ""}</url>`;
+/** One public page for the sitemap and IndexNow: its path on the site and, when known, when it last changed. */
+export interface SitePage { path: string; lastmod?: string }
+
+/**
+ * Every public page (gr_92sfjss7w3): the homepage, each started collective's client, the blog and each public post,
+ * /hooks (when its doc exists) and each cause page. Paths are deduplicated, first one kept.
+ */
+export function sitePages(o: { clientPaths: string[]; posts: { slug: string; date: string; updated?: string }[]; hooks?: { updated?: string } | null; hookPages?: { slug: string; updated?: string }[] }): SitePage[] {
+  const all: SitePage[] = [
+    { path: "/" },
+    ...o.clientPaths.map((path) => ({ path })),
+    { path: "/blog" },
+    ...o.posts.map((p) => ({ path: `/blog/${p.slug}`, lastmod: p.updated ?? p.date })),
+    ...(o.hooks ? [{ path: "/hooks", lastmod: o.hooks.updated }] : []),
+    ...(o.hookPages ?? []).map((h) => ({ path: `/hooks/${h.slug}`, lastmod: h.updated })),
+  ];
+  const seen = new Set<string>();
+  return all.filter((p) => !seen.has(p.path) && (seen.add(p.path), true));
+}
+
+/** /sitemap.xml: every public page (`sitePages`), with its lastmod when known. */
+export function sitemapXml(origin: string, pages: SitePage[]): string {
+  const url = (p: SitePage) => `  <url><loc>${esc(origin + p.path)}</loc>${p.lastmod ? `<lastmod>${esc(p.lastmod)}</lastmod>` : ""}</url>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[url("/"), url(clientPath), url("/blog"), ...posts.map((p) => url(`/blog/${p.slug}`, p.date))].join("\n")}
+${pages.map(url).join("\n")}
 </urlset>
 `;
+}
+
+/** The repo search engines are told is Muster Town's own (JSON-LD sameAs). */
+const REPO = "https://github.com/mitchellgordon95/muster-town";
+
+/** The homepage's JSON-LD (gr_92sfjss7w3): a WebSite and an Organization named Muster Town, its logo and its repo. */
+export function siteJsonLd(origin: string): string {
+  const data = {
+    "@context": "https://schema.org",
+    "@graph": [
+      { "@type": "WebSite", "@id": `${origin}/#website`, name: SITE_NAME, alternateName: "muster.town", url: `${origin}/`, description: SITE_DESCRIPTION, publisher: { "@id": `${origin}/#org` } },
+      { "@type": "Organization", "@id": `${origin}/#org`, name: SITE_NAME, alternateName: "muster.town", url: `${origin}/`, logo: `${origin}/og.png`, sameAs: [REPO] },
+    ],
+  };
+  return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
+}
+
+/** The search engines' site-verification meta tags an admin set (PUT /api/town/site-verification); none when unset. */
+export function verificationTags(v: { google?: string; bing?: string } | undefined): string {
+  return [
+    v?.google ? `<meta name="google-site-verification" content="${esc(v.google)}">` : "",
+    v?.bing ? `<meta name="msvalidate.01" content="${esc(v.bing)}">` : "",
+  ].filter(Boolean).join("\n");
 }
 
 /** The preview of one shared doc or grant, or null when there is none to show (unknown id, a draft, a draft grant). */
@@ -119,8 +163,8 @@ export function shareRoutes(o: { world: World; origin: string; webBase: string; 
   };
 }
 
-/** The root's site files: /og.png, /robots.txt, /sitemap.xml. `posts` lists the blog's public posts per request. */
-export function siteRoutes(o: { origin: string; clientPath: string; posts: () => { slug: string; date: string }[]; image?: string }) {
+/** The root's site files: /og.png, /robots.txt, /sitemap.xml and, with a key, IndexNow's /<key>.txt. `pages` lists every public page per request (`sitePages`). */
+export function siteRoutes(o: { origin: string; pages: () => SitePage[]; image?: string; /** IndexNow's key (indexnow.ts): served at /<key>.txt */ indexNowKey?: string }) {
   const file = o.image ?? OG_IMAGE;
   return async (app: FastifyInstance) => {
     app.get("/og.png", async (_req, reply) => {
@@ -129,6 +173,8 @@ export function siteRoutes(o: { origin: string; clientPath: string; posts: () =>
     });
     app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").send(robotsTxt(o.origin)));
     app.get("/sitemap.xml", async (_req, reply) =>
-      reply.type("application/xml; charset=utf-8").header("cache-control", "no-cache").send(sitemapXml(o.origin, o.clientPath, o.posts())));
+      reply.type("application/xml; charset=utf-8").header("cache-control", "no-cache").send(sitemapXml(o.origin, o.pages())));
+    const key = o.indexNowKey;
+    if (key) app.get(`/${key}.txt`, async (_req, reply) => reply.type("text/plain; charset=utf-8").send(key));
   };
 }
