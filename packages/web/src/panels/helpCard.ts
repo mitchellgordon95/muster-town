@@ -38,7 +38,9 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   planning: ["Planning desk", "where admins set up buildings."],
   "mod-station": ["Mod station", "where town moderators sit."],
 };
-const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "operating-manual", "cabinet", "intray", "stats", "schedule", "meeting-room", "planning", "mod-station", "desk"];
+const ORDER: Place["kind"][] = ["board", "cabinet", "intray", "schedule", "meeting-room", "desk"];
+/** The Town Hall leads with its three main things, then the rest (Mitchell, 1:1 mt_8imtwy68zc); the town map is outside now. */
+const HALL_ORDER: Place["kind"][] = ["hydrant", "goal-tree", "meeting-room", "board", "library", "operating-manual", "stats", "schedule", "planning", "mod-station"];
 
 export function helpCard(
   b: { id: string; name: string; kind: "lab" | "town-hall"; goal: string; managerAgentId?: string | null },
@@ -48,7 +50,7 @@ export function helpCard(
   const hall = b.kind === "town-hall", lines = hall ? HALL : LAB;
   const here = places.filter((p) => p.buildingId === b.id);
   const things: HelpThing[] = [];
-  for (const kind of ORDER) {
+  for (const kind of hall ? HALL_ORDER : ORDER) {
     const l = lines[kind];
     // desks: the first one with an agent at it, else the first free one
     const p = kind === "desk" ? here.find((x) => x.kind === "desk" && !x.id.startsWith("desk:free:")) ?? here.find((x) => x.kind === "desk") : here.find((x) => x.kind === kind);
@@ -59,7 +61,7 @@ export function helpCard(
   // the Town Hall's manager is the root goal's captain (a human), not the Planner: no ★ there (1:1 mt_1vs893enaw)
   const manager = !hall && b.managerAgentId ? agents[b.managerAgentId] ?? null : null;
   const click = can.touch ? "Tap" : "Click";
-  const read = hall ? "Read the board, the library and the goal tree" : "Read the board and the filing cabinet";
+  const read = hall ? "Read the goal tree, the board and the library" : "Read the board and the filing cabinet";
   const talk = can.talk && manager ? [`Talk to the manager: ${click.toLowerCase()} ★ ${manager.name}, then Talk.`] : [];
   const flag = can.flag ? [`Plant a flag${can.touch ? "" : " (F)"} to ask this building for something.`] : [];
   const todo =

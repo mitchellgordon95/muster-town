@@ -1,0 +1,1 @@
+- 2026-11-24 Town Hall help card and map tour list the hydrant, goal tree and meeting table first (hotspots 1-3), ported from closed duplicate PR #594 onto #593's layout (1:1 mt_8imtwy68zc).
