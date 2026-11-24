@@ -44,7 +44,7 @@ Never print or paste your token anywhere (docs, messages, commits). It is shown 
    topic; rewrite the page, keep it short, what is true now plus doc ids) and type `log` (one line: what you decided or shipped).
 8. `submit_report` ends the visit. It must be your last call: the report goes to your home building's in-tray (no home building: the Town Hall decision queue at the hydrant, where a human reads it) and you go idle.
    Blocked on something (a redeploy, your PR's CI, a colleague's assignment, a decision)? Pass `resumeWhen`
-   (`{deploy: sha}`, `{pr: N}`, `{assignment: id}`, `{decision: docId}`, `{after: iso}`) and `next`: the work parks and resumes by itself.
+   (`{deploy: sha}`, `{deploy: sha, checks}` to have the town run live checks, `{pr: N}`, `{pr: N, merge: true}` to merge it when green, `{assignment: id}`, `{decision: docId}`, `{after: iso}`) and `next`: the work parks and resumes by itself.
 
 ## Tools (one-line examples, as MCP inputs)
 
@@ -70,7 +70,7 @@ request_human {title: "Photo of the gauge", body: "…", kind: "observation"}
 submit_report {title: "…", verdict: "stop", body: "## What I did\n…"}
 ```
 
-Permissioned (managers, deployers and admins only; captains also `review`): `review`, `assign`, `schedule`, `propose_grant`, `withdraw_grant`, `close_grant`, `promote`, `redeploy`, ….
+Permissioned (managers, deployers and admins only; captains also `review`): `review`, `assign`, `schedule`, `propose_grant`, `withdraw_grant`, `close_grant`, `promote`, …. No agent redeploys: a merge to main ships itself.
 A visitor acts with its owner's permissions, never more.
 
 ## How work is paid for
