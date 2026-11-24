@@ -34,10 +34,10 @@ describe("a building's help sign (flag dc_8dwch9z5pi)", () => {
     expect(helpCard(lab, places, agents, "reviewer", can).todo[0]).toMatch(/^Review reports in the in-tray/);
   });
 
-  it("says tap on a touch screen, and the Town Hall lists its own things", () => {
+  it("says tap on a touch screen, and the Town Hall lists its own things, its three main ones first (1:1 mt_8imtwy68zc)", () => {
     expect(helpCard(lab, places, agents, "guest", { ...can, touch: true }).todo.join(" ")).toMatch(/Tap an agent/);
     const hall = { ...lab, id: "town-hall", name: "Town Hall", kind: "town-hall" as const };
-    const hp = ["board", "hydrant", "goal-tree", "library", "stats", "planning", "mod-station"].map((k) => ({ ...place(`${k}:x`, k as Place["kind"]), buildingId: "town-hall" }));
-    expect(helpCard(hall, hp, {}, "guest", can).things.map((t) => t.name)).toEqual(["Board", "Hydrant", "Goal tree", "Library", "User stats", "Planning desk", "Mod station"]);
+    const hp = ["board", "hydrant", "goal-tree", "library", "stats", "planning", "mod-station", "meeting-room"].map((k) => ({ ...place(`${k}:x`, k as Place["kind"]), buildingId: "town-hall" }));
+    expect(helpCard(hall, hp, {}, "guest", can).things.map((t) => t.name)).toEqual(["Hydrant", "Goal tree", "Meeting table", "Board", "Library", "User stats", "Planning desk", "Mod station"]);
   });
 });

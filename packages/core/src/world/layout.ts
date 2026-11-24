@@ -30,11 +30,11 @@ export const TOWN_HALL_FIXTURES = {
   /** planning desk bottom-right */
   planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
   /** the hydrant: the stream of asks and notices, opening the decision queue (docs/legible-delegation.md §3) */
-  hydrant: { x: 2, y: 6 }, hydrantStand: { x: 2, y: 7 },
+  hydrant: { x: 4, y: 5 }, hydrantStand: { x: 4, y: 6 },
   /** schedule board next to the town meeting room table */
-  schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
-  /** the Town Hall board (town-wide FYIs) on the back wall, above the middle */
-  board: { x: 8, y: 0 }, boardStand: { x: 8, y: 1 },
+  schedule: { x: 15, y: 5 }, scheduleStand: { x: 15, y: 6 },
+  /** the Town Hall board (town-wide FYIs) on the back wall, left of the goal tree */
+  board: { x: 3, y: 0 }, boardStand: { x: 3, y: 1 },
   /** v1.4 visitor bench (default spot; furniture piece `bench`): visitors wait on the row above it */
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
 } as const;
@@ -164,7 +164,6 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: stand("bench") },
         { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: stand("library") },
         { id: "operating-manual", kind: "operating-manual", name: "Operating manual (a book: how jobs, threads, reports and asks work here)", buildingId: b.id, pos: stand("manual") },
-        { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: stand("town-map") },
         { id: "goal-tree", kind: "goal-tree", name: "Goal tree (the town's goals, key results and proposals)", buildingId: b.id, pos: stand("goal-tree") },
         { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: stand("stats") },
         { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: stand("meeting") },
@@ -211,6 +210,13 @@ export function computeLayout(buildings: Building[], goals: TreeGoal[], occupanc
   if (board) {
     set(board.x, board.y, TILE.BULLETIN);
     places.push({ id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: board.x, y: board.y + 1 } });
+  }
+  // the town map board, the bulletin board's twin on the other side of the Town Hall's door (Mitchell, 1:1 mt_8imtwy68zc:
+  // the town's organization board moves outside the Town Hall): E or a click opens town planning
+  const map = tree.townMap ?? (hallDoor ? bulletinSpot(tiles, w, h, hallDoor, places, 3) : null);
+  if (map) {
+    set(map.x, map.y, TILE.TOWN_MAP);
+    places.push({ id: "town-map", kind: "town-map", name: "Town map board (where buildings go, in the town square)", buildingId: null, pos: { x: map.x, y: map.y + 1 } });
   }
   const grid = { w, h, tiles };
   // a dragged agent's home place is where it was dropped (flag dc_d2wkuhoh1l); the desk stays put
@@ -268,14 +274,14 @@ function bankRoom(set: (x: number, y: number, t: number) => void, places: Place[
 }
 
 /**
- * Where the bulletin board goes when the shape didn't say (the "tree" and "radial" maps): the grass tile nearest the
- * spot three tiles left of and one below the Town Hall's door whose tile below is walkable, two tiles clear of the door
- * and on no place's tile. Pure: the same map gives the same spot.
+ * Where the bulletin board (`dx` -3) or the town map board (`dx` 3) goes when the shape didn't say (the "tree" and
+ * "radial" maps): the grass tile nearest the spot `dx` tiles right of and one below the Town Hall's door whose tile
+ * below is walkable, two tiles clear of the door and on no place's tile. Pure: the same map gives the same spot.
  */
-function bulletinSpot(tiles: number[], w: number, h: number, door: Tile, places: Place[]): Tile | null {
+function bulletinSpot(tiles: number[], w: number, h: number, door: Tile, places: Place[], dx = -3): Tile | null {
   const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < w && y < h ? tiles[y * w + x] : -1);
   const taken = new Set(places.map((p) => `${p.pos.x},${p.pos.y}`));
-  const aim = { x: door.x - 3, y: door.y + 1 };
+  const aim = { x: door.x + dx, y: door.y + 1 };
   let best: Tile | null = null, bestD = Infinity;
   for (let y = Math.max(0, door.y - 2); y < Math.min(h - 1, door.y + 8); y++) for (let x = Math.max(0, door.x - 10); x < Math.min(w, door.x + 11); x++) {
     if (at(x, y) !== TILE.GRASS || !WALKABLE.has(at(x, y + 1))) continue;

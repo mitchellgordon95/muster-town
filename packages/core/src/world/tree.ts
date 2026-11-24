@@ -74,6 +74,8 @@ export interface TreeLayout {
   decor?: { at: Tile; tile: number }[];
   /** the humans' bulletin board in the town square (place `bulletin:town`; its stand is the tile below); other shapes leave it to layout.ts */
   bulletin?: Tile;
+  /** the town map board in the square (place `town-map`, opens town planning; its stand is the tile below), mirroring the bulletin board; other shapes leave it to layout.ts */
+  townMap?: Tile;
   w: number;
   h: number;
 }

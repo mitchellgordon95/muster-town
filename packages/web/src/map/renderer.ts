@@ -28,7 +28,7 @@ import { HydrantStream, poolWidth, prefersReducedMotion, streamParticles } from 
 /** `index`/`count`: position among everything in reach, so the HUD can show "Tab 2/3" when targets overlap. */
 const keyOf = (t: Target) => `${t.panel.kind}:${t.panel.id ?? ""}:${t.label}`;
 
-/** `action`: E does this instead of opening a panel. `flow`: the Bank's town map (the zoomed-out coin flow); `plan`: town planning (the Town Hall map table). */
+/** `action`: E does this instead of opening a panel. `flow`: the Bank's town map (the zoomed-out coin flow); `plan`: town planning (the town map board in the square). */
 export interface Target { label: string; panel: PanelRef; agentId?: string; index?: number; count?: number; action?: "flow" | "plan" | "manual" }
 interface Body { x: number; y: number; fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; moving: boolean; key: string }
 
@@ -368,7 +368,7 @@ export class MapRenderer {
   }
 
   /** The meeting-room place whose table is under a screen point (CSS px): the table opens the building's meetings, like a banner opens its panel. */
-  /** the Town Hall map table (TILE.TOWN_MAP) under a canvas point: a click opens town planning */
+  /** the town map board in the square (TILE.TOWN_MAP) under a canvas point: a click opens town planning */
   mapTableAt(cx: number, cy: number): boolean {
     const w = this.world; if (!w) return false;
     const t = this.tileAt(cx, cy);

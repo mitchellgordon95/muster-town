@@ -52,34 +52,35 @@ export function piecesFor(kind: "lab" | "town-hall", headcount: number, lot: { w
 function southFacingPieces(kind: "lab" | "town-hall", headcount: number, lot: { w: number; h: number }): Piece[] {
   const { w: bw, h: bh } = lot;
   if (kind === "town-hall") {
+    // Three things lead the room (Mitchell, 1:1 mt_8imtwy68zc): the goal tree, a wide chart on the back wall straight
+    // ahead of the door with a plant either side; the hydrant on the left and the meeting table on the right, both in the
+    // middle of the floor. Everything else keeps to the edges: the library is one shelf and the manual one book in the
+    // top-left corner, the board and the stats stand at the top corners, the desks along the bottom wall. The town map is
+    // no longer in here: it is a board in the square, outside the door (layout.ts `townMapSpot`, square.ts).
     return [
       { key: "mod-station", label: "Mod station", at: { x: 2, y: 8 }, cells: row(3, TILE.DESK), stands: [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 0 }] },
       // v1.4 visitor bench right of the door corridor; visitors wait on the row above it (stands = the two seats)
       { key: "bench", label: "Visitor bench", at: { x: 10, y: 9 }, cells: row(2, TILE.BENCH), stands: [{ x: 0, y: -1 }, { x: 1, y: -1 }] },
       { key: "planning", label: "Planning desk", at: { x: 12, y: 9 }, cells: row(2, TILE.DESK), stands: [{ x: 0, y: -1 }] },
-      { key: "schedule", label: "Schedule board", at: { x: 15, y: 6 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
-      // the Town Hall board on the back wall: town-wide FYIs (Mitchell's flag dc_ym8fjxqjiv)
-      { key: "board", label: "Town Hall board", at: { x: 8, y: 0 }, cells: one(TILE.BOARD), stands: [{ x: 0, y: 1 }], wall: true },
-      // the goal tree wall chart above the town map table: opens the goal editor (docs/goals.md)
-      { key: "goal-tree", label: "Goal tree", at: { x: 12, y: 0 }, cells: one(TILE.GOAL_CHART), stands: [{ x: 0, y: 1 }], wall: true },
-      // the operating manual as a book open on a lectern just right of the shelves: opens the manual page (Mitchell, 2026-11-16)
-      { key: "manual", label: "Operating manual", at: { x: 7, y: 2 }, cells: one(TILE.BOOK), stands: [{ x: 0, y: 1 }] },
-      { key: "library", label: "Library shelves", at: { x: 2, y: 2 }, cells: row(5, TILE.SHELF), stands: [{ x: 2, y: 1 }] },
-      // the town map table where the trophy cases were: 5x2, used from the middle of its front edge (opens town planning)
-      { key: "town-map", label: "Town map table", at: { x: 10, y: 2 }, cells: [...row(5, TILE.TOWN_MAP), ...row(5, TILE.TOWN_MAP).map((c) => ({ ...c, dy: 1 }))], stands: [{ x: 2, y: 2 }] },
+      { key: "schedule", label: "Schedule board", at: { x: 15, y: 5 }, cells: one(TILE.SCHEDULE), stands: [{ x: 0, y: 1 }] },
+      // the Town Hall board on the back wall, left of the goal tree: town-wide FYIs (Mitchell's flag dc_ym8fjxqjiv)
+      { key: "board", label: "Town Hall board", at: { x: 3, y: 0 }, cells: one(TILE.BOARD), stands: [{ x: 0, y: 1 }], wall: true },
+      // the goal tree: a chart three tiles wide on the back wall, opposite the door; opens the goal editor (docs/goals.md)
+      { key: "goal-tree", label: "Goal tree", at: { x: 7, y: 0 }, cells: row(3, TILE.GOAL_CHART), stands: [{ x: 1, y: 1 }], wall: true },
+      // the library: one shelf in the top-left corner, the operating manual a book on a lectern beside it (Mitchell, 2026-11-16)
+      { key: "library", label: "Library shelf", at: { x: 1, y: 1 }, cells: one(TILE.SHELF), stands: [{ x: 0, y: 1 }] },
+      { key: "manual", label: "Operating manual", at: { x: 2, y: 1 }, cells: one(TILE.BOOK), stands: [{ x: 0, y: 1 }] },
       // the hydrant (docs/legible-delegation.md §3): the stream of asks and notices pours from it; it opens the decision
-      // queue, one item at a time (the Town Hall in-tray is gone), and the Secretary rests north-east of it. It stands where the
-      // outbox counter was; the outbox is gone from the map (Mitchell's flag dc_f3xcob2n9u)
-      // The Secretary rests one tile east and three north of it, just under the library shelves, so neither his sprite nor his
-      // speech bubble covers it (Mitchell's flags dc_zkzi4xnue4, dc_ea9wdns25e: straight north the sprite still covered the
-      // hydrant; then dc_hrm72814k5: a few tiles further north)
-      { key: "hydrant", label: "Hydrant", at: { x: 2, y: 6 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: 1 }], rest: { x: 1, y: -3 } },
-      { key: "stats", label: "User stats stand", at: { x: 5, y: 6 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
-      { key: "meeting", label: "Meeting table", at: { x: 10, y: 6 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
+      // queue, one item at a time. The Secretary rests two tiles west and one north of it, so neither his sprite nor his
+      // speech bubble covers it (Mitchell's flags dc_zkzi4xnue4, dc_ea9wdns25e, dc_hrm72814k5)
+      { key: "hydrant", label: "Hydrant", at: { x: 4, y: 5 }, cells: one(TILE.HYDRANT), stands: [{ x: 0, y: 1 }], rest: { x: -2, y: -1 } },
+      { key: "stats", label: "User stats stand", at: { x: 15, y: 1 }, cells: one(TILE.STATS), stands: [{ x: 0, y: 1 }] },
+      { key: "meeting", label: "Meeting table", at: { x: 10, y: 5 }, cells: row(4, TILE.TABLE), stands: [{ x: 1, y: 1 }], table: true },
       // the "?" help sign two tiles left of the door, read from the tile beside the doorway (Mitchell's flag dc_8dwch9z5pi)
       { key: "help", label: "Help sign", at: { x: 6, y: 9 }, cells: one(TILE.HELP), stands: [{ x: 1, y: 0 }] },
-      { key: "plant:0", label: "Plant", at: { x: 1, y: 1 }, cells: one(TILE.PLANT), stands: [] },
-      { key: "plant:1", label: "Plant", at: { x: bw - 2, y: 1 }, cells: one(TILE.PLANT), stands: [] },
+      // a plant either side of the goal tree
+      { key: "plant:0", label: "Plant", at: { x: 6, y: 1 }, cells: one(TILE.PLANT), stands: [] },
+      { key: "plant:1", label: "Plant", at: { x: 10, y: 1 }, cells: one(TILE.PLANT), stands: [] },
     ];
   }
   const cols = Math.min(3, Math.max(1, headcount));

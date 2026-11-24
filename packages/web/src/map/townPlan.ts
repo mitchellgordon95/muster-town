@@ -38,7 +38,7 @@ export function useTownPlan(): PlanDraft | null {
   return useSyncExternalStore(townPlan.subscribe, () => draft, () => draft);
 }
 
-/** The Town Hall map table (E or a click): the whole town, drawn from the goal tree. */
+/** The town map board in the square (E or a click): the whole town, drawn from the goal tree. */
 export function openTownPlanning() {
   townPlan.start();
 }
