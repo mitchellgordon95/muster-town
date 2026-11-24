@@ -1,5 +1,5 @@
 import { ToolResults } from "./forkstatus.ts";
-import { NOT_GONE, ROOT_GOAL_ID, canTransition, grantPricingOf, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type StepSizeTable, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
+import { NOT_GONE, ROOT_GOAL_ID, canTransition, grantPricingOf, mapFlagOf, townEnv, type Agent, type AgentStatus, type Building, type BuildingDefaults, type DesksConfig, type FounderProgress, type MapLayout, type RedeployLive, type RedeployResult, type RepoMode, type ServerMessage, type StepSizeTable, type GrantPricingDefaults, type Tile, type TownPublish, type Town, type PublishTokenSource } from "@muster-town/schema";
 import { Bank } from "./bank.ts";
 import { Budget } from "./budget.ts";
 import { Goals } from "./goals.ts";
@@ -394,12 +394,18 @@ export class World {
    * a proposal's ask is the sum of its steps' sizes; oversell scales funded grants' earmarks toward their expected spend.
    * The caller checks admin. Logs it.
    */
-  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number }, by: string | null = null): { stepSizes: StepSizeTable; oversell: number } {
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number }, by: string | null = null): GrantPricingDefaults {
     const was = grantPricingOf(this.town.get());
-    const t = grantPricingOf(this.town.set({ ...(patch.stepSizes && { stepSizes: patch.stepSizes }), ...(patch.oversell !== undefined && { oversell: patch.oversell }) }));
+    const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as typeof patch;
+    const t = grantPricingOf(this.town.set(given));
     const sizes = (x: StepSizeTable) => `S ${x.S.toLocaleString("en-US")}, M ${x.M.toLocaleString("en-US")}, L ${x.L.toLocaleString("en-US")}`;
-    this.events.append({ type: "system", agentId: by, text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%)`, payload: { stepSizes: t.stepSizes, oversell: t.oversell, from: { stepSizes: was.stepSizes, oversell: was.oversell } } });
-    return { stepSizes: t.stepSizes, oversell: t.oversell };
+    const n = (x: number) => x.toLocaleString("en-US");
+    this.events.append({
+      type: "system", agentId: by,
+      text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%), exploration ${n(t.exploreTokensPerDeskPerDay)} tokens per desk per day (was ${n(was.exploreTokensPerDeskPerDay)}), explorer chunk ${n(t.exploreChunkTokens)} (was ${n(was.exploreChunkTokens)})`,
+      payload: { ...t, from: was },
+    });
+    return t;
   }
 
   /** Set the retainer lookahead (`PUT /api/town/retainer-lookahead`, an admin): hours of due runs a retainer claims. Logs it. */

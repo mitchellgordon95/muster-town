@@ -1,4 +1,4 @@
-import { AddBankFee, AddBankInput, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type LedgerCutoff, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
+import { AddBankFee, AddBankInput, grantPricingOf, EndBankFee, type BankFee, ZERO_TOKENS, addTokens, backfillFamily, oauthTokenProblem, countsOf, rawPerAdjusted, rawTokens, sliceTokens, splitByMix, splitRaw, subTokens, type TokenCounts, type TokenMix, type LedgerCutoff, type BankCredit, type BankInput, type CredentialLimit, type BankRecurrence, type FreeTokens, type Agent, type Session, type SessionView } from "@muster-town/schema";
 import { Availability, inForce, limitText } from "./availability.ts";
 import { CAP_THOUGHT, countDeaths, type BankDeaths } from "./caps.ts";
 import { driftRows, parseResetsAt, previousUtcDay, utcDay, type DriftRow } from "./drift.ts";
@@ -992,7 +992,7 @@ export class Bank {
     // how much of what came in was used (finance-utilization.ts, gr_z13gmx54su): 7 and 30 days, per subscription credit
     const u = utilizationAgainstDaily(financeUtilization({ credits, debits }, now), daily.rows);
     // what held spending back each day (finance-limits.ts, gr_6c24p5uy01): desk use, the exploration cap, grant work, held work
-    const lim = financeLimits({ sessions, assignments, buildings: this.repos.buildings.all(), goals: this.repos.goals.all(), days: daily.rows.map((r) => r.day) }, now);
+    const lim = financeLimits({ sessions, assignments, buildings: this.repos.buildings.all(), goals: this.repos.goals.all(), exploreTokensPerDeskPerDay: grantPricingOf(this.repos.town.get()).exploreTokensPerDeskPerDay, days: daily.rows.map((r) => r.day) }, now);
     for (const r of daily.rows) r.limits = lim.byDay.get(r.day);
     const utilization: FinanceUtilization = {
       ...u, d7: { ...u.d7, limits: windowLimits(daily.rows, u.d7.from, u.d7.to, u.d7.days) }, d30: { ...u.d30, limits: windowLimits(daily.rows, u.d30.from, u.d30.to, u.d30.days) },

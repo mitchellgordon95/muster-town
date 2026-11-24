@@ -499,12 +499,17 @@ describe("meetings, roles, budget, events, human moves", () => {
     expect(bank.body.free).toMatchObject({ goalId: "gl_town", generalTokens: 2000, freeTokens: 2000 });
     expect((await json(app, "GET", "/api/bank/pools")).status).toBe(404);
     expect((await json(app, "POST", "/api/bank/pools", { headers: auth, body: { name: "Forty", pct: 40 } })).status).toBe(404);
-    // the optional exploration cap is the goal's (inherited down the tree); its funding shows the free tokens under it
+    // the exploration cap is the goal's desks × the town default per desk (gr_bre43gflz9); its funding shows the free tokens under it
     const own = (await json(app, "POST", "/api/goals", { headers: auth, body: { parentId: "gl_town", text: "Carbon's goal" } })).body.goal.id;
     await json(app, "PATCH", "/api/buildings/carbon-cycle", { headers: auth, body: { goalId: own } });
-    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding).toMatchObject({ exploreCap: null, exploreSpentTodayTokens: 0, free: { goalId: own, freeTokens: 2000 } });
+    const desks = (await json(app, "GET", `/api/goals/${own}`)).body.funding.exploreCap.tokensPerDay / 22_727;
+    expect(Number.isInteger(desks) && desks > 0).toBe(true);
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding).toMatchObject({ exploreCap: { tokensPerDay: desks * 22_727, goalId: own }, exploreSpentTodayTokens: 0, free: { goalId: own, freeTokens: 2000 } });
+    const put = await json(app, "PUT", "/api/town/defaults", { headers: auth, body: { exploreTokensPerDeskPerDay: 500, exploreChunkTokens: 50_000 } });
+    expect(put.body).toMatchObject({ exploreTokensPerDeskPerDay: 500, exploreChunkTokens: 50_000 });
+    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding).toMatchObject({ exploreCap: { tokensPerDay: desks * 500, goalId: own }, explore: { chunkTokens: 50_000 } });
+    // the goal's old column is still accepted but read by nothing
     expect((await json(app, "PATCH", "/api/goals/gl_town", { headers: auth, body: { exploreCapTokensPerDay: 500 } })).body.goal.exploreCapTokensPerDay).toBe(500);
-    expect((await json(app, "GET", `/api/goals/${own}`)).body.funding.exploreCap).toEqual({ tokensPerDay: 500, goalId: "gl_town" });
     expect((await json(app, "PATCH", `/api/goals/${own}`, { body: { exploreCapTokensPerDay: 1 } })).status).toBe(401);
     expect((await json(app, "PUT", "/api/bank/shares/carbon-cycle", { headers: auth, body: { pct: 40 } })).status).toBe(404);
     expect(JSON.stringify(bank.body)).not.toContain("sk-secret");

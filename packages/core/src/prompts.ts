@@ -269,7 +269,7 @@ export function keyResultsBlock(world: World, building: Building, assignment?: A
   return `Goals and grants (this building is goal-directed: every session runs in a lane, grant, exploration or directed):
 ${attached}
 ${lines.join("\n")}${ideas.length ? `\nIdeas left from the old goal key results (dropped when key results merged into grants; a grant proposal can take one up): ${ideas.map((k) => `"${oneLine(k.text, 120)}"`).join("; ")}` : ""}
-Exploration today: ${tok(board.exploration.spentTodayTokens)} tokens (no allowance: held only when no tokens are free under the goal${board.exploration.cap ? ` or the cap of ${tok(board.exploration.cap.tokensPerDay)} / day set on goal ${board.exploration.cap.goalId} is reached, ${tok(board.exploration.cap.spentTodayTokens)} used` : ""}). Free tokens under the goal: ${tok(board.exploration.freeTokens)}. Directed today: ${tok(board.directed.spentTodayTokens)} tokens (a human asked; never held for money).${lane ? `\n${lane}` : ""}`;
+Exploration today: ${tok(board.exploration.spentTodayTokens)} tokens (no allowance: held only when no tokens are free under the goal${board.exploration.cap ? ` or the cap of ${tok(board.exploration.cap.tokensPerDay)} / day from the desks of goal ${board.exploration.cap.goalId} is reached, ${tok(board.exploration.cap.spentTodayTokens)} used` : ""}). Free tokens under the goal: ${tok(board.exploration.freeTokens)}. Directed today: ${tok(board.directed.spentTodayTokens)} tokens (a human asked; never held for money).${lane ? `\n${lane}` : ""}`;
 }
 
 /**

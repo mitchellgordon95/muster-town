@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { World, buildingRoleId, migrate, migrateRoles, newId, nowIso, townRoleId } from "../src/index.ts";
+import { World, buildingRoleId, desksUnder, migrate, migrateRoles, newId, nowIso, townRoleId } from "../src/index.ts";
 import { freshWorld, seededWorld, tempDir } from "./helpers.ts";
 
 const LAB = "carbon-cycle";
@@ -69,11 +69,13 @@ describe("goal-directed budgets, step 1 foundation", () => {
   });
 });
 
-describe("goal budget settings (the optional exploration cap lives on the goal)", () => {
-  it("a new building's goal sets no exploration cap: uncapped", () => {
+describe("goal budget settings (the exploration cap derives from desks, gr_bre43gflz9)", () => {
+  it("a new building's goal is capped at its desks × the town default", () => {
     const { world, admin } = seededWorld();
     const b = world.ops.createBuilding(admin, { name: "New lab" });
-    expect(world.grantDesk.exploration(b.id).cap).toBeNull();
+    const cap = world.grantDesk.exploration(b.id).cap!;
+    expect(cap.tokensPerDay).toBe(desksUnder(world, cap.goalId) * 22_727);
+    expect(cap.tokensPerDay).toBeGreaterThan(0);
   });
 
   it("exploreCapTokensPerDay on a goal needs a human funder: an admin or the goal's owner yes, an agent manager no", () => {
@@ -84,7 +86,8 @@ describe("goal budget settings (the optional exploration cap lives on the goal)"
     world.goalTree.update(admin, goal.id, { ownerId: owner.id });
     const avatar = world.ops.ensureAvatar(owner.id);
     expect(world.goalTree.update(avatar, goal.id, { exploreCapTokensPerDay: 1_500_000 }).exploreCapTokensPerDay).toBe(1_500_000);
-    expect(world.grantDesk.exploration(LAB).cap).toEqual({ tokensPerDay: 1_500_000, goalId: goal.id, spentTodayTokens: 0 });
+    // the column is kept and editable (by a human funder) but read by nothing: the cap is the goal's desks × the default
+    expect(world.grantDesk.exploration(LAB).cap).toEqual({ tokensPerDay: world.buildings.require(LAB).headcount * 22_727, goalId: goal.id, spentTodayTokens: 0 });
     const resident = world.agents.first("homeBuildingId = ? AND kind = 'resident'", [LAB])!;
     world.permissions.grant(resident, buildingRoleId(LAB, "manager"));
     expect(() => world.goalTree.update(resident, goal.id, { exploreCapTokensPerDay: 9_000_000 })).toThrow(/captain of|building.fund/);

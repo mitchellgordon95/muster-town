@@ -133,17 +133,19 @@ describe("goal-directed budgets: the canStart gate", () => {
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
     expect(world.budget.canStart(noor.id, dir)).toBe(true);
     expect(world.assignments.require(dir.id).heldReason).toBeNull();
-    // no cap anywhere up the tree: spend doesn't hold it
+    // the seed cap (desks × 22,727) is far above today's spend: it doesn't hold it
     spend(noor.id, 2000, "exploration");
-    expect(world.grantDesk.exploration(LAB).cap).toBeNull();
+    expect(world.grantDesk.exploration(LAB).cap!.tokensPerDay).toBeGreaterThan(2000);
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
-    // a cap on the root is town-wide; it holds once today's exploration under it reaches it; the cap is exploration's alone
-    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: 2000 });
+    // the cap derives from desks × the town default (gr_bre43gflz9); it holds once today's exploration under the goal
+    // reaches it; the cap is exploration's alone. A desk total of 1 on the root makes every cap 1 desk's worth.
+    world.goalTree.update(admin, "gl_town", { desksTotal: 1 });
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 2000 });
     expect(world.budget.canStart(noor.id, ex)).toBe(false);
-    expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: exploration cap reached today \(2,000 \/ 2,000 tokens, set on goal gl_town\)/);
+    expect(world.assignments.require(ex.id).heldReason).toMatch(/^held: exploration cap reached today \(2,000 \/ 2,000 tokens, the cap from the desks of goal /);
     expect(world.budget.canStart(noor.id, dir)).toBe(true);
-    // null = inherit: uncapped again
-    world.goalTree.update(admin, "gl_town", { exploreCapTokensPerDay: null });
+    // a larger default lifts it at once
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 3000 });
     expect(world.budget.canStart(noor.id, ex)).toBe(true);
   });
 
@@ -172,7 +174,7 @@ describe("goal-directed budgets: the canStart gate", () => {
 
   it("the Town Hall never holds on lanes; a lab does", () => {
     const { world, admin, noor, spend } = setup();
-    fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1 });
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 0 });
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", lane: "exploration", gap: "gap" });
     spend(noor.id, 50, "exploration");
     expect(ruleBlock(world, ex)?.kind).toBe("exploration");
@@ -427,7 +429,7 @@ describe("goal-directed budgets: the Key results block", () => {
     expect(block).toContain(`- grant ${g.id} "Visitors can tell what the lab is for" (funded; 1,000,000 / 4,000,000 tokens). Its key results:\n      - ${krs[0]!.id} [open] A visitor can see today's spend on the banner (how to check: Open the lab banner, read Usage)`);
     expect(block).toContain(`- grant ${p.id} "The board leads with the goal" (proposed: a human decides it in the decision queue; asks 150,000 tokens). Its key results:\n      - ${p.keyResults[0]!.id} [open] The board shows the lab's goal first (how to check: Open the lab board)`);
     expect(block).toContain(`This session: job jb_${g.id} (rule ceiling, pocket ${g.id}), grant ${g.id}.`);
-    expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal\)\. Free tokens under the goal: 0\./);
+    expect(block).toMatch(/Exploration today: 0 tokens \(no allowance: held only when no tokens are free under the goal or the cap of [\d,]+ \/ day from the desks of goal \S+ is reached, 0 used\)\. Free tokens under the goal: 0\./);
     const ex = world.ops.createWork(admin, noor.id, { title: "explore", gap: "Visitors can't find the board" });
     expect(keyResultsBlock(world, world.buildings.require(LAB), ex)).toContain(", exploration on gap: Visitors can't find the board");
     const b = world.buildings.require(LAB);
@@ -503,7 +505,9 @@ describe("goal-directed budgets: human-directed work (1:1 mt_ryw7ejayvu)", () =>
     const a = world.assignments.require(r.assignmentId);
     expect(a).toMatchObject({ lane: "directed", sourceId: flag.id, gap: "the banner is unreadable" });
     // the exploration cap doesn't hold it; its spend lands in the directed bucket
-    const capGoal = fundGoalOf(world, LAB, { exploreCapTokensPerDay: 1000 });
+    const capGoal = fundGoalOf(world, LAB, {});
+    world.goalTree.update(admin, capGoal, { desksTotal: 1 });
+    world.setGrantPricing({ exploreTokensPerDeskPerDay: 1000 });
     spend(mei.id, 1000, "exploration");
     expect(world.budget.canStart(mei.id, a)).toBe(true);
     world.sessions.upsert({ ...world.sessions.where("agentId = ?", [mei.id])[0]!, id: newId("se"), lane: "directed" });
