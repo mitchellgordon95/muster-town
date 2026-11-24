@@ -25,8 +25,14 @@ interface ClientErrorKind extends ClientErrorReport {
   count: number;
   firstSeen: string;
   lastSeen: string;
+  /** first seen after the running server started (the latest deploy); false when the server's start is unknown */
+  newSinceDeploy: boolean;
 }
-interface ClientErrorsView { from: string; to: string; kinds: ClientErrorKind[]; total: number }
+/**
+ * `newSinceDeploy`: how many of the listed kinds were first seen after `deployedAt`, the running server's startedAt (0 when
+ * unknown), so a parked step can check `GET /api/client-errors /newSinceDeploy 0` after its deploy (grant gr_cyqzweu6ed step 2).
+ */
+interface ClientErrorsView { from: string; to: string; deployedAt: string | null; kinds: ClientErrorKind[]; total: number; newSinceDeploy: number }
 
 const MESSAGE_MAX = 200;
 const FRAME_MAX = 120;
@@ -121,9 +127,21 @@ export function recordClientError(world: World, r: ClientErrorReport, o: { commi
   return { recorded: true, isNew: true, signature };
 }
 
-/** The kinds seen in the last `hours` (default 24), most counted first; `count` is each kind's count since it was first seen. */
-export function clientErrors(world: World, o: { now: number; hours?: number }): ClientErrorsView {
+/** Mark each kind first seen after `deployedAt` (an ISO time; null = unknown, nothing is new) and count them. Pure. */
+export function markNewSinceDeploy<K extends { firstSeen: string }>(kinds: K[], deployedAt: string | null): { kinds: (K & { newSinceDeploy: boolean })[]; newSinceDeploy: number } {
+  const at = deployedAt ? Date.parse(deployedAt) : NaN;
+  const marked = kinds.map((k) => ({ ...k, newSinceDeploy: Number.isFinite(at) && Date.parse(k.firstSeen) >= at }));
+  return { kinds: marked, newSinceDeploy: marked.filter((k) => k.newSinceDeploy).length };
+}
+
+/**
+ * The kinds seen in the last `hours` (default 24), most counted first; `count` is each kind's count since it was first seen.
+ * `deployedAt` is the running server's startedAt: kinds first seen since then are marked new.
+ */
+export function clientErrors(world: World, o: { now: number; hours?: number; deployedAt?: string | null }): ClientErrorsView {
   const from = new Date(o.now - (o.hours ?? 24) * 3_600_000).toISOString();
-  const kinds = world.db.prepare("SELECT * FROM client_errors WHERE lastSeen >= ? ORDER BY count DESC, lastSeen DESC LIMIT 200").all(from) as ClientErrorKind[];
-  return { from, to: new Date(o.now).toISOString(), kinds, total: kinds.reduce((n, k) => n + k.count, 0) };
+  const rows = world.db.prepare("SELECT * FROM client_errors WHERE lastSeen >= ? ORDER BY count DESC, lastSeen DESC LIMIT 200").all(from) as Omit<ClientErrorKind, "newSinceDeploy">[];
+  const deployedAt = o.deployedAt ?? null;
+  const { kinds, newSinceDeploy } = markNewSinceDeploy(rows, deployedAt);
+  return { from, to: new Date(o.now).toISOString(), deployedAt, kinds, total: kinds.reduce((n, k) => n + k.count, 0), newSinceDeploy };
 }

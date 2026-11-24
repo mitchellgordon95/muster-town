@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { clientErrorOf, clientErrors, errorSignature, MAX_NEW_KINDS_PER_DAY, normalizeMessage, recordClientError, topFrame } from "../src/client-errors.ts";
+import { clientErrorOf, clientErrors, errorSignature, markNewSinceDeploy, MAX_NEW_KINDS_PER_DAY, normalizeMessage, recordClientError, topFrame } from "../src/client-errors.ts";
 import { seededWorld } from "./helpers.ts";
 
 // Browser errors (grant gr_cyqzweu6ed step 1): one row per kind, counts and commits only.
@@ -66,5 +66,21 @@ describe("client errors: the store", () => {
     expect(recordClientError(world, clientErrorOf({ source: "error", message: "one too many" })!, { commit: null, now: t0 }).recorded).toBe(false);
     expect(recordClientError(world, clientErrorOf({ source: "error", message: "kind aa" })!, { commit: null, now: t0 }).recorded).toBe(true);
     expect(recordClientError(world, clientErrorOf({ source: "error", message: "next day" })!, { commit: null, now: t0 + 86_400_000 }).isNew).toBe(true);
+  });
+
+  it("marks kinds first seen since the running server started, and counts them as newSinceDeploy", () => {
+    const { world } = seededWorld();
+    const t0 = Date.parse("2026-11-24T12:00:00Z");
+    recordClientError(world, clientErrorOf({ source: "error", message: "old bug" })!, { commit: "aaaa1111", now: t0 });
+    recordClientError(world, clientErrorOf({ source: "error", message: "new bug" })!, { commit: "bbbb2222", now: t0 + 3_600_000 });
+    recordClientError(world, clientErrorOf({ source: "error", message: "old bug" })!, { commit: "bbbb2222", now: t0 + 3_700_000 });
+    const deployedAt = new Date(t0 + 1_800_000).toISOString();
+    const v = clientErrors(world, { now: t0 + 4_000_000, deployedAt });
+    expect(v.deployedAt).toBe(deployedAt);
+    expect(v.newSinceDeploy).toBe(1);
+    expect(v.kinds.map((k) => [k.message, k.newSinceDeploy])).toEqual([["old bug", false], ["new bug", true]]);
+    // an unknown start marks nothing new
+    expect(clientErrors(world, { now: t0 + 4_000_000 }).newSinceDeploy).toBe(0);
+    expect(markNewSinceDeploy([{ firstSeen: "2026-11-24T00:00:00Z" }], "not a time").newSinceDeploy).toBe(0);
   });
 });
