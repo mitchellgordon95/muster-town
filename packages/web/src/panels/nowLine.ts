@@ -3,6 +3,7 @@
  * doing now, and which of its timeline lines are the town's plumbing (sessions, spend, secrets) that fold behind Details.
  */
 import type { Agent, Event } from "@muster-town/schema";
+import { plainThought } from "./thoughtMarkdown";
 
 /** Event types a stranger doesn't need: shown only with Details open. */
 const PLUMBING = new Set<string>([
@@ -27,7 +28,7 @@ export function plainActivity(activity: string): string {
 
 /** The first sentence of a thought, cut at about 160 characters. */
 export function firstSentence(text: string, max = 160): string {
-  const t = text.replace(/\s+/g, " ").trim();
+  const t = plainThought(text).replace(/\s+/g, " ").trim();
   const m = /^(.+?[.!?])(\s|$)/.exec(t);
   const s = m ? m[1] : t;
   return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s;
