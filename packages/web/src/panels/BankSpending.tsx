@@ -16,7 +16,7 @@ import { BuildingFunding, pickRow } from "./BankFunding";
 import { GrantLine, NOTE_TITLE, dollars, grantLine, grantsCheckLine, noGrantCheckLine, pct, spendCheckLine, spendNotes, spendUsdCheckLine, stepLine, stepsCheckLine } from "./BankFinance";
 import { IdLink } from "./Markdown";
 import { SpendByGoal, laneLine } from "./GoalSpend";
-import { ADJ, Loading, Section, fmtTokens, useLoad } from "./ui";
+import { ADJ, CheckFold, Loading, Section, fmtTokens, useLoad } from "./ui";
 
 const n = (x: number) => Math.round(x).toLocaleString("en-US");
 
@@ -148,13 +148,15 @@ function SpendingDrill({ sp, picked, onPick, toggle }: { sp: FinanceSpend; picke
         </tbody>
         {!top ? <tfoot><tr><td>Total</td><td /><td className="spend-tokens"><b>{n(sum)}</b></td>{usd ? <td /> : null}<td /></tr></tfoot> : null}
       </table>
-      {top ? <>
-        <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
-        {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
-        {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
-      </> : null}
-      {(top || inSteps) && stepsCheck ? <div className={stepsCheck.ok ? "finance-check ok spend-steps-check" : "error-line"} role="status">{stepsCheck.ok ? "✓ " : "✗ "}{stepsCheck.text}</div> : null}
-      {(top || inNoGrant) && laneCheck ? <div className={laneCheck.ok ? "finance-check ok spend-lane-check" : "error-line"} role="status">{laneCheck.ok ? "✓ " : "✗ "}{laneCheck.text}</div> : null}
+      <CheckFold className="spend-checks" checks={[top && check, top && usdCheck, top && grantsCheck, (top || inSteps) && stepsCheck, (top || inNoGrant) && laneCheck]}>
+        {top ? <>
+          <div className={check.ok ? "finance-check ok" : "error-line"} role="status">{check.ok ? "✓ " : "✗ "}{check.text}</div>
+          {usdCheck ? <div className={usdCheck.ok ? "finance-check ok" : "error-line"} role="status">{usdCheck.ok ? "✓ " : "✗ "}{usdCheck.text}</div> : null}
+          {grantsCheck ? <div className={grantsCheck.ok ? "finance-check ok" : "error-line"} role="status">{grantsCheck.ok ? "✓ " : "✗ "}{grantsCheck.text}</div> : null}
+        </> : null}
+        {(top || inSteps) && stepsCheck ? <div className={stepsCheck.ok ? "finance-check ok spend-steps-check" : "error-line"} role="status">{stepsCheck.ok ? "✓ " : "✗ "}{stepsCheck.text}</div> : null}
+        {(top || inNoGrant) && laneCheck ? <div className={laneCheck.ok ? "finance-check ok spend-lane-check" : "error-line"} role="status">{laneCheck.ok ? "✓ " : "✗ "}{laneCheck.text}</div> : null}
+      </CheckFold>
       {top && sp.directedBySource ? <DirectedRequests d={sp.directedBySource} /> : null}
       {crumbs.length === 1 && crumbs[0].kind === "building" ? <ManagerWakesLines mw={sp.managerWakes} buildingId={crumbs[0].id ?? "none"} /> : null}
       {top ? <LaneKind today={sp.byLaneKind} /> : crumbs.length === 1 && crumbs[0].kind === "building" ? <LaneKind today={sp.byLaneKind} buildingId={crumbs[0].id ?? "none"} name={crumbs[0].name} /> : null}
@@ -206,9 +208,11 @@ export function DirectedRequests({ d, initialOpen = false }: { d: DirectedBySour
       {d.byAsker.length ? (
         <p className="directed-askers"><span className="muted">By human:</span> {d.byAsker.map((a) => `${who(a)} ${fmtTokens(a.tokens)} ${ADJ} · ${dollars(a.usd)} · ${n(a.requests)} request${a.requests === 1 ? "" : "s"}`).join("; ")}</p>
       ) : null}
-      <div className={d.check.ok ? "finance-check ok directed-check" : "error-line"} role="status">
-        {d.check.ok ? "✓ " : "✗ "}Requests {n(d.total.tokens - d.untraced.tokens)} + no request recorded {n(d.untraced.tokens)} = {n(d.total.tokens)}{d.check.ok ? ", the directed lane" : `, the directed lane differs by ${n(d.check.diff)}`} ({d.check.identity})
-      </div>
+      <CheckFold checks={[d.check]}>
+        <div className={d.check.ok ? "finance-check ok directed-check" : "error-line"} role="status">
+          {d.check.ok ? "✓ " : "✗ "}Requests {n(d.total.tokens - d.untraced.tokens)} + no request recorded {n(d.untraced.tokens)} = {n(d.total.tokens)}{d.check.ok ? ", the directed lane" : `, the directed lane differs by ${n(d.check.diff)}`} ({d.check.identity})
+        </div>
+      </CheckFold>
     </section>
   );
 }
@@ -413,7 +417,7 @@ export function LaneKind({ today, buildingId, name, initialOpen = false }: { tod
         </div>
       ) : null}
       {open && t?.notCounted.sessions ? <p className="muted">Not counted: {n(t.notCounted.sessions)} back-filled session{t.notCounted.sessions === 1 ? "" : "s"} with no real split by kind, {n(t.notCounted.tokens)} {ADJ} ({dollars(t.notCounted.usd)}).</p> : null}
-      {open && lk && !buildingId ? <div className={lk.check.ok ? "finance-check ok" : "error-line"} role="status">{lk.check.ok ? "✓ " : "✗ "}{lk.check.identity}: {n(lk.total.tokens + lk.notCounted.tokens)} vs {n(lk.sessionsTokens)}</div> : null}
+      {open && lk && !buildingId ? <CheckFold checks={[lk.check]}><div className={lk.check.ok ? "finance-check ok" : "error-line"} role="status">{lk.check.ok ? "✓ " : "✗ "}{lk.check.identity}: {n(lk.total.tokens + lk.notCounted.tokens)} vs {n(lk.sessionsTokens)}</div></CheckFold> : null}
     </section>
   );
 }

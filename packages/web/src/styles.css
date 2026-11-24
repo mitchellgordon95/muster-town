@@ -801,6 +801,16 @@ textarea[data-drop="over"] { outline: 2px dashed var(--accent); outline-offset: 
 /* Finance (public): the sum check under the summary, and overdrawn lines */
 .finance-check { font-size: var(--fs-md); margin: 8px 0; }
 .finance-check.ok { color: var(--ok); }
+/* Balance's glance tiles (gr_upr4fteq0t): four headline numbers above the chart, each a button to its section */
+.bank-glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 4px 0 12px; }
+.bank-glance-tile { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; color: var(--text); cursor: pointer; font: inherit; }
+.bank-glance-tile:hover, .bank-glance-tile:focus-visible { border-color: var(--accent); }
+.bank-glance-label { font-size: var(--fs-sm); color: var(--muted); }
+.bank-glance-value { font-size: var(--fs-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.bank-glance-sub { font-size: var(--fs-sm); color: var(--muted); }
+/* a section's sum checks folded into one "✓ N checks pass" line */
+.check-fold { margin: 6px 0; }
+.check-fold > summary { cursor: pointer; margin: 4px 0; font-size: var(--fs-sm); }
 .finance-terms { margin: 10px 0 4px; font-size: var(--fs-md); }
 .finance-terms dl { margin: 6px 0 0; }
 .finance-terms dd { margin: 0 0 6px 12px; }

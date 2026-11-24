@@ -200,10 +200,10 @@ describe("finance page: spending", () => {
     expect(pct(-0.0455)).toBe("-4.5%");
   });
   it("drills down: buildings, then a building's grants, then a grant's assignments, one table at a time (gr_567tikzitl step 4, kr_trhi5frg4k)", () => {
-    // level 1: the buildings and the synthetic rows, no nested rows, no <details>
+    // level 1: the buildings and the synthetic rows, no nested rows, no nested tree rows
     const top = centreOf(spendAt(null, sp));
     for (const s of ["Spending", "All buildings", "Town Workshop", "900", "81.8%", "Bank Transparency", "Priced differently before the switch to adjusted tokens", "-30", "12", "Not funded", "-20", "✓ The server checked that the building rows"]) expect(top).toContain(s);
-    for (const s of ["Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "<details"]) expect(top).not.toContain(s);
+    for (const s of ["Refactor the Bank…", "Step 1: the ledger", "Not under a grant", "spend-row"]) expect(top).not.toContain(s);
     expect(top.match(/<tbody>.*?<\/tbody>/s)![0].match(/<tr /g)).toHaveLength(4);
     // level 2: a building's grants (and its no-grant and manager rows) with the breadcrumb back
     const lvl2 = centreOf(spendAt("spend:workshop", sp));
