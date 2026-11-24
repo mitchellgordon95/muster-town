@@ -87,6 +87,10 @@ describe("Work versus coordination", () => {
     expect(html).toContain("Split by:");
     expect(html).toContain("Last 7 days: 1,000 adj. tokens");
     expect(html).toContain("✓ 7 days: 600 + 350 + 50");
+    // the chart's checks fold into one line that opens to the sums (gr_upr4fteq0t, kr_qb03kauhh7)
+    expect(html).toContain("✓ 2 checks pass</summary>");
+    expect(html.indexOf("Last 7 days: 1,000 adj. tokens")).toBeLessThan(html.indexOf("✓ 2 checks pass"));
+    expect(html).toContain('id="bank-glance-split"');
     expect(html).not.toContain("Other (2 buildings)");
     expect(html).toContain('fill="#d95926"');
   });

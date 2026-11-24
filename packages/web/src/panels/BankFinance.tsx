@@ -17,7 +17,7 @@ import type { LedgerCutoff } from "@muster-town/schema";
 import { api, type Bank, type Finance, type FinanceCash, type FinanceFly, type FinanceSources, type FinanceSpend, type SpendNode } from "../api";
 import type { TokenMix } from "@muster-town/schema";
 import type { ReactNode } from "react";
-import { ADJ, ADJ_HINT, Section, useLoad } from "./ui";
+import { ADJ, ADJ_HINT, CheckFold, Section, useLoad } from "./ui";
 import { HiddenToggle, creditsLeftLine, pickRow } from "./BankFunding";
 import { STEP_OVER } from "./StepStrip";
 
@@ -501,7 +501,7 @@ export const FinanceIntro = ({ hosting = false }: { hosting?: boolean }) => (
   <p className="muted finance-intro">
     Every amount here is in <abbr title={ADJ_HINT}>{ADJ}</abbr> (adjusted output tokens): the unit the town pays for AI model work in, where
     one Opus 5.5 output token counts 1, other models count at their price relative to it (Fable 2.5, Haiku 0.025), and input and cached tokens count at their lower price (what one is made of is on the Inputs tab, updated daily).
-    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; ✗ would say by how much they are off.
+    {hosting ? " Hosting (Fly.io), in its own tab, is in US dollars." : ""} A figure marked ≈ $ is the same tokens in dollars at API list price. A ✓ line under a section means the server checked that its numbers add up; click it for the sums. ✗ would say by how much they are off, and opens by itself.
   </p>
 );
 
@@ -581,7 +581,7 @@ export function TokensAbout({ f }: { f: Finance }) {
 export function ProjectionView({ f }: { f: Finance }) {
   const p = f.projection;
   return (
-    <Section title={`Next ${p.days} days`}>
+    <Section title={`Next ${p.days} days`} id="bank-glance-left">
       <table className="table">
         <tbody>
           <tr><td>Used so far</td><td>{n(f.used)}<Usd x={f.usd?.used} /></td></tr>
@@ -617,12 +617,50 @@ export function cashLines(c: FinanceCash, check?: { ok: boolean; text: string })
   };
 }
 
+/** One glance tile's words: its label, the big figure, the line under it, and the section it scrolls to. */
+interface GlanceTile { key: string; label: string; value: string; sub: string; target: string }
+
+const share1 = (x: number) => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
+
+/**
+ * The Balance tab's four headline numbers (gr_upr4fteq0t, kr_suasm72aw5), all from GET /api/finance as the sections below
+ * show them: Left now (`left`, `usd.left`), Used last 7 days (`utilization.d7`: used and its share of what came in), Work vs
+ * coordination (`split.d7` shares) and Cash paid last 30 days (`cash.total`). A tile whose figure the server did not send is left out.
+ */
+export function glanceTiles(f: Finance): GlanceTile[] {
+  const tiles: GlanceTile[] = [{ key: "left", label: "Left now", value: n(f.left), sub: f.usd ? `${ADJ} ${approxUsd(f.usd.left)}` : ADJ, target: "bank-glance-left" }];
+  const u = f.utilization?.d7;
+  if (u) tiles.push({ key: "used", label: `Used last ${u.days} days`, value: n(u.used), sub: u.credited > 0 ? `${ADJ}, ${share1(u.usedShare)} of what came in` : `${ADJ}; nothing came in`, target: "bank-glance-used" });
+  const s = f.split?.d7;
+  if (s) tiles.push({ key: "split", label: "Work vs coordination", value: `${Math.round(s.work.share * 100)}% work`, sub: `${Math.round(s.coordination.share * 100)}% coordination, last ${s.days} days`, target: "bank-glance-split" });
+  const c = f.cash;
+  if (c) tiles.push({ key: "cash", label: `Cash paid last ${c.windowDays} days`, value: dollars(c.total), sub: "plans, API keys and hosting", target: "bank-glance-cash" });
+  return tiles;
+}
+
+/** The row of glance tiles at the top of Balance; each tile scrolls to the section it comes from. */
+export function GlanceRow({ f }: { f: Finance }) {
+  const tiles = glanceTiles(f);
+  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  return (
+    <div className="bank-glance" role="group" aria-label="At a glance">
+      {tiles.map((t) => (
+        <button key={t.key} type="button" className={`bank-glance-tile glance-${t.key}`} onClick={() => go(t.target)} title="Show where this number comes from">
+          <span className="bank-glance-label">{t.label}</span>
+          <span className="bank-glance-value">{t.value}</span>
+          <span className="bank-glance-sub">{t.sub}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Paid in cash, last 30 days (on Balance, under the list-price figures): what running the collective cost in dollars. */
 function CashView({ f }: { f: Finance }) {
   if (!f.cash) return null;
   const l = cashLines(f.cash, f.cashCheck);
   return (
-    <div className="finance-cash">
+    <div className="finance-cash" id="bank-glance-cash">
       <table className="table">
         <tbody>
           <tr title="Plan fees prorated over the last 30 days, sessions run on API keys at list price, and the Fly hosting estimate (Hosting tab)"><td>Paid in cash, last {f.cash.windowDays} days</td><td><b>{l.total}</b></td></tr>
@@ -630,7 +668,7 @@ function CashView({ f }: { f: Finance }) {
           <tr className="sub-row"><td colSpan={2}>{l.ratio}</td></tr>
         </tbody>
       </table>
-      <Check c={l.check} />
+      <CheckFold checks={[l.check]}><Check c={l.check} /></CheckFold>
     </div>
   );
 }

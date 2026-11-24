@@ -2,9 +2,10 @@
  * The Balance tab's "Day by day" chart (Bank Transparency grant gr_epbcgb0hvs, kr_86jpcp8x0w): GET /api/finance `daily`,
  * the last 30 UTC days. Bars are the adj. tokens the Bank's debits drew each day, stacked by building (the 4 largest over
  * the window, the rest as "Other"); the line is what the Bank's inputs credited that day. One y-axis: both are adj.
- * tokens. Hovering (or focusing) a day shows its numbers; the ✓ line under it is `dailyCheck`; a table view sits below.
+ * tokens. Hovering (or focusing) a day shows its numbers; its four sum checks (dailyCheck, utilization, limits, split) fold into one "✓ 4 checks pass" line (gr_upr4fteq0t); a table view sits below.
  */
 import { useState } from "react";
+import { CheckFold } from "./ui";
 import type { DayLimits, Finance, FinanceDaily, SplitWindow, UtilizationWindow, WindowLimits } from "../api";
 
 /** Fixed categorical order (dark steps of the dataviz palette); "Other" is neutral gray. Colour follows the building's slot, not its day's rank. */
@@ -70,12 +71,10 @@ export function splitCheckLine(f: Pick<Finance, "split">): { ok: boolean; text: 
 function SplitSummary({ f }: { f: Finance }) {
   const s = f.split;
   if (!s) return null;
-  const check = splitCheckLine(f)!;
   return (
-    <div className="split-summary" style={{ marginTop: 6 }}>
+    <div className="split-summary" id="bank-glance-split" style={{ marginTop: 6 }}>
       <p style={{ margin: "2px 0" }}>{splitSentence(s.d7)}</p>
       <p style={{ margin: "2px 0" }}>{splitSentence(s.d30)}</p>
-      <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div>
     </div>
   );
 }
@@ -107,12 +106,10 @@ export function utilizationCheckLine(f: Pick<Finance, "utilization">): { ok: boo
 function UtilizationSummary({ f }: { f: Finance }) {
   const u = f.utilization;
   if (!u) return null;
-  const check = utilizationCheckLine(f)!;
   return (
-    <div className="utilization-summary" style={{ marginTop: 6 }}>
+    <div className="utilization-summary" id="bank-glance-used" style={{ marginTop: 6 }}>
       <p style={{ margin: "2px 0" }}>{utilizationSentence(u.d7)}</p>
       <p style={{ margin: "2px 0" }}>{utilizationSentence(u.d30)}</p>
-      <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div>
       <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Subscription tokens do not roll over: what is not drawn before the next renewal expires. Used counts what was drawn from these credits, up to each credit&apos;s size.</div>
     </div>
   );
@@ -172,12 +169,10 @@ function LimitsSummary({ f }: { f: Finance }) {
   if (!u?.d7.limits || !u.d30.limits) return null;
   const last = f.daily?.rows[f.daily.rows.length - 1]?.limits;
   const cap = last ? last.exploration.cap : null;
-  const check = limitsCheckLine(f);
   return (
     <div className="limits-summary" style={{ marginTop: 6 }}>
       <p style={{ margin: "2px 0" }}>What held spending back, last 7 days: {limitsSentence(u.d7.limits, cap)}</p>
       <p style={{ margin: "2px 0" }}>Last 30 days: {limitsSentence(u.d30.limits, cap)}</p>
-      {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
       <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>{f.limitsNote ?? LIMITS_NOTE_FALLBACK}</div>
     </div>
   );
@@ -223,7 +218,7 @@ export function DailyChart({ f }: { f: Finance }) {
   const x = (i: number) => L + i * slot + slot / 2;
   const ticks = [0, top / 2, top];
   const line = d.rows.map((r, i) => `${x(i).toFixed(1)},${y(r.credited).toFixed(1)}`).join(" ");
-  const check = dailyCheckLine(f);
+  const checks = [dailyCheckLine(f), utilizationCheckLine(f), limitsCheckLine(f), splitCheckLine(f)];
   const h = hover === null ? null : d.rows[hover]!;
   const hasExpired = d.rows.some((r) => r.expired !== undefined);
   const hasLimits = d.rows.some((r) => r.limits);
@@ -281,10 +276,12 @@ export function DailyChart({ f }: { f: Finance }) {
           </div>
         ) : null}
       </div>
-      {check ? <div className={check.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{check.ok ? "✓" : "✗"} {check.text}</div> : null}
       <UtilizationSummary f={f} />
       <LimitsSummary f={f} />
       <SplitSummary f={f} />
+      <CheckFold checks={checks} className="daily-checks">
+        {checks.map((c, i) => c ? <div key={i} className={c.ok ? "muted" : "error-line"} style={{ fontSize: "var(--fs-sm)" }}>{c.ok ? "✓" : "✗"} {c.text}</div> : null)}
+      </CheckFold>
       {d.undatedUsed > 0 ? <div className="muted" style={{ fontSize: "var(--fs-sm)" }}>Not in the bars: {n(d.undatedUsed)} spent from donations straight to buildings, which carry no date.</div> : null}
       <details>
         <summary className="muted" style={{ fontSize: "var(--fs-sm)" }}>The numbers as a table</summary>

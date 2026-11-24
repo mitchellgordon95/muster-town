@@ -12,7 +12,7 @@ import { useState, type ReactNode } from "react";
 import { api, type Bank } from "../api";
 import { useTown } from "../state";
 import { BankContributors, BankInputs, BankInputsAbout, BankStreamsSection, Donate, DonateAbout, FundingNow } from "./BankFunding";
-import { FinanceFooter, FinanceIntro, InputCredits, FinanceTerms, LedgerCutoffNote, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
+import { FinanceFooter, FinanceIntro, GlanceRow, InputCredits, FinanceTerms, LedgerCutoffNote, FlyAbout, FlyView, ProjectionAbout, ProjectionView, SourcesAbout, SourcesView, SpendingAbout, TokensAbout, TokensView, type FinanceData } from "./BankFinance";
 import { DailyAbout, DailyChart } from "./BankDaily";
 import { FreeTokensSum } from "./FreeTokens";
 import { UptimeBlock } from "./Uptime";
@@ -94,6 +94,7 @@ function BankTab({ tab, bank, fin, rev, onChange, onReload, picked, onPick }: Vi
   if (tab === "Hosting") return <><Section title="Uptime"><UptimeBlock /></Section>{fin?.fly ? <FlyView fly={fin.fly} /> : null}</>;
   return (
     <>
+      {fin ? <GlanceRow f={fin.f} /> : null}
       {fin?.f.daily ? <Section title="Day by day"><DailyChart f={fin.f} /></Section> : null}
       <Section title="Balance">
         {!bank ? <Loading /> : (
