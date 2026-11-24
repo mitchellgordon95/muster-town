@@ -20,7 +20,7 @@ import { knownNames } from "./names";
  * and a session (`se_…`), reached from any link to its id. `queue` is the decision queue at the Town Hall hydrant (a sheet
  * over the map, DecisionQueue.tsx); a link to the Town Hall's old in-tray opens it.
  */
-export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "queue" | "plugin";
+export type PanelKind = "agent" | "building" | "connect" | "library" | "outbox" | "stats" | "bulletin" | "help" | "meeting" | "intray" | "board" | "cabinet" | "planning" | "schedule" | "mod" | "bank" | "admin" | "grant" | "manual" | "goals" | "assignment" | "session" | "queue" | "plugin" | "crash-test";
 export interface PanelRef { kind: PanelKind; id?: string; docId?: string; tab?: string }
 /**
  * One piece of content opened from a link (grant gr_4csjpgh346 step 3, kr_sa1gn36ndz): a doc (decks and pages too), a grant

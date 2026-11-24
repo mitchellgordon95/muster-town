@@ -14,6 +14,7 @@ import type {
 import { grantPricingOf } from "@muster-town/schema";
 import { arrivalSource, visitorId } from "./visitor";
 import { knownNames } from "./names";
+import type { ClientErrorPost, ClientErrorSource } from "./clientErrors";
 
 export type In<T extends z.ZodTypeAny> = z.input<T>;
 export type Snapshot = Extract<ServerMessage, { type: "snapshot" }>;
@@ -548,6 +549,10 @@ export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notice
 /** A goal proposal as GET /api/goal-proposals returns it (core GoalProposalView): flagged when outside the proposer's subtree. */
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
+/** One browser error kind (core client-errors.ts ClientErrorKind): GET /api/client-errors, gr_cyqzweu6ed. */
+export interface ClientErrorKindView { signature: string; source: ClientErrorSource; message: string; frame: string; panel: string | null; route: string | null; firstCommit: string | null; lastCommit: string | null; count: number; firstSeen: string; lastSeen: string }
+export interface ClientErrorsView { from: string; to: string; kinds: ClientErrorKindView[]; total: number }
+
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
 export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number; homePage2: number; homePage3: number; homeSkip: number; homeOpen: number; homeTile: number; homeCard: number }
 /** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
@@ -717,6 +722,10 @@ export interface Api {
   countGuestCardView(): Promise<void>;
   /** POST /api/join-funnel/door: this browser opened one of the three doors (gr_y9bpvx197c), once per door per day */
   countDoor(door: "fund" | "captain" | "agent"): Promise<void>;
+  /** POST /api/client-errors (gr_cyqzweu6ed): a crash or an uncaught error in this page, by sendBeacon (web clientErrors.ts) */
+  reportClientError(body: ClientErrorPost): Promise<void>;
+  /** GET /api/client-errors: the browser error kinds seen in the last 24 hours, public */
+  clientErrors(): Promise<ClientErrorsView>;
   /** GET /api/members (an admin or a goal captain): let-in members with the goals they direct work under (gr_cuobjlny6r) */
   members(): Promise<MemberView[]>;
   /** POST /api/members/:userId/direct: let a member direct work under the goal (an admin, or a captain of it or one above) */
@@ -1063,6 +1072,13 @@ class HttpApi implements Api {
   healthStats() { return this.get<TownHealthView>("/api/health-stats"); }
   async countGuestCardView() { await this.post("/api/join-funnel/view", { visitor: visitorId() ?? undefined, ...arrivalSource() }); }
   async countDoor(door: "fund" | "captain" | "agent") { await this.post("/api/join-funnel/door", { visitor: visitorId() ?? undefined, door }); }
+  async reportClientError(body: ClientErrorPost) {
+    const url = `${API_BASE}/api/client-errors`, text = JSON.stringify(body);
+    // a string goes as text/plain (no preflight); the server parses it
+    if (typeof navigator !== "undefined" && navigator.sendBeacon?.(url, text)) return;
+    await fetch(url, { method: "POST", body: text, keepalive: true });
+  }
+  clientErrors() { return this.get<ClientErrorsView>("/api/client-errors"); }
   async members() { return (await this.get<{ members?: MemberView[] }>("/api/members")).members ?? []; }
   async grantDirect(userId: string, goalId: string) { await this.post(`/api/members/${userId}/direct`, { goalId }); }
   async revokeDirect(userId: string, goalId: string) { await this.call("DELETE", `/api/members/${userId}/direct`, { goalId }); }
