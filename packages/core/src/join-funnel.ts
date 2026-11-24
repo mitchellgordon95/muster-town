@@ -11,7 +11,8 @@
  * door from the guest card or the You're-in card.
  * `homePage2`, `homePage3`, `homeSkip`, `homeOpen` and `homeTile` (gr_ptle4vvujl) follow a homepage browser past the page
  * load: it reached the pitch card's page 2 or 3, pressed Skip or closed the card, pressed Open, or clicked a collective tile,
- * each once per UTC day.
+ * each once per UTC day. `homeCard` (step 3) is the card shown at all: it opens once per browser, so returning browsers add
+ * to homeViews but not to it.
  * `sources` and `blogReads` (gr_ox3fmliv9n) say which channel brought them: a homepage or guest-card visitor's first ping of
  * the day carries a source (`funnelSource`: a ?ref= tag, else the external referrer's host, else "direct"), and each GET of a
  * blog post counts with its Referer's host, in join_funnel_sources. `hookViews` (gr_wq74nnthzl) are the same for each
@@ -20,7 +21,7 @@
 import { createHash } from "node:crypto";
 import type { World } from "./world.ts";
 
-export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted", "doorFund", "doorCaptain", "doorAgent", "homePage2", "homePage3", "homeSkip", "homeOpen", "homeTile"] as const;
+export const FUNNEL_STEPS = ["homeViews", "guestCardViews", "guestVisitors", "signInStarted", "signIns", "asked", "letIn", "declined", "acted", "doorFund", "doorCaptain", "doorAgent", "homePage2", "homePage3", "homeSkip", "homeOpen", "homeTile", "homeCard"] as const;
 export type FunnelStep = (typeof FUNNEL_STEPS)[number];
 /** The steps counted once per browser per UTC day. */
 type VisitorStep = "homeViews" | "guestVisitors" | DoorStep | HomeStep;
@@ -28,7 +29,7 @@ type VisitorStep = "homeViews" | "guestVisitors" | DoorStep | HomeStep;
 export const DOORS = { fund: "doorFund", captain: "doorCaptain", agent: "doorAgent" } as const;
 export type DoorStep = (typeof DOORS)[keyof typeof DOORS];
 /** The homepage pitch card and tiles (gr_ptle4vvujl): what a homepage browser did after the page loaded, each a browser once per day. */
-export const HOME_STEPS = { page2: "homePage2", page3: "homePage3", skip: "homeSkip", open: "homeOpen", tile: "homeTile" } as const;
+export const HOME_STEPS = { card: "homeCard", page2: "homePage2", page3: "homePage3", skip: "homeSkip", open: "homeOpen", tile: "homeTile" } as const;
 export type HomeStep = (typeof HOME_STEPS)[keyof typeof HOME_STEPS];
 export type FunnelCounts = Record<FunnelStep, number>;
 export interface FunnelDay extends FunnelCounts { day: string }

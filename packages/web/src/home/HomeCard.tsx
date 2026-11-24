@@ -2,9 +2,10 @@
  * The homepage's pitch: the paper card (PagedCard, same as the in-town overlay) on a stranger's first visit, three
  * pillars: collectively funded → publicly legible → goal-directed (one goal tree, workers assigned to its subtrees, plans
  * funded by humans). The collectives' tiles are on the page behind the card, so the card doesn't repeat them; its last button
- * opens the first collective. Seen once per browser (its own localStorage key); the page's "How this works" button and
+ * opens the first collective, and so does the first page's (gr_ptle4vvujl step 3), beside Next. Seen once per browser (its own localStorage key); the page's "How this works" button and
  * `/#about` reopen it.
  */
+import { useEffect } from "react";
 import { Arrow, Head, PagedCard, Scene } from "../panels/PagedCard";
 import type { HomeCollective } from "./collectives";
 import { countHome } from "./funnel";
@@ -57,15 +58,18 @@ function GoalDirected() {
   );
 }
 
-// the join funnel (gr_ptle4vvujl): how far a homepage browser reads, and how it leaves the card (Skip or close, or Open)
+// the join funnel (gr_ptle4vvujl): the card was shown (`card`), how far a homepage browser reads, and how it leaves the
+// card (Skip or close, or Open on the first or last page: both count as `open`)
 const PAGE_STEPS = { 1: "page2", 2: "page3" } as const;
 
 export function HomeCard({ collectives, onClose }: { collectives: HomeCollective[]; onClose: () => void }) {
+  useEffect(() => { countHome("card"); }, []);
   const close = () => { markHomeCardSeen(); countHome("skip"); onClose(); };
   const first = collectives.find((c) => !c.placeholder && c.url);
+  const open = first ? { label: `Open ${first.name}`, onClick: () => { markHomeCardSeen(); countHome("open"); location.assign(first.url!); } } : null;
   return (
     <PagedCard label="What Muster Town is" pages={[Funded, Legible, GoalDirected]} onClose={close}
       onPage={(p) => { const step = PAGE_STEPS[p as keyof typeof PAGE_STEPS]; if (step) countHome(step); }}
-      last={{ primary: first ? { label: `Open ${first.name}`, onClick: () => { markHomeCardSeen(); countHome("open"); location.assign(first.url!); } } : null }} />
+      first={{ primary: open }} last={{ primary: open }} />
   );
 }

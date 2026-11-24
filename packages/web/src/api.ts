@@ -549,7 +549,7 @@ export interface Intray extends Partial<IntrayRoutes> { asks?: AskView[]; notice
 export type GoalProposalView = GoalProposal & { proposedByName: string; outsideScope: boolean };
 export type GoalKeyResult = KeyResult & { grantId: string | null; createdByName?: string | null; editedByName?: string | null };
 /** The join funnel's counted steps (core join-funnel.ts FUNNEL_STEPS). */
-export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number; homePage2: number; homePage3: number; homeSkip: number; homeOpen: number; homeTile: number }
+export interface JoinFunnelCounts { homeViews: number; guestCardViews: number; guestVisitors: number; signInStarted: number; signIns: number; asked: number; letIn: number; declined: number; acted: number; doorFund: number; doorCaptain: number; doorAgent: number; homePage2: number; homePage3: number; homeSkip: number; homeOpen: number; homeTile: number; homeCard: number }
 /** GET <prefix>/api/engagement (flag dc_r7u6bkaei4, core engagement.ts): what this collective's signed-in humans did here, per UTC day, counts only. */
 export interface EngagementCounts { humans: number; spoke: number; oneOnOnes: number; flags: number; decisions: number; asked: number; letIn: number; declined: number; acted: number }
 /** GET <prefix>/api/health-stats (gr_8bxoy2heif, core health.ts): paperwork share, cache hits, overrun past holds, tokens per report; counts only. */
