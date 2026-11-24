@@ -14,7 +14,7 @@ import { buildingQueue, createAssignment, forkableManagerOf } from "./domain.ts"
 import { jobOf, refreshJob } from "./jobs.ts";
 import { sessionView } from "./bank.ts";
 import { exploreCapsOnPath, exploreRuleAt, exploreSpentToday, freeTokensAll } from "./free-tokens.ts";
-import { freeDesks } from "./forks.ts";
+import { freeDesks, goalDeskBound, goalDesksHeld } from "./forks.ts";
 import { ensureJournal, ensureJournals, JOURNAL_TITLE } from "./exploration-journal.ts";
 import { laneGated } from "./lanes.ts";
 import { interruptNow } from "./wakes.ts";
@@ -89,11 +89,14 @@ export function exploreBlock(world: World, b: Building, now = new Date(), free =
   if (!laneGated(b)) return "the Town Hall never explores";
   const goalId = world.goalTree.attachmentOf(b);
   const rule = exploreRuleAt(world, goalId);
-  if (!rule.on) return `exploration is off (set on goal ${rule.onFrom})`;
+  if (!rule.on) return rule.onFrom ? `exploration is off (set on goal ${rule.onFrom})` : "exploration is off for the town (town defaults)";
   const manager = forkableManagerOf(world, b);
   if (!manager || isGone(manager)) return "no manager to fork";
   if (world.budget.remaining(b.id) <= 0) return "the building's budget is spent";
-  if (freeDesks(world, b) <= 0) return "no free desk";
+  if (freeDesks(world, b) <= 0) {
+    const bound = goalDeskBound(world, b);
+    return bound && bound.slack <= 0 ? goalDesksHeld(bound).replace(/^held: /, "") : "no free desk";
+  }
   if (world.bankReservations.first("buildingId = ? AND closedAt IS NULL", [b.id])) return "an explorer of this building is still open";
   if (buildingQueue(world, b.id).some((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null)) return "other work is queued for its desks";
   const last = world.bankReservations.first("buildingId = ?", [b.id], "ORDER BY openedAt DESC");

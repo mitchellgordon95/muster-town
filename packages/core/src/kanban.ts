@@ -2,6 +2,7 @@ import type { Assignment, QueueBoard, QueueCard, QueueLane } from "@muster-town/
 import { sessionTokens } from "./bank.ts";
 import { describeWait } from "./waits.ts";
 import { exploreBlock } from "./explore.ts";
+import { goalDeskBound, goalDesksHeld } from "./forks.ts";
 import { freeTokensAll } from "./free-tokens.ts";
 import type { World } from "./world.ts";
 
@@ -12,7 +13,8 @@ export const QUEUE_DONE_MS = 24 * 60 * 60_000;
  * The kanban (docs/goals.md "Kanban: the queue as a board", build step 6): a building's assignments as four columns.
  * Queued = pending, not held, in queue order; Held = pending with a held reason, an unmet wait or an open offer;
  * Running = active, with its live session's adjusted tokens; Done = done or cancelled in the last 24 h. The WIP limit
- * shown is the building's desks (`headcount`); nothing is enforced here. Read-only: no schema change, no Bank write.
+ * shown is the building's desks (`headcount`); nothing is enforced here, but a goal on the path whose desks are all
+ * running forks shows the building-queue work as held with that goal named (forks.ts `goalDeskBound`). Read-only: no schema change, no Bank write.
  */
 export function queueLane(world: World, buildingId: string, now = new Date(), free = freeTokensAll(world, now)): QueueLane {
   const b = world.buildings.require(buildingId, "building");
@@ -24,8 +26,11 @@ export function queueLane(world: World, buildingId: string, now = new Date(), fr
     status: a.status, createdAt: a.createdAt, updatedAt: a.updatedAt, heldReason: null, tokens: null, reportId: a.reportId, ...extra,
   });
   const lane: QueueLane = { buildingId: b.id, buildingName: b.name, desks: b.headcount, exploreBlock: exploreBlock(world, b, now, free), queued: [], held: [], running: [], done: [] };
+  // a goal on the path whose desks are all running forks holds the building-queue work under it (gr_bre43gflz9 step 2)
+  const bound = goalDeskBound(world, b);
+  const full = bound && bound.slack <= 0 ? goalDesksHeld(bound) : null;
   for (const a of world.assignments.where("buildingId = ? AND status = 'pending'", [b.id], "ORDER BY position, createdAt, rowid")) {
-    const held = a.heldReason ?? (a.waitFor ? `waits for ${describeWait(world, a.waitFor)}` : a.offered ? "offered to a visitor" : null);
+    const held = a.heldReason ?? (a.waitFor ? `waits for ${describeWait(world, a.waitFor)}` : a.offered ? "offered to a visitor" : a.queue === "building" && !world.agents.get(a.agentId)?.forkOf ? full : null);
     (held ? lane.held : lane.queued).push(card(a, { heldReason: held }));
   }
   for (const a of world.assignments.where("buildingId = ? AND status = 'active'", [b.id], "ORDER BY updatedAt, rowid")) {

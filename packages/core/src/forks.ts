@@ -46,8 +46,58 @@ export function forkableQueue(world: World, b: Building): Assignment[] {
   return buildingQueue(world, b.id).filter((a) => !a.waitFor && !a.offered && world.budget.holdReason(a) === null);
 }
 
-/** Desks a fork can take: the building's headcount minus the desks in use (named residents' and live forks'). */
-export const freeDesks = (world: World, b: Building): number => Math.max(0, b.headcount - world.layout.deskCount(b.id));
+/** One goal on a building's path that sets desks, with the live forks in the buildings attached at or under it. */
+interface GoalDesks { goalId: string; text: string; desks: number; forks: number }
+
+/**
+ * Pure (gr_bre43gflz9 step 2): of the goals on a path that set desks, the binding one, the one with the fewest desks
+ * left (`desks - forks`, the nearest on a tie); null when none sets desks. Its slack (never below 0) is how many more
+ * forks may start under it.
+ */
+export function bindingDesks(path: readonly GoalDesks[]): (GoalDesks & { slack: number }) | null {
+  let min: (GoalDesks & { slack: number }) | null = null;
+  for (const g of path) {
+    const slack = Math.max(0, g.desks - g.forks);
+    if (!min || slack < min.slack) min = { ...g, slack };
+  }
+  return min;
+}
+
+/**
+ * The goal desks bounding a building's forks (gr_bre43gflz9 step 2): every goal on its path to the root that sets desks
+ * (`desksTotal`), with the live forks in the buildings under it, reduced by `bindingDesks`. A goal's desks are the truth
+ * for concurrency; a building's headcount stays its seats on the map (goals.ts `requireDesksFit`).
+ */
+export function goalDeskBound(world: World, b: Building): (GoalDesks & { slack: number }) | null {
+  const path = world.goalTree.ancestors(world.goalTree.attachmentOf(b)).filter((g) => g.desksTotal != null);
+  if (!path.length) return null;
+  const forks = liveForks(world);
+  return bindingDesks(path.map((g) => {
+    const under = world.goalTree.subtreeIds(g.id);
+    const n = forks.filter((f) => {
+      const fb = f.homeBuildingId ? world.buildings.get(f.homeBuildingId) : undefined;
+      return fb ? under.has(world.goalTree.attachmentOf(fb)) : false;
+    }).length;
+    return { goalId: g.id, text: g.text, desks: g.desksTotal!, forks: n };
+  }));
+}
+
+/** The held reason a full goal gives the building-queue work under it (the Queue tab and the explore block show it). */
+export function goalDesksHeld(g: GoalDesks): string {
+  const text = g.text.length > 80 ? `${g.text.slice(0, 79)}…` : g.text;
+  return `held: desks full under goal "${text}" (${g.goalId}): ${g.desks} desk${g.desks === 1 ? "" : "s"}, ${g.forks} fork${g.forks === 1 ? "" : "s"} running`;
+}
+
+/**
+ * Desks a fork can take: the building's headcount minus the desks in use (named residents' and live forks'), and no
+ * more than the binding goal's desks left (`goalDeskBound`).
+ */
+export function freeDesks(world: World, b: Building): number {
+  const seats = Math.max(0, b.headcount - world.layout.deskCount(b.id));
+  if (seats <= 0) return 0;
+  const bound = goalDeskBound(world, b);
+  return bound ? Math.min(seats, bound.slack) : seats;
+}
 
 /** Live (not retired) forks, e.g. for the runtime's sweep of forks whose session is gone. */
 export const liveForks = (world: World): Agent[] => world.agents.where("forkOf IS NOT NULL AND status != 'retired'");

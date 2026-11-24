@@ -18,9 +18,8 @@ import { openDocLink } from "./Markdown";
 import { openPlanner } from "./oneOnOne";
 import { krStatusLabel, krTone } from "./keyResults";
 import { CAPTAIN_DOOR, allBuildings, archivedLine, buildingScope, canEditGoal, deskWord, findGoal, isArchived, krHeading, moveTargets, pastDue, pathTo, producedLine, proposalVerb, retireMoves, retirePlan, shippedLink, subtreeDesks, subtreeIds, treeRows, type TreeKr } from "./goalTree";
-import { Act, Empty, ErrorLine, Field, Loading, MTokensInput, Pill, Section, fmtTokens, nameOf, timeAgo, useLoad } from "./ui";
-import { fromMillions, toMillions } from "../format";
-import { FreeTokensLine, capText, desksText } from "./FreeTokens";
+import { Act, Empty, ErrorLine, Field, Loading, Pill, Section, nameOf, timeAgo, useLoad } from "./ui";
+import { FreeTokensLine, desksBuyLine } from "./FreeTokens";
 import { GoalCanvas } from "./GoalCanvas";
 import { defaultFolds } from "./goalCanvas";
 import { GoalOutline } from "./GoalOutline";
@@ -322,93 +321,41 @@ function MissedForm({ k, archive, onCancel, onDone }: { k: TreeKr; archive: bool
 }
 
 /**
- * Funding (docs/how-work-gets-done.md §7, §8): the free tokens under this goal with their sum, and its exploration cap
- * per day, set here or inherited from the nearest goal above that sets one (none = uncapped). The cap is a human
- * funder's with goals.edit here (an admin or the goal's captain); blank = inherit.
+ * Funding (docs/how-work-gets-done.md §7, §8; gr_bre43gflz9 step 2): the free tokens under this goal with their sum, and
+ * its one steering number, Desks (goals.desksTotal; blank = none set here, the desks of its buildings count). What the
+ * desks buy is derived through the town defaults: the daily exploration cap (desks × tokens per desk per day), the chunk
+ * per explorer, and the forks that may run under it at once. Desks are a human funder's with goals.edit here (an admin
+ * or the goal's captain); a captain can't go above a total set over them.
  */
 let settingsOpen = false;
 function FundingBlock({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
-  const [cap, setCap] = useState(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay));
-  useEffect(() => setCap(node.exploreCapTokensPerDay == null ? "" : toMillions(node.exploreCapTokensPerDay)), [node.id, node.exploreCapTokensPerDay]);
+  const own = node.desksTotal ?? null;
+  const [total, setTotal] = useState(own == null ? "" : String(own));
+  useEffect(() => setTotal(own == null ? "" : String(own)), [node.id, own]);
   if (node.status === "retired") return null;
-  const { exploreCap } = node.funding;
-  const above = node.parentId ? findGoal(root, node.parentId)?.funding.exploreCap ?? null : null;
-  const next = cap.trim() === "" ? null : Math.max(0, fromMillions(cap) || 0);
-  const summary = [exploreCap ? `cap ${fmtTokens(exploreCap.tokensPerDay)} / day` : "no cap", `exploration ${node.funding.explore.on ? "on" : "off"}`, desksText(node, root) ? "desk total set" : null].filter(Boolean).join(" · ");
+  const line = desksBuyLine(node, root);
+  const next = total.trim() === "" ? null : Math.max(0, Math.round(Number(total)) || 0);
+  const above = node.parentId ? findGoal(root, node.parentId)?.funding.desksTotal ?? null : null;
   return (
     <div className="ge-funding">
       <div className="ge-funding-row">
         <span className="ge-funding-label">Free tokens</span>
         <FreeTokensLine free={node.funding.free} />
       </div>
-      {/* the knobs (cap, explore rule, chunk, desk total) fold to one line (kr_3jie8qwdt6): the goal opens on the goal; the
-          open state carries across goals so a captain setting several doesn't reopen it each time */}
+      {/* one number (gr_bre43gflz9 step 2): the open state carries across goals so a captain setting several doesn't reopen it each time */}
       <details className="ge-settings" open={settingsOpen} onToggle={(e) => { settingsOpen = e.currentTarget.open; }}>
-        <summary><b>Exploration and money settings</b><span className="muted">{summary}</span></summary>
+        <summary><b>Exploration and money settings</b><span className="muted">{line.short}</span></summary>
         <div className="ge-funding-row">
-          <span className="ge-funding-label">Exploration cap</span>
+          <span className="ge-funding-label">Desks</span>
           {can ? <>
-            <MTokensInput value={cap} placeholder={above ? toMillions(above.tokensPerDay) : "none"} onChange={setCap} />
-            <span className="muted">/ day</span>
-            <Act small tone="primary" disabled={next === node.exploreCapTokensPerDay} title="Blank = inherit from the goal above (none set anywhere = uncapped)" run={() => api().updateGoal(node.id, { exploreCapTokensPerDay: next }).then(onDone)}>Save</Act>
-          </> : null}
-          <span className={exploreCap ? undefined : "muted"}>{can && exploreCap?.goalId === node.id ? `${fmtTokens(node.funding.exploreSpentTodayTokens)} used today` : capText(node, root)}</span>
+            <input className="ge-desks-input" aria-label="Desks" type="number" min={0} style={{ width: 64 }} value={total} placeholder={above ? String(above.total) : String(subtreeDesks(node).desks)} onChange={(e) => setTotal(e.target.value)} />
+            <Act small tone="primary" disabled={next === own} title="How many forks may work under this goal at once; exploration and grants derive from it. Blank = none set here (its buildings' desks count; the smallest total on the path binds)" run={() => api().updateGoal(node.id, { desksTotal: next }).then(onDone)}>Save</Act>
+          </> : <b>{line.desks}</b>}
         </div>
-        <ExploreRow node={node} can={can} onDone={onDone} />
-        <DesksRow root={root} node={node} can={can} onDone={onDone} />
+        <div className="ge-funding-row ge-desks-buy">
+          <span className="muted">{line.long}</span>
+        </div>
       </details>
-    </div>
-  );
-}
-
-/**
- * Desks per subtree (1:1 mt_a6wb51enia, gr_yu6qw3j9x5): the most desks the buildings under this goal may have, set here
- * or above (the smallest on the path binds). Same editors as the cap; a captain can't go above the total over them.
- */
-function DesksRow({ root, node, can, onDone }: { root: GoalTreeNode; node: GoalTreeNode; can: boolean; onDone: () => void }) {
-  const own = node.desksTotal ?? null;
-  const [total, setTotal] = useState(own == null ? "" : String(own));
-  useEffect(() => setTotal(own == null ? "" : String(own)), [node.id, own]);
-  const line = desksText(node, root);
-  if (!can && !line) return null;
-  const next = total.trim() === "" ? null : Math.max(0, Math.round(Number(total)) || 0);
-  const above = node.parentId ? findGoal(root, node.parentId)?.funding.desksTotal ?? null : null;
-  return (
-    <div className="ge-funding-row">
-      <span className="ge-funding-label">Desk total</span>
-      {can ? <>
-        <input className="ge-desks-input" type="number" min={0} style={{ width: 64 }} value={total} placeholder={above ? String(above.total) : "none"} onChange={(e) => setTotal(e.target.value)} />
-        <Act small tone="primary" disabled={next === own} title="The most desks the buildings under this goal may have; blank = none set here (the smallest total on the path binds)" run={() => api().updateGoal(node.id, { desksTotal: next }).then(onDone)}>Save</Act>
-      </> : null}
-      <span className={line ? undefined : "muted"}>{line ?? "none"}</span>
-    </div>
-  );
-}
-
-/**
- * The explore rule (docs/how-work-gets-done.md §3): whether the runtime's tick starts explorers under this goal and the
- * chunk each reserves, set here or inherited (the root's default: on, 100k). Same editors as the cap.
- */
-function ExploreRow({ node, can, onDone }: { node: GoalTreeNode; can: boolean; onDone: () => void }) {
-  const rule = node.funding.explore;
-  const [chunk, setChunk] = useState(node.exploreChunkTokens == null ? "" : toMillions(node.exploreChunkTokens));
-  useEffect(() => setChunk(node.exploreChunkTokens == null ? "" : toMillions(node.exploreChunkTokens)), [node.id, node.exploreChunkTokens]);
-  const nextChunk = chunk.trim() === "" ? null : Math.max(10_000, Math.round((fromMillions(chunk) || 0)));
-  const from = (id: string | null) => id === node.id ? "set here" : id ? "inherited" : "default";
-  return (
-    <div className="ge-funding-row">
-      <span className="ge-funding-label">Exploration</span>
-      {can ? <>
-        <select value={node.explore == null ? "" : node.explore ? "on" : "off"} onChange={(e) => void api().updateGoal(node.id, { explore: e.target.value === "" ? null : e.target.value === "on" }).then(onDone)}>
-          <option value="">inherit ({rule.on ? "on" : "off"})</option>
-          <option value="on">on</option>
-          <option value="off">off</option>
-        </select>
-        <MTokensInput value={chunk} placeholder={toMillions(rule.chunkTokens)} onChange={setChunk} />
-        <span className="muted">/ explorer</span>
-        <Act small tone="primary" disabled={nextChunk === node.exploreChunkTokens} title="Blank = inherit the chunk from the goal above (default 100k)" run={() => api().updateGoal(node.id, { exploreChunkTokens: nextChunk }).then(onDone)}>Save</Act>
-      </> : null}
-      <span className="muted">{rule.on ? `on (${from(rule.onFrom)}): idle desks start explorers of ${fmtTokens(rule.chunkTokens)} tokens (${from(rule.chunkFrom)})` : `off (${from(rule.onFrom)})`}</span>
     </div>
   );
 }

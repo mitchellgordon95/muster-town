@@ -394,7 +394,7 @@ export class World {
    * a proposal's ask is the sum of its steps' sizes; oversell scales funded grants' earmarks toward their expected spend.
    * The caller checks admin. Logs it.
    */
-  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number }, by: string | null = null): GrantPricingDefaults {
+  setGrantPricing(patch: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number; exploreOn?: boolean }, by: string | null = null): GrantPricingDefaults {
     const was = grantPricingOf(this.town.get());
     const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as typeof patch;
     const t = grantPricingOf(this.town.set(given));
@@ -402,7 +402,7 @@ export class World {
     const n = (x: number) => x.toLocaleString("en-US");
     this.events.append({
       type: "system", agentId: by,
-      text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%), exploration ${n(t.exploreTokensPerDeskPerDay)} tokens per desk per day (was ${n(was.exploreTokensPerDeskPerDay)}), explorer chunk ${n(t.exploreChunkTokens)} (was ${n(was.exploreChunkTokens)})`,
+      text: `Grant pricing saved: step sizes ${sizes(t.stepSizes)} (was ${sizes(was.stepSizes)}), oversell ${Math.round(t.oversell * 100)}% (was ${Math.round(was.oversell * 100)}%), exploration ${n(t.exploreTokensPerDeskPerDay)} tokens per desk per day (was ${n(was.exploreTokensPerDeskPerDay)}), explorer chunk ${n(t.exploreChunkTokens)} (was ${n(was.exploreChunkTokens)}), exploration ${t.exploreOn ? "on" : "off"} (was ${was.exploreOn ? "on" : "off"})`,
       payload: { ...t, from: was },
     });
     return t;
