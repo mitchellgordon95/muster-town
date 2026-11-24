@@ -3,7 +3,7 @@
  * Env (MUSTER_TOWN_<X>, or the old AGENT_TOWN_<X>): COLLECTIVE (collectives/workshop), DATA (<collective>/data),
  * EXPORT (<collective>/export), DEV, ADMIN_NAME, RUNTIME (off = a throwaway drill town: throwaway.ts). Plain PORT (collective.json port or 4321) and HOST (0.0.0.0).
  */
-import { markBoot } from "./capacity.ts";
+import { markBoot, markStop } from "./capacity.ts";
 import { REPO_TOKEN_SECRET, World, ensureCalibrationSchedule, ensureDictionary } from "@muster-town/core";
 import { assertNoEnvCredentials } from "@muster-town/runtime";
 import { townEnv } from "@muster-town/schema";
@@ -80,8 +80,9 @@ async function main() {
     console.log(`[server] desk settings from MUSTER_TOWN_DESKS: ${Object.keys(desksOverride).join(", ")}`);
   }
   world.start(10);
-  // one marker per start, before buildApp reads the last day's: GET /api/health capacity.restarts24h (capacity.ts)
-  markBoot(world);
+  // one marker per start, before buildApp reads the last day's: GET /api/health capacity.restarts24h and lastBoot (capacity.ts);
+  // its cause comes from the events since the last one, plus Fly's exit event for an unplanned boot (at most a 5 s wait)
+  await markBoot(world);
 
   const auth = loadAuthSettings({ dataDir: DATA_DIR, port: PORT });
   // off-site backup (deploy/README.md "Backups"): local copies beside the data dir (/data/workshop/backups on Fly); inert without the env
@@ -181,6 +182,8 @@ async function main() {
 
   const shutdown = async (sig: string) => {
     console.log(`[server] ${sig}, shutting down`);
+    // the stop marker: the next boot reads it as "stopped", not "unplanned" (gr_zsglqgxpew)
+    try { markStop(world, sig); } catch (e) { console.warn(`[server] stop marker not written: ${(e as Error).message}`); }
     try { await app.close(); } finally { world.close(); process.exit(0); }
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
