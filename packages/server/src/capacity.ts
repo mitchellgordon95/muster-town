@@ -33,10 +33,10 @@ interface Capacity {
  * town's redeploy said "Redeploy: restarting server", "stopped" when main.ts's signal handler wrote its stop marker (an image
  * deploy, a Machine restart, a human's stop), "unplanned" when neither did (a crash, an OOM kill, a host failure).
  */
-export type BootCause = "redeploy" | "stopped" | "unplanned";
+type BootCause = "redeploy" | "stopped" | "unplanned";
 const CAUSES: readonly BootCause[] = ["redeploy", "stopped", "unplanned"];
 
-export const STOP_MARKER = "Server stopping";
+const STOP_MARKER = "Server stopping";
 const REDEPLOY_RESTART = "Redeploy: restarting server";
 
 /** p95 by nearest rank: the smallest value with at least 95 % of the samples at or below it. */
@@ -89,14 +89,14 @@ export function bootCause(world: World): BootCause {
   return "unplanned";
 }
 
-export interface FlyExit { exitCode: number | null; oomKilled: boolean | null }
+interface FlyExit { exitCode: number | null; oomKilled: boolean | null }
 type FetchLike = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 /**
  * The newest `exit` event of this Machine before `before` (ms) and after `after` (ms), from the Fly Machines API
  * (GET /v1/apps/<app>/machines/<id>/events, read-only FLY_LOGS_TOKEN). Null when there is none; throws on a failed fetch.
  */
-export async function flyExit(o: { app: string; machine: string; token: string; before: number; after: number; fetch?: FetchLike; timeoutMs?: number }): Promise<FlyExit | null> {
+async function flyExit(o: { app: string; machine: string; token: string; before: number; after: number; fetch?: FetchLike; timeoutMs?: number }): Promise<FlyExit | null> {
   const f = o.fetch ?? (globalThis.fetch as unknown as FetchLike);
   const res = await f(`https://api.machines.dev/v1/apps/${encodeURIComponent(o.app)}/machines/${encodeURIComponent(o.machine)}/events`, {
     headers: { Authorization: `Bearer ${o.token}` }, signal: AbortSignal.timeout(o.timeoutMs ?? 5000),
@@ -119,7 +119,7 @@ export async function flyExit(o: { app: string; machine: string; token: string; 
   };
 }
 
-export const FLY_TOKEN_SECRET = "FLY_LOGS_TOKEN";
+const FLY_TOKEN_SECRET = "FLY_LOGS_TOKEN";
 
 /**
  * Marks a server start: one system event per boot, read back by `capacity.restarts24h` and `capacity.lastBoot`. Its payload
