@@ -516,10 +516,10 @@ export class MockApi implements Api {
     await wait();
     const day = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString().slice(0, 10);
     const to = day(0), from = day(29);
-    const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0 };
+    const zero = { homeViews: 0, guestCardViews: 0, guestVisitors: 0, signInStarted: 0, signIns: 0, asked: 0, letIn: 0, declined: 0, acted: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0, homeCard: 0 };
     const workshop = [
       { ...zero, day: day(6), homeViews: 5, guestCardViews: 9, guestVisitors: 4, signInStarted: 2, signIns: 1 },
-      { ...zero, day: day(2), homeViews: 7, guestCardViews: 14, guestVisitors: 6, signInStarted: 1, signIns: 1, asked: 1, letIn: 1, doorFund: 1, doorCaptain: 1, doorAgent: 2, homePage2: 5, homePage3: 4, homeSkip: 3, homeOpen: 1, homeTile: 2 },
+      { ...zero, day: day(2), homeViews: 7, homeCard: 6, guestCardViews: 14, guestVisitors: 6, signInStarted: 1, signIns: 1, asked: 1, letIn: 1, doorFund: 1, doorCaptain: 1, doorAgent: 2, homePage2: 5, homePage3: 4, homeSkip: 3, homeOpen: 1, homeTile: 2 },
       { ...zero, day: day(0), homeViews: 3, guestCardViews: this.guestCardViews - 23, guestVisitors: 2, asked: 1 },
     ];
     const hosted = [{ ...zero, day: day(2), guestCardViews: 4, guestVisitors: 2, signInStarted: 1, signIns: 1, asked: 1, declined: 1 }];

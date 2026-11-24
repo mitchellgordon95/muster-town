@@ -20,10 +20,11 @@ import { Act, Empty, ErrorLine, Loading, Section, Tabs, timeAgo, useLoad } from 
 /** The steps in funnel order: short column label and what the number is. */
 export const COLUMNS: { key: keyof JoinFunnelCounts; label: string; what: string }[] = [
   { key: "homeViews", label: "Home", what: "browsers that opened the homepage (muster.town), each counted once per day" },
+  { key: "homeCard", label: "Card shown", what: "homepage browsers the pitch card opened for (it shows once per browser, so returning browsers count in Home but not here), each counted once per day" },
   { key: "homePage2", label: "Home: page 2", what: "homepage browsers that reached page 2 of the pitch card (Publicly legible), each counted once per day" },
   { key: "homePage3", label: "Home: page 3", what: "homepage browsers that reached page 3 of the pitch card (Goal-directed, with the Open button), each counted once per day" },
   { key: "homeSkip", label: "Home: Skip", what: "homepage browsers that pressed Skip or closed the pitch card (×, Esc or a click outside it) without pressing Open, each counted once per day" },
-  { key: "homeOpen", label: "Home: Open", what: "homepage browsers that pressed Open on the pitch card's last page (it opens the Workshop), each counted once per day" },
+  { key: "homeOpen", label: "Home: Open", what: "homepage browsers that pressed Open on the pitch card's first or last page (it opens the Workshop), each counted once per day" },
   { key: "homeTile", label: "Home: tile", what: "homepage browsers that clicked a collective's tile on the page behind the card, each counted once per day" },
   { key: "guestCardViews", label: "Saw card", what: "page loads that showed the signed-out guest card: reloads count again" },
   { key: "guestVisitors", label: "Visitors", what: "browsers that saw the guest card, each counted once per day: the number of strangers at the door" },

@@ -19,12 +19,17 @@ export const Head = ({ pre, big, sub }: { pre: string; big: string; sub: string 
 
 interface CardButton { label: string; onClick: () => void }
 
-/** `last` decides the last page's buttons (the one next step); earlier pages end on Next. `onPage` hears each page shown (0 first). */
-export function PagedCard({ label, pages, onClose, last, onPage }: {
+/**
+ * `last` decides the last page's buttons (the one next step); earlier pages end on Next. `first`, when given, puts a way
+ * out on the first page as its primary button, with Next beside it as a plain button (the homepage card, gr_ptle4vvujl
+ * step 3: 28 of 29 browsers never pressed Next). `onPage` hears each page shown (0 first).
+ */
+export function PagedCard({ label, pages, onClose, last, first, onPage }: {
   label: string;
   pages: ComponentType[];
   onClose: () => void;
   last: { primary: CardButton | null; secondary?: CardButton | null };
+  first?: { primary: CardButton | null };
   onPage?: (page: number) => void;
 }) {
   const [page, setPage] = useState(0);
@@ -35,8 +40,10 @@ export function PagedCard({ label, pages, onClose, last, onPage }: {
   useEffect(() => { heard.current?.(page); }, [page]);
   const isLast = page === pages.length - 1;
   const Page = pages[page]!;
-  const primary = isLast ? last.primary : { label: "Next", onClick: () => setPage(page + 1) };
-  const secondary = isLast ? last.secondary : null;
+  const next = { label: "Next", onClick: () => setPage(page + 1) };
+  const early = !isLast && page === 0 && first?.primary ? first.primary : null;
+  const primary = isLast ? last.primary : early ?? next;
+  const secondary = isLast ? last.secondary : early ? next : null;
   return (
     <div className="hiw-backdrop" onClick={onClose}>
       {/* focused, so keys stay here instead of walking the avatar behind the overlay */}

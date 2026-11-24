@@ -258,7 +258,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     if (isAutomatedClient(req.headers["user-agent"])) return { counted: false };
     const raw = typeof req.body === "object" && req.body ? (req.body as { step?: unknown }).step : undefined;
     const step = raw === undefined ? "homeViews" : typeof raw === "string" && Object.hasOwn(HOME_STEPS, raw) ? HOME_STEPS[raw as keyof typeof HOME_STEPS] : null;
-    if (!step) throw new AppError("bad_request", "step must be page2, page3, skip, open or tile");
+    if (!step) throw new AppError("bad_request", "step must be card, page2, page3, skip, open or tile");
     const v = visitorOf(req.body);
     return { counted: !!v && (step === "homeViews" ? countVisitorFrom(opts.world, step, v, sourceOf(req)) : countVisitor(opts.world, step, v)) };
   });

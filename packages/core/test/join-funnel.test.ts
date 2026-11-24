@@ -78,8 +78,8 @@ describe("join funnel", () => {
     const { world } = seededWorld();
     const now = Date.parse("2026-11-17T12:00:00Z");
     const id = "home-card-visitor-0001";
-    for (const step of [HOME_STEPS.page2, HOME_STEPS.page3, HOME_STEPS.page2, HOME_STEPS.open, HOME_STEPS.tile, HOME_STEPS.skip]) countVisitor(world, step, id, now);
-    expect(joinFunnel(world, 30, now).totals).toMatchObject({ homePage2: 1, homePage3: 1, homeSkip: 1, homeOpen: 1, homeTile: 1, homeViews: 0 });
+    for (const step of [HOME_STEPS.card, HOME_STEPS.card, HOME_STEPS.page2, HOME_STEPS.page3, HOME_STEPS.page2, HOME_STEPS.open, HOME_STEPS.tile, HOME_STEPS.skip]) countVisitor(world, step, id, now);
+    expect(joinFunnel(world, 30, now).totals).toMatchObject({ homePage2: 1, homePage3: 1, homeSkip: 1, homeOpen: 1, homeTile: 1, homeCard: 1, homeViews: 0 });
   });
 
   it("sources (gr_ox3fmliv9n): a ref tag, else the external referrer's host, else direct; never a path", () => {
@@ -175,8 +175,8 @@ describe("join funnel", () => {
     for (const f of files.filter((f) => f.includes("join_funnel"))) copyFileSync(join(all, f), join(dir, f));
     migrate(db, dir);
     expect(db.prepare("SELECT * FROM join_funnel ORDER BY day").all()).toEqual([
-      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0 },
-      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0 },
+      { day: "2026-10-29", guestCardViews: 0, signIns: 1, asked: 0, letIn: 0, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0, homeCard: 0 },
+      { day: "2026-10-30", guestCardViews: 0, signIns: 0, asked: 2, letIn: 1, declined: 0, acted: 0, guestVisitors: 0, signInStarted: 0, homeViews: 0, doorFund: 0, doorCaptain: 0, doorAgent: 0, homePage2: 0, homePage3: 0, homeSkip: 0, homeOpen: 0, homeTile: 0, homeCard: 0 },
     ]);
     expect(db.prepare("SELECT * FROM join_funnel_waits").all()).toEqual([{ day: "2026-10-30", waitMs: 7_200_000 }]);
   });
