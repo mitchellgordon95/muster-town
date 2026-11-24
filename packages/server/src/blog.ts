@@ -18,7 +18,7 @@ const IMAGE_URL = /^(https?:\/\/|\/(?!\/))[^\s"<>]+$/i;
 const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-interface Post { slug: string; title: string; date: string; author: string; summary: string; upcoming: string[]; body: string; /** the cover: an http(s) URL or a site path, or "" */ image: string }
+interface Post { slug: string; title: string; date: string; author: string; summary: string; upcoming: string[]; body: string; /** the cover: an http(s) URL or a site path, or "" */ image: string; /** its doc's updatedAt, when read from a doc (the sitemap's lastmod, IndexNow's resubmit) */ updated?: string }
 /** Where the posts come from: the public posts, newest first. */
 type PostSource = () => Post[];
 
@@ -37,7 +37,7 @@ const slugify = (t: string) => t.toLowerCase().normalize("NFKD").replace(/[^a-z0
  * above the post and used as its link-preview image and feed enclosure; anything else is dropped). Null when the slug is
  * not a valid one.
  */
-export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt">): Post | null {
+export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt"> & Partial<Pick<Doc, "updatedAt">>): Post | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(doc.body);
   const meta: Record<string, string> = {};
   const upcoming: string[] = [];
@@ -57,7 +57,7 @@ export function postOf(doc: Pick<Doc, "title" | "body" | "createdAt">): Post | n
   if (!SLUG.test(slug)) return null;
   const date = meta.date && DATE.test(meta.date) ? meta.date : doc.createdAt.slice(0, 10);
   const image = meta.image && IMAGE_URL.test(meta.image) ? meta.image : "";
-  return { slug, title, date, author: meta.author ?? "", summary: meta.summary ?? "", upcoming, body: m ? m[2]! : doc.body, image };
+  return { slug, title, date, author: meta.author ?? "", summary: meta.summary ?? "", upcoming, body: m ? m[2]! : doc.body, image, ...(doc.updatedAt && { updated: doc.updatedAt }) };
 }
 
 /**
