@@ -150,6 +150,19 @@ function causeOf(p: Record<string, unknown>): BootCause | "unknown" {
   return CAUSES.includes(p.cause as BootCause) ? (p.cause as BootCause) : "unknown";
 }
 
+/** health `capacity.lastBoot`: a boot's time, cause, and Fly's exit code and OOM flag (null when not known) */
+export type LastBoot = NonNullable<Capacity["lastBoot"]>;
+
+/** The newest boot marker (this process's own once main.ts has run markBoot): health `capacity.lastBoot`, monitor key `crash`. */
+export function readLastBoot(world: World): LastBoot | null {
+  const newest = world.events.list({ types: ["system"], payloadKey: "boot", desc: true, limit: 1 })[0];
+  return newest ? {
+    at: newest.ts, cause: causeOf(newest.payload),
+    exitCode: typeof newest.payload.exitCode === "number" ? newest.payload.exitCode : null,
+    oomKilled: typeof newest.payload.oomKilled === "boolean" ? newest.payload.oomKilled : null,
+  } : null;
+}
+
 /**
  * Keeps the state between refreshes: the tick ring, and the boot times of the last day, read from the database once at
  * construction (this process's own boot marker is written before the app is built) so a refresh never queries SQLite.
@@ -162,12 +175,7 @@ export class CapacityProbe {
     const from = new Date(this.now() - DAY_MS).toISOString();
     const markers = world.events.list({ types: ["system"], from, payloadKey: "boot", limit: 5000 });
     this.boots = markers.map((e) => ({ at: Date.parse(e.ts), cause: causeOf(e.payload) }));
-    const newest = world.events.list({ types: ["system"], payloadKey: "boot", desc: true, limit: 1 })[0];
-    this.last = newest ? {
-      at: newest.ts, cause: causeOf(newest.payload),
-      exitCode: typeof newest.payload.exitCode === "number" ? newest.payload.exitCode : null,
-      oomKilled: typeof newest.payload.oomKilled === "boolean" ? newest.payload.oomKilled : null,
-    } : null;
+    this.last = readLastBoot(world);
   }
   private now(): number { return this.o.now?.() ?? Date.now(); }
   /** a boot marker written after construction (tests) */
