@@ -2,7 +2,7 @@
  * Browser errors (grant gr_cyqzweu6ed step 1): the page posts a panel crash or an uncaught error here (navigator.sendBeacon,
  * at most 10 a page load; web clientErrors.ts) and core client-errors.ts keeps it by kind with the live commit. Guests may
  * post (a crash happens to anyone); at most PER_HOUR posts per client IP an hour, the IP never stored. GET lists the last
- * 24 hours by kind, public.
+ * 24 hours by kind, public, with `newSinceDeploy`: kinds first seen since the running server started.
  */
 import { AppError, clientErrorOf, clientErrors, recordClientError, type World } from "@muster-town/core";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -30,6 +30,6 @@ export function clientErrorRoutes(opts: { world: World; prefix: string; clientIp
       const r = recordClientError(opts.world, report, { commit: opts.world.host.commit ?? null, now: now() });
       return { recorded: r.recorded, new: r.isNew };
     });
-    app.get(`${opts.prefix}/api/client-errors`, async () => clientErrors(opts.world, { now: now() }));
+    app.get(`${opts.prefix}/api/client-errors`, async () => clientErrors(opts.world, { now: now(), deployedAt: opts.world.host.startedAt ?? null }));
   };
 }
