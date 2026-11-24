@@ -2,7 +2,7 @@
 import { BANK_FIXTURES, BANK_LOT, TILE, WALKABLE } from "@muster-town/schema";
 import type { Building, Place } from "@muster-town/schema";
 import type { Grid } from "../api";
-import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChart, drawStats, drawHelpSign, drawHydrant, drawBook, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin, drawPluginScreen } from "./sprites";
+import { T, tiles, drawTable, drawCounter, drawDoor, drawManagerDesk, drawChair, drawBoard, drawCabinet, drawSchedule, drawWallSchedule, drawGoalChartTile, drawStats, drawHelpSign, drawHydrant, drawBook, drawBench, drawVault, drawGold, drawPillar, drawBankMap, drawTownMap, drawSpendingBoard, drawBankChest, drawBankLedger, drawBankServer, drawGrandFountain, drawSignpost, drawTree, drawLamp, drawFlowers, drawBulletin, drawPluginScreen } from "./sprites";
 
 type Lot = { x: number; y: number; w: number; h: number };
 
@@ -100,7 +100,7 @@ export class World {
   /** The town's decor and the square's fountain stand outside every building. */
   private outdoors(x: number, y: number): boolean {
     const k = this.at(x, y);
-    return k === TILE.LAMP || k === TILE.FLOWERS || k === TILE.BENCH || k === TILE.FOUNTAIN || k === TILE.BULLETIN;
+    return k === TILE.LAMP || k === TILE.FLOWERS || k === TILE.BENCH || k === TILE.FOUNTAIN || k === TILE.BULLETIN || k === TILE.TOWN_MAP;
   }
   private nextTo(x: number, y: number, k: number): boolean {
     return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => this.at(x + dx, y + dy) === k);
@@ -142,20 +142,19 @@ export class World {
           }
           case TILE.SHELF: g.drawImage(tl.shelf, px, py); break;
           case TILE.PLANT: g.drawImage(tl.plant, px, py); break;
-          case TILE.TOWN_MAP: {
-            let ix = 0, iy = 0;
-            while (this.at(x - ix - 1, y) === TILE.TOWN_MAP) ix++;
-            while (this.at(x, y - iy - 1) === TILE.TOWN_MAP) iy++;
-            drawTownMap(g, px, py, ix, iy);
-            break;
-          }
+          case TILE.TOWN_MAP: drawTownMap(g, px, py); break;
           case TILE.DOOR: drawDoor(g, px, py, bank); break;
           case TILE.MANAGER_DESK: drawManagerDesk(g, px, py); break;
           case TILE.BOARD: g.drawImage(tl.wallFace, px, py); drawBoard(g, px, py); break;
           case TILE.CABINET: drawCabinet(g, px, py); break;
           case TILE.SCHEDULE: drawSchedule(g, px, py); break;
           case TILE.SCHEDULE_BOARD: g.drawImage(tl.wallFace, px, py); drawWallSchedule(g, px, py); break;
-          case TILE.GOAL_CHART: g.drawImage(tl.wallFace, px, py); drawGoalChart(g, px, py); break;
+          case TILE.GOAL_CHART: {
+            let ix = 0;
+            while (this.at(x - ix - 1, y) === k) ix++;
+            g.drawImage(tl.wallFace, px, py); drawGoalChartTile(g, px, py, ix, ix > 0 || this.at(x + 1, y) === k);
+            break;
+          }
           case TILE.PLUGIN: g.drawImage(tl.wallFace, px, py); drawPluginScreen(g, px, py); break;
           case TILE.STATS: drawStats(g, px, py); break;
           case TILE.HELP: drawHelpSign(g, px, py); break;

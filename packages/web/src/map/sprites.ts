@@ -385,13 +385,35 @@ export function drawBoard(g: CanvasRenderingContext2D, px: number, py: number) {
  * The Town Hall goal tree (TILE.GOAL_CHART, place `goal-tree`): a white chart on the back wall with a tiny org chart,
  * one root box over two branches over three leaves. Draw the wall first.
  */
-export function drawGoalChart(g: CanvasRenderingContext2D, px: number, py: number) {
+function drawGoalChart(g: CanvasRenderingContext2D, px: number, py: number) {
   g.fillStyle = "#2a2d3a"; g.fillRect(px + 1, py + 2, T - 2, 12);
   g.fillStyle = "#f2efe6"; g.fillRect(px + 2, py + 3, T - 4, 10);
   g.fillStyle = "#6b6f85"; g.fillRect(px + 7, py + 6, 1, 2); g.fillRect(px + 4, py + 7, 8, 1); g.fillRect(px + 4, py + 7, 1, 2); g.fillRect(px + 11, py + 7, 1, 2);
   g.fillStyle = "#e0b04a"; g.fillRect(px + 6, py + 4, 3, 2);
   g.fillStyle = "#4f8fc9"; g.fillRect(px + 3, py + 9, 3, 2); g.fillRect(px + 10, py + 9, 3, 2);
   g.fillStyle = "#5fb36a"; g.fillRect(px + 7, py + 10, 2, 2);
+}
+let goalChartSheet: HTMLCanvasElement | null = null;
+/** The Town Hall's goal tree as the room draws it: one chart three tiles wide (1:1 mt_8imtwy68zc), a root over three branches over six leaves. */
+function goalChartArt(): HTMLCanvasElement {
+  if (goalChartSheet) return goalChartSheet;
+  const W = 3 * T, c = document.createElement("canvas"); c.width = W; c.height = T;
+  const g = c.getContext("2d")!;
+  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  r(1, 1, W - 2, 14, "#2a2d3a"); r(2, 2, W - 4, 12, "#f2efe6"); r(2, 2, W - 4, 1, "#ffffff");
+  // the root, its three branches, each branch's two leaves, and the lines between
+  r(21, 3, 6, 2, "#e0b04a");
+  r(23, 5, 2, 2, "#6b6f85"); r(8, 6, 32, 1, "#6b6f85");
+  for (const x of [8, 23, 39]) r(x, 6, 1, 2, "#6b6f85");
+  for (const [x, col] of [[5, "#4f8fc9"], [21, "#c94f4f"], [36, "#4f8fc9"]] as const) r(x, 8, 6, 2, col);
+  for (const x of [4, 10, 20, 26, 35, 41]) { r(x + 1, 10, 1, 1, "#6b6f85"); r(x, 11, 3, 2, "#5fb36a"); }
+  goalChartSheet = c;
+  return c;
+}
+/** One tile of the Town Hall's wide goal chart: `ix` = the tile's column within it (a lone tile draws the small chart). Draw the wall first. */
+export function drawGoalChartTile(g: CanvasRenderingContext2D, px: number, py: number, ix: number, wide: boolean) {
+  if (!wide) { drawGoalChart(g, px, py); return; }
+  g.drawImage(goalChartArt(), (ix % 3) * T, 0, T, T, px, py, T, T);
 }
 /**
  * The Town Hall's user stats stand (TILE.STATS, place `stats`): a chart on a wooden easel, four bars stepping down
@@ -514,41 +536,27 @@ export function drawBankMap(g: CanvasRenderingContext2D, px: number, py: number)
   g.fillRect(px + 10, py + 9, 1, 1); g.fillRect(px + 12, py + 8, 1, 1);
 }
 
-/** The Town Hall map table, 5 x 2 tiles (TILE.TOWN_MAP; place `town-map` opens town planning): one sheet, each tile draws its slice. */
-const TOWN_MAP_SIZE = { w: 5, h: 2 } as const;
-let townMapSheet: HTMLCanvasElement | null = null;
-function townMapArt(): HTMLCanvasElement {
-  if (townMapSheet) return townMapSheet;
-  const W = TOWN_MAP_SIZE.w * T, H = TOWN_MAP_SIZE.h * T;
-  const c = document.createElement("canvas"); c.width = W; c.height = H;
-  const g = c.getContext("2d")!;
-  const r = (x: number, y: number, w: number, h: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  // shadow and legs, the wooden table, then the map spread on it
-  r(3, H - 3, W - 6, 3, "rgba(0,0,0,.25)");
-  r(3, H - 7, 3, 6, "#4a3018"); r(W - 6, H - 7, 3, 6, "#4a3018");
-  r(0, 1, W, H - 7, "#5a3a1f"); r(0, 1, W, 1, "#a8774a"); r(1, 2, W - 2, H - 10, "#946538");
-  const mx = 3, my = 3, mw = W - 6, mh = H - 13;
-  r(mx, my, mw, mh, "#e9dcb4"); r(mx, my, mw, 1, "#f6edcf"); r(mx, my + mh - 1, mw, 1, "#cdbb8c");
-  // grass patches, the river, the road across the middle with the Bank south of it
-  r(mx + 1, my + 1, mw - 2, mh - 2, "#cfe0a8");
-  for (let x = 0; x < mw - 2; x++) r(mx + 1 + x, my + 2 + Math.round(1.5 + 1.5 * Math.sin(x / 5)), 1, 2, "#7fb3d9");
-  const ry = my + Math.floor(mh / 2);
-  r(mx + 1, ry, mw - 2, 2, "#c9b587"); r(mx + 1, ry, mw - 2, 1, "#d6c497");
-  // buildings north of the road (the Town Hall the biggest, stone grey), more to the south, the Bank in gold
-  const lots: [number, number, number, number, string][] = [
-    [6, ry - 6, 8, 5, "#8b90a6"], [17, ry - 5, 6, 4, "#b58a5a"], [26, ry - 5, 7, 4, "#b58a5a"], [36, ry - 6, 9, 5, "#4f8fc9"], [48, ry - 5, 6, 4, "#b58a5a"], [57, ry - 5, 7, 4, "#86b06b"], [66, ry - 6, 6, 5, "#b58a5a"],
-    [10, ry + 3, 7, 4, "#b58a5a"], [22, ry + 3, 8, 4, "#e8b840"], [35, ry + 3, 6, 4, "#c94f4f"], [46, ry + 3, 8, 4, "#b58a5a"], [60, ry + 3, 7, 4, "#86b06b"],
-  ];
-  for (const [x, y, w, h, col] of lots) { r(mx + x, y, w, h, "#2e3248"); r(mx + x + 1, y + 1, w - 2, h - 2, col); r(mx + x + Math.floor(w / 2), y + h - 1, 1, 1, "#efe2bf"); }
-  // a red pin on the Town Hall and a compass rose in the corner
-  r(mx + 9, ry - 9, 2, 2, "#d9483b"); r(mx + 9, ry - 7, 1, 2, "#5a3a1f");
-  r(mx + mw - 6, my + 1, 1, 5, "#5a3a1f"); r(mx + mw - 8, my + 3, 5, 1, "#5a3a1f"); r(mx + mw - 6, my + 1, 1, 1, "#d9483b");
-  townMapSheet = c;
-  return c;
-}
-/** One tile of the map table: `ix`, `iy` = the tile's column and row within the table. */
-export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number, ix: number, iy: number) {
-  g.drawImage(townMapArt(), (ix % TOWN_MAP_SIZE.w) * T, (iy % TOWN_MAP_SIZE.h) * T, T, T, px, py, T, T);
+/**
+ * The town map board in the town square (TILE.TOWN_MAP, place `town-map`: opens town planning; 1:1 mt_8imtwy68zc moved
+ * it out of the Town Hall): a parchment map of the town in a wooden frame on two posts under a little blue roof, the
+ * bulletin board's twin on the other side of the door. Stands outdoors and reaches up into the tile above, like a lamp.
+ */
+export function drawTownMap(g: CanvasRenderingContext2D, px: number, py: number) {
+  const r = (x: number, y: number, w: number, h: number, c: string) => { g.fillStyle = c; g.fillRect(px + x, py + y, w, h); };
+  r(1, 14, 14, 2, "rgba(0,0,0,.25)");
+  // posts, frame, parchment
+  r(2, 8, 2, 7, "#5a3d22"); r(12, 8, 2, 7, "#5a3d22");
+  r(1, -3, 14, 12, "#6b4a2b");
+  r(2, -2, 12, 10, "#e9dcb4");
+  // grass, the river, the main street with the fountain, a few lots, the Town Hall with a red pin
+  r(2, -2, 12, 10, "#cfe0a8");
+  r(2, 0, 3, 1, "#7fb3d9"); r(5, 1, 3, 1, "#7fb3d9");
+  r(2, 4, 12, 2, "#c9b587"); r(7, 4, 2, 2, "#7fb3d9");
+  r(6, -1, 4, 3, "#8b90a6"); r(3, 2, 2, 1, "#b58a5a"); r(11, 1, 2, 2, "#4f8fc9");
+  r(3, 6, 2, 2, "#86b06b"); r(7, 6, 3, 2, "#e8b840"); r(11, 6, 2, 1, "#b58a5a");
+  r(7, -3, 2, 2, "#d9483b");
+  // roof
+  r(0, -6, 16, 3, "#2f5f8f"); r(1, -7, 14, 2, "#4f8fc9"); r(0, -4, 16, 1, "#1f3f60");
 }
 
 export type IconKind = "library" | "meeting" | "building" | "admin" | "intray" | "board" | "cabinet" | "schedule" | "mod" | "planning" | "bank" | "goals" | "stats" | "help" | "bulletin" | "hydrant";

@@ -11,14 +11,21 @@ export interface Layout { grid: Grid; places: Place[]; lots: Map<string, NonNull
 
 /** = core TOWN_HALL_FIXTURES (relative to the 17x11 Town Hall lot). */
 const F = {
-  modDesk: [{ x: 2, y: 8 }, { x: 3, y: 8 }, { x: 4, y: 8 }],
-  modSeats: [{ x: 2, y: 9 }, { x: 3, y: 9 }, { x: 4, y: 9 }],
-  modStand: { x: 5, y: 8 },
-  planningDesk: [{ x: 12, y: 9 }, { x: 13, y: 9 }], planningStand: { x: 12, y: 8 },
-  hydrant: { x: 2, y: 6 }, hydrantStand: { x: 2, y: 7 },
-  schedule: { x: 15, y: 6 }, scheduleStand: { x: 15, y: 7 },
-  board: { x: 8, y: 0 }, boardStand: { x: 8, y: 1 },
+  modDesk: [{ x: 1, y: 8 }, { x: 2, y: 8 }, { x: 3, y: 8 }],
+  modSeats: [{ x: 1, y: 9 }, { x: 2, y: 9 }, { x: 3, y: 9 }],
+  modStand: { x: 4, y: 8 },
+  planningDesk: [{ x: 13, y: 9 }, { x: 14, y: 9 }], planningStand: { x: 13, y: 8 },
+  goalTree: [{ x: 7, y: 0 }, { x: 8, y: 0 }, { x: 9, y: 0 }], goalTreeStand: { x: 8, y: 1 },
+  hydrant: { x: 5, y: 5 }, hydrantStand: { x: 5, y: 6 },
+  meeting: [{ x: 10, y: 5 }, { x: 11, y: 5 }, { x: 12, y: 5 }, { x: 13, y: 5 }], meetingStand: { x: 11, y: 6 },
+  library: [{ x: 1, y: 1 }, { x: 2, y: 1 }], libraryStand: { x: 2, y: 2 },
+  manual: { x: 3, y: 1 }, manualStand: { x: 3, y: 2 },
+  stats: { x: 15, y: 3 }, statsStand: { x: 14, y: 3 },
+  schedule: { x: 15, y: 6 }, scheduleStand: { x: 14, y: 6 },
+  board: { x: 13, y: 0 }, boardStand: { x: 13, y: 1 },
+  help: { x: 6, y: 9 }, helpStand: { x: 7, y: 9 },
   bench: [{ x: 10, y: 9 }, { x: 11, y: 9 }], benchSeats: [{ x: 10, y: 8 }, { x: 11, y: 8 }],
+  plant: { x: 15, y: 1 },
 };
 const HALL = { w: 17, h: 11 }, GAP = 4, MARGIN = 3;
 function labSize(headcount: number) {
@@ -84,25 +91,27 @@ export function computeLayout(buildings: Building[], agents: Agent[]): Layout {
         { id: `board:${b.id}`, kind: "board", name: "Town Hall board (town-wide FYIs)", buildingId: b.id, pos: at(F.boardStand) },
         { id: "visitor-bench", kind: "bench", name: "Visitor bench", buildingId: b.id, pos: at(F.benchSeats[0]) },
       );
-      for (let x = 2; x <= 6; x++) set(x0 + x, y0 + 2, TILE.SHELF);
-      for (let x = 10; x <= 14; x++) for (let y = 2; y <= 3; y++) set(x0 + x, y0 + y, TILE.TOWN_MAP);
-      set(x0 + 5, y0 + 6, TILE.STATS);
-      set(x0 + 7, y0 + 2, TILE.BOOK); // = core's `manual` piece
-      set(x0 + 6, y0 + 9, TILE.HELP); // = core's `help` piece
-      for (let x = 10; x <= 13; x++) set(x0 + x, y0 + 6, TILE.TABLE);
-      set(x0 + 1, y0 + 1, TILE.PLANT); set(x0 + bw - 2, y0 + 1, TILE.PLANT);
+      for (const p of F.goalTree) set(x0 + p.x, y0 + p.y, TILE.GOAL_CHART);
+      for (const p of F.library) set(x0 + p.x, y0 + p.y, TILE.SHELF);
+      set(x0 + F.manual.x, y0 + F.manual.y, TILE.BOOK);
+      set(x0 + F.stats.x, y0 + F.stats.y, TILE.STATS);
+      set(x0 + F.help.x, y0 + F.help.y, TILE.HELP);
+      for (const p of F.meeting) set(x0 + p.x, y0 + p.y, TILE.TABLE);
+      set(x0 + F.plant.x, y0 + F.plant.y, TILE.PLANT);
       places.push(
-        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: { x: x0 + 4, y: y0 + 3 } },
-        { id: "town-map", kind: "town-map", name: "Town map (town planning)", buildingId: b.id, pos: { x: x0 + 12, y: y0 + 4 } },
-        { id: "operating-manual", kind: "operating-manual", name: "Operating manual (a book: how jobs, threads, reports and asks work here)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 3 } },
-        { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: { x: x0 + 5, y: y0 + 7 } },
-        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: { x: x0 + 11, y: y0 + 7 } },
-        { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: { x: x0 + 7, y: y0 + 9 } },
+        { id: "goal-tree", kind: "goal-tree", name: "Goal tree (the town's goals, key results and proposals)", buildingId: b.id, pos: at(F.goalTreeStand) },
+        { id: "library", kind: "library", name: "Library", buildingId: b.id, pos: at(F.libraryStand) },
+        { id: "operating-manual", kind: "operating-manual", name: "Operating manual (a book: how jobs, threads, reports and asks work here)", buildingId: b.id, pos: at(F.manualStand) },
+        { id: "stats", kind: "stats", name: "User stats (who saw the guest card, signed in, asked to join, was let in)", buildingId: b.id, pos: at(F.statsStand) },
+        { id: `meeting-room:${b.id}`, kind: "meeting-room", name: "Town Hall meeting room", buildingId: b.id, pos: at(F.meetingStand) },
+        { id: `help:${b.id}`, kind: "help", name: "Town Hall help sign (what this building is, what each thing here is, what to do)", buildingId: b.id, pos: at(F.helpStand) },
         { id: "plaza", kind: "plaza", name: "Plaza", buildingId: null, pos: { x: door.x, y: roadY } },
-        // = core's bulletin board (flag dc_52njv3shp8): outside, three tiles left of the Town Hall's door, read from the road
+        // = core's bulletin board (flag dc_52njv3shp8) and town map board (1:1 mt_8imtwy68zc): outside, three tiles left and right of the Town Hall's door, read from the road
         { id: BULLETIN_PLACE, kind: "bulletin", name: "Bulletin board (humans' notes, in the town square)", buildingId: null, pos: { x: door.x - 3, y: roadY } },
+        { id: "town-map", kind: "town-map", name: "Town map (town planning, in the town square)", buildingId: null, pos: { x: door.x + 3, y: roadY } },
       );
       set(door.x - 3, roadY - 1, TILE.BULLETIN);
+      set(door.x + 3, roadY - 1, TILE.TOWN_MAP);
     } else {
       // residents first, then visitors registered into the building (they claim free desks too)
       const residents = [

@@ -635,7 +635,7 @@ export const PlaceKind = z.enum([
   "mod-station",
   /** planning-desk — Town Hall: buildings, residents, roles, secrets, system */
   "planning",
-  /** town-map — Town Hall: the big map table; using it opens town planning (move, resize and draw buildings) */
+  /** town-map — the map board in the town square (outside the Town Hall); using it opens town planning (move, resize and draw buildings) */
   "town-map",
   /** retired: the Town Hall donation box (donating is at the Bank); no layout emits it any more */
   "donation",
@@ -2714,7 +2714,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 /** Tile kinds in the grid (row-major numbers). */
 export const TILE = {
   GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9,
-  /** the Town Hall map table (place `town-map`: using it opens town planning); was the trophy cases */
+  /** the town map board in the town square (place `town-map`: using it opens town planning); was the Town Hall's 5x2 map table until 1:1 mt_8imtwy68zc; not walkable */
   TOWN_MAP: 10,
   /** a desk with a tray glyph: the manager's desk (in-tray) in each lab */
   MANAGER_DESK: 11,
