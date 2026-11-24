@@ -1,0 +1,1 @@
+- 2026-11-24 Teo 1 (gr_7h6r66d10i step 1): clipThought cuts thoughts at a sentence end or whole word under 200 chars and drops an unpaired ** or `; Talk renders thought lines' bold, code and list items (ThoughtText), ids still linked; the agent panel's head line strips the markdown characters.

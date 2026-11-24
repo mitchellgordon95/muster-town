@@ -13,6 +13,7 @@ import { forkTip } from "../forks";
 import { store, useTown, roleOf } from "../state";
 import { PanelShell } from "./PanelShell";
 import { DocText, IdLink, Markdown } from "./Markdown";
+import { ThoughtText } from "./ThoughtText";
 import { ADJ, Act, Empty, ErrorLine, KV, Loading, Pill, Section, StatusPill, breakdownTitle, clock, fmtTokens, nameOf, timeAgo, usd, useLoad } from "./ui";
 import { portraitUrl } from "../map/sprites";
 import { SignInNote } from "../auth/auth";
@@ -410,7 +411,7 @@ function Timeline({ items, empty, agentName }: { items: Item[]; empty: string; a
         return (
           <div key={e.id} className={`ev ${EVENT_TONE[e.type] ?? ""}`}>
             <time title={e.ts}>{clock(e.ts)}</time>
-            <span><DocText text={e.text} /></span>
+            <span>{e.type === "agent.thought" ? <ThoughtText text={e.text} /> : <DocText text={e.text} />}</span>
           </div>
         );
       })}

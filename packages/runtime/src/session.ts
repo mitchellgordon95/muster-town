@@ -76,7 +76,28 @@ export function webFor(purpose: Session["purpose"], opts: { secretary?: boolean;
 }
 export const DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task", "Agent"];
 const THOUGHT_CHARS = 200;
-export const clipThought = (t: string) => (t.length > THOUGHT_CHARS ? t.slice(0, THOUGHT_CHARS - 1) + "…" : t);
+/**
+ * A thought as one line in Talk (grant gr_7h6r66d10i): under THOUGHT_CHARS, cut at the last sentence end (when that
+ * keeps at least half) or else the last whole word, never mid-word; a ** or ` marker the cut left unpaired is dropped.
+ */
+export function clipThought(t: string): string {
+  const text = t.trim();
+  if (text.length <= THOUGHT_CHARS) return dropUnpaired(text);
+  const head = text.slice(0, THOUGHT_CHARS - 1);
+  let cut = -1;
+  for (const m of head.matchAll(/[.!?](?=\s)/g)) cut = m.index! + 1;
+  if (cut >= THOUGHT_CHARS / 2) return dropUnpaired(head.slice(0, cut));
+  const space = head.search(/\s\S*$/);
+  const clipped = (space > 0 ? head.slice(0, space) : head).replace(/[\s,;:(\[{–—-]+$/, "");
+  return `${dropUnpaired(clipped)}…`;
+}
+/** Drop the last ** and the last ` when their count is odd, so a cut never leaves an open bold or code span. */
+function dropUnpaired(s: string): string {
+  let out = s;
+  if ((out.match(/\*\*/g)?.length ?? 0) % 2) { const i = out.lastIndexOf("**"); out = out.slice(0, i) + out.slice(i + 2); }
+  if ((out.replace(/\*\*/g, "").match(/`/g)?.length ?? 0) % 2) { const i = out.lastIndexOf("`"); out = out.slice(0, i) + out.slice(i + 1); }
+  return out.trimEnd();
+}
 
 interface SessionSpec {
   agentId: string;
