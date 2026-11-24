@@ -47,7 +47,7 @@ export async function townRoutes(app: FastifyInstance) {
    * `throwaway: true` only on a drill town (MUSTER_TOWN_RUNTIME=off, throwaway.ts): `runtime` false, `backup.mode` "restore-only".
    * `budgets`, `backup`, `desks`, `directory` and `funding` come from the database: with `healthRefreshMs` (main.ts, 5 s) they are
    * cached and `figuresAt` is when they were computed; so is `capacity` (root app, capacity.ts): `{at, wsClients: {now, ceiling},
-   * tick: {p95Ms, slowMs, samples}, db: {mb, volumeGb}, restarts24h}` against docs/scaling.md "How to check headroom live"; the route itself never touches SQLite (503 post-mortem follow-up A).
+   * tick: {p95Ms, slowMs, samples}, db: {mb, volumeGb}, restarts24h, restartsByCause24h, lastBoot}` against docs/scaling.md "How to check headroom live"; the route itself never touches SQLite (503 post-mortem follow-up A).
    */
   // answers from memory: the database-backed figures are recomputed on a timer (health-cache.ts), so a slow or locked
   // database never makes the Fly check or the pinger time out; `figuresAt` says how old they are
