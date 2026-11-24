@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { deskSizeFor, DESK_FALLBACK_SIZE, TOWN_HALL_ID } from "@muster-town/core";
 import { buildApp } from "../src/app.ts";
-import { CLEAR_AFTER, MEMORY_YELLOW_MB, Counters, parseHostCpu, PINGER_STALE_MS, PingerWatch, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
+import { markBoot, markStop, type LastBoot } from "../src/capacity.ts";
+import { CRASH_RED_MS, CLEAR_AFTER, MEMORY_YELLOW_MB, Counters, parseHostCpu, PINGER_STALE_MS, PingerWatch, DESK_STEAL_EXPIRE_MS, REALERT_MS, type DeskSession, Monitor, type RedeployEnd, defaultMetrics, processProbes, type Probes } from "../src/monitor.ts";
 import { deployable } from "@muster-town/schema";
 import { DeployWatch, type DeployView } from "../src/deploy-watch.ts";
 import { json, seededApp } from "./helpers.ts";
@@ -12,11 +13,11 @@ function rig(o: { probes?: Partial<Probes> } = {}) {
   let t = Date.parse("2026-10-28T20:00:00Z");
   const state = { rss: 0.2 * GB, lag: 0 as number | null, disk: 0.5 as number | null, slots: { running: 1, max: 30 }, queue: 0, backup: null as Probes["backup"] extends () => infer R ? R : never,
     http: { total: 0, errors: 0 }, ws: 0, sessions: { failed15: 0, ended30: 0, failed30: 0 }, desk: [] as DeskSession[],
-    cpu: null as { cpu: number; steal: number } | null, mem: null as number | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null, pinger: null as number | null };
+    cpu: null as { cpu: number; steal: number } | null, mem: null as number | null, redeploy: null as RedeployEnd | null, deploy: null as DeployView | null, pinger: null as number | null, boot: null as LastBoot | null };
   const probes: Probes = {
     rssBytes: () => state.rss, memAvailableMb: () => state.mem, lagP99Ms: () => state.lag, diskFree: () => state.disk, slots: () => state.slots,
     queueWaiting: () => state.queue, backup: () => state.backup, http: () => state.http, wsErrors: () => state.ws, sessions: () => state.sessions,
-    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, pingerSeenAt: () => state.pinger, ...o.probes,
+    deskSessions: (since) => state.desk.filter((d) => d.endedAt > since), deskBill: () => null, hostCpu: () => state.cpu, redeploy: () => state.redeploy, deploy: () => state.deploy, pingerSeenAt: () => state.pinger, lastBoot: () => state.boot, ...o.probes,
   };
   const logs: string[] = [];
   const log = { log: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) };
@@ -479,6 +480,73 @@ describe("monitor thresholds", () => {
     await step(1);
     expect(m.view().alerts).toMatchObject([{ key: "redeploy-failed", level: "red" }]);
     expect(world.docs.get(alerts().at(-1)!.docId!)!.title).toContain("interrupted by a server restart, requested by Pix 1");
+  });
+
+
+  it("crash: red at once after an unplanned boot, naming the exit code and OOM flag; clears 30 min after the boot", async () => {
+    const { r, m, step, alerts, world } = await setup();
+    r.state.boot = { at: new Date(r.now()).toISOString(), cause: "redeploy", exitCode: null, oomKilled: null };
+    await step(3);
+    expect(m.view().alerts).toEqual([]);
+    r.state.boot = { at: new Date(r.now()).toISOString(), cause: "unplanned", exitCode: 137, oomKilled: true };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "crash", level: "red", value: 137 }]);
+    const raise = alerts().filter((a) => a.phase === "raise");
+    expect(raise).toMatchObject([{ key: "crash", level: "red" }]);
+    const doc = world.docs.get(raise[0]!.docId!)!;
+    expect(doc.title).toContain("[RED] server restarted unplanned");
+    expect(doc.title).toContain("exit code 137, OOM killed");
+    expect(doc.title).toContain('deploy/README.md "Slow or 503"');
+    // red for 30 min after the boot, then clean: it clears CLEAR_AFTER samples later, with no second raise
+    await step(CRASH_RED_MS / MIN - 2);
+    expect(m.view().alerts).toMatchObject([{ key: "crash", level: "red" }]);
+    await step(CLEAR_AFTER);
+    expect(m.view().alerts).toEqual([]);
+    expect(alerts().filter((a) => a.key === "crash").map((a) => a.phase)).toEqual(["raise", "clear"]);
+    expect(world.docs.get(raise[0]!.docId!)!.title).toContain("[CLEARED] RED crash");
+  });
+
+  it("crash: an unplanned boot with no Fly exit read says unknown; stopped and old markers are clean", async () => {
+    const { r, m, step, world, alerts } = await setup();
+    for (const cause of ["stopped", "unknown"] as const) {
+      r.state.boot = { at: new Date(r.now()).toISOString(), cause, exitCode: null, oomKilled: null };
+      await step(1);
+      expect(m.view().alerts).toEqual([]);
+    }
+    // an unplanned boot older than the window (the monitor starts after it) raises nothing
+    r.state.boot = { at: new Date(r.now() - CRASH_RED_MS).toISOString(), cause: "unplanned", exitCode: 1, oomKilled: false };
+    await step(1);
+    expect(m.view().alerts).toEqual([]);
+    r.state.boot = { at: new Date(r.now()).toISOString(), cause: "unplanned", exitCode: null, oomKilled: null };
+    await step(1);
+    expect(m.view().alerts).toMatchObject([{ key: "crash", level: "red", value: -1 }]);
+    expect(world.docs.get(alerts().at(-1)!.docId!)!.title).toContain("exit code unknown, OOM flag unknown");
+  });
+
+  it("crash end to end: a boot with no stop marker reads Fly's exit, and the real probes raise a red crash alert", async () => {
+    const s = await seededApp();
+    close = s.close;
+    const { world } = s;
+    await markBoot(world, { env: {} });
+    const prevAt = Date.parse(world.events.list({ types: ["system"], payloadKey: "boot", desc: true, limit: 1 })[0]!.ts);
+    vi.spyOn(world.secrets, "value").mockImplementation((n: string) => (n === "FLY_LOGS_TOKEN" ? "tok" : null));
+    const fetch = async () => ({ ok: true, status: 200, json: async () => [{ type: "exit", timestamp: prevAt + 500, request: { exit_event: { exit_code: 137, oom_killed: true } } }] });
+    await markBoot(world, { env: { FLY_MACHINE_ID: "m1", FLY_APP_NAME: "muster-town" }, fetch, now: () => prevAt + 1000 });
+    const bootAt = Date.parse(world.events.list({ types: ["system"], payloadKey: "boot", desc: true, limit: 1 })[0]!.ts);
+    const p = processProbes(world, "/nonexistent", () => null, new Counters());
+    expect(p.lastBoot()).toMatchObject({ cause: "unplanned", exitCode: 137, oomKilled: true });
+    const m = new Monitor({ world, metrics: defaultMetrics(p).filter((x) => x.key === "crash"), now: () => bootAt + MIN, log: { log: () => {}, warn: () => {} }, buildingId: world.buildings.all()[0]!.id });
+    await m.sample();
+    expect(m.view().alerts).toMatchObject([{ key: "crash", level: "red", value: 137 }]);
+    const ev = world.events.list({ types: ["alert"], desc: true, limit: 1 })[0]!;
+    expect(ev.text).toContain("exit code 137, OOM killed");
+    p.close();
+    // after a stop marker the next boot is planned: nothing raised
+    markStop(world, "SIGTERM");
+    await markBoot(world, { env: {} });
+    const p2 = processProbes(world, "/nonexistent", () => null, new Counters());
+    expect(p2.lastBoot()).toMatchObject({ cause: "stopped" });
+    p2.close();
   });
 
 });

@@ -253,6 +253,7 @@ cleared, and once when health itself is down.
 | `redeploy-failed` | the latest redeploy run that ended (event `payload.terminal`): value = minutes since it ended; the FYI names the step and who asked | — | at once when it ended `failed` or `aborted`: main is not live. Clears 5 samples after a later run reaches `done`. Re-run the redeploy (Town Hall, or `POST /api/admin/redeploy`) and read the failed step's event `payload.output` |
 | `deploy` | the live commit against the deploy branch's tip (`prod`), read from GitHub every 5 min (`packages/server/src/deploy-watch.ts`, grant gr_h2iocyzfjm; only with `MUSTER_TOWN_DEPLOY_BRANCH`): value = minutes since the server first saw a change the puller would deploy (not only `docs/`, `.github/`, top-level `*.md`; `docs/manual.md` counts) waiting on the tip | > 30 min | > 90 min. A GitHub error leaves it unknown (nothing changes); docs-only commits never raise it. See "Live behind prod" below |
 | `pinger` | minutes since the outside pinger (user-agent `muster-pinger`) last read `/api/health`, from memory (grant gr_7tl5as3s0a) | — | at once at 15 min quiet: reds no longer reach Mitchell by SMS or email. Never seen since boot raises nothing; an open one survives a restart. See "Pinger quiet" below |
+| `crash` | this process's boot marker (health `capacity.lastBoot`, grant gr_zsglqgxpew): value = Fly's exit code, -1 when not known | — | at once when the boot was `unplanned` (no redeploy restart and no stop marker before it: a crash, an OOM kill, a host failure), while it is under 30 min old; clears 5 samples later. The FYI names the exit code and the OOM flag. See "Slow or 503" below |
 
 **Live behind prod** (`deploy` key). `GET /api/health` `deploy` is `{branch, state, live, prodTip, behindCommits,
 behindSince, checkedAt, error}`; `state` is `current`, `behind` (a deployable change waits), `docs-only` (the puller skips that
@@ -351,6 +352,15 @@ enabled. Updating it: re-run step 1.
   slowness into 503s). `grace_period` 240 s already covers a restart, so there is no extra "booting" state. The check
   settings reach the Machine only with an image deploy (CI's image job deploys one when `fly.town.toml` changes; `deploy/fly/build.sh`
   by hand), not with the town's `redeploy`.
+- **The `crash` alert** (monitor key `crash`, grant gr_zsglqgxpew): the server came back from a restart nobody planned.
+  `GET /api/health` `capacity.lastBoot` is `{at, cause, exitCode, oomKilled}`; `cause` is `redeploy` (the redeploy's
+  "Redeploy: restarting server" event came first), `stopped` (main.ts's SIGTERM/SIGINT handler wrote "Server stopping": an
+  image deploy, a Machine restart) or `unplanned` (neither). For an unplanned boot on Fly the server reads the Machine's
+  newest `exit` event (`api.machines.dev`, secret `FLY_LOGS_TOKEN`). Exit code 137 with `oomKilled` true is an OOM kill:
+  the Machine has 1 GB swap and the redeploy waits for memory before `build web` (gr_xgr8j2f9ao); read `load.memAvailableMb`
+  and the `memory` key. Another code is a crash:
+  read the last lines before it with `fly logs -a muster-town --no-tail`. The alert is red for 30 min after the boot, so
+  the pinger texts Mitchell once, then it clears. `capacity.restartsByCause24h` counts the day's boots by cause.
 - **Slow with CPU to spare**: `GET /api/health` `load.lagMs` is the p99 loop stall per 10 s window; above ~500 ms, profile
   the live server: upload `deploy/fly/profile-live.cjs` to the Machine (`fly ssh sftp shell`, or `echo <base64> | base64 -d`
   into /tmp) and run `fly ssh console -a muster-town -C "node /tmp/profile-live.cjs"`. It opens Node's inspector on

@@ -14,6 +14,7 @@ import { createDoc, readMeminfo, TOWN_HALL_ID, updateDoc, type World } from "@mu
 import { readFileSync, statfsSync } from "node:fs";
 import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import { FRESH_TOWN, type BackupView } from "./backup/index.ts";
+import { readLastBoot, type LastBoot } from "./capacity.ts";
 import type { DeployView } from "./deploy-watch.ts";
 
 type Level = "yellow" | "red";
@@ -95,6 +96,8 @@ export interface Probes {
   deploy(): DeployView | null;
   /** when the outside pinger (user-agent muster-pinger) last read /api/health, ms; null = not since this boot (PingerWatch) */
   pingerSeenAt(): number | null;
+  /** this process's boot marker (capacity.ts markBoot): its cause, and Fly's exit code and OOM flag for an unplanned one; null = none */
+  lastBoot(): LastBoot | null;
 }
 
 /** The last redeploy run's end: state `failed` / `aborted` (red), or `restarting` / `done` (clean). */
@@ -194,6 +197,7 @@ export function defaultMetrics(p: Probes): Metric[] {
     redeployMetric(p),
     deployMetric(p),
     pingerMetric(p),
+    crashMetric(p),
   ];
 }
 
@@ -273,6 +277,33 @@ function redeployMetric(p: Pick<Probes, "redeploy">): Metric {
       const bad = r.state === "failed" || r.state === "aborted";
       if (bad) last = `${r.state === "aborted" ? "interrupted by a server restart" : `step "${r.step ?? "?"}"`}, requested by ${r.requestedBy || "?"}`;
       return { value: Math.max(0, Math.round((now - Date.parse(r.at)) / MIN)), yellow: bad, red: bad };
+    },
+  };
+}
+
+/** `crash` stays red this long after an unplanned boot, then clears CLEAR_AFTER samples later */
+export const CRASH_RED_MS = 30 * MIN;
+
+/**
+ * `crash` (grant gr_zsglqgxpew, kr_wej5axu3iu): red at once when this process booted with no redeploy restart and no stop
+ * marker before it (capacity.ts bootCause `unplanned`: a crash, an OOM kill, a host failure), while that boot is under
+ * CRASH_RED_MS old; then it clears. The value is Fly's exit code (-1 when not known: off Fly, no FLY_LOGS_TOKEN, a failed
+ * read), so the pinger's text reads `crash = 137`; the FYI names the code and the OOM flag. A redeploy, a stop or an
+ * older marker with no cause is clean. The alert is persisted, so a second crash within the window keeps it open.
+ */
+function crashMetric(p: Pick<Probes, "lastBoot">): Metric {
+  let last = "";
+  return {
+    key: "crash", yellowForMs: 0, redForMs: 0,
+    describe: (v) => `server restarted unplanned (${last || `exit code ${v < 0 ? "unknown" : v}`}): see deploy/README.md "Slow or 503"`,
+    read: (now) => {
+      const b = p.lastBoot();
+      if (!b) return null;
+      const red = b.cause === "unplanned" && now - Date.parse(b.at) < CRASH_RED_MS;
+      if (b.cause === "unplanned") {
+        last = `boot ${b.at}, exit code ${b.exitCode ?? "unknown"}, ${b.oomKilled == null ? "OOM flag unknown" : b.oomKilled ? "OOM killed" : "not OOM killed"}`;
+      }
+      return { value: b.cause === "unplanned" ? b.exitCode ?? -1 : -1, yellow: red, red };
     },
   };
 }
@@ -416,6 +447,8 @@ export function processProbes(world: World, dataDir: string, backup: () => Backu
     },
     deploy,
     pingerSeenAt: () => pinger?.lastSeenAt() ?? null,
+    // the marker is written once, before the monitor starts: read it on the first call only
+    lastBoot: (() => { let b: LastBoot | null | undefined; return () => (b === undefined ? (b = readLastBoot(world)) : b); })(),
     close: () => h.disable(),
   };
 }
