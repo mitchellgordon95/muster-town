@@ -11,6 +11,7 @@ import { ZodError } from "zod";
 import { blogRoutes, docHookPages, docHooks, docPosts } from "./blog.ts";
 import { mailFromEnv, type MailSender } from "./mail.ts";
 import { mailingListRoutes } from "./mailing-list.ts";
+import { clientErrorRoutes } from "./client-errors.ts";
 import { authRoutes, defaultAuthSettings, sessionAuth, type AuthSettings } from "./auth/index.ts";
 import { townEnv } from "@muster-town/schema";
 import { ASK_FIRST, bearer, INTERACT_ALLOWLIST, interactingUser, parse, requireUser, resolveToken, WEB_BASE, type RuntimeHooks } from "./context.ts";
@@ -279,6 +280,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     // the founder road (gr_ngg1z160a8 step 2): per hosted collective, dates only; the root's only
     return prefix ? funnel : { ...funnel, founders: opts.hub?.founderRoads() ?? [] };
   });
+
+  // browser errors (gr_cyqzweu6ed): the page posts a crash or an uncaught error; GET lists the last 24 hours by kind
+  await app.register(clientErrorRoutes({ world: opts.world, prefix, clientIpHeader: process.env.FLY_APP_NAME ? "fly-client-ip" : null }));
 
   // community engagement in this collective only (flag dc_r7u6bkaei4): what its signed-in humans did here, counts only
   app.get(`${prefix}/api/engagement`, async () => engagement(opts.world));

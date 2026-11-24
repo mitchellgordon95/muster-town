@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { parse, requireAuth, requireUser } from "./context.ts";
 import type { Mail, MailSender } from "./mail.ts";
+import { RateLimit } from "./rate-limit.ts";
 
 /**
  * The blog's mailing list (Mitchell, mt_msnjkpgwdb decision 7): the form at the foot of every blog page (blog.ts) posts
@@ -18,7 +19,6 @@ import type { Mail, MailSender } from "./mail.ts";
  * Without a key nothing is sent and a signup is confirmed at once (single opt-in), as before the sender existed.
  */
 const PER_HOUR = 10;
-const HOUR_MS = 3600_000;
 
 const SubscribeInput = z.object({
   email: z.string().max(400),
@@ -110,20 +110,6 @@ function plainPage(title: string, text: string): string {
 <style>body{font:17px/1.6 system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem;color:#222}a{color:#0b5cad}</style></head>
 <body><h1>${esc(title)}</h1><p>${esc(text)}</p><p><a href="/blog">The Muster Town blog</a></p></body></html>
 `;
-}
-
-/** In-memory sliding window per key: `hit` is false once the key has `limit` hits in the last hour. */
-class RateLimit {
-  private readonly hits = new Map<string, number[]>();
-  constructor(private readonly limit: number, private readonly now: () => number) {}
-  hit(key: string): boolean {
-    const t = this.now(), recent = (this.hits.get(key) ?? []).filter((x) => t - x < HOUR_MS);
-    if (this.hits.size > 10_000) this.hits.clear();
-    if (recent.length >= this.limit) { this.hits.set(key, recent); return false; }
-    recent.push(t);
-    this.hits.set(key, recent);
-    return true;
-  }
 }
 
 const csvCell = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);

@@ -59,6 +59,7 @@ export { attachablePages, buildingSchedules, cancelSchedule, createSchedule, des
 export { Presence, STAMP_EVERY_MS, OFFLINE_AFTER_MS, PRESENCE_TICK_MS, OFFER_TTL_MS, type TouchResult } from "./presence.ts";
 export { upsertGithubUser, type GithubProfile, type GithubUpsertResult } from "./github-users.ts";
 export { countBlogRead, countHookView, countFunnel, countFunnelDecision, countVisitor, countVisitorFrom, funnelSource, isAutomatedClient, MAX_SOURCES_PER_DAY, type BlogReadRow, type HookViewRow, type FunnelSourceRow, type SourceStep, joinFunnel, sumFunnels, DOORS, HOME_STEPS, FUNNEL_DAYS, FUNNEL_STEPS, type DoorStep, type HomeStep, type FunnelStep, type FunnelCounts, type FunnelDay, type JoinFunnel } from "./join-funnel.ts";
+export { clientErrorOf, clientErrors, recordClientError } from "./client-errors.ts";
 export { engagement } from "./engagement.ts";
 export { healthOf, healthLine, grantHolds, townHealth, isoWeekStart, PAPERWORK_MAX, HIT_MIN, type TownHealth, type HealthLine, type HealthInputs, type GrantHold } from "./health.ts";
 export { requestAccess, decideAccess, pendingAccessRequests, pendingAccessCount, accessContext, accessRequestOf, canInteract, countMemberAct, parseAccessMessage, ASK_AGAIN_MS } from "./access.ts";

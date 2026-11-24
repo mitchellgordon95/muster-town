@@ -173,6 +173,8 @@ export const INTERACT_ALLOWLIST = new Set(["POST /auth/logout", "POST /api/auth/
   "POST /api/join-funnel/door", "POST /api/goals/:id/captain-requests",
   // marking a bulletin board note read (flag dc_04q4h8s229) is reading, not taking part
   "POST /api/bulletin/:id/read",
+  // a browser error report (gr_cyqzweu6ed): the page telling the town it crashed is not taking part
+  "POST /api/client-errors",
   // the self-service role reset (dc_ia2hybtuax): putting yourself back to a visitor is never taking part
   "POST /api/me/reset"]);
 export const ASK_FIRST = "Ask for access first: you can watch and read, but taking part needs an admin to let you in (Ask to join on the guest card).";

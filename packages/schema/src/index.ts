@@ -2222,6 +2222,7 @@ export const EventType = z.enum([
   "ask.created", "ask.folded", "ask.retired", "ask.decided", "ask.deferred", "ask.reopened", "ask.refused", "ask.checked",
   "notice.filed", "ask.ranked", "policy.added", // legible delegation step 5 (core notices.ts, secretary.ts)
   "kr.verified", "calibration.adopted", // legible delegation steps 9-10 (core ask-checks.ts, planner.ts)
+  "client.error.new", // a browser error kind seen for the first time (core client-errors.ts, gr_cyqzweu6ed)
   "live.checked", // a deploy wait's live checks passed (core waits.ts, gr_qg42b4guky)
   "grant.created", "grant.updated", "grant.proposed", "grant.countered", "grant.funded", "grant.rejected", "grant.checkpoint", "grant.forecast", "grant.top-up-needed", "grant.step-held", "grant.closed", "grant.decided-via", "kr.updated", "kr.created", "kr.deleted", "objective.created", "objective.updated", "objective.deleted", "building.blocked",
   "goal.created", "goal.edited", "goal.moved", "goal.retired", "goal.owned", "goal.attached", "goal.proposal", "goal.changed", "kr.archived", "kr.under-review",
