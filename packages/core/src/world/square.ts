@@ -112,7 +112,9 @@ export function squareLayout({ root, hall, labs, drawnKids, standsAt }: ShapeInp
 
   // the humans' bulletin board (flag dc_52njv3shp8): in the square, three tiles left of the Town Hall's door, below its flower bed; read from the row below
   const bulletin = { x: doorX - 3, y: square.y + 1 };
-  const decor = dress({ hallLot, square, bank, fountain, mainY, mainX, mainW, lots, edges, signs, plazas, bulletin });
+  // the town map board (1:1 mt_8imtwy68zc: out of the Town Hall), its mirror three tiles right of the door; opens town planning
+  const townMap = { x: doorX + 3, y: square.y + 1 };
+  const decor = dress({ hallLot, square, bank, fountain, mainY, mainX, mainW, lots, edges, signs, plazas, bulletin, townMap });
 
   // shift everything so the town starts EDGE tiles in from the map's margin
   const all = [...lots.values(), bank, square, ...decor.map((d) => ({ ...d.at, w: 1, h: 1 })), { x: mainX, y: mainY, w: mainW, h: MAIN_H }, ...[...edges.values()].flat().map((t) => ({ ...t, w: 1, h: 1 }))];
@@ -123,7 +125,7 @@ export function squareLayout({ root, hall, labs, drawnKids, standsAt }: ShapeInp
   return finish({
     lots, standsAt, edges, sides, bank: mv(bank), paving: [mv(square)],
     plazas: plazas.map((p) => ({ ...p, pos: mv(p.pos), street: p.street && mv(p.street), sign: p.sign && mv(p.sign), fountain: p.fountain && mv(p.fountain) })),
-    decor: decor.map((d) => ({ ...d, at: mv(d.at) })), bulletin: mv(bulletin),
+    decor: decor.map((d) => ({ ...d, at: mv(d.at) })), bulletin: mv(bulletin), townMap: mv(townMap),
   });
 }
 
@@ -132,7 +134,7 @@ export function squareLayout({ root, hall, labs, drawnKids, standsAt }: ShapeInp
  * street, trees in the parks and round the edge. Only on tiles nothing else uses, never next to a door, a signpost or
  * a goal's place, and never touching another tree.
  */
-function dress(t: { hallLot: Lot; square: Lot; bank: Lot; fountain: Lot; mainY: number; mainX: number; mainW: number; lots: Map<string, Lot>; edges: Map<string, Tile[]>; signs: Tile[]; plazas: Plaza[]; bulletin: Tile }): { at: Tile; tile: number }[] {
+function dress(t: { hallLot: Lot; square: Lot; bank: Lot; fountain: Lot; mainY: number; mainX: number; mainW: number; lots: Map<string, Lot>; edges: Map<string, Tile[]>; signs: Tile[]; plazas: Plaza[]; bulletin: Tile; townMap: Tile }): { at: Tile; tile: number }[] {
   const key = (x: number, y: number) => `${x},${y}`;
   const used = new Set<string>(), keepClear = new Set<string>();
   const mark = (l: Lot, s: Set<string>, grow = 0) => { for (let y = l.y - grow; y < l.y + l.h + grow; y++) for (let x = l.x - grow; x < l.x + l.w + grow; x++) s.add(key(x, y)); };
@@ -141,6 +143,8 @@ function dress(t: { hallLot: Lot; square: Lot; bank: Lot; fountain: Lot; mainY: 
   // the bulletin board and the tile in front of it, where people stand to read it
   mark({ ...t.bulletin, w: 1, h: 1 }, used);
   mark({ x: t.bulletin.x, y: t.bulletin.y + 1, w: 1, h: 1 }, keepClear);
+  mark({ ...t.townMap, w: 1, h: 1 }, used);
+  mark({ x: t.townMap.x, y: t.townMap.y + 1, w: 1, h: 1 }, keepClear);
   mark({ x: t.mainX, y: t.mainY, w: t.mainW, h: MAIN_H }, used);
   for (const e of t.edges.values()) for (const p of e) used.add(key(p.x, p.y));
   for (const s of t.signs) mark({ ...s, w: 1, h: 1 }, keepClear, 1);

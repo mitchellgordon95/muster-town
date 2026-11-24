@@ -12,10 +12,39 @@ describe("furniture", () => {
     expect(validateLayout("town-hall", TOWN_HALL_SIZE, piecesFor("town-hall", 3, TOWN_HALL_SIZE))).toEqual([]);
   });
 
-  it("the Town Hall's user stats stand sits right of the hydrant; no outbox counter, every spot reachable (1:1 mt_ec2b7x80rg, flag dc_f3xcob2n9u)", () => {
+  it("the Town Hall leads with the goal tree, the hydrant and the meeting table; the town map is outside in the square (1:1 mt_8imtwy68zc)", () => {
+    const by = new Map(piecesFor("town-hall", 3, TOWN_HALL_SIZE).map((p) => [p.key, p]));
+    expect(by.has("town-map")).toBe(false);
+    // the goal tree: three tiles of the back wall over the door's aisle (the door is at x 8)
+    expect(by.get("goal-tree")).toMatchObject({ at: { x: 7, y: 0 }, wall: true, stands: [{ x: 1, y: 1 }] });
+    expect(by.get("goal-tree")!.cells.map((c) => c.dx)).toEqual([0, 1, 2]);
+    // the hydrant and the meeting table either side of the aisle, on the same row, nothing between them and the door
+    expect(by.get("hydrant")!.at).toEqual({ x: 5, y: 5 });
+    expect(by.get("meeting")!.at).toEqual({ x: 10, y: 5 });
+    for (const p of by.values()) for (const c of p.wall ? [] : p.cells) expect(p.at.x + c.dx >= 6 && p.at.x + c.dx <= 9 && p.at.y + c.dy >= 1 && p.at.y + c.dy <= 8, p.key).toBe(false);
+    for (const shape of ["fountain", "tree"] as const) {
+      const { world } = seededWorld(shape);
+      const lot = world.buildings.require("town-hall").lot!;
+      const inside = (t: { x: number; y: number }) => t.x >= lot.x && t.y >= lot.y && t.x < lot.x + lot.w && t.y < lot.y + lot.h;
+      for (const id of ["goal-tree", "hydrant:town-hall", "meeting-room:town-hall"]) {
+        const p = world.layout.requirePlace(id);
+        expect(p.buildingId, id).toBe("town-hall");
+        expect(inside(p.pos), id).toBe(true);
+      }
+      const map = world.layout.requirePlace("town-map");
+      expect(map).toMatchObject({ kind: "town-map", buildingId: null });
+      expect(inside(map.pos), shape).toBe(false);
+      expect(at(world, map.pos.x, map.pos.y - 1), shape).toBe(TILE.TOWN_MAP);
+      expect(isWalkable(world.layout.grid, map.pos.x, map.pos.y), shape).toBe(true);
+      expect(findPath(world.layout.grid, world.layout.door("town-hall")!, map.pos), shape).not.toBeNull();
+      expect(world.layout.grid.tiles.filter((k) => k === TILE.TOWN_MAP).length, shape).toBe(1);
+    }
+  });
+
+  it("the Town Hall's user stats stand sits on the right wall; no outbox counter, every spot reachable (1:1 mt_ec2b7x80rg, flag dc_f3xcob2n9u, mt_8imtwy68zc)", () => {
     const pieces = piecesFor("town-hall", 3, TOWN_HALL_SIZE), by = new Map(pieces.map((p) => [p.key, p]));
     expect(by.has("outbox")).toBe(false);
-    expect(by.get("stats")).toMatchObject({ at: { x: 5, y: 6 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: 0, y: 1 }] });
+    expect(by.get("stats")).toMatchObject({ at: { x: 15, y: 3 }, cells: [{ dx: 0, dy: 0, tile: TILE.STATS }], stands: [{ x: -1, y: 0 }] });
     expect(by.has("intray")).toBe(false);
     const { world } = seededWorld();
     const door = world.layout.door("town-hall")!;
@@ -26,32 +55,32 @@ describe("furniture", () => {
     }
     const stats = world.layout.requirePlace("stats");
     expect(stats.kind).toBe("stats");
-    expect(at(world, stats.pos.x, stats.pos.y - 1)).toBe(TILE.STATS);
+    expect(at(world, stats.pos.x + 1, stats.pos.y)).toBe(TILE.STATS);
   });
 
-  it("the Town Hall's operating manual is a book on a lectern right of the library shelves, read from the tile below (Mitchell, 2026-11-16)", () => {
+  it("the Town Hall's operating manual is a book on a lectern right of the two library shelves in the corner, read from the tile below (Mitchell, 2026-11-16, mt_8imtwy68zc)", () => {
     const { world } = seededWorld();
     const p = world.layout.requirePlace("operating-manual");
     expect(p).toMatchObject({ kind: "operating-manual", buildingId: "town-hall" });
     const lot = world.buildings.require("town-hall").lot!;
-    expect({ x: p.pos.x - lot.x, y: p.pos.y - lot.y }).toEqual({ x: 7, y: 3 });
+    expect({ x: p.pos.x - lot.x, y: p.pos.y - lot.y }).toEqual({ x: 3, y: 2 });
     expect(at(world, p.pos.x, p.pos.y - 1)).toBe(TILE.BOOK);
+    const hall = world.layout.grid.tiles.filter((k, i) => k === TILE.SHELF && world.layout.buildingAt({ x: i % world.layout.grid.w, y: Math.floor(i / world.layout.grid.w) })?.id === "town-hall").length;
+    expect(hall).toBe(2);
     expect(at(world, p.pos.x - 1, p.pos.y - 1)).toBe(TILE.SHELF);
     expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
     expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
   });
 
-  it("the Town Hall's hydrant stands where the outbox counter was, used from the tile below; the old corner is open floor; no outbox, no in-tray place (flag dc_f3xcob2n9u, docs/legible-delegation.md §3)", () => {
+  it("the Town Hall's hydrant stands left of the door's aisle, used from the tile below; no outbox, no in-tray place (flag dc_f3xcob2n9u, docs/legible-delegation.md §3, mt_8imtwy68zc)", () => {
     const { world } = seededWorld();
     const p = world.layout.requirePlace("hydrant:town-hall");
     expect(p).toMatchObject({ kind: "hydrant", buildingId: "town-hall" });
     expect(isWalkable(world.layout.grid, p.pos.x, p.pos.y)).toBe(true);
     expect(findPath(world.layout.grid, world.layout.door("town-hall")!, p.pos)).not.toBeNull();
     const lot = world.buildings.require("town-hall").lot!;
-    expect({ x: p.pos.x - lot.x, y: p.pos.y - lot.y }).toEqual({ x: 2, y: 7 });
+    expect({ x: p.pos.x - lot.x, y: p.pos.y - lot.y }).toEqual({ x: 5, y: 6 });
     expect(at(world, p.pos.x, p.pos.y - 1)).toBe(TILE.HYDRANT);
-    // the outbox counter's two tiles: the hydrant on the left one, open floor on the right one; the old corner (15, 9) is floor
-    expect(at(world, lot.x + 3, lot.y + 6)).toBe(TILE.FLOOR);
     expect(at(world, lot.x + 15, lot.y + 9)).toBe(TILE.FLOOR);
     const hall = (t: number) => world.layout.grid.tiles.filter((k, i) => k === t && world.layout.buildingAt({ x: i % world.layout.grid.w, y: Math.floor(i / world.layout.grid.w) })?.id === "town-hall").length;
     expect(hall(TILE.COUNTER)).toBe(0);
@@ -121,7 +150,7 @@ describe("furniture", () => {
     const th = world.buildings.require("town-hall").lot!;
     world.ops.updateFurniture(admin, "town-hall", { schedule: { x: 2, y: 4 } });
     const box = world.layout.requirePlace("schedule-board").pos;
-    expect(box).toEqual({ x: th.x + 2, y: th.y + 5 });
+    expect(box).toEqual({ x: th.x + 1, y: th.y + 4 });
     expect(findPath(world.layout.grid, world.layout.door("town-hall")!, box)).not.toBeNull();
   });
 

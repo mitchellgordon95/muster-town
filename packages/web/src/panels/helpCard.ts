@@ -36,10 +36,9 @@ const HALL: Partial<Record<Place["kind"], [string, string]>> = {
   schedule: ["Schedule board", "every building's meetings."],
   "meeting-room": ["Meeting table", "town meetings; anyone can listen in."],
   planning: ["Planning desk", "where admins set up buildings."],
-  "town-map": ["Town map table", "where buildings go on the map."],
   "mod-station": ["Mod station", "where town moderators sit."],
 };
-const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "operating-manual", "cabinet", "intray", "stats", "schedule", "meeting-room", "planning", "town-map", "mod-station", "desk"];
+const ORDER: Place["kind"][] = ["board", "hydrant", "goal-tree", "library", "operating-manual", "cabinet", "intray", "stats", "schedule", "meeting-room", "planning", "mod-station", "desk"];
 
 export function helpCard(
   b: { id: string; name: string; kind: "lab" | "town-hall"; goal: string; managerAgentId?: string | null },
