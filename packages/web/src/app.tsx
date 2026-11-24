@@ -1,5 +1,5 @@
 /** Boot (auth, WS, snapshot), layout, global keys, dev hooks. */
-import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, getApi, isMock, tokenStore, WEB_ROOT, type Socket } from "./api";
 import { accessDecisionToast, store, useTown, type PanelKind, type PanelRef } from "./state";
 import { layoutEdit } from "./map/layoutEdit";
@@ -33,6 +33,8 @@ import { AssignmentPanel, SessionPanel } from "./panels/WorkPanels";
 import { HowItWorks, howItWorksSeen } from "./panels/HowItWorks";
 import { ManualSheet } from "./panels/Manual";
 import { isDocHash, startDocRoutes } from "./route";
+import { installErrorHandlers } from "./clientErrors";
+import { CrashTestPanel, PanelBoundary } from "./panels/PanelBoundary";
 import { PanelResizer, usePanelWidth } from "./panels/panelResize";
 
 type TownHooks = { teleportTo(agentId: string): boolean; walkTo(placeId: string): boolean; openPanel(kind: PanelKind, id?: string): void; townMap(): void; store: typeof store };
@@ -58,6 +60,7 @@ const bootOnce = () => (booting ??= boot());
  */
 async function boot(): Promise<Phase> {
   const a = await getApi();
+  installErrorHandlers(); // uncaught errors and rejections go to the town (gr_cyqzweu6ed); boot runs once a page load
   a.health().then((h) => { loadedCommit = h.commit ?? null; }, () => undefined);
   const cfg = await loadAuthConfig();
   authStore.set({ github: !!cfg?.githubClientId });
@@ -185,20 +188,6 @@ function checkBuild() {
   }, () => undefined);
 }
 
-class PanelBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
-  state = { error: null as string | null };
-  static getDerivedStateFromError(e: Error) { return { error: e.message }; }
-  render() {
-    if (!this.state.error) return this.props.children;
-    return (
-      <div className="panel-body">
-        <div className="error-line">This panel crashed: {this.state.error}</div>
-        <button className="btn" onClick={() => store.open(null)}>Close</button>
-      </div>
-    );
-  }
-}
-
 /** One number per store.open call (each open makes a new PanelRef), so a tab deep-link re-lands on its tab even when that same ref is already open and the user has since switched tabs. */
 const openSeqs = new WeakMap<PanelRef, number>();
 let openSeqNext = 0;
@@ -233,6 +222,7 @@ function PanelHost({ panel }: { panel: PanelRef }) {
     case "queue": return null; // the decision queue: a sheet over the map, the Secretary's 1:1 beside it (App)
     case "manual": return null; // a paper sheet over the town, not a side panel (App)
     case "help": return null; // a building's help sign: a paper card over the town (App)
+    case "crash-test": return <CrashTestPanel />; // throws on purpose (gr_cyqzweu6ed): a crash is recorded
     case "plugin": return null; // a resident-made plugin's widget: a sheet over the map (App, PluginSheet)
   }
 }
@@ -348,19 +338,19 @@ export function App() {
         {flagHere !== undefined && canFlag && !guest ? <div className="flag-box"><PlantFlag targets={flagTargets(buildings, canAssign, flagHere)} onClose={() => setFlagHere(undefined)} /></div> : null}
         {saying && !guest ? <SayBox inputRef={sayRef} onSend={say} onCancel={() => setSaying(false)} /> : null}
       </div>
-      {panel ? <aside className="panel" style={{ width: pw }}><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
-      {planSide ? <aside className="panel plan-side" style={{ width: pw }} aria-label="Selected building"><PanelResizer width={pw} onResize={setPw} /><PanelBoundary key={`plan:${planSide}`}><PlanSideBar id={planSide} /></PanelBoundary></aside> : null}
+      {panel ? <aside className="panel" style={{ width: pw }}><PanelResizer width={pw} onResize={setPw} /><PanelBoundary panel={panel.kind} key={`${panel.kind}:${panel.id ?? ""}:${panel.docId ?? ""}`}><PanelHost panel={panel} /></PanelBoundary></aside> : null}
+      {planSide ? <aside className="panel plan-side" style={{ width: pw }} aria-label="Selected building"><PanelResizer width={pw} onResize={setPw} /><PanelBoundary panel="plan" key={`plan:${planSide}`}><PlanSideBar id={planSide} /></PanelBoundary></aside> : null}
       <LayoutToolbar />
       <PlanToolbar inset={inset ? pw : 0} />
       {help && ready ? <HowItWorks onClose={() => setHelp(false)} /> : null}
       {manual && ready ? <ManualSheet section={manual.id} /> : null}
       {helpSign && ready ? <HelpSignCard key={helpSign} buildingId={helpSign} /> : null}
       {pluginId && ready ? <PluginSheet key={pluginId} id={pluginId} /> : null}
-      {goals && ready ? <PanelBoundary key={`goals:${goals.id ?? ""}:${goals.tab ?? ""}`}><GoalTreePanel goalId={goals.id} building={goals.tab} onClose={closeGoals} /></PanelBoundary> : null}
-      {queue && ready ? <PanelBoundary key="queue"><DecisionQueue onClose={closeQueue} /></PanelBoundary> : null}
-      {bankSheet && ready ? <PanelBoundary key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
+      {goals && ready ? <PanelBoundary panel="goals" key={`goals:${goals.id ?? ""}:${goals.tab ?? ""}`}><GoalTreePanel goalId={goals.id} building={goals.tab} onClose={closeGoals} /></PanelBoundary> : null}
+      {queue && ready ? <PanelBoundary panel="queue" key="queue"><DecisionQueue onClose={closeQueue} /></PanelBoundary> : null}
+      {bankSheet && ready ? <PanelBoundary panel="bank" key={`bank:${bankSheet.tab ?? ""}:${openSeq(bankSheet)}`}><BankSheet tab={bankSheet.tab} onClose={closeBank} /></PanelBoundary> : null}
       {/* last, so it sits over the goal editor, the Bank and a side panel's own sheet (an in-tray item) */}
-      {linkSheet && ready ? <PanelBoundary key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
+      {linkSheet && ready ? <PanelBoundary panel={`sheet-${linkSheet.kind}`} key={`sheet:${linkSheet.kind}:${linkSheet.id}`}><LinkSheet sheet={linkSheet} /></PanelBoundary> : null}
       {/* toasts last, over every sheet and overlay (z-index 50 in styles.css) */}
       <Toasts />
       {isMock ? <div className="mock-badge" title="VITE_MOCK=1: in-memory fake server">mock</div> : null}

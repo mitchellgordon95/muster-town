@@ -4,6 +4,8 @@ import { BuildingDefaults, grantName, NEW_LAB_LOT, REVIEW_DECK_ID, desksForLot, 
 import { BACKFILL, BOARD_TYPES, ZERO_TOKENS, addTokens, backfillFamily, splitRaw, type FreeTokens, type GoalTreeNode, type GoalSpend, type GoalProduced, type QueueBoard, type FunderWeek } from "@muster-town/schema";
 import type { Api, AgentDetail, AllocationRow, Bank, Budget, Finance, FinanceFly, FinanceSources, FinanceSpend, FinanceSplit, FinanceUtilization, UtilizationWindow, DayLimits, WindowLimits, LaneKindRow, ManagerWakes, SpendByLaneKind, SplitLane, SplitPart, SplitWindow, Cabinet, CabinetQuery, DocQuery, EventQuery, In, LayoutPreview, FunderWeekView, EngagementView, HealthLineView, TownHealthView, JoinFunnelView, MemberView, RoomLayout, RequestAction, SessionDetail, GrantSession, GrantSessions, Socket, SocketHandlers, ThreadMessage, WriteDocInput, PluginWithPage } from "../api";
 import { ApiError } from "../api";
+import type { ClientErrorKindView, ClientErrorsView } from "../api";
+import type { ClientErrorPost } from "../clientErrors";
 import type { BankStreams, PinInput, PutSecretInput, SecretView, PinView, SkillView } from "@muster-town/schema";
 import type { CreateBuildingInput, UpdateBuildingInput, RegisterVisitorInput, ReviewInput, WorkInput, DonateInput, CreateMeetingInput, DocState, AddBankInput, BankInput, AddBankFee, BankFee, DecideGrantInput, DecideAskInput, CloseGrantInput, StopGrantInput, UpdateKeyResultInput } from "@muster-town/schema";
 import { Sim, newId, spent } from "./sim";
@@ -534,6 +536,19 @@ export class MockApi implements Api {
   }
   async countGuestCardView() { this.guestCardViews++; }
   async countDoor(_door: "fund" | "captain" | "agent") { /* the mock keeps no door counts */ }
+  /** browser errors (gr_cyqzweu6ed): kept by message and panel, as the server keeps them by signature */
+  private clientErrorKinds: ClientErrorKindView[] = [];
+  async reportClientError(b: ClientErrorPost) {
+    const signature = `${b.source}: ${b.message}`, now = new Date().toISOString();
+    const k = this.clientErrorKinds.find((x) => x.signature === signature);
+    if (k) { k.count++; k.lastSeen = now; return; }
+    this.clientErrorKinds.push({ signature, source: b.source, message: b.message, frame: "", panel: b.panel, route: b.route || null, firstCommit: "mock", lastCommit: "mock", count: 1, firstSeen: now, lastSeen: now });
+  }
+  async clientErrors(): Promise<ClientErrorsView> {
+    await wait();
+    const kinds = clone(this.clientErrorKinds).sort((a, b) => b.count - a.count);
+    return { from: new Date(Date.now() - 86_400_000).toISOString(), to: new Date().toISOString(), kinds, total: kinds.reduce((n, k) => n + k.count, 0) };
+  }
   async dismiss(id: string, purge = false) { await wait(); this.sim.dismiss(id, purge); }
   async ban(id: string, reason: string) { await wait(); return clone(this.sim.ban(id, reason)); }
   async building(id: string) { await wait(); return clone(this.need(this.sim.buildings.find((x) => x.id === id), "building")); }

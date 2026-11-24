@@ -8,11 +8,12 @@
  * `/#/meeting/<id>`, `/#/building/<id>` (a bl_ id, or `workshop` / `town-hall`: the two buildings without a prefixed id), `/#/assignment/<id>`, `/#/session/<id>` open that panel, `/#/kr/<id>` the goal tree at that key result and `/#/goal/<gl id>` at that goal: an id link
  * in a live meeting opens one in a new tab (Markdown `newTab`). They are read on load and on a hash change; the address bar doesn't follow those panels.
  * `/#/goals` opens the goal tree at the root and `/#/queue` the decision queue (gr_nhayb7s9bd step 3: the disclosure census opens both as a guest).
+ * `/#/crash-test` opens a panel that throws on purpose (gr_cyqzweu6ed): its crash is posted to POST /api/client-errors.
  * `/#/manual` opens the operating manual (the HUD's "?"), `/#/manual/<section>` at that section.
  */
 import { store, type PanelRef, type SheetRef } from "./state";
 
-const DOC_HASH = /^#\/(doc|grant|ask)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance|goals|queue)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$|^#\/(building)\/(workshop|town-hall)$|^#\/(goal)\/(gl_[a-z0-9_]+)$/;
+const DOC_HASH = /^#\/(doc|grant|ask)\/([A-Za-z0-9_]+)(?:\/(\d+))?$|^#\/(connect|bank|finance|goals|queue|crash-test)$|^#\/(manual)(?:\/([a-z0-9-]+))?$|^#\/(meeting|agent|building|kr|assignment|session)\/([a-z]{2}_[a-z0-9]{10})$|^#\/(building)\/(workshop|town-hall)$|^#\/(goal)\/(gl_[a-z0-9_]+)$/;
 
 /** True when the page was opened on a shared doc or grant link. */
 export const isDocHash = () => DOC_HASH.test(location.hash);
@@ -38,7 +39,7 @@ let shownDeck: string | null = null;
 export function setShownDeck(id: string | null) { shownDeck = id; }
 
 /** The hash a panel is shared as: the Bank, Connect, the manual, the goal tree (at its root) and the decision queue have one, the rest none (docs and grants open as sheets). */
-const hashOf = (p: PanelRef | null): string => p?.kind === "connect" || p?.kind === "bank" || p?.kind === "queue" || (p?.kind === "goals" && !p.id) ? `#/${p.kind}`
+const hashOf = (p: PanelRef | null): string => p?.kind === "connect" || p?.kind === "bank" || p?.kind === "queue" || p?.kind === "crash-test" || (p?.kind === "goals" && !p.id) ? `#/${p.kind}`
   : p?.kind === "manual" ? `#/manual${p.id ? `/${p.id}` : ""}` : "";
 /** The hash a link sheet is shared as. */
 const sheetHash = (s: SheetRef): string => `#/${s.kind}/${s.id}`;
@@ -55,7 +56,7 @@ export function routeOf(hash: string): { sheet: SheetRef } | { panel: PanelRef }
   if (m[9]) return { panel: { kind: "building", id: m[10] } }; // the two buildings whose ids have no xx_ prefix
   if (m[11]) return { panel: { kind: "goals", id: m[12] } }; // a goal (gr_4upa0og9zc): the goal tree at that goal
   if (m[5]) return { panel: { kind: "manual", ...(m[6] ? { id: m[6] } : {}) } };
-  return { panel: { kind: m[4] === "finance" ? "bank" : m[4] as "connect" | "bank" | "goals" | "queue" } };
+  return { panel: { kind: m[4] === "finance" ? "bank" : m[4] as "connect" | "bank" | "goals" | "queue" | "crash-test" } };
 }
 
 function openFromHash() {
