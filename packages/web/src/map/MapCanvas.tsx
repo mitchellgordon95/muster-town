@@ -179,7 +179,7 @@ export function MapCanvas(props: { panelInset: number; onTarget: (t: Target | nu
         // a meeting table opens its room: the building's meetings, Call a meeting, the live one
         const table = r.tableAt(p.x, p.y);
         if (table) { store.open({ kind: "meeting", id: `room:${table.buildingId ?? ""}` }); return; }
-        // the Town Hall map table opens town planning
+        // the town map board in the square opens town planning
         if (r.mapTableAt(p.x, p.y)) { openTownPlanning(); return; }
         // a place (board, cabinet, in-tray, door, Bank, library, ...): walk to it, then do what E does there
         const place = r.flow ? null : r.placeAt(p.x, p.y);

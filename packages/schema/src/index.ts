@@ -2706,7 +2706,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 /** Tile kinds in the grid (row-major numbers). */
 export const TILE = {
   GRASS: 0, PATH: 1, FLOOR: 2, WALL: 3, DESK: 4, SHELF: 5, PLANT: 6, DOOR: 7, TABLE: 8, COUNTER: 9,
-  /** the Town Hall map table (place `town-map`: using it opens town planning); was the trophy cases */
+  /** the town map board in the town square, outside the Town Hall's door (place `town-map`: using it opens town planning; 1:1 mt_8imtwy68zc); was the Town Hall's 5x2 map table, before that the trophy cases; not walkable */
   TOWN_MAP: 10,
   /** a desk with a tray glyph: the manager's desk (in-tray) in each lab */
   MANAGER_DESK: 11,
@@ -2734,7 +2734,7 @@ export const TILE = {
   BANK_LEDGER: 22, BANK_SPENDING: 24, BANK_SERVER: 25,
   /** a goal's signpost at the end of its plaza (place `plaza:<goalId>`; the map labels it with the goal's words) */
   SIGNPOST: 26,
-  /** the Town Hall goal tree: a wall chart on its back wall (place `goal-tree`: opens the goal editor) */
+  /** the Town Hall goal tree: a chart three tiles wide on its back wall, opposite the door (place `goal-tree`: opens the goal editor) */
   GOAL_CHART: 27,
   /** the fountain in the middle of the town square (map shape "fountain"; a block of tiles, not walkable) */
   FOUNTAIN: 28,

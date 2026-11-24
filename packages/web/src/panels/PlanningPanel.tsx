@@ -38,7 +38,7 @@ export function Buildings() {
   const can = store.can("town.manage_buildings");
   return (
     <>
-      <p className="direction">Open a building to change its goal, desks, name or manager in its Settings. Move or draw buildings at the town map table in the Town Hall.</p>
+      <p className="direction">Open a building to change its goal, desks, name or manager in its Settings. Move or draw buildings at the town map board in the square, outside the Town Hall.</p>
       <Section title="Buildings">
         {buildings.map((b) => (
           <button key={b.id} className="doc-row" title="Open its Settings" onClick={() => store.open({ kind: "building", id: b.id, tab: "Settings" })}>
