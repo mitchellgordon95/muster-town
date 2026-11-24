@@ -81,14 +81,15 @@ export const EXPLORE_TOKENS_PER_DESK_SEED = 22_727;
 /** The tokens one explorer reserves (its chunk), the town default (gr_bre43gflz9 step 1; it was the root goal's inherited 100,000). */
 export const EXPLORE_CHUNK_SEED = 100_000;
 /** A town's grant pricing with the seeds filled in: the step-size table, oversell (0 = earmark at the ceiling), and the two exploration defaults. */
-export function grantPricingOf(t: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number }): GrantPricingDefaults {
+export function grantPricingOf(t: { stepSizes?: StepSizeTable; oversell?: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number; exploreOn?: boolean }): GrantPricingDefaults {
   return {
     stepSizes: t.stepSizes ?? STEP_SIZES_SEED, oversell: t.oversell ?? 0,
     exploreTokensPerDeskPerDay: t.exploreTokensPerDeskPerDay ?? EXPLORE_TOKENS_PER_DESK_SEED, exploreChunkTokens: t.exploreChunkTokens ?? EXPLORE_CHUNK_SEED,
+    exploreOn: t.exploreOn ?? true,
   };
 }
 /** What `grantPricingOf` returns and PUT /api/town/defaults answers with. */
-export interface GrantPricingDefaults { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number }
+export interface GrantPricingDefaults { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number; exploreOn: boolean }
 /** `PUT /api/town/defaults` (admin): the keys to change. */
 export const TownDefaultsPatch = patchOf(BuildingDefaults).extend({
   /** the step-size table (all three sizes) */
@@ -99,6 +100,8 @@ export const TownDefaultsPatch = patchOf(BuildingDefaults).extend({
   exploreTokensPerDeskPerDay: z.number().int().nonnegative().max(10_000_000).optional(),
   /** the tokens one explorer reserves */
   exploreChunkTokens: z.number().int().min(10_000).max(2_000_000).optional(),
+  /** the town's exploration switch (gr_bre43gflz9 step 2): off = the explore tick starts no explorer anywhere */
+  exploreOn: z.boolean().optional(),
 }).refine((p) => Object.values(p).some((v) => v !== undefined), "give at least one default");
 export type TownDefaultsPatch = z.infer<typeof TownDefaultsPatch>;
 
@@ -173,6 +176,8 @@ export const Town = z.object({
   exploreTokensPerDeskPerDay: z.number().int().nonnegative().optional(),
   /** The tokens one explorer reserves (core free-tokens.ts `exploreRuleAt`). Unset = EXPLORE_CHUNK_SEED; PUT /api/town/defaults sets it. */
   exploreChunkTokens: z.number().int().positive().optional(),
+  /** The town's exploration switch (gr_bre43gflz9 step 2; it was the goal editor's on/off). Unset = on; PUT /api/town/defaults sets it. */
+  exploreOn: z.boolean().optional(),
   /** Publish to GitHub (TownPublish): unset until an admin saves a repo */
   publish: TownPublish.optional(),
   /** search engines' site-verification tokens shown as meta tags on the root homepage (gr_92sfjss7w3); PUT /api/town/site-verification (an admin) sets them */
@@ -2113,7 +2118,7 @@ export const AskCardInput = z.object({
   targetId: z.string().trim().min(1).optional().describe("the grant, retainer, request, key result, rule or meeting it is about; required for money"),
   title: z.string().trim().min(1).max(160).describe("the ask in one line"),
   body: z.string().max(4000).default("").describe("the context the human needs to decide, in plain sentences"),
-  branches: z.array(AskBranch).min(1).max(5).describe("the choices, as button labels (e.g. Continue, Cut); each branch's action is what its button does on the target, done by the server: grant fund/counter/reject/adjust/cut, retainer approve/counter/reject, captain accept/decline, access grant/decline, request done/decline, goal (gl_) cap:<tokens per day>/cap:none/explore:on/explore:off, keyResult met/missed, no target redeploy; keep = changes nothing. A click ask whose buttons cannot act is refused: file it as a do ask (request_human)"),
+  branches: z.array(AskBranch).min(1).max(5).describe("the choices, as button labels (e.g. Continue, Cut); each branch's action is what its button does on the target, done by the server: grant fund/counter/reject/adjust/cut, retainer approve/counter/reject, captain accept/decline, access grant/decline, request done/decline, goal (gl_) desks:<n>/desks:none, keyResult met/missed, no target redeploy; keep = changes nothing. A click ask whose buttons cannot act is refused: file it as a do ask (request_human)"),
   recommendation: z.string().max(400).default("").describe("which branch you recommend and why, in a line"),
   claims: z.array(AskClaim.omit({ result: true })).max(3).optional().describe("the 1-2 load-bearing claims, each with how to check it"),
 });

@@ -502,7 +502,7 @@ export type AskView = Ask;
 /** GET /api/town: the snapshot (the step-size calibration is on GET /api/town/pricing and /api/health). */
 export type TownRead = Snapshot;
 /** GET /api/town/pricing (an admin): the step-size table, oversell, and the cached calibration beside them. */
-export interface PricingRead { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number; stepCalibration: StepCalibration | null; figuresAt: string }
+export interface PricingRead { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay?: number; exploreChunkTokens?: number; exploreOn?: boolean; stepCalibration: StepCalibration | null; figuresAt: string }
 /** GET /api/health as the web reads it: the town's funding, and the cached step-size calibration (the funding slate's expected spend). */
 export interface HealthRead { ok?: boolean; commit?: string | null; funding?: TownHealth["funding"]; founder?: TownHealth["founder"]; stepCalibration?: StepCalibration | null; legible?: LegibleView }
 /** A median with its sample (core queue-health.ts). */
@@ -529,7 +529,7 @@ export interface LegibleView {
   };
 }
 /** PUT /api/town/defaults with the grant pricing fields: what the server saved. */
-export interface GrantPricing { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number }
+export interface GrantPricing { stepSizes: StepSizeTable; oversell: number; exploreTokensPerDeskPerDay: number; exploreChunkTokens: number; exploreOn: boolean }
 /** PUT /api/town/defaults: the grant pricing and exploration fields to change. */
 export type GrantPricingPatch = Partial<GrantPricing>;
 

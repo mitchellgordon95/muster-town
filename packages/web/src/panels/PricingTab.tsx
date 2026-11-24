@@ -36,6 +36,12 @@ export function PricingTab() {
     if (town) store.set({ town: { ...town, ...r } });
     store.toast(`Saved: S ${fmtTokens(r.stepSizes.S)}, M ${fmtTokens(r.stepSizes.M)}, L ${fmtTokens(r.stepSizes.L)}, oversell ${Math.round(r.oversell * 100)}%.`, "ok");
   };
+  // the town's exploration switch (gr_bre43gflz9 step 2: it was the goal editor's on/off): saved at once
+  const setExploreOn = async (on: boolean) => {
+    const r = await api().setGrantPricing({ exploreOn: on });
+    if (town) store.set({ town: { ...town, ...r } });
+    store.toast(`Exploration is ${r.exploreOn ? "on" : "off"} for the town.`, "ok");
+  };
   const saveExplore = async () => {
     const r = await api().setGrantPricing({ exploreTokensPerDeskPerDay: perDeskN, exploreChunkTokens: chunkN });
     clearDraft(dk);
@@ -64,6 +70,12 @@ export function PricingTab() {
         <p className="direction">A goal's daily exploration cap is its desks times the tokens per desk. Each explorer reserves one chunk.</p>
         <form className="form" onSubmit={(e) => e.preventDefault()}>
           <div className="pricing-table">
+            <Field label="Exploration" hint="Off: no goal starts an explorer. Grants and directed work still run.">
+              <select aria-label="Exploration on or off" value={cur.exploreOn ? "on" : "off"} disabled={!admin} onChange={(e) => void setExploreOn(e.target.value === "on")}>
+                <option value="on">on</option>
+                <option value="off">off</option>
+              </select>
+            </Field>
             <Field label="Tokens per desk per day" hint="A goal with 5 desks may explore 5 times this each day.">
               <input inputMode="numeric" aria-label="Exploration tokens per desk per day" value={perDesk} disabled={!admin} onChange={(e) => setPerDesk(e.target.value)} />
             </Field>

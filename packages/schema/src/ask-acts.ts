@@ -22,8 +22,11 @@ export type BranchAct =
   | { kind: "request"; action: "done" | "decline"; form: "note" }
   /** a goal proposal: Accept, Edit and accept (new words first), Cut (an optional note back to the proposer) */
   | { kind: "goal"; action: "accept" | "edit" | "cut"; form?: "words" | "note" }
-  /** a goal's own settings (target kind `goal`): its exploration cap per day (null = none set here) or exploration on/off */
-  | { kind: "goalSetting"; set: { exploreCapTokensPerDay: number | null } | { explore: boolean } }
+  /**
+   * a goal's own settings (target kind `goal`): its desks (null = none set here; gr_bre43gflz9 step 2, the one goal
+   * number), and for old cards its exploration cap per day (a column nothing reads) or exploration on/off
+   */
+  | { kind: "goalSetting"; set: { desksTotal: number | null } | { exploreCapTokensPerDay: number | null } | { explore: boolean } }
   /** a key result a human marks met or missed */
   | { kind: "keyResult"; status: "met" | "missed" }
   /** an ask with no target whose branch says redeploy: the server redeploys */
@@ -35,11 +38,19 @@ export type BranchAct =
 
 const verbOf = (b: Pick<AskBranch, "label" | "action">) => (b.action ?? b.label).trim().toLowerCase().split(/[\s:]+/)[0] ?? "";
 
-/** A goal branch's setting from its declared action: `cap:<tokens per day>`, `cap:none`, `explore:on`, `explore:off`. */
+/**
+ * A goal branch's setting from its declared action: `desks:<n>`, `desks:none` (gr_bre43gflz9 step 2); old cards'
+ * `cap:<tokens per day>`, `cap:none`, `explore:on`, `explore:off` still parse.
+ */
 function goalSetting(action: string | undefined): BranchAct | null {
-  const m = /^\s*(cap|explore)\s*[:=]\s*(\S+)\s*$/i.exec(action ?? "");
+  const m = /^\s*(desks|cap|explore)\s*[:=]\s*(\S+)\s*$/i.exec(action ?? "");
   if (!m) return null;
   const v = m[2]!.toLowerCase();
+  if (m[1]!.toLowerCase() === "desks") {
+    if (v === "none") return { kind: "goalSetting", set: { desksTotal: null } };
+    const d = Number(v);
+    return Number.isInteger(d) && d >= 0 && d <= 1000 ? { kind: "goalSetting", set: { desksTotal: d } } : null;
+  }
   if (m[1]!.toLowerCase() === "explore") return v === "on" || v === "off" ? { kind: "goalSetting", set: { explore: v === "on" } } : null;
   if (v === "none") return { kind: "goalSetting", set: { exploreCapTokensPerDay: null } };
   const n = Number(v.replace(/[,_]/g, ""));
@@ -118,7 +129,7 @@ export const TARGET_ACTS: Record<AskTargetKind | "none", string> = {
   access: "grant (let in), decline",
   request: "done, decline",
   goalProposal: "accept, edit, cut",
-  goal: "cap:<tokens per day>, cap:none, explore:on, explore:off",
+  goal: "desks:<n>, desks:none (old cards: cap:<tokens per day>, cap:none, explore:on, explore:off)",
   keyResult: "met, missed",
   rule: "",
   meeting: "",
