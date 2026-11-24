@@ -78,12 +78,31 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | n
 export function Empty({ children }: { children: ReactNode }) { return <div className="empty">{children}</div>; }
 export function Loading() { return <div className="empty"><span className="spin" /> Loading…</div>; }
 export function ErrorLine({ error }: { error: string | null }) { return error ? <div className="error-line">{error}</div> : null; }
-export function Section({ title, right, children }: { title: ReactNode; right?: ReactNode; children: ReactNode }) {
+export function Section({ title, right, children, id }: { title: ReactNode; right?: ReactNode; children: ReactNode; id?: string }) {
   return (
-    <section className="section">
+    <section className="section" id={id}>
       <header><h3>{title}</h3>{right}</header>
       {children}
     </section>
+  );
+}
+/**
+ * A section's sum checks folded into one line (gr_upr4fteq0t, kr_qb03kauhh7): "✓ N checks pass" that opens to the checks
+ * written out (`children`, each its own ✓ or ✗ line). `checks` are the same checks' results (null = not sent); when any
+ * fails the line reads "✗ M of N checks fail" and starts open, so a gap is never hidden.
+ */
+export function CheckFold({ checks, className, children }: { checks: ({ ok: boolean } | null | undefined | false)[]; className?: string; children: ReactNode }) {
+  const list = checks.filter((c): c is { ok: boolean } => !!c);
+  if (!list.length) return null;
+  const bad = list.filter((c) => !c.ok).length;
+  const head = bad
+    ? `✗ ${bad} of ${list.length} check${list.length === 1 ? "" : "s"} fail${bad === 1 ? "s" : ""}`
+    : `✓ ${list.length === 1 ? "1 check passes" : `${list.length} checks pass`}`;
+  return (
+    <details className={["check-fold", className].filter(Boolean).join(" ")} open={bad > 0}>
+      <summary className={bad ? "error-line" : "finance-check ok"} title="The server checked that this section's numbers add up; open for the sums">{head}</summary>
+      {children}
+    </details>
   );
 }
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
