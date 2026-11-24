@@ -64,7 +64,7 @@ describe("IndexNow (the submitter)", () => {
     expect(calls[1]!.body.urlList).toEqual([`${ORIGIN}/hooks/cptsd`, `${ORIGIN}/blog/new`]);
     const ev = events(world);
     expect(ev).toHaveLength(2);
-    expect(ev.at(-1)!.text).toMatch(/submitted 2 URLs .*response 202/);
+    expect(ev.at(-1)!.text).toMatch(/submitted 2 URLs .*response 202; key file https:\/\/muster.town\/[0-9a-f]{32}\.txt$/);
     world.close();
   });
 

@@ -87,8 +87,8 @@ export class IndexNow {
     const shown = urls.length > 3 ? `${urls.slice(0, 3).join(", ")} and ${urls.length - 3} more` : urls.join(", ");
     this.o.world.events.append({
       type: "system", agentId: null,
-      text: ok ? `IndexNow: submitted ${urls.length} URL${urls.length === 1 ? "" : "s"} (${shown}), response ${status}` : `IndexNow: submit of ${urls.length} URL${urls.length === 1 ? "" : "s"} failed (${error || `response ${status}`}); retrying in 6 hours`,
-      payload: { indexNow: { status, urls, ...(error && { error }) } },
+      text: ok ? `IndexNow: submitted ${urls.length} URL${urls.length === 1 ? "" : "s"} (${shown}), response ${status}; key file ${this.o.origin}/${this.key}.txt` : `IndexNow: submit of ${urls.length} URL${urls.length === 1 ? "" : "s"} failed (${error || `response ${status}`}); retrying in 6 hours`,
+      payload: { indexNow: { status, urls, keyLocation: `${this.o.origin}/${this.key}.txt`, ...(error && { error }) } },
     });
     this.o.log?.(`[indexnow] ${urls.length} url(s) → ${status || error}`);
     return status;
