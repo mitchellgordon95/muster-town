@@ -1,0 +1,1 @@
+- 2026-11-25 (Mara 1, gr_baf19xtg7p): `npm run check`'s docs step now runs `check:css` too, so the pre-push hook catches a stray CSS value; CI's separate check:css step is gone (it runs inside `npm run check`). Second 7-day window after PR #499: 8 of 97 PR branches failed their first CI run (8.2%), 2 of them on check:css.
