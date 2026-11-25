@@ -1,4 +1,4 @@
-// `npm run check`: the full check CI runs (docs, dead code, typecheck, tests), in order, stopping at the first failure,
+// `npm run check`: the full check CI runs (docs and css, dead code, typecheck, tests), in order, stopping at the first failure,
 // then one timing line: `check: docs 1s | deadcode 6s | typecheck 28s | tests 2m19s | total 2m54s`.
 //   npm run check                 full set (what CI runs)
 //   npm run check --fast          repeat run after a small change: every step, but tests are only those whose module
@@ -56,7 +56,9 @@ function vitest(ws: string, extra: string[]): boolean {
 }
 
 const RUN: Record<Step, () => boolean> = {
-  docs: () => run("npm", ["run", "--silent", "check:docs"]),
+  // docs is check:docs and check:css (the CSS type scale and palette): check:css was a CI-only step, and 2 of the 8
+  // first-run PR failures of 2026-11-17..24 were it (gr_baf19xtg7p), so the pre-push hook runs it too
+  docs: () => run("npm", ["run", "--silent", "check:docs"]) && run("npm", ["run", "--silent", "check:css"]),
   deadcode: () => run("npm", ["run", "--silent", "check:deadcode"]),
   typecheck: () => run("node_modules/.bin/tsc", ["-p", "."]) && run("node_modules/.bin/tsc", ["-p", "packages/web"]),
   tests: () => {

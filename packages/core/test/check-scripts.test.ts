@@ -2,7 +2,7 @@
 // `npm run check --fast` adds for a changed non-code file (scripts/fast-tests.ts). And the doc-drift rules
 // (scripts/doc-refs.ts, grant gr_8k0nn380tp): every doc in docs/ cites only files and names that exist.
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -49,6 +49,12 @@ describe("pre-push hook", () => {
     // executable") and 12 of 14 first-run PR failures in the week after were knip or check:docs, which it runs
     const mode = execFileSync("git", ["ls-files", "-s", ".githooks/pre-push"], { cwd: REPO_ROOT, encoding: "utf8" }).split(" ")[0];
     expect(mode).toBe("100755");
+  });
+
+  it("runs check:css with the docs step, so a stray CSS value is caught before the push", () => {
+    // check:css was a CI-only step: 2 of the 8 first-run PR failures of 2026-11-17..24 (PRs #535 and Nell 1's balance tab)
+    const check = readFileSync(join(REPO_ROOT, "scripts/check.ts"), "utf8");
+    expect(check).toMatch(/docs: \(\) => .*"check:docs".*"check:css"/);
   });
 });
 
